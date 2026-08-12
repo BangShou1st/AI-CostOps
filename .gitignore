@@ -1,0 +1,82 @@
+# =========================
+# Secret / Local Environment
+# =========================
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.p12
+*.pfx
+
+secrets/
+credentials/
+
+# =========================
+# Java / Maven
+# =========================
+backend/target/
+*.class
+*.log
+hs_err_pid*
+replay_pid*
+
+# 注意：
+# 不要忽略 backend/.mvn/
+# 不要忽略 backend/mvnw
+# 不要忽略 backend/mvnw.cmd
+
+# =========================
+# React / Node
+# =========================
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# Test / Coverage / Profiling
+# =========================
+coverage/
+test-results/
+playwright-report/
+
+*.hprof
+*.heapdump
+
+# =========================
+# Local Runtime Data
+# =========================
+data/
+mysql-data/
+redis-data/
+minio-data/
+uploads/
+tmp/
+temp/
+
+# =========================
+# IDE
+# =========================
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Tool Cache
+# =========================
+.cache/
+.sonar/
+.trivy/
