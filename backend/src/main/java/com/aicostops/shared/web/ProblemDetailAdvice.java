@@ -20,7 +20,11 @@ public class ProblemDetailAdvice {
         problem.setInstance(URI.create(request.getRequestURI()));
         problem.setProperty("code", exception.code().name());
         problem.setProperty("traceId", request.getAttribute(TraceIdFilter.TRACE_ID_ATTRIBUTE));
-        return ResponseEntity.status(exception.status()).body(problem);
+        var response = ResponseEntity.status(exception.status());
+        if (exception.retryAfterSeconds() > 0) {
+            response.header("Retry-After", Long.toString(exception.retryAfterSeconds()));
+        }
+        return response.body(problem);
     }
 
     private String toProblemSlug(ProblemCode code) {

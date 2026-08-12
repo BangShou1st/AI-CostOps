@@ -11,6 +11,12 @@ spring:
     enabled: true
   jackson:
     time-zone: UTC
+  data:
+    redis:
+      host: ${AICOSTOPS_REDIS_HOST:localhost}
+      port: ${AICOSTOPS_REDIS_PORT:6379}
+      password: ${AICOSTOPS_REDIS_PASSWORD:}
+      timeout: ${AICOSTOPS_REDIS_TIMEOUT:500ms}
 
 mybatis:
   configuration:
@@ -33,3 +39,11 @@ aicostops:
   auth:
     allow-public-registration: ${AICOSTOPS_ALLOW_PUBLIC_REGISTRATION:false}
     public-registration-org-slug: ${PUBLIC_REGISTRATION_ORG_SLUG:local-dev}
+    jwt-signing-secret: ${AICOSTOPS_JWT_SIGNING_KEY:}
+    access-token-lifetime: ${AICOSTOPS_ACCESS_TOKEN_LIFETIME:15m}
+    refresh-session-lifetime: ${AICOSTOPS_REFRESH_SESSION_LIFETIME:7d}
+    refresh-cookie-secure: ${AICOSTOPS_REFRESH_COOKIE_SECURE:true}
+    refresh-race-window: ${AICOSTOPS_REFRESH_RACE_WINDOW:10s}
+    login-window: ${AICOSTOPS_LOGIN_RATE_LIMIT_WINDOW:15m}
+    login-ip-limit: ${AICOSTOPS_LOGIN_IP_LIMIT:20}
+    login-account-limit: ${AICOSTOPS_LOGIN_ACCOUNT_LIMIT:8}

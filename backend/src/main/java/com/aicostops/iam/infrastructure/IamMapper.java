@@ -48,6 +48,19 @@ public interface IamMapper {
     @Select("SELECT id FROM `role` WHERE code=#{code}")
     Long findRoleIdByCode(String code);
 
+    @Select("""
+            SELECT u.id AS user_id, u.email_normalized, u.display_name, u.status, u.security_version,
+                   c.password_hash, m.id AS organization_member_id, m.org_id AS organization_id
+            FROM app_user u
+            JOIN user_credential c ON c.user_id=u.id
+            JOIN organization_member m ON m.user_id=u.id AND m.status='ACTIVE'
+            JOIN organization o ON o.id=m.org_id AND o.status='ACTIVE'
+            WHERE u.email_normalized=#{email}
+            ORDER BY m.id
+            LIMIT 1
+            """)
+    LoginIdentityRecord findLoginIdentity(String email);
+
     @Insert("""
             INSERT INTO role_assignment(org_member_id,role_id,scope_type,scope_id,assigned_by,created_at)
             VALUES (#{memberId},#{roleId},'ORG',#{organizationId},NULL,#{now})

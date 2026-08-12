@@ -19,7 +19,8 @@ public class M0SecurityConfiguration {
                 .requestCache(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
-                        .requestMatchers("/api/v1/auth/register", "/api/v1/invitations/*/accept").permitAll()
+                        .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login",
+                                "/api/v1/invitations/*/accept").permitAll()
                         .anyRequest().denyAll())
                 .build();
     }
