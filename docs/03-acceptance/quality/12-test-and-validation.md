@@ -322,13 +322,13 @@ squash merge
 After stable workflow names exist, require:
 
 ```text
-backend / unit
-backend / integration
-backend / architecture
-frontend / lint
-frontend / test
-frontend / build
-docker / build
+backend-unit
+backend-integration
+backend-architecture
+frontend-lint
+frontend-test
+frontend-build
+docker-build
 ```
 
 ## 17. OpenAI Fixture 真实性边界

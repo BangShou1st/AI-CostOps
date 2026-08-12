@@ -26,6 +26,8 @@ Docker Build
 Required Status Check 真能 Block Merge
 ```
 
+当前本地实现证据见 `implementation/08-m0-foundation-evidence.md`。AIC-009 Required Status Checks 必须等本分支 PR 上的真实 checks 全部成功后单独配置，不以本地运行替代。
+
 ## M1
 
 证据：

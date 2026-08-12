@@ -36,7 +36,7 @@ Spring Boot 4.1
 Spring MVC
 Spring Security
 Spring Validation
-Plain MyBatis 4
+Plain MyBatis（Spring Boot Starter 4.x；MyBatis Core 3.5.x）
 Flyway
 Micrometer / Actuator
 ```

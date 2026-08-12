@@ -24,6 +24,12 @@ git config user.email
 cp .env.example .env
 ```
 
+Windows PowerShell：
+
+```powershell
+Copy-Item .env.example .env
+```
+
 `.env` 只保存本地配置并保持 ignored。
 
 ## 3. 推荐日常开发模式
@@ -40,6 +46,8 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d mysql redis minio
 cd backend
 ./mvnw spring-boot:run
 ```
+
+Windows PowerShell 使用 `.\mvnw.cmd spring-boot:run`。
 
 前端：
 
@@ -69,6 +77,16 @@ minio
 
 浏览器只访问前端，同源 `/api/v1` 反代后端。
 
+默认端口：
+
+```text
+Frontend  http://localhost:8080
+Backend   容器网络内 8080（compose.dev.yaml 可映射到 localhost:8081）
+MySQL     compose.dev.yaml 映射到 localhost:3307
+Redis     compose.dev.yaml 映射到 localhost:6379
+MinIO     compose.dev.yaml 映射到 localhost:9000 / 9001
+```
+
 ## 5. 自动测试数据库
 
 Integration Test 使用 Testcontainers。
@@ -85,7 +103,15 @@ cd backend
 ./mvnw verify
 ```
 
-最终 Profile/Goal 由 M0 CI 固定，但本地和 CI 使用同一套官方支持命令。
+Windows PowerShell 使用 `.\mvnw.cmd test` 与 `.\mvnw.cmd verify`。
+
+M0 CI 的独立入口：
+
+```bash
+./mvnw -B -DexcludedGroups=architecture,integration test
+./mvnw -B -Dgroups=integration verify
+./mvnw -B -Dgroups=architecture test
+```
 
 ## 7. 前端命令
 
@@ -93,9 +119,11 @@ cd backend
 cd frontend
 npm ci
 npm run lint
-npm test
+npm test -- --run
 npm run build
 ```
+
+Node.js 固定为 24.14.0，以保持本地、Docker 与 CI 的干净安装可复现。
 
 ## 8. 开始 Issue 前
 
@@ -213,3 +241,18 @@ frontend build
 ```
 
 才算 Repository Foundation 真正成立。
+
+当前实现版本：
+
+```text
+Spring Boot 4.1.0
+mybatis-spring-boot-starter 4.1.0
+MyBatis Core 3.5.19
+React 19.2.8
+TypeScript 6.0.3
+Vite 8.2.1
+MySQL 8.4
+Redis 8.8.1
+```
+
+真实执行证据见 `docs/03-acceptance/implementation/08-m0-foundation-evidence.md`。

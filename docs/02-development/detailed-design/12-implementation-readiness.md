@@ -11,7 +11,7 @@ Java 21
 Spring Boot 4.1
 Spring MVC
 Spring Security
-Plain MyBatis 4
+Plain MyBatis（Spring Boot Starter 4.x；MyBatis Core 3.5.x）
 Flyway
 
 MySQL 8.4 LTS

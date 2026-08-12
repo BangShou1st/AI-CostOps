@@ -16,13 +16,13 @@ V1 Detailed Design 1.1
 V1 Implementation Plan 1.0
 ```
 
-当前进入：
+当前已建立：
 
 ```text
-M0 — Repository Foundation
+M0 — Repository Foundation（AIC-002～AIC-008、AIC-010）
 ```
 
-业务代码尚未开始实现。
+仓库已具备后端、前端、真实 MySQL 集成测试、容器镜像、完整 Compose 与 CI 基础；M1+ 业务代码尚未开始实现。
 
 ## V1 主链路
 
@@ -49,7 +49,7 @@ Backend
 Java 21
 Spring Boot 4.1
 Spring Security
-Plain MyBatis 4
+Plain MyBatis（Spring Boot Starter 4.1.0 / Core 3.5.19，不使用 MyBatis-Plus）
 Flyway
 
 Data
@@ -71,6 +71,18 @@ Docker Compose
 Nginx
 GitHub Actions
 ```
+
+## 本地启动
+
+复制本地配置并启动完整 M0 环境：
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+docker compose ps
+```
+
+Windows PowerShell 使用 `Copy-Item .env.example .env`。默认前端入口为 `http://localhost:8080`；后端通过同源 `/api/v1` 反向代理访问。IDE/HMR 开发方式及测试命令见 `docs/02-development/implementation/05-bootstrap-local-development-runbook.md`。
 
 ## 文档结构
 
