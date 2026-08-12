@@ -67,7 +67,7 @@ Dev B
 = IAM / Ingestion / Workflow 主责
 ```
 
-主责不代表独占。所有生产代码 PR 都由另一个人 Review。
+主责不代表独占。Peer Review 按风险和需要进行，不作为所有 PR 的 Merge Gate。
 
 ## 一个 Issue 对应什么
 
@@ -126,7 +126,7 @@ V1 强制引入 MQ
 Milestone
 依赖图
 Issue 级拆分
-Owner / Reviewer
+Owner / Suggested Reviewer
 Branch 建议
 必要测试
 CI 门禁

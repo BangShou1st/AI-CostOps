@@ -25,9 +25,9 @@ Bypass: Empty
 Restrict Deletions: On
 Require Linear History: On
 Require Pull Request: On
-Required Approvals: 1
-Dismiss Stale Approvals: On
-Require Conversation Resolution: On
+Required Approvals: 0
+Dismiss Stale Approvals: Off
+Require Conversation Resolution: Off
 Block Force Push: On
 ```
 
@@ -255,16 +255,28 @@ Invariant Test？
 Integration Test？
 ```
 
-该 Request Changes 时就 Request Changes，不做秒 Approve。
+Peer Review 不是全局 Merge Gate。高风险变更、架构变化或作者主动请求时，建议另一名 Contributor 使用上述 Checklist Review。
 
 ## 11. 双人 Review
 
+默认：
+
 ```text
-Dev A Author → Dev B Reviewer
-Dev B Author → Dev A Reviewer
+Dev A / Dev B
+→ 自由 Push 自己的 Branch
+→ PR
+→ CI
+→ Author 可自行 Squash Merge
 ```
 
-作者不能自己满足 Required Approval。
+推荐 Review 路由：
+
+```text
+Dev A Author → Dev B Suggested Reviewer
+Dev B Author → Dev A Suggested Reviewer
+```
+
+`Suggested Reviewer` 是协作建议，不是 Required Approval。
 
 ## 12. CODEOWNERS
 
@@ -274,9 +286,9 @@ Dev B Author → Dev A Reviewer
 .github/CODEOWNERS
 ```
 
-用途是 Ownership / Reviewer Routing。
+用途是 Ownership / Suggested Reviewer Routing。
 
-两人项目初期不额外强制 `Require Code Owner Approval`，避免 Owner 自己提交时产生不合理流程。
+两人项目不启用 `Require Code Owner Approval`，避免把 Ownership 信息变成人工 Merge Gate。
 
 ## 13. CI
 
@@ -319,7 +331,8 @@ AI 生成代码也必须：
 人类理解
 人类运行测试
 人类提交 PR
-另一个人 Review
+人类对 Merge 结果负责
+重要或高风险变化按需请求另一人 Review
 ```
 
 PR Author 对代码负责。

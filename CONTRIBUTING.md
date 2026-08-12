@@ -8,9 +8,7 @@ GitHub Issue
 → Code + Tests
 → Pull Request
 → CI
-→ Peer Review
-→ Resolve
-→ Approval
+→ Optional Review / Discussion
 → Squash Merge
 ```
 
@@ -90,7 +88,9 @@ Contract / Integration Test
 
 ## 6. Review
 
-Reviewer 必须检查相关项：
+Peer Review 不是全局 Merge Gate。重要模块、高风险变更或作者主动请求时，建议由另一名 Contributor Review。
+
+如进行 Review，优先检查相关项：
 
 ```text
 业务不变量
@@ -105,7 +105,7 @@ Failure Path
 Test
 ```
 
-发现问题正常使用 `Request Changes`。
+普通讨论使用 Comment 即可；是否需要修改由 PR Author 结合设计、测试和 CI 结果处理。
 
 ## 7. Secret / Provider Data
 
@@ -140,7 +140,7 @@ AI 生成代码的责任仍属于 PR Author。
 理解代码
 运行测试
 能解释设计
-接受 Peer Review
+必要时接受 Peer Review
 ```
 
 ## 9. 更详细规范

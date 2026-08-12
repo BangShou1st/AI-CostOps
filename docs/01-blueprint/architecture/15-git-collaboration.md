@@ -16,9 +16,8 @@ Developer B ─ feat/* ─ PR ─┘
 Issue
 Commit
 Pull Request
-Review Comment
-Approval
 CI
+Review Comment（按需）
 ```
 
 不需要复制两个内容相同的个人镜像仓库。
@@ -51,6 +50,8 @@ release
 integration
 ```
 
+开发者可以自由创建、Commit、Push 自己的短生命周期 Branch；`main` 不直接开发。
+
 ## 3. main 保护
 
 当前配置：
@@ -64,9 +65,9 @@ Bypass: Empty
 Restrict Deletions: On
 Require Linear History: On
 Require PR: On
-Required Approvals: 1
-Dismiss Stale Approvals: On
-Require Conversation Resolution: On
+Required Approvals: 0
+Dismiss Stale Approvals: Off
+Require Conversation Resolution: Off
 Block Force Push: On
 ```
 
@@ -81,16 +82,27 @@ Auto-delete Head Branch: On
 Auto-merge: Off initially
 ```
 
-Required Status Checks 在 GitHub Actions Check 名真实出现并稳定后开启。
+Required Status Checks 在 GitHub Actions Check 名真实出现并稳定后开启。届时 CI 是主要自动质量门禁，不依赖人工审批作为全局 Merge Gate。
 
 ## 4. Review
 
+Peer Review 是**按需实践**，不是所有 PR 的前置条件。
+
+建议互相 Review：
+
 ```text
-A 写 → B Review
-B 写 → A Review
+财务核心不变量
+复杂 Transaction / Concurrency
+Ledger / Budget / Period Close
+权限与安全边界
+Provider Canonical Mapping
+重要 Schema / Migration
+重大架构变化
 ```
 
-Review 不只是语法检查，还要检查：
+普通、低风险且 CI/验收充分的 PR，Author 可以自行 Squash Merge。
+
+如果进行 Review，重点检查：
 
 ```text
 业务不变量
@@ -104,8 +116,6 @@ Failure Path
 Test
 ```
 
-有问题正常使用 `Request Changes`。
-
 ## 5. AI-assisted Coding
 
 AI 生成的代码仍然由提交 PR 的开发者负责。
@@ -116,9 +126,11 @@ AI 生成的代码仍然由提交 PR 的开发者负责。
 理解
 修改
 运行测试
-提交
-接受 Peer Review
+提交 PR
+对最终 Merge 负责
 ```
+
+重要或高风险 AI-generated change 建议请求另一名 Contributor Review，但不作为全局强制条件。
 
 AI 不是第三个无需负责的 Contributor。
 
@@ -126,6 +138,6 @@ AI 不是第三个无需负责的 Contributor。
 
 建议：
 
-> 双人协作项目，负责/主导具体模块，并通过 GitHub Issue、Pull Request、Code Review、CI 进行协作开发。
+> 双人协作项目，负责/主导具体模块，并通过 GitHub Issue、Pull Request、CI 及必要的 Code Review 协作开发。
 
 如果 Git History 显示两个主要 Contributor，不写“个人独立完成全部系统”。

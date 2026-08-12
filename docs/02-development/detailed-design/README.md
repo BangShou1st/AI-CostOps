@@ -47,7 +47,7 @@ Configuration / Environment
 5. Provider User/API Key/Project 只是 Attribution Hint。
 6. `POSTED Ledger` 不改写，错误通过 Correction 追加。
 7. 无 FX Source/Version 时，不做跨币种单一总额。
-8. 两个人只使用一个公共仓库，所有正式代码走 PR + Peer Review。
+8. 两个人只使用一个公共仓库，所有正式代码走短生命周期 Branch + PR；Peer Review 按需，不作为全局 Merge Gate。
 
 ## V1 明确不做
 

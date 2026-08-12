@@ -152,9 +152,7 @@ Issue
 → Short-lived Branch
 → Pull Request
 → CI
-→ Peer Review
-→ Resolve
-→ Approve
+→ Optional Review / Discussion
 → Squash Merge
 → main
 ```

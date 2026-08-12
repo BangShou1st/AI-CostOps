@@ -9,7 +9,7 @@
 +
 真实并行开发
 +
-互相 Code Review
+按需 Code Review
 +
 两个人都能解释整个系统
 ```
@@ -82,16 +82,20 @@ Audit Review
 
 ## Review 规则
 
+两个人都可以自由 Push 自己的 Branch，并在 PR 满足仓库条件后自行 Squash Merge。
+
+建议路由：
+
 ```text
-Dev A 写 → Dev B Review
-Dev B 写 → Dev A Review
+Dev A 写 → Dev B 可作为 Suggested Reviewer
+Dev B 写 → Dev A 可作为 Suggested Reviewer
 ```
 
-作者不能作为自己的 Required Reviewer。
+Review 用于高风险变化、跨 Ownership 变化、架构变化或作者主动请求，不作为所有 PR 的 Required Approval。
 
-## 必须共同确认的设计点
+## 必须显式说明的高影响设计点
 
-即使只有一个人实现，下列变化也需要双方明确同意：
+即使只有一个人实现，下列变化也不能在实现 PR 中静默改变；如确需调整，应先在 Issue / ADR / Design Update 中说明影响：
 
 ```text
 Money 语义
@@ -105,7 +109,7 @@ Permission Model
 
 ## Knowledge Transfer
 
-每个 Milestone 结束时，Owner 至少要向 Reviewer 讲清楚：
+每个 Milestone 结束时，Primary Owner 至少要向另一名 Contributor 讲清楚：
 
 ```text
 业务不变量
@@ -115,7 +119,7 @@ Permission Model
 关键测试
 ```
 
-Reviewer 能复述“为什么安全”即可，不要求形式化会议。
+另一名 Contributor 能复述“为什么安全”即可，不要求形式化会议。
 
 ## 推荐 Pairing 的任务
 
@@ -127,7 +131,7 @@ Period Close / Posting Race
 Refresh Token Race
 ```
 
-可以结对讨论，但最终 PR 仍有明确 Owner + Reviewer。
+可以结对讨论；最终 PR 必须有明确 Primary Owner，Suggested Reviewer 可按需指定。
 
 ## 简历一致性
 
@@ -135,6 +139,6 @@ Refresh Token Race
 
 各自写真实 Ownership：
 
-> 双人协作项目，主导/负责 X、Y、Z；通过 GitHub Issue、PR、Code Review、CI 进行协作。
+> 双人协作项目，主导/负责 X、Y、Z；通过 GitHub Issue、PR、CI 及必要的 Code Review 进行协作。
 
 不要两个人都声称独立完成全部模块。

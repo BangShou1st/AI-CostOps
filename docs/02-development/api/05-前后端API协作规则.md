@@ -18,13 +18,13 @@
 ```text
 Issue / AIC
 → 修改 openapi.yaml
-→ Reviewer 先看 Contract
+→ 必要时进行 Contract Discussion / Review
 → Backend / Frontend 并行
 → Contract Test
 → Merge
 ```
 
-同一个人可以一次 PR 同时改后端和 Contract；另一人基于 PR Review 后开发前端。
+同一个人可以一次 PR 同时改后端和 Contract；另一名 Contributor 可以直接基于 PR 中已明确的 Contract 并行开发，重要或有歧义的契约变化再按需 Review。
 
 ## 3. Endpoint / DTO 命名
 

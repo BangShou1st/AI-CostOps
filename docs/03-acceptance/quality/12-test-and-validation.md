@@ -313,9 +313,9 @@ README 的数字必须能回溯报告。
 Before stable CI:
 
 ```text
-PR
-1 peer approval
-all review conversations resolved
+PR required
+required approvals = 0
+peer review optional
 squash merge
 ```
 

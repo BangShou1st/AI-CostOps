@@ -141,7 +141,7 @@ docs/implementation/
 ```text
 M0-M8
 AIC-001..AIC-073
-Owner / Reviewer
+Owner / Suggested Reviewer
 Dependency
 Branch
 Tests

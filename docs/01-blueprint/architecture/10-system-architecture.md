@@ -516,7 +516,7 @@ Issue
 → short-lived branch
 → PR
 → CI
-→ peer review
+→ optional peer review
 → squash merge
 → main
 ```
@@ -527,9 +527,9 @@ Issue
 - restrict deletion;
 - linear history;
 - PR required;
-- one approval;
-- dismiss stale approvals;
-- conversation resolution;
+- required approvals = 0;
+- peer review optional;
+- conversation resolution not required;
 - block force push;
 - squash only.
 

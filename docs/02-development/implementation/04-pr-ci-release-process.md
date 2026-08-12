@@ -9,9 +9,7 @@
 → Code + Tests
 → PR
 → CI
-→ Peer Review
-→ Resolve
-→ Approve
+→ Optional Review / Discussion
 → Squash Merge
 → main
 ```
@@ -150,7 +148,7 @@ chore(deps): ...
 
 重大版本变化必须先核对官方兼容性并跑完整受影响测试。
 
-## 11. 必须 Request Changes 的情况
+## 11. 建议请求 Peer Review / 暂缓 Merge 的情况
 
 ```text
 违反 INV-* 规则
@@ -173,7 +171,7 @@ Provider Mapping 靠猜
 fix/*
 → PR
 → CI
-→ Review
+→ 必要时 Review
 → Merge
 ```
 

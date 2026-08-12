@@ -10,7 +10,7 @@
 → 一个清晰业务/技术变化
 → 一个主要 PR
 → 必要测试
-→ Peer Review
+→ Optional Peer Review
 ```
 
 不要一次性把 73 个 Issue 全建出来。建议只创建**当前 Milestone + 下一个 Milestone**，避免 Board 噪音。
@@ -22,7 +22,7 @@
 ## AIC-001 — 建立仓库治理文件
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `chore/repository-governance`
 **Depends：** 设计包通过审查
 
@@ -52,7 +52,7 @@ Issue Template
 ## AIC-002 — Bootstrap Spring Boot 后端
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `chore/backend-bootstrap`
 **Depends：** AIC-001
 
@@ -85,7 +85,7 @@ Clean Checkout
 ## AIC-003 — Bootstrap React 前端
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `chore/frontend-bootstrap`
 **Depends：** AIC-001
 
@@ -119,7 +119,7 @@ npm run build
 ## AIC-004 — 建立 MySQL / Redis / MinIO Compose 基础
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `chore/compose-infrastructure`
 **Depends：** AIC-001
 
@@ -148,7 +148,7 @@ minio
 ## AIC-005 — 建立后端共享基础约定
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/backend-shared-foundation`
 **Depends：** AIC-002
 
@@ -172,7 +172,7 @@ Clock（确有需要时）
 ## AIC-006 — 建立 MySQL / Flyway / Testcontainers 基线
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `test/mysql-integration-foundation`
 **Depends：** AIC-002, AIC-004
 
@@ -194,7 +194,7 @@ Test Profile
 ## AIC-007 — 建立前端 App / Auth / API 基础设施
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-app-foundation`
 **Depends：** AIC-003, AIC-005
 
@@ -216,7 +216,7 @@ Public / Protected Route Shell
 ## AIC-008 — 建立 GitHub Actions 基线
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `chore/ci-baseline`
 **Depends：** AIC-002, AIC-003, AIC-006
 
@@ -239,7 +239,7 @@ docker-build
 ## AIC-009 — 为 main 开启 Required Status Checks
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **类型：** Repository Settings Checkpoint
 **Depends：** AIC-008
 
@@ -254,7 +254,7 @@ docker-build
 ## AIC-010 — 建立 Backend / Frontend Docker Image 与完整 Compose
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `chore/docker-app-images`
 **Depends：** AIC-002, AIC-003, AIC-004
 
@@ -283,7 +283,7 @@ Backend Health OK
 ## AIC-011 — 建立 IAM / Organization / Early Audit Schema
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/iam-organization-schema`
 **Depends：** AIC-006
 
@@ -316,7 +316,7 @@ api_idempotency
 ## AIC-012 — Seed V1 Role / Permission
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/iam-permission-seed`
 **Depends：** AIC-011
 
@@ -329,7 +329,7 @@ api_idempotency
 ## AIC-013 — 实现 Registration / Invitation
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/iam-registration`
 **Depends：** AIC-011, AIC-012
 
@@ -351,7 +351,7 @@ V1 可用 Dev Mail Sink，不强制真实 SMTP。
 ## AIC-014 — 实现密码登录与 Rate Limit
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/iam-login`
 **Depends：** AIC-013, Redis
 
@@ -372,7 +372,7 @@ Audit
 ## AIC-015 — 实现 Redis Refresh Session Rotation
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/iam-refresh-session`
 **Depends：** AIC-014
 
@@ -394,7 +394,7 @@ Logout-all
 ## AIC-016 — 实现 Password Reset 与 Security Version
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/iam-password-reset`
 **Depends：** AIC-015
 
@@ -412,7 +412,7 @@ Disabled Account
 ## AIC-017 — 实现 Permission / Data Scope Authorization
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/iam-authorization-scope`
 **Depends：** AIC-011, AIC-012
 
@@ -435,7 +435,7 @@ Security Version Invalidation
 ## AIC-018 — 实现 Organization / Project / Team / CostCenter API
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/organization-master-data`
 **Depends：** AIC-011, AIC-017
 
@@ -448,7 +448,7 @@ Security Version Invalidation
 ## AIC-019 — 实现前端 Auth / Session Flow
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-auth`
 **Depends：** AIC-014, AIC-015, AIC-007
 
@@ -471,7 +471,7 @@ Logout
 ## AIC-020 — 实现 Admin / Project Settings 前端
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-organization-admin`
 **Depends：** AIC-017, AIC-018
 
@@ -493,7 +493,7 @@ Provider Accounts
 ## AIC-021 — 建立 Evidence / Import Schema
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/import-schema`
 **Depends：** AIC-006, AIC-011
 
@@ -514,7 +514,7 @@ import_issue
 ## AIC-022 — 实现 S3-compatible Evidence Storage
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/evidence-storage`
 **Depends：** AIC-004, AIC-021
 
@@ -536,7 +536,7 @@ Authorized Download
 ## AIC-023 — 实现 DB-backed Import Worker
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/import-worker`
 **Depends：** AIC-021, AIC-006
 
@@ -557,7 +557,7 @@ TaskExecutor
 ## AIC-024 — 实现 ProviderAdapter Registry / Schema Inspection
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/provider-adapter-framework`
 **Depends：** AIC-023
 
@@ -580,7 +580,7 @@ ERROR / WARN
 ## AIC-025 — 实现 DeepSeek Sanitized Fixture / Adapter
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/provider-deepseek`
 **Depends：** AIC-024
 
@@ -602,7 +602,7 @@ API Key Mask
 ## AIC-026 — 实现 MiMo Fixture / Adapter
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/provider-mimo`
 **Depends：** AIC-024
 
@@ -620,7 +620,7 @@ Total / Component 不 Double Count
 ## AIC-027 — 实现 Kimi Fixture / Adapter
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/provider-kimi`
 **Depends：** AIC-024
 
@@ -631,7 +631,7 @@ Total / Component 不 Double Count
 ## AIC-028 — 实现 GLM Fixture / Adapter
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/provider-glm`
 **Depends：** AIC-024
 
@@ -642,7 +642,7 @@ Total / Component 不 Double Count
 ## AIC-029 — 实现 OpenAI Observed CSV + Official API JSON Fixture
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/provider-openai`
 **Depends：** AIC-024
 
@@ -661,7 +661,7 @@ OfficialCostsApiJsonFixture
 ## AIC-030 — 实现 Import Review / Retry / Cancel API
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/import-workflow-api`
 **Depends：** AIC-022 ～ AIC-029
 
@@ -674,7 +674,7 @@ OfficialCostsApiJsonFixture
 ## AIC-031 — 实现 Evidence / Import React 工作流
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-imports`
 **Depends：** AIC-030
 
@@ -697,7 +697,7 @@ Retry / Cancel
 ## AIC-032 — 建立 Canonical Cost Schema
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/cost-schema`
 **Depends：** AIC-021
 
@@ -718,7 +718,7 @@ attribution_hint
 ## AIC-033 — 实现 Canonical Normalization 与 Import Confirm
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/cost-normalization`
 **Depends：** AIC-024, AIC-032
 
@@ -739,7 +739,7 @@ Raw Record
 ## AIC-034 — 实现 Duplicate / Overlap Candidate Workflow
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/cost-duplicate-review`
 **Depends：** AIC-033
 
@@ -759,7 +759,7 @@ Fingerprint 只做候选，不做万能唯一键。
 ## AIC-035 — 建立 Attribution Schema / Rule Version
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/attribution-schema`
 **Depends：** AIC-032, AIC-018
 
@@ -778,7 +778,7 @@ allocation_line
 ## AIC-036 — 实现 Allocation Proposal / Manual Confirm
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/attribution-workflow`
 **Depends：** AIC-033, AIC-035
 
@@ -797,7 +797,7 @@ Unclean Charge 不可 Confirm
 ## AIC-037 — 实现 Allocation Rule
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/attribution-rules`
 **Depends：** AIC-035, AIC-036
 
@@ -810,7 +810,7 @@ Unclean Charge 不可 Confirm
 ## AIC-038 — 实现 Cost / Allocation React 工作流
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-cost-allocation`
 **Depends：** AIC-034, AIC-036, AIC-037
 
@@ -823,7 +823,7 @@ Unclean Charge 不可 Confirm
 ## AIC-039 — 建立 Expense / Approval Schema
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/expense-schema`
 **Depends：** AIC-011, AIC-021, AIC-035
 
@@ -840,7 +840,7 @@ approval_action
 ## AIC-040 — 实现 Expense Claim Workflow
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/expense-workflow`
 **Depends：** AIC-022, AIC-039, AIC-036
 
@@ -862,7 +862,7 @@ VOIDED before posting
 ## AIC-041 — 建立 BillingPeriod / Budget Schema
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/budget-period-schema`
 **Depends：** AIC-006, AIC-018
 
@@ -880,7 +880,7 @@ budget_commitment_usage
 ## AIC-042 — 实现 BillingPeriod OPEN Guard
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/period-guard`
 **Depends：** AIC-041
 
@@ -896,7 +896,7 @@ CLOSING / CLOSED 拒绝普通财务写
 ## AIC-043 — 实现 Budget 管理与 Read Model
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/budget-management`
 **Depends：** AIC-041, AIC-017
 
@@ -913,7 +913,7 @@ available = total - actual - committed
 ## AIC-044 — 实现 Atomic Budget Commitment Activation
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/budget-commitment`
 **Depends：** AIC-040 Approval Shell, AIC-042, AIC-043
 
@@ -936,7 +936,7 @@ Approval + Counter Atomic
 ## AIC-045 — 实现 Commitment Release / Consume Primitive
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/budget-commitment-lifecycle`
 **Depends：** AIC-044
 
@@ -954,7 +954,7 @@ Remaining 不可为负
 ## AIC-046 — 实现 Expense / Budget React
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-expense-budget`
 **Depends：** AIC-040, AIC-043, AIC-044
 
@@ -975,7 +975,7 @@ Over-budget
 ## AIC-047 — 建立 Ledger / Correction Schema
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/ledger-schema`
 **Depends：** AIC-032, AIC-035, AIC-041
 
@@ -996,7 +996,7 @@ correction_group
 ## AIC-048 — 实现 Provider Charge Posting Transaction
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/ledger-charge-posting`
 **Depends：** AIC-036, AIC-042, AIC-045, AIC-047
 
@@ -1022,7 +1022,7 @@ Rollback 无半状态
 ## AIC-049 — 实现 Expense Posting Transaction
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/ledger-expense-posting`
 **Depends：** AIC-040, AIC-048
 
@@ -1033,7 +1033,7 @@ Rollback 无半状态
 ## AIC-050 — 实现 Ledger Query / Lineage API
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/ledger-query-lineage`
 **Depends：** AIC-048
 
@@ -1056,7 +1056,7 @@ Entry
 ## AIC-051 — 实现 Correction Posting
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/ledger-correction`
 **Depends：** AIC-048, AIC-049
 
@@ -1069,7 +1069,7 @@ Correction 写入 OPEN Correction Period，不静默改 CLOSED 历史。
 ## AIC-052 — 增加 Ledger Invariant / Architecture Test
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `test/ledger-invariants`
 **Depends：** AIC-048 ～ AIC-051
 
@@ -1087,7 +1087,7 @@ Closed Period Rejected
 ## AIC-053 — 实现 Ledger React Workflow
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-ledger`
 **Depends：** AIC-050, AIC-051
 
@@ -1100,7 +1100,7 @@ Closed Period Rejected
 ## AIC-054 — 建立 Reconciliation / Close Schema
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/reconciliation-close-schema`
 **Depends：** AIC-047, AIC-041
 
@@ -1118,7 +1118,7 @@ period_close_check
 ## AIC-055 — 实现 Reconciliation Run / Matching Baseline
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/reconciliation-run`
 **Depends：** AIC-050, AIC-054
 
@@ -1131,7 +1131,7 @@ V1 只做 Document/Period Financial Reconciliation，不造通用 Matching DSL�
 ## AIC-056 — 实现 Reconciliation Case Lifecycle
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/reconciliation-cases`
 **Depends：** AIC-055
 
@@ -1144,7 +1144,7 @@ Resolution 必须有 Reason/Note，不自动改 Ledger。
 ## AIC-057 — 实现 Close Blocker Provider
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/period-close-blockers`
 **Depends：** AIC-030, AIC-034, AIC-040, AIC-056
 
@@ -1167,7 +1167,7 @@ LEDGER_INTEGRITY
 ## AIC-058 — 实现 BillingPeriod Close / Reopen Coordinator
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/period-close`
 **Depends：** AIC-042, AIC-054, AIC-057
 
@@ -1187,7 +1187,7 @@ Close / Write Race
 ## AIC-059 — 实现 Reconciliation / Close React
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-reconciliation-close`
 **Depends：** AIC-056, AIC-058
 
@@ -1198,7 +1198,7 @@ Close / Write Race
 ## AIC-060 — 实现 Reporting Read Model
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `feat/reporting-read-models`
 **Depends：** AIC-048, AIC-043, AIC-056
 
@@ -1220,7 +1220,7 @@ Workbench Blocker Count
 ## AIC-061 — 增加 Redis Dashboard Cache
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `perf/reporting-cache`
 **Depends：** AIC-060
 
@@ -1233,7 +1233,7 @@ Cache-aside + Short TTL + MySQL Fallback。
 ## AIC-062 — 实现 Workbench / Reporting React
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/frontend-workbench`
 **Depends：** AIC-060, AIC-061
 
@@ -1253,7 +1253,7 @@ Close Status
 ## AIC-063 — Provider Statement 主链路 E2E
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `test/e2e-provider-ledger`
 **Depends：** AIC-033, AIC-036, AIC-048, AIC-056, AIC-058
 
@@ -1275,7 +1275,7 @@ Login
 ## AIC-064 — Employee Expense 主链路 E2E
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `test/e2e-expense-ledger`
 **Depends：** AIC-040, AIC-049, AIC-058
 
@@ -1296,7 +1296,7 @@ Employee Login
 ## AIC-065 — 实现 Audit 查询与 Sensitive Action 验证
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `feat/audit-review`
 **Depends：** AIC-048, AIC-058
 
@@ -1309,7 +1309,7 @@ Employee Login
 ## AIC-066 — 执行 Schema / Query Index Review
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `perf/mysql-index-review`
 **Depends：** M7 Functional Complete
 
@@ -1333,7 +1333,7 @@ Workbench
 ## AIC-067 — 执行 Import Scale Benchmark
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `perf/import-benchmark`
 **Depends：** AIC-033
 
@@ -1361,7 +1361,7 @@ DB Batch Behavior
 ## AIC-068 — 执行 Financial Concurrency / Failure Suite
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `test/financial-concurrency-failures`
 **Depends：** AIC-048, AIC-051, AIC-058
 
@@ -1380,7 +1380,7 @@ Bounded Deadlock Retry
 ## AIC-069 — 执行 Redis / MinIO / Import Failure Suite
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `test/runtime-failure-injection`
 **Depends：** AIC-015, AIC-022, AIC-023, AIC-061
 
@@ -1400,7 +1400,7 @@ Dashboard Fallback
 ## AIC-070 — Security / Secret Leak Review
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `test/security-review`
 **Depends：** Functional V1
 
@@ -1424,7 +1424,7 @@ Git History Secret
 ## AIC-071 — 建立稳定 Docker Compose Smoke
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **Branch：** `test/compose-smoke`
 **Depends：** AIC-010, AIC-063, AIC-064
 
@@ -1447,7 +1447,7 @@ Ledger Query
 ## AIC-072 — 完成 V1 文档与工程证据报告
 
 **Owner：** Dev B
-**Reviewer：** Dev A
+**Suggested Reviewer：** Dev A
 **Branch：** `docs/v1-release`
 **Depends：** AIC-066 ～ AIC-071
 
@@ -1470,7 +1470,7 @@ Contributors
 ## AIC-073 — V1 Release Acceptance / Tag
 
 **Owner：** Dev A
-**Reviewer：** Dev B
+**Suggested Reviewer：** Dev B
 **类型：** Release Checkpoint
 **Depends：** 所有 P0/P1 Blocker 处理完成
 

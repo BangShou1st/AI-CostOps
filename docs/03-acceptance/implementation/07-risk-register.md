@@ -15,7 +15,7 @@
 | R9 | Refresh 多 Tab 竞争 | 正常用户被误判 Replay | Previous-token Race Window |
 | R10 | Permission Cache Stale | 撤权后仍能做敏感操作 | Security Version + Fresh Check |
 | R11 | Provider 原始数据泄漏 | XLSX/API Key 被 Push | Sanitized Fixture + Pre-push Check |
-| R12 | Git Review 形式主义 | 秒 Approve | Review Checklist + Request Changes |
+| R12 | PR / Review 形式主义 | 为留痕强制秒 Approve 或无意义 Review | Approval 不设全局门禁；高风险变化按需 Review，质量主要由 Scope、测试、CI 与验收证据保证 |
 | R13 | CI 太慢/Flaky | 开发者想绕过 | 分层 Check，Compose 稳定后再 Required |
 | R14 | MyBatis Query 退化 | 1m Facts 查询慢 | EXPLAIN + Benchmark |
 | R15 | Scope Creep 到 Gateway | V1 开始做 Proxy/Route | ADR 固定 V2 Boundary |

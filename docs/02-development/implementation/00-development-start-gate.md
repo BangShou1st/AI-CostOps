@@ -30,7 +30,7 @@ V1 Implementation Plan 1.0
 [ ] REST API 形态
 [ ] Monorepo / 源码目录
 [ ] Git tracked / ignored 文件
-[ ] PR / Review / CI 流程
+[ ] PR / Optional Review / CI 流程
 [ ] M0-M8 与双人分工
 ```
 
@@ -82,7 +82,7 @@ Issue
 ```text
 1. 创建 GitHub Milestones
 2. 创建 M0 Issues
-3. 分配 Owner / Reviewer
+3. 分配 Owner；必要时标注 Suggested Reviewer
 4. 两人 Clone
 5. 创建短生命周期 Branch
 6. Bootstrap PR
@@ -115,7 +115,6 @@ Milestone 是工程阶段，不代表承诺日期。
 设计依据已存在
 依赖已合并，或已有稳定 Port/Mock
 Owner 已确定
-Reviewer 已确定
 Acceptance Criteria 清楚
 需要什么测试已经明确
 ```
@@ -131,9 +130,8 @@ Acceptance Criteria 清楚
 Schema 变更包含 Flyway
 API/设计变化已同步文档
 没有 Secret / Generated Data
-CI 通过
-Peer Review 通过
-Conversation 全部 Resolve
+当前 Required CI 通过
+必要的讨论/Review 已处理
 Squash Merge
 PR 自动关闭 Issue
 ```

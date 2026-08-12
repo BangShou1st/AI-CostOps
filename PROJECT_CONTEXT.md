@@ -75,7 +75,7 @@ Correction Append-only
 两个真实 Contributor
 Protected main
 Short-lived Branch
-PR + CI + Peer Review
+PR + CI + Optional Peer Review
 Squash Merge
 ```
 
