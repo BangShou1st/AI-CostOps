@@ -117,6 +117,7 @@ class RegistrationServiceIntegrationTest extends MySqlContainerSupport {
     }
 
     private void cleanIdentityRows() {
+        jdbcTemplate.update("DELETE FROM audit_event");
         jdbcTemplate.update("DELETE FROM role_assignment");
         jdbcTemplate.update("DELETE FROM organization_member");
         jdbcTemplate.update("DELETE FROM user_credential");

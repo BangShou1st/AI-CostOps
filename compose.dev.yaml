@@ -1,5 +1,10 @@
 services:
   backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      PUBLIC_REGISTRATION_ORG_SLUG: ${PUBLIC_REGISTRATION_ORG_SLUG:-local-dev}
+      AICOSTOPS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT}
+      AICOSTOPS_REFRESH_COOKIE_SECURE: "false"
     ports:
       - "${BACKEND_PORT}:8080"
 

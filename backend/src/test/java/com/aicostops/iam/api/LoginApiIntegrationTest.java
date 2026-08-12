@@ -90,4 +90,17 @@ class LoginApiIntegrationTest extends AuthenticationContainersSupport {
                 .andExpect(content().contentType("application/problem+json"))
                 .andExpect(jsonPath("$.code").value("AUTH_INVALID_CREDENTIALS"));
     }
+
+    @Test
+    void mapsValidationAndMalformedJsonToStableProblemDetails() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"not-an-email\",\"password\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        mockMvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content("{"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("REQUEST_MALFORMED"));
+    }
 }

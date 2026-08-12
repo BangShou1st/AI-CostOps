@@ -11,7 +11,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
-class M0SecurityConfigurationTest {
+class SecurityConfigurationTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -23,8 +23,8 @@ class M0SecurityConfigurationTest {
     }
 
     @Test
-    void rejectsEveryOtherRequestUntilAuthenticationIsImplemented() throws Exception {
+    void requiresAuthenticationForEveryOtherRequest() throws Exception {
         mockMvc.perform(get("/api/v1/not-implemented"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 }

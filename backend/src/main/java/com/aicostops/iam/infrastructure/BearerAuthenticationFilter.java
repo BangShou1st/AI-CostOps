@@ -1,7 +1,7 @@
-package com.aicostops.shared.security;
+package com.aicostops.iam.infrastructure;
 
 import com.aicostops.iam.application.SecurityVersionService;
-import com.aicostops.iam.infrastructure.JwtTokenService;
+import com.aicostops.shared.security.AuthenticatedUser;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;

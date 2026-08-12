@@ -60,6 +60,10 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.email").value("lifecycle@auth.test"));
+        var userId = jdbc.queryForObject("SELECT id FROM app_user WHERE email_normalized='lifecycle@auth.test'", Long.class);
+        org.assertj.core.api.Assertions.assertThat(redis.opsForValue().get("aicostops:v1:auth:security:" + userId))
+                .isEqualTo("0");
+        org.assertj.core.api.Assertions.assertThat(redis.getExpire("aicostops:v1:auth:security:" + userId)).isPositive();
 
         var refreshed = mockMvc.perform(post("/api/v1/auth/refresh")
                         .header("Origin", "http://localhost:8080").cookie(firstCookie))

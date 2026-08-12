@@ -1,7 +1,6 @@
-package com.aicostops.shared.security;
+package com.aicostops.iam.infrastructure;
 
 import com.aicostops.iam.application.SecurityVersionService;
-import com.aicostops.iam.infrastructure.JwtTokenService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
