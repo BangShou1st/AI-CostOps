@@ -24,3 +24,8 @@ management:
 
 server:
   port: ${SERVER_PORT:8080}
+
+aicostops:
+  auth:
+    allow-public-registration: ${AICOSTOPS_ALLOW_PUBLIC_REGISTRATION:false}
+    public-registration-org-slug: ${PUBLIC_REGISTRATION_ORG_SLUG:local-dev}

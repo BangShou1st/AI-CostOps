@@ -137,13 +137,13 @@ Invariant: `SYSTEM_ADMIN` does not automatically receive finance posting, correc
 
 ## 7. Public registration and the single V1 organization
 
-The frozen architecture says V1 exposes one active organization and public registration is demo-only. Anonymous registration must not silently create tenants.
+The frozen architecture says V1 exposes one active organization and public registration is for local development bootstrap only. Anonymous registration must not silently create tenants.
 
 Configuration:
 
 ```text
 ALLOW_PUBLIC_REGISTRATION=false              # default
-PUBLIC_REGISTRATION_ORG_SLUG=demo            # local dev/test value
+PUBLIC_REGISTRATION_ORG_SLUG=local-dev       # local development/test value
 ```
 
 When public registration is enabled:
@@ -152,9 +152,9 @@ When public registration is enabled:
 2. create `app_user` + `user_credential` + ACTIVE `organization_member` + `EMPLOYEE` role assignment in one MySQL transaction;
 3. if the configured organization is absent/inactive, fail without creating partial identity data.
 
-For local Docker development only, activate Spring profile `dev`. A `DevAuthenticationBootstrap` component under that profile inserts a deterministic organization with slug `demo` if it does not exist, using explicit SQL after Flyway has completed. It must be idempotent and must never run outside `dev`.
+For local Docker development only, activate Spring profile `dev`. A `DevAuthenticationBootstrap` component under that profile inserts a deterministic organization with slug `local-dev` and display name `AI CostOps Local Development` if it does not exist, using explicit SQL after Flyway has completed. It must be idempotent and must never run outside `dev`.
 
-Production/default profile does not seed a demo organization and keeps public registration disabled.
+Production/default profile does not seed a local development organization and keeps public registration disabled.
 
 ## 8. Password and email identity
 
@@ -530,7 +530,7 @@ ProblemDetail UX
 End-to-end acceptance from clean DB/Redis:
 
 1. Compose builds and starts.
-2. dev profile has deterministic `demo` org and public registration enabled only by local config.
+2. dev profile has deterministic `local-dev` organization and public registration enabled only by local configuration.
 3. user registers and logs in.
 4. protected shell renders and `/auth/me` returns current identity.
 5. refresh rotation succeeds.
