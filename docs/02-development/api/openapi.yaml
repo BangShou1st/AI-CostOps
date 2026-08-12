@@ -1,0 +1,2814 @@
+openapi: 3.1.0
+info:
+  title: AI CostOps V1 API
+  version: 1.0.0
+  description: AI CostOps V1 前后端接口机器可读契约。ID 与金额均使用字符串传输。
+servers:
+- url: /api/v1
+tags:
+- name: Auth
+- name: IAM
+- name: Organization
+- name: Evidence
+- name: Import
+- name: Cost
+- name: Allocation
+- name: Expense
+- name: Approval
+- name: Budget
+- name: Ledger
+- name: Reconciliation
+- name: Period
+- name: Reporting
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ProblemDetail:
+      type: object
+      required:
+      - title
+      - status
+      - code
+      - traceId
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type:
+          - string
+          - 'null'
+        instance:
+          type:
+          - string
+          - 'null'
+        code:
+          type: string
+        traceId:
+          type: string
+        currentState:
+          type:
+          - string
+          - 'null'
+    Id:
+      type: string
+      pattern: ^[0-9]+$
+    DecimalString:
+      type: string
+      pattern: ^-?[0-9]+(\.[0-9]+)?$
+    PageMeta:
+      type: object
+      required:
+      - page
+      - size
+      - totalElements
+      - totalPages
+      properties:
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 200
+        totalElements:
+          type: integer
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    LoginRequest:
+      type: object
+      required:
+      - email
+      - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+    LoginResponse:
+      type: object
+      required:
+      - accessToken
+      - expiresIn
+      - user
+      properties:
+        accessToken:
+          type: string
+        expiresIn:
+          type: integer
+        user:
+          type: object
+          required:
+          - id
+          - displayName
+          properties:
+            id:
+              $ref: '#/components/schemas/Id'
+            displayName:
+              type: string
+    EvidenceUploadResponse:
+      type: object
+      required:
+      - evidenceId
+      - deduplicated
+      - sha256
+      - importBatchId
+      properties:
+        evidenceId:
+          $ref: '#/components/schemas/Id'
+        deduplicated:
+          type: boolean
+        sha256:
+          type: string
+          pattern: ^[0-9a-fA-F]{64}$
+        importBatchId:
+          $ref: '#/components/schemas/Id'
+    Budget:
+      type: object
+      required:
+      - id
+      - currency
+      - totalAmount
+      - actualAmount
+      - committedAmount
+      - availableAmount
+      - overBudget
+      - version
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        billingPeriodId:
+          $ref: '#/components/schemas/Id'
+        scopeType:
+          type: string
+          enum:
+          - PROJECT
+          - COST_CENTER
+        scopeId:
+          $ref: '#/components/schemas/Id'
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        totalAmount:
+          $ref: '#/components/schemas/DecimalString'
+        actualAmount:
+          $ref: '#/components/schemas/DecimalString'
+        committedAmount:
+          $ref: '#/components/schemas/DecimalString'
+        availableAmount:
+          $ref: '#/components/schemas/DecimalString'
+        overBudget:
+          type: boolean
+        version:
+          type: integer
+          minimum: 0
+    BillingPeriod:
+      type: object
+      required:
+      - id
+      - startDate
+      - endDate
+      - status
+      - closeGeneration
+      - version
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        label:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+          - OPEN
+          - CLOSING
+          - CLOSED
+        closeGeneration:
+          type: integer
+          minimum: 0
+        version:
+          type: integer
+          minimum: 0
+  responses:
+    Problem:
+      description: 业务或请求错误
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+security:
+- bearerAuth: []
+paths:
+  /auth/login:
+    post:
+      summary: 密码登录
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+  /auth/register:
+    post:
+      summary: 公开注册（受 Feature Flag 控制）
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /auth/refresh:
+    post:
+      summary: 旋转 Refresh Session
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      security: []
+  /auth/logout:
+    post:
+      summary: 注销当前 Session
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /auth/logout-all:
+    post:
+      summary: 注销全部 Session
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /auth/password/forgot:
+    post:
+      summary: 创建密码重置 Challenge
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /auth/password/reset:
+    post:
+      summary: 重置密码
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /auth/me:
+    get:
+      summary: 读取当前身份与权限上下文
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+  /invitations/{token}/accept:
+    post:
+      summary: 接受邀请
+      tags:
+      - Auth
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /users:
+    get:
+      summary: 查询用户
+      tags:
+      - IAM
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`USER_READ`。
+  /users/{id}:
+    get:
+      summary: 读取用户
+      tags:
+      - IAM
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`USER_READ`。
+  /users/{id}/status:
+    patch:
+      summary: 修改用户状态
+      tags:
+      - IAM
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`USER_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /roles:
+    get:
+      summary: 查询角色
+      tags:
+      - IAM
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ROLE_READ`。
+  /permissions:
+    get:
+      summary: 查询权限
+      tags:
+      - IAM
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ROLE_READ`。
+  /role-assignments:
+    post:
+      summary: 创建角色分配
+      tags:
+      - IAM
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ROLE_ASSIGN`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /role-assignments/{id}:
+    delete:
+      summary: 撤销角色分配
+      tags:
+      - IAM
+      responses:
+        '200':
+          description: 成功
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ROLE_ASSIGN`。
+  /invitations:
+    post:
+      summary: 创建邀请
+      tags:
+      - IAM
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`USER_INVITE`。
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 调用方生成的幂等键
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /projects:
+    get:
+      summary: 查询项目
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PROJECT_READ`。
+    post:
+      summary: 创建项目
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PROJECT_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /projects/{id}:
+    patch:
+      summary: 修改项目
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PROJECT_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /projects/{id}/members:
+    post:
+      summary: 添加项目成员
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PROJECT_MEMBER_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /projects/{id}/members/{memberId}:
+    delete:
+      summary: 移除项目成员
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PROJECT_MEMBER_MANAGE`。
+  /teams:
+    get:
+      summary: 查询团队
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`TEAM_READ`。
+    post:
+      summary: 创建团队
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`TEAM_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /cost-centers:
+    get:
+      summary: 查询成本中心
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_CENTER_READ`。
+    post:
+      summary: 创建成本中心
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_CENTER_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /provider-accounts:
+    get:
+      summary: 查询 Provider Account
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PROVIDER_ACCOUNT_READ`。
+    post:
+      summary: 创建 Provider Account
+      tags:
+      - Organization
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PROVIDER_ACCOUNT_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /evidence:
+    get:
+      summary: 查询 Evidence
+      tags:
+      - Evidence
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EVIDENCE_READ`。
+    post:
+      summary: 上传 Evidence
+      tags:
+      - Evidence
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceUploadResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EVIDENCE_UPLOAD_OWN / EVIDENCE_UPLOAD_PROVIDER`。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              - purpose
+              properties:
+                file:
+                  type: string
+                  format: binary
+                purpose:
+                  type: string
+                expectedProviderCode:
+                  type:
+                  - string
+                  - 'null'
+                providerAccountId:
+                  oneOf:
+                  - $ref: '#/components/schemas/Id'
+                  - type: 'null'
+  /evidence/{id}:
+    get:
+      summary: 读取 Evidence
+      tags:
+      - Evidence
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EVIDENCE_READ`。
+  /evidence/{id}/download:
+    get:
+      summary: 下载 Evidence
+      tags:
+      - Evidence
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EVIDENCE_DOWNLOAD`。
+  /evidence/{id}/imports:
+    get:
+      summary: 查询 Evidence 的 Import
+      tags:
+      - Evidence
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_READ`。
+  /imports:
+    get:
+      summary: 查询 ImportBatch
+      tags:
+      - Import
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_READ`。
+  /imports/{id}:
+    get:
+      summary: 读取 ImportBatch
+      tags:
+      - Import
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_READ`。
+  /imports/{id}/attempts:
+    get:
+      summary: 读取 ImportAttempt
+      tags:
+      - Import
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_READ`。
+  /imports/{id}/records:
+    get:
+      summary: 读取 RawProviderRecord
+      tags:
+      - Import
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_READ`。
+  /imports/{id}/issues:
+    get:
+      summary: 读取 ImportIssue
+      tags:
+      - Import
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_READ`。
+  /imports/{id}/retry:
+    post:
+      summary: 重试 Import
+      tags:
+      - Import
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_RETRY`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /imports/{id}/confirm:
+    post:
+      summary: 确认 Import
+      tags:
+      - Import
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_CONFIRM`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /imports/{id}/cancel:
+    post:
+      summary: 取消 Import
+      tags:
+      - Import
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`IMPORT_CANCEL`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /costs/consumption:
+    get:
+      summary: 查询 ConsumptionFact
+      tags:
+      - Cost
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_READ`。
+  /costs/charges:
+    get:
+      summary: 查询 ChargeFact
+      tags:
+      - Cost
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_READ`。
+  /costs/charges/{id}:
+    get:
+      summary: 读取 ChargeFact
+      tags:
+      - Cost
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_READ`。
+  /costs/charges/unallocated:
+    get:
+      summary: 查询未分配 Charge
+      tags:
+      - Cost
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_READ`。
+  /costs/charges/duplicate-candidates:
+    get:
+      summary: 查询疑似重复 Charge
+      tags:
+      - Cost
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`DUPLICATE_REVIEW`。
+  /costs/charges/{id}/duplicate-review:
+    post:
+      summary: 复核重复 Charge
+      tags:
+      - Cost
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`DUPLICATE_REVIEW`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /allocation-rules:
+    get:
+      summary: 查询 AllocationRule
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_READ`。
+    post:
+      summary: 创建 AllocationRule
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_RULE_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /allocation-rules/{ruleKey}/versions:
+    post:
+      summary: 新增 AllocationRule Version
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_RULE_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /allocation-rules/{id}/status:
+    patch:
+      summary: 修改 AllocationRule Status
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_RULE_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /allocations/{id}:
+    get:
+      summary: 读取 AllocationDecision
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_READ`。
+  /allocations:
+    post:
+      summary: 创建 AllocationDecision
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_EDIT`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /allocations/{id}/lines:
+    put:
+      summary: 修改 AllocationLine
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_EDIT`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /allocations/{id}/confirm:
+    post:
+      summary: 确认 Allocation
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_CONFIRM`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /allocations/{id}/supersede:
+    post:
+      summary: Supersede Allocation
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_CONFIRM`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /allocations/bulk-confirm:
+    post:
+      summary: 批量确认 Allocation
+      tags:
+      - Allocation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`ALLOCATION_CONFIRM`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /expense-claims:
+    post:
+      summary: 创建 ExpenseClaim
+      tags:
+      - Expense
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_CREATE_OWN`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+    get:
+      summary: 查询 ExpenseClaim
+      tags:
+      - Expense
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_READ_OWN / EXPENSE_REVIEW`。
+  /expense-claims/{id}:
+    get:
+      summary: 读取 ExpenseClaim
+      tags:
+      - Expense
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_READ_OWN / EXPENSE_REVIEW`。
+    patch:
+      summary: 修改 ExpenseClaim
+      tags:
+      - Expense
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_CREATE_OWN`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /expense-claims/{id}/submit:
+    post:
+      summary: 提交 ExpenseClaim
+      tags:
+      - Expense
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_SUBMIT_OWN`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /expense-claims/{id}/cancel:
+    post:
+      summary: 取消 ExpenseClaim
+      tags:
+      - Expense
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_SUBMIT_OWN`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /approval-cases/{id}/approve:
+    post:
+      summary: 审批通过
+      tags:
+      - Approval
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_REVIEW / COMMITMENT_APPROVE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /approval-cases/{id}/reject:
+    post:
+      summary: 审批拒绝
+      tags:
+      - Approval
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_REVIEW / COMMITMENT_APPROVE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /approval-cases/{id}/request-info:
+    post:
+      summary: 要求补充信息
+      tags:
+      - Approval
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_REVIEW / COMMITMENT_APPROVE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /budgets:
+    get:
+      summary: 查询 Budget
+      tags:
+      - Budget
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`BUDGET_READ`。
+    post:
+      summary: 创建 Budget
+      tags:
+      - Budget
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`BUDGET_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /budgets/{id}:
+    get:
+      summary: 读取 Budget
+      tags:
+      - Budget
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`BUDGET_READ`。
+  /budgets/{id}/total:
+    patch:
+      summary: 修改 Budget Total
+      tags:
+      - Budget
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`BUDGET_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /budgets/{id}/commitments:
+    get:
+      summary: 查询 BudgetCommitment
+      tags:
+      - Budget
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`BUDGET_READ`。
+  /budget-commitments:
+    post:
+      summary: 创建 BudgetCommitment
+      tags:
+      - Budget
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COMMITMENT_REQUEST`。
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 调用方生成的幂等键
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /budget-commitments/{id}/submit:
+    post:
+      summary: 提交 BudgetCommitment
+      tags:
+      - Budget
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COMMITMENT_REQUEST`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /budget-commitments/{id}/release:
+    post:
+      summary: 释放 BudgetCommitment
+      tags:
+      - Budget
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COMMITMENT_RELEASE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /charges/{chargeId}/post:
+    post:
+      summary: 将 Charge Posting 到 Ledger
+      tags:
+      - Ledger
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`LEDGER_POST`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /expense-claims/{claimId}/post:
+    post:
+      summary: 将 Expense Posting 到 Ledger
+      tags:
+      - Ledger
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`EXPENSE_POST`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /ledger:
+    get:
+      summary: 查询 Ledger
+      tags:
+      - Ledger
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`LEDGER_READ`。
+  /ledger/postings/{id}:
+    get:
+      summary: 读取 LedgerPosting
+      tags:
+      - Ledger
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`LEDGER_READ`。
+  /ledger/entries/{id}:
+    get:
+      summary: 读取 LedgerEntry
+      tags:
+      - Ledger
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`LEDGER_READ`。
+  /ledger/entries/{id}/lineage:
+    get:
+      summary: 读取 Ledger Lineage
+      tags:
+      - Ledger
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`LEDGER_READ`。
+  /corrections:
+    post:
+      summary: 创建 Correction
+      tags:
+      - Ledger
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`LEDGER_CORRECT`。
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+        description: 调用方生成的幂等键
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /external-documents:
+    get:
+      summary: 查询 ExternalDocument
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_READ`。
+  /external-documents/{id}:
+    get:
+      summary: 读取 ExternalDocument
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_READ`。
+  /reconciliation-runs:
+    post:
+      summary: 创建 ReconciliationRun
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_RUN`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+    get:
+      summary: 查询 ReconciliationRun
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_READ`。
+  /reconciliation-runs/{id}:
+    get:
+      summary: 读取 ReconciliationRun
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_READ`。
+  /reconciliation-cases:
+    get:
+      summary: 查询 ReconciliationCase
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_READ`。
+  /reconciliation-cases/{id}:
+    get:
+      summary: 读取 ReconciliationCase
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_READ`。
+  /reconciliation-cases/{id}/investigate:
+    post:
+      summary: 标记 Case 调查中
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_RESOLVE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /reconciliation-cases/{id}/resolve:
+    post:
+      summary: 解决 ReconciliationCase
+      tags:
+      - Reconciliation
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`RECONCILIATION_RESOLVE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /billing-periods:
+    get:
+      summary: 查询 BillingPeriod
+      tags:
+      - Period
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PERIOD_READ`。
+    post:
+      summary: 创建 BillingPeriod
+      tags:
+      - Period
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`BUDGET_MANAGE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /billing-periods/{id}:
+    get:
+      summary: 读取 BillingPeriod
+      tags:
+      - Period
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingPeriod'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PERIOD_READ`。
+  /billing-periods/{id}/close:
+    post:
+      summary: Close BillingPeriod
+      tags:
+      - Period
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PERIOD_CLOSE`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /billing-periods/{id}/close-runs:
+    get:
+      summary: 读取 CloseRun
+      tags:
+      - Period
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PERIOD_READ`。
+  /billing-periods/{id}/reopen:
+    post:
+      summary: Reopen BillingPeriod
+      tags:
+      - Period
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`PERIOD_REOPEN`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+  /workbench/summary:
+    get:
+      summary: 读取 Workbench Summary
+      tags:
+      - Reporting
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_READ`。
+  /reports/cost-by-provider:
+    get:
+      summary: 按 Provider 汇总
+      tags:
+      - Reporting
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_READ`。
+  /reports/cost-by-project:
+    get:
+      summary: 按 Project 汇总
+      tags:
+      - Reporting
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`COST_READ`。
+  /reports/budget-variance:
+    get:
+      summary: Budget Variance
+      tags:
+      - Reporting
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+      description: 权限：`BUDGET_READ`。

@@ -1,0 +1,48 @@
+name: 功能 / 工程任务
+description: 创建一个新的功能、模块或工程实施任务
+title: "[AIC-xxx] "
+labels:
+  - "type:feature"
+body:
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景
+      description: 为什么需要这个任务？
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: 本 Issue 做什么、不做什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: 如何判断完成？
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: Related Design
+      description: 相关 Blueprint / Detailed Design / API / ADR 路径。
+    validations:
+      required: false
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: 依赖哪些 AIC Issue / PR？
+    validations:
+      required: false
