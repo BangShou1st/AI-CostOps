@@ -1,6 +1,57 @@
 name: ai-costops
 
 services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      AICOSTOPS_REDIS_HOST: redis
+      AICOSTOPS_REDIS_PORT: 6379
+      AICOSTOPS_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      AICOSTOPS_STORAGE_ENDPOINT: http://minio:9000
+      AICOSTOPS_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER}
+      AICOSTOPS_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      AICOSTOPS_STORAGE_BUCKET: ${MINIO_BUCKET}
+      AICOSTOPS_JWT_SIGNING_KEY: ${AICOSTOPS_JWT_SIGNING_KEY}
+      AICOSTOPS_ALLOW_PUBLIC_REGISTRATION: ${AICOSTOPS_ALLOW_PUBLIC_REGISTRATION}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/actuator/health/liveness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - aicostops
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    networks:
+      - aicostops
+
   mysql:
     image: mysql:8.4
     restart: unless-stopped
