@@ -75,8 +75,21 @@ public interface IamMapper {
     @Select("SELECT security_version FROM app_user WHERE id=#{userId} AND status='ACTIVE'")
     Long findActiveSecurityVersion(long userId);
 
+    @Select("SELECT id AS user_id, email_normalized, status FROM app_user WHERE email_normalized=#{email}")
+    PasswordResetIdentityRecord findPasswordResetIdentity(String email);
+
+    @Select("SELECT id AS user_id, email_normalized, status FROM app_user WHERE id=#{userId}")
+    PasswordResetIdentityRecord findPasswordResetIdentityById(long userId);
+
     @Update("UPDATE app_user SET security_version=security_version+1, updated_at=#{now} WHERE id=#{userId} AND status='ACTIVE'")
     int incrementSecurityVersion(@Param("userId") long userId, @Param("now") Instant now);
+
+    @Update("""
+            UPDATE user_credential SET password_hash=#{passwordHash}, password_changed_at=#{now}, updated_at=#{now}
+            WHERE user_id=#{userId}
+            """)
+    int updatePassword(@Param("userId") long userId, @Param("passwordHash") String passwordHash,
+            @Param("now") Instant now);
 
     @Insert("""
             INSERT INTO role_assignment(org_member_id,role_id,scope_type,scope_id,assigned_by,created_at)

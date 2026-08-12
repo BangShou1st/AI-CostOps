@@ -49,3 +49,5 @@ aicostops:
     login-account-limit: ${AICOSTOPS_LOGIN_ACCOUNT_LIMIT:8}
     security-cache-ttl: ${AICOSTOPS_SECURITY_CACHE_TTL:1m}
     allowed-origins: ${AICOSTOPS_ALLOWED_ORIGINS:http://localhost:8080}
+    password-reset-lifetime: ${AICOSTOPS_PASSWORD_RESET_LIFETIME:30m}
+    password-reset-limit: ${AICOSTOPS_PASSWORD_RESET_LIMIT:5}

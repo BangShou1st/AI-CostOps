@@ -37,4 +37,10 @@ public class AuthenticationRuntimeConfiguration {
             @Value("${aicostops.auth.refresh-race-window:10s}") Duration raceWindow) {
         return new RedisRefreshSessionRepository(redis, clock, new SecureRandom(), sessionLifetime, raceWindow);
     }
+
+    @Bean
+    RedisPasswordResetRepository redisPasswordResetRepository(StringRedisTemplate redis,
+            @Value("${aicostops.auth.password-reset-lifetime:30m}") Duration lifetime) {
+        return new RedisPasswordResetRepository(redis, new SecureRandom(), lifetime);
+    }
 }
