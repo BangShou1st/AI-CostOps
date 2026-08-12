@@ -27,7 +27,6 @@ $origin = ([uri]$BaseUrl).GetLeftPart([System.UriPartial]::Authority)
 $email = "auth-smoke-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())@example.test"
 $oldPassword = "Smoke-password-1"
 $newPassword = "Smoke-password-2"
-$session = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
 
 $orgCount = docker compose --env-file $EnvFile exec -T mysql mysql "-u$(Get-EnvValue 'MYSQL_USER')" "-p$(Get-EnvValue 'MYSQL_PASSWORD')" "$(Get-EnvValue 'MYSQL_DATABASE')" -Nse "SELECT COUNT(*) FROM organization WHERE slug='local-dev' AND status='ACTIVE'"
 Assert-True ([int]$orgCount -eq 1) "local-dev organization was not bootstrapped"
@@ -35,21 +34,24 @@ Assert-True ([int]$orgCount -eq 1) "local-dev organization was not bootstrapped"
 $register = Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/register" -ContentType "application/json" -Body (@{ email=$email; displayName="Auth Smoke"; password=$oldPassword } | ConvertTo-Json)
 Assert-True ($register.userId -match '^\d+$') "registration did not return a string ID"
 
-$login = Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/login" -WebSession $session -ContentType "application/json" -Body (@{ email=$email; password=$oldPassword } | ConvertTo-Json)
+$loginResponse = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$BaseUrl/auth/login" -SessionVariable authSession -ContentType "application/json" -Body (@{ email=$email; password=$oldPassword } | ConvertTo-Json)
+$login = $loginResponse.Content | ConvertFrom-Json
 Assert-True ($login.expiresIn -eq 900) "login did not return the configured access lifetime"
 $oldAccess = $login.accessToken
-$oldRefresh = ($session.Cookies.GetCookies("$BaseUrl/auth/login") | Where-Object Name -eq 'aicostops_refresh').Value
+$oldRefresh = [regex]::Match($loginResponse.Headers['Set-Cookie'], 'aicostops_refresh=([^;]+)').Groups[1].Value
 Assert-True (-not [string]::IsNullOrWhiteSpace($oldRefresh)) "login did not set the refresh cookie"
 
 $headers = @{ Authorization = "Bearer $oldAccess" }
 $me = Invoke-RestMethod -Method Get -Uri "$BaseUrl/auth/me" -Headers $headers
 Assert-True ($me.email -eq $email) "/auth/me returned the wrong identity"
 
-$refresh = Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/refresh" -WebSession $session -Headers @{ Origin=$origin }
+$refreshResponse = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$BaseUrl/auth/refresh" -WebSession $authSession -Headers @{ Origin=$origin }
+$refresh = $refreshResponse.Content | ConvertFrom-Json
 Assert-True ($refresh.accessToken -ne $oldAccess) "refresh did not rotate the access JWT"
+$currentRefresh = [regex]::Match($refreshResponse.Headers['Set-Cookie'], 'aicostops_refresh=([^;]+)').Groups[1].Value
 
 Start-Sleep -Seconds 11
-$replaySession = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
+Invoke-WebRequest -UseBasicParsing -Uri $origin -SessionVariable replaySession | Out-Null
 $replaySession.Cookies.Add([System.Net.Cookie]::new('aicostops_refresh', $oldRefresh, '/api/v1/auth', ([uri]$BaseUrl).Host))
 try {
     Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/refresh" -WebSession $replaySession -Headers @{ Origin=$origin }
@@ -58,10 +60,10 @@ try {
     Assert-True ((Get-ProblemCode $_) -eq 'AUTH_REFRESH_REPLAY') "stale refresh did not return AUTH_REFRESH_REPLAY"
 }
 
-Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/logout" -WebSession $session -Headers @{ Authorization="Bearer $oldAccess"; Origin=$origin }
+Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/logout" -WebSession $authSession -Headers @{ Authorization="Bearer $oldAccess"; Origin=$origin }
 $refreshRejected = $false
 try {
-    Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/refresh" -WebSession $session -Headers @{ Origin=$origin }
+    Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/refresh" -Headers @{ Origin=$origin; Cookie="aicostops_refresh=$currentRefresh" }
 } catch { $refreshRejected = $true }
 Assert-True $refreshRejected "refresh succeeded after logout"
 
@@ -73,7 +75,7 @@ $tokenId = "smoke$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
 $resetSecret = "smoke-reset-secret-32-bytes-minimum-value"
 $sha256 = [System.Security.Cryptography.SHA256]::Create()
 try { $sha = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($resetSecret)) } finally { $sha256.Dispose() }
-$tokenHash = [Convert]::ToHexString($sha).ToLowerInvariant()
+$tokenHash = ([System.BitConverter]::ToString($sha) -replace '-', '').ToLowerInvariant()
 $redisPassword = Get-EnvValue 'REDIS_PASSWORD'
 docker compose --env-file $EnvFile exec -T redis redis-cli -a $redisPassword HSET "aicostops:v1:auth:reset:$tokenId" user_id $userId token_hash $tokenHash | Out-Null
 docker compose --env-file $EnvFile exec -T redis redis-cli -a $redisPassword EXPIRE "aicostops:v1:auth:reset:$tokenId" 1800 | Out-Null
