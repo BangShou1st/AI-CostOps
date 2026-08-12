@@ -4,7 +4,7 @@
 
 Deliver the first complete M1 vertical feature: a user can register or accept an invitation, authenticate with a password, receive a short-lived access JWT plus a Redis-backed rotating refresh session, recover a password, log out, and use the React application through the existing protected-route/API-client foundation.
 
-This design implements the frozen requirements tracked by:
+Tracked requirements:
 
 - AIC-011 / GitHub #16
 - AIC-012 / GitHub #17
@@ -14,77 +14,77 @@ This design implements the frozen requirements tracked by:
 - AIC-016 / GitHub #21
 - AIC-019 / GitHub #24
 
-Delivery is intentionally vertical: one feature branch and one integration PR may close all seven issues, but every issue keeps its own acceptance criteria and tests.
+Delivery is vertical: one feature branch and one integration PR may close all seven issues, while every issue keeps its individual acceptance criteria and tests.
 
-## 2. Frozen project constraints
+## 2. Frozen constraints
 
 - Java 21, Spring Boot 4.1.0, plain MyBatis (`mybatis-spring-boot-starter` 4.1.0 / MyBatis Core 3.5.19).
-- MySQL 8.4 is the durable identity truth.
+- MySQL 8.4 is durable identity truth.
 - Redis is authentication runtime state, never durable financial or identity truth.
-- Flyway is forward-only; critical MySQL behavior is tested with Testcontainers, not H2.
+- Flyway is forward-only; critical MySQL behavior uses Testcontainers, never H2.
 - Root package is `com.aicostops`; package by feature, not global controller/service/mapper/entity layers.
-- External API base is `/api/v1`; BIGINT identifiers serialize as strings; errors use the existing ProblemDetail model.
-- Access tokens stay in frontend memory. Long-lived refresh credentials are never stored in `localStorage`.
-- No OAuth provider, SAML, SCIM, LDAP, MFA platform, Keycloak clone, microservices, Kafka, or new infrastructure product in this feature.
+- External API base is `/api/v1`; BIGINT IDs serialize as strings; errors use the existing ProblemDetail model.
+- Access tokens stay in frontend memory; long-lived refresh credentials never go to `localStorage`.
+- No OAuth provider, SAML, SCIM, LDAP, MFA platform, Keycloak clone, microservices, Kafka, or new infrastructure product.
 
 ## 3. Delivery boundary
 
-### Included
-
-- full AIC-011 schema, including IAM, organization/master-data tables, early `audit_event`, and `api_idempotency`
-- V1 role/permission reference seed
-- public registration behind a feature flag
-- invitation acceptance
-- password credential storage and verification
-- account status checks
-- fixed-window login rate limits
-- short-lived access JWT
-- Redis refresh sessions and atomic rotation
-- cross-tab race handling and replay detection
-- logout and logout-all
-- password-forgot/reset with single-use reset token
-- security-version invalidation
-- `/auth/me`
-- React login/register/invite/forgot/reset/session-bootstrap/logout flow
-- end-to-end and failure-path tests
-
-### Excluded
-
-The following stay in the second M1 vertical feature (`feat/m1-organization-authorization-e2e`):
-
-- permission/data-scope enforcement for business resources (AIC-017)
-- Organization/Project/Team/CostCenter management APIs (AIC-018)
-- Admin/Project Settings UI (AIC-020)
-
-Roles and permissions are seeded now because authentication and later authorization share the same reference model, but this feature does not pretend that full business authorization is complete.
-
-## 4. Backend feature boundaries
-
-Use focused feature packages under `com.aicostops`:
+Included:
 
 ```text
-iam/
-  api/
-  application/
-  domain/
-  infrastructure/
-
-organization/
-  domain/              # only types needed by membership/registration in this feature
-  infrastructure/      # minimal lookup/persistence needed by auth
-
-audit/
-  application/
-  infrastructure/
+full AIC-011 schema
+V1 role/permission seed
+public registration behind feature flag
+invitation acceptance
+password credentials
+account status checks
+login rate limits
+short-lived access JWT
+Redis refresh sessions + atomic rotation
+cross-tab refresh race handling
+replay detection
+logout / logout-all
+password forgot/reset
+security_version invalidation
+GET /auth/me
+React auth/session flow
+failure-path + integration tests
 ```
 
-Do not introduce a global `common/service`, `utils`, JPA entities, or MyBatis-Plus.
+Excluded until the second M1 vertical feature:
 
-Persistence mappers remain explicit SQL. Correctness-sensitive queries and state transitions must be visible in SQL/tests.
+```text
+AIC-017 Permission / Data Scope Authorization
+AIC-018 Organization / Project / Team / CostCenter APIs
+AIC-020 Admin / Project Settings UI
+```
+
+Roles and permissions are seeded now because authentication and later authorization share the same reference model. This feature does not claim full business-resource authorization is complete.
+
+## 4. Backend boundaries
+
+Use focused packages:
+
+```text
+com.aicostops.iam.api
+com.aicostops.iam.application
+com.aicostops.iam.domain
+com.aicostops.iam.infrastructure
+
+com.aicostops.organization.domain
+com.aicostops.organization.infrastructure
+
+com.aicostops.audit.application
+com.aicostops.audit.infrastructure
+```
+
+The organization package contains only the membership/organization behavior required by authentication in this feature. Do not introduce global `common/service`, generic `utils`, JPA entities, or MyBatis-Plus.
+
+Persistence uses explicit SQL. Correctness-sensitive queries and state transitions must be visible in SQL and tests.
 
 ## 5. Database model
 
-AIC-011 creates the frozen M1 tables:
+AIC-011 creates:
 
 ```text
 organization
@@ -106,22 +106,22 @@ audit_event
 api_idempotency
 ```
 
-Key frozen rules:
+Frozen rules:
 
 - IDs are `BIGINT AUTO_INCREMENT`.
 - `app_user.email_normalized` is globally unique.
 - `app_user.security_version` is durable invalidation state.
-- credentials are separated into `user_credential`; plaintext passwords/reset tokens are never stored.
+- password credentials are isolated in `user_credential`; plaintext passwords/reset tokens are never persisted.
 - `organization_member` is unique by `(org_id,user_id)`.
 - role assignments are unique by member/role/scope tuple.
-- master data uses ACTIVE/ARCHIVED/DISABLED semantics rather than deleting historical references.
-- `audit_event` is append-only and never records passwords, refresh tokens, reset tokens, JWT signing secrets, or full API keys.
+- master data uses ACTIVE/ARCHIVED/DISABLED rather than deleting historical references.
+- `audit_event` is append-only and never records secrets.
 
-Flyway migrations must be reviewable and forward-only. Empty MySQL 8.4 must migrate successfully from zero.
+Empty MySQL 8.4 must migrate from zero successfully.
 
 ## 6. Role and permission seed
 
-Seed exactly the frozen V1 roles:
+Seed exactly:
 
 ```text
 EMPLOYEE
@@ -131,37 +131,48 @@ FINANCE_ADMIN
 SYSTEM_ADMIN
 ```
 
-Seed the existing permission catalog from `docs/02-development/detailed-design/06-permission-matrix.md` without inventing new permission names.
+Seed the existing permission catalog and mappings from `docs/02-development/detailed-design/06-permission-matrix.md`; do not invent names.
 
-Important invariant: `SYSTEM_ADMIN` does not automatically receive finance posting, correction, budget-management, period-close, or period-reopen powers.
+Invariant: `SYSTEM_ADMIN` does not automatically receive finance posting, correction, budget-management, period-close, or period-reopen powers.
 
-AIC-012 tests must prove the seed rows and mappings match the frozen permission matrix.
+## 7. Public registration and the single V1 organization
 
-## 7. Public-registration organization rule
+The frozen architecture says V1 exposes one active organization and public registration is demo-only. Anonymous registration must not silently create tenants.
 
-The frozen design states that V1 exposes one active organization while public registration is a demo feature. To avoid silently creating organizations from anonymous requests, use this explicit rule:
+Configuration:
 
-- `ALLOW_PUBLIC_REGISTRATION=false` remains the enterprise-safe default.
-- when public registration is enabled, the server requires a configured `PUBLIC_REGISTRATION_ORG_SLUG` identifying an existing ACTIVE organization.
-- registration creates an `app_user`, `user_credential`, ACTIVE `organization_member`, and default `EMPLOYEE` role assignment in that configured organization.
-- if the configured organization is missing/inactive, registration fails as a server configuration/dependency error; it never auto-creates an organization.
-- local dev/test may provide a deterministic development bootstrap organization through a dev-only bootstrap mechanism; production Flyway must not silently seed a demo tenant.
+```text
+ALLOW_PUBLIC_REGISTRATION=false              # default
+PUBLIC_REGISTRATION_ORG_SLUG=demo            # local dev/test value
+```
 
-This resolves a gap in the high-level design while preserving the single-active-organization V1 boundary.
+When public registration is enabled:
 
-## 8. Password handling
+1. lookup the configured ACTIVE organization by slug;
+2. create `app_user` + `user_credential` + ACTIVE `organization_member` + `EMPLOYEE` role assignment in one MySQL transaction;
+3. if the configured organization is absent/inactive, fail without creating partial identity data.
 
-Use Spring Security's delegating password encoder (`PasswordEncoderFactories.createDelegatingPasswordEncoder()`), persisting the encoded value including its algorithm prefix. Do not implement custom password crypto.
+For local Docker development only, activate Spring profile `dev`. A `DevAuthenticationBootstrap` component under that profile inserts a deterministic organization with slug `demo` if it does not exist, using explicit SQL after Flyway has completed. It must be idempotent and must never run outside `dev`.
 
-Login error responses must not reveal whether an email exists. Wrong email and wrong password both map to `401 AUTH_INVALID_CREDENTIALS`.
+Production/default profile does not seed a demo organization and keeps public registration disabled.
 
-Email identity is normalized consistently before lookup and uniqueness checks (trim + locale-independent lowercase). The raw submitted email is not a second identity key.
+## 8. Password and email identity
 
-## 9. Access JWT
+Use `PasswordEncoderFactories.createDelegatingPasswordEncoder()` and persist the encoded value including its algorithm prefix. Do not implement custom cryptography.
+
+Normalize email with trim + locale-independent lowercase before lookup and uniqueness checks.
+
+Login must not reveal whether an account exists. Unknown email and wrong password both return:
+
+```text
+401 AUTH_INVALID_CREDENTIALS
+```
+
+## 9. Access JWT and security-version validation
 
 Default access lifetime: 15 minutes, configurable.
 
-JWT contains only the minimum frozen claims:
+Claims:
 
 ```text
 sub = user id as decimal string
@@ -171,53 +182,60 @@ iat
 exp
 ```
 
-Do not embed large role/permission/project lists into JWTs.
+Do not put permission/project lists into the JWT.
 
-For V1 modular-monolith deployment, use an HMAC SHA-256 signing key supplied only through configuration/environment. No real signing secret is committed. Tests use an isolated test secret.
+Use HMAC SHA-256 for this modular-monolith V1, with a 256-bit-or-stronger signing secret supplied through environment/configuration. No real secret is committed; tests use an isolated test secret. `.env.example` may contain an explicitly non-production development value only if it is clearly documented as unsafe outside local development.
 
-Authentication of bearer requests validates signature/expiry and maps disabled/invalid sessions to the existing ProblemDetail contract. Full business permission/data-scope evaluation is AIC-017, not this feature.
+Current Authentication E2E endpoints that require bearer authentication (`/auth/me`, `/auth/logout`, `/auth/logout-all`) must validate the JWT `sv` claim against current account status/security version. Resolution policy:
+
+1. read `aicostops:v1:auth:security:{userId}` when available;
+2. on cache miss, read MySQL and repopulate the short cache;
+3. if Redis is unavailable, safely fall back to MySQL for these authenticated auth endpoints;
+4. reject a disabled account or stale `sv` claim.
+
+This makes password reset/logout-all immediately durable through MySQL `security_version` without making Redis the truth. AIC-017 later extends the same model to business-resource authorization and sensitive actions.
 
 ## 10. Login rate limiting
 
-Use the frozen Redis fixed-window policy:
+Use the frozen fixed-window Redis keys:
 
 ```text
 aicostops:v1:ratelimit:login:ip:{ipHash}:{windowId}
 aicostops:v1:ratelimit:login:account:{accountHash}:{windowId}
 ```
 
-Default configurable limits:
+Defaults:
 
 ```text
 IP:      20 / 15 min
 Account:  8 / 15 min
 ```
 
-Behavior:
+Rules:
 
-1. rate-limit check occurs before credential verification;
-2. account identifier in Redis keys is hashed, not raw email;
-3. exceeded limit returns `429 AUTH_RATE_LIMITED` and a useful `Retry-After`;
-4. Redis unavailable during login fails closed with `503 REDIS_UNAVAILABLE_FOR_AUTH` after a short timeout;
-5. a Redis outage for login rate limiting does not invalidate an already-valid access token.
+- rate-limit before credential verification;
+- hash account/IP identifiers used in keys;
+- exceeded limit => `429 AUTH_RATE_LIMITED` + `Retry-After`;
+- Redis unavailable during login => short timeout then `503 REDIS_UNAVAILABLE_FOR_AUTH`;
+- already-valid access tokens are not invalidated because the login limiter is unavailable.
 
-## 11. Refresh-session transport and Redis schema
+## 11. Refresh session
 
-Refresh cookie value:
+Cookie value:
 
 ```text
 sessionId.secret
 ```
 
-The random secret is high entropy. Redis stores only its one-way digest, never the reusable secret.
+Secret is high entropy. Redis stores only a one-way digest.
 
-Redis key:
+Key:
 
 ```text
 aicostops:v1:auth:refresh:{sessionId}
 ```
 
-Hash fields follow the frozen Redis design:
+Hash fields:
 
 ```text
 user_id
@@ -232,7 +250,7 @@ absolute_expires_at_ms
 device_label
 ```
 
-Defaults, all configurable:
+Defaults:
 
 ```text
 Access token:               15 min
@@ -240,19 +258,22 @@ Refresh session:             7 days
 Previous-token race window: 10 sec
 ```
 
-Cookie policy:
+Cookie:
 
-- HttpOnly
-- SameSite=Strict
-- Secure=true outside local development
-- Path restricted to `/api/v1/auth`
-- no refresh token in response JSON or browser localStorage
+```text
+HttpOnly
+SameSite=Strict
+Secure=true outside local dev
+Path=/api/v1/auth
+```
 
-Because refresh is cookie-authenticated ambient authority, `/auth/refresh` and cookie-based logout must also enforce same-origin request validation using the configured allowed Origin. SameSite is defense-in-depth, not the only server-side check.
+Refresh credentials never appear in response JSON or localStorage.
+
+Because refresh is cookie-authenticated ambient authority, `/auth/refresh` and cookie-based `/auth/logout` must enforce exact same-origin `Origin` validation against configured allowed origins. Browser requests missing an acceptable Origin for these cookie-authenticated mutations are rejected. SameSite is defense-in-depth, not the sole CSRF control.
 
 ## 12. Atomic refresh rotation
 
-Use the frozen small Redis Lua script for compare-and-rotate. The script returns only these domain outcomes:
+Use the frozen Redis Lua compare-and-rotate operation with outcomes:
 
 ```text
 ROTATED
@@ -261,33 +282,32 @@ REPLAY
 EXPIRED
 ```
 
-Rules:
+- current hash match => atomically move current to previous, set race deadline, write new current hash;
+- previous hash inside race window => `409 AUTH_REFRESH_RACE`;
+- previous/unknown old token outside allowed race => `401 AUTH_REFRESH_REPLAY`, revoke session, audit replay;
+- missing/expired session => `401 AUTH_SESSION_EXPIRED`.
 
-- current hash match => move current to previous, set short race deadline, write new current hash atomically;
-- previous hash match inside race window => `409 AUTH_REFRESH_RACE`;
-- previous/unknown old token outside the permitted race => `401 AUTH_REFRESH_REPLAY`, revoke the session, audit the replay;
-- expired/missing session => `401 AUTH_SESSION_EXPIRED`.
+Frontend handles `AUTH_REFRESH_RACE` with one short delay and one refresh retry only. No loop.
 
-Frontend behavior for `AUTH_REFRESH_RACE`: short wait, then retry refresh once. Never loop indefinitely.
+## 13. Login, logout and logout-all
 
-## 13. Logout and logout-all
+Login order:
 
-`POST /auth/logout` is repeat-safe:
+```text
+rate limit
+→ MySQL user/credential lookup
+→ account status
+→ password verify
+→ Redis refresh-session create
+→ access JWT issue
+→ audit
+```
 
-- delete/revoke the current Redis refresh session when present;
-- clear the refresh cookie;
-- audit logout;
-- repeated logout remains successful and does not leak session existence.
+No access/refresh credentials are returned if required Redis session creation fails.
 
-`POST /auth/logout-all`:
+`POST /auth/logout` is repeat-safe: revoke current refresh session if present, clear cookie, audit, and still succeed on repetition.
 
-- durable transaction increments MySQL `app_user.security_version`;
-- best-effort removes known Redis refresh sessions;
-- old access JWTs become invalid according to the security-version policy;
-- new sessions use the new version;
-- audit the revocation.
-
-MySQL `security_version`, not Redis deletion, is the durable invalidation signal.
+`POST /auth/logout-all` performs a MySQL transaction that increments `app_user.security_version`, then best-effort removes Redis sessions and refresh/security caches. Durable invalidation is the MySQL version bump.
 
 ## 14. Password forgot/reset
 
@@ -297,7 +317,7 @@ Redis key:
 aicostops:v1:auth:reset:{tokenId}
 ```
 
-Value contains only:
+Value:
 
 ```text
 user_id
@@ -306,46 +326,25 @@ token_hash
 
 Default TTL: 30 minutes.
 
-`POST /auth/password/forgot` always returns a generic success-shaped response for syntactically valid requests, regardless of whether the account exists, preventing account enumeration. It is rate limited.
+`POST /auth/password/forgot` returns the same generic success-shaped response for any syntactically valid email, whether or not the account exists. It is rate limited.
 
-A development mail sink/mock is allowed, but reset secrets must not be written to normal application logs. Automated tests may capture the dev sink directly to obtain the token.
+A development mail sink/mock is allowed. Reset secrets must not be written to normal application logs. Automated tests capture the development sink directly to obtain reset tokens.
 
-Successful `POST /auth/password/reset`:
-
-1. atomically consumes the single-use reset key;
-2. updates the password credential;
-3. increments `security_version`;
-4. revokes refresh sessions best-effort;
-5. audits `PASSWORD_CHANGED` / session revocation;
-6. old reset token cannot be reused.
-
-Disabled accounts cannot reset into an active session.
+Reset must atomically validate-and-consume the single-use Redis token before durable password mutation. Successful reset then updates credential + increments `security_version` in one MySQL transaction, best-effort revokes refresh sessions, and audits the change. Reuse and expiry are rejected. Disabled accounts cannot reset into an active session.
 
 ## 15. Invitation acceptance
 
-The `invitation` row holds only token hash and invitation metadata. Acceptance uses the existing `/invitations/{token}/accept` contract and is single-use.
+The invitation row stores token hash plus metadata, never the reusable secret.
 
-Acceptance validates:
+`POST /invitations/{token}/accept` validates status, expiry, email uniqueness, active target organization, and seeded initial role. On success, user + credential + membership + role assignment + invitation accepted state commit in one MySQL transaction.
 
-- invitation status
-- expiry
-- normalized email uniqueness
-- target organization is active
-- initial role code is an allowed seeded role
+Expired, used or conflicting invitations leave no partial identity state.
 
-On success it creates/links the user, credential, organization membership and initial role assignment in one transaction, then marks the invitation accepted. Duplicate/expired/used invitations must not leave partial identity state.
+Creating/administering invitations through the full admin UI is not part of this vertical feature; acceptance is.
 
-Creating/administering invitations through the full admin UI is not required by this vertical slice; acceptance behavior is.
+## 16. API contract
 
-## 16. `/auth/me`
-
-`GET /auth/me` returns the authenticated identity and enough current organization/session context for the frontend shell. It must source durable status from MySQL (with only safe short-lived caching where already designed) and must not trust permission lists embedded in JWT because none are embedded.
-
-The response is the frontend bootstrap truth after access-token acquisition. Full scoped authorization computation is completed in AIC-017; this feature may return seeded role/permission context needed by current auth UX without claiming business-resource authorization is complete.
-
-## 17. API contract
-
-Keep the existing OpenAPI/interface-matrix endpoint names under server base `/api/v1`:
+Keep the existing OpenAPI/interface-matrix routes under `/api/v1`:
 
 ```text
 POST /auth/register
@@ -359,9 +358,9 @@ GET  /auth/me
 POST /invitations/{token}/accept
 ```
 
-This feature must replace placeholder object schemas in `openapi.yaml` with concrete request/response schemas for the endpoints it implements. Do not invent alternate route names.
+Replace placeholder request/response objects in `openapi.yaml` for implemented endpoints with concrete schemas. Do not rename routes.
 
-Use the existing ProblemDetail codes where applicable:
+Use existing ProblemDetail codes when applicable:
 
 ```text
 AUTH_INVALID_CREDENTIALS
@@ -374,11 +373,15 @@ AUTH_RATE_LIMITED
 REDIS_UNAVAILABLE_FOR_AUTH
 ```
 
-New auth-specific codes may be added only when an existing code cannot describe a real contract state; they must be added to the error-contract documentation and tests at the same time.
+Any genuinely necessary new auth code must be added to the error-contract documentation and tested in the same change.
 
-## 18. Audit
+## 17. `/auth/me` and audit
 
-At minimum write append-only audit events for:
+`GET /auth/me` is the frontend bootstrap truth after access-token acquisition. It returns current identity plus the organization/member/role context needed by the shell. It never trusts permission arrays from JWT because JWT contains none.
+
+Full business-resource scope evaluation remains AIC-017.
+
+Append-only audit events include at least:
 
 ```text
 LOGIN_SUCCESS
@@ -386,15 +389,15 @@ LOGIN_FAILED
 LOGOUT
 PASSWORD_CHANGED
 SESSION_REVOKED
+refresh replay
+invitation acceptance
 ```
 
-Also audit refresh replay and invitation acceptance with non-secret metadata.
+Never audit password text, refresh/reset secret, full JWT, or signing secret.
 
-Never audit password text, refresh secret/token, reset token, JWT signing secret, or full bearer JWT.
+## 18. Frontend flow
 
-## 19. Frontend flow
-
-Keep the existing M0 Axios client, memory access-token store, QueryClient and ProtectedRoute foundation. Extend `frontend/src/features/auth/` rather than creating a second auth stack.
+Extend the M0 auth/API foundation in `frontend/src/features/auth/`; do not build a second Axios/auth stack.
 
 Public routes:
 
@@ -406,35 +409,30 @@ Public routes:
 /invite/:token
 ```
 
-Application bootstrap:
+Bootstrap:
 
 ```text
 POST /auth/refresh
-→ store access token in memory
+→ access token to memory
 → GET /auth/me
 → render protected app
 ```
 
-If refresh is expired/missing:
+Missing/expired refresh => clear auth state and route to `/login`.
 
-```text
-clear auth state
-→ /login
-```
+401 behavior:
 
-401 handling:
-
-- one in-tab single-flight refresh promise;
+- single in-tab refresh promise;
 - original request retries at most once;
 - `AUTH_REFRESH_RACE` waits briefly and retries refresh once;
-- no recursive/infinite refresh loops;
-- logout clears token/query auth state before redirecting.
+- no recursive/infinite refresh loop;
+- logout clears access token and auth-related Query cache before redirect.
 
-Frontend errors use the existing ProblemDetail mapper. Do not show stack traces or account-existence hints.
+All UX errors go through existing ProblemDetail mapping and never expose account-existence hints or stack traces.
 
-## 20. Security configuration
+## 19. Security configuration
 
-Replace the M0 deny-all placeholder with explicit M1 auth boundaries:
+Replace M0 deny-all only with explicit auth openings.
 
 Public:
 
@@ -456,89 +454,92 @@ Authenticated:
 /api/v1/auth/me
 ```
 
-Everything else remains denied by default until its owning feature explicitly opens it. Do not broadly change to `anyRequest().authenticated()` and accidentally expose unfinished M1+/business endpoints.
+Everything else stays denied until its owning feature opens it. Do not switch to a broad `anyRequest().authenticated()` that exposes unfinished APIs.
 
-## 21. Transactions and failure behavior
+## 20. Transactions and failure policy
 
 MySQL transactions own durable identity changes:
 
-- registration user + credential + membership + default role
-- invitation acceptance
-- password reset credential + security-version increment
-- logout-all security-version increment
+```text
+registration
+invitation acceptance
+password-reset credential + security_version
+logout-all security_version
+```
 
-Redis operations cannot be the durable commit point for those MySQL changes.
+Redis never becomes the durable commit point for these changes.
 
-Where an operation needs both MySQL and Redis, define safe ordering so Redis failure cannot create a false durable identity state. Best-effort Redis revocation is acceptable only where MySQL security-version increment is already the durable guard.
+Best-effort Redis revocation is acceptable only after the durable MySQL security-version guard exists. Login/refresh never return credentials unless required Redis session writes succeed.
 
-Login/refresh creation failures must not return credentials to the client unless the required Redis session write succeeded.
-
-## 22. Test strategy
+## 21. Test strategy
 
 Behavior code is test-first. Generated/config artifacts use executable validation.
 
-### Backend unit/behavior tests
+Backend behavior tests:
 
-- email normalization
-- duplicate email
-- public registration disabled
-- missing/inactive configured registration organization
-- password encode/verify
-- generic invalid-credential response
-- disabled account
-- JWT claims/expiry/security version
-- login IP/account rate limits
-- Redis-down login fail-closed
-- refresh expiry
-- refresh rotation
-- replay revocation
-- cross-tab race
-- logout repeat-safe
-- logout-all security-version bump
-- reset single-use/TTL/session invalidation
-- invitation expired/used/duplicate email
-- audit secret-redaction invariants
+```text
+email normalization
+duplicate email
+public registration disabled
+missing/inactive registration organization
+dev bootstrap only under dev profile
+password encode/verify
+generic invalid credentials
+disabled account
+JWT claims/expiry
+security-version stale/disabled rejection
+security-version Redis miss -> MySQL fallback
+login IP/account rate limits
+Redis-down login fail-closed
+invalid Origin on cookie-auth mutations
+refresh expiry / rotation / replay / race
+logout repeat-safe
+logout-all security-version bump
+reset single-use / TTL / session invalidation
+invitation expired / used / duplicate email
+audit secret-redaction
+```
 
-### MySQL Testcontainers integration
+MySQL Testcontainers:
 
-- empty-database migration
-- unique/FK/core indexes
-- role/permission seed
-- transactional registration
-- transactional invitation acceptance
-- password-reset durable invalidation
+```text
+empty DB migration
+unique/FK/core indexes
+role/permission seed
+transactional registration
+transactional invitation acceptance
+password-reset durable invalidation
+```
 
-### Redis integration
+Redis integration uses a real Redis test container for rotation Lua, expiry, race/replay, security-version cache and rate limits. Do not mock away the atomicity being tested.
 
-Use a real Redis test container for rotation Lua, expiry, race/replay and rate-limit behavior. Do not mock away the atomicity being tested.
+Frontend tests:
 
-### Frontend tests
+```text
+login/register forms
+bootstrap refresh success/failure
+ProtectedRoute after bootstrap
+single-flight 401 refresh
+refresh-race single retry
+no infinite loop
+logout state clearing
+forgot/reset/invite flows
+ProblemDetail UX
+```
 
-- login/register forms
-- bootstrap refresh success/failure
-- ProtectedRoute after bootstrap
-- single-flight 401 refresh
-- refresh-race one-time retry
-- no infinite retry loop
-- logout clears auth state
-- forgot/reset/invite flows
-- ProblemDetail display
-
-### End-to-end acceptance
-
-From a clean checkout / clean DB / empty Redis:
+End-to-end acceptance from clean DB/Redis:
 
 1. Compose builds and starts.
-2. public-registration demo configuration can create a user in the configured dev organization.
-3. user logs in and reaches a protected shell.
-4. `/auth/me` returns current identity.
-5. refresh rotation returns a new access token/session secret.
-6. old refresh replay is rejected.
+2. dev profile has deterministic `demo` org and public registration enabled only by local config.
+3. user registers and logs in.
+4. protected shell renders and `/auth/me` returns current identity.
+5. refresh rotation succeeds.
+6. replay of an obsolete refresh token is rejected.
 7. logout prevents refresh reuse.
-8. password reset invalidates prior sessions.
-9. all existing GitHub required checks remain green.
+8. password reset invalidates prior sessions/security version.
+9. all seven required GitHub checks pass.
 
-## 23. Git and PR strategy
+## 22. Git / PR strategy
 
 Implementation branch:
 
@@ -546,30 +547,31 @@ Implementation branch:
 feat/m1-authentication-e2e
 ```
 
-The branch starts from the latest protected `main` after this design is accepted.
+Create it from latest protected `main` after this design is accepted. Use logical internal commits (schema, seed, registration, login, refresh, reset, frontend, docs/tests) but deliver one Authentication E2E PR.
 
-Use logical commits inside the branch (schema, seed, registration, login, refresh, reset, frontend, docs/tests), but deliver one Authentication E2E PR. The PR body should close:
+That PR closes:
 
 ```text
 #16 #17 #18 #19 #20 #21 #24
 ```
 
-It must not close AIC-017/#22, AIC-018/#23 or AIC-020/#25.
+It must not close #22, #23 or #25.
 
-No direct push to `main`. Required checks and strict up-to-date policy stay enabled.
+No direct push to `main`; required checks and strict up-to-date policy remain enabled.
 
-## 24. Success definition
+## 23. Success definition
 
-Authentication E2E is complete only when the repository can demonstrate this user-visible path:
+Authentication E2E is complete only when this user-visible path works:
 
 ```text
 register or invitation accept
 → login
-→ access protected shell
-→ access token expires / refresh succeeds
-→ refresh rotation is race/replay safe
-→ logout works
-→ forgot/reset works and invalidates old sessions
+→ protected shell
+→ access token expiry / refresh
+→ race/replay-safe rotation
+→ logout
+→ forgot/reset
+→ old sessions invalidated
 ```
 
-and the implementation preserves the frozen MySQL/Redis/security boundaries above.
+while preserving the frozen MySQL, Redis, API, security and repository boundaries above.
