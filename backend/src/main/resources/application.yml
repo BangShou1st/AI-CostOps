@@ -12,6 +12,10 @@ spring:
   jackson:
     time-zone: UTC
 
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
 management:
   endpoints:
     web:
