@@ -21,7 +21,7 @@ index tuning
 ```text
 MySQL 8.4 LTS
 InnoDB
-Plain MyBatis 4
+Plain MyBatis（Spring Boot Starter 4.x；MyBatis Core 3.5.x）
 Flyway
 ```
 

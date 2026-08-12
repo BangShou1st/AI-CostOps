@@ -22,6 +22,12 @@ quality/12-test-and-validation.md
 quality/12-test-and-validation.md
 ```
 
+M0 Foundation 的本地实现证据：
+
+```text
+implementation/08-m0-foundation-evidence.md
+```
+
 ## v1.0.0 最终验收
 
 看：

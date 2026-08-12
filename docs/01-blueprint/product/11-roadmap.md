@@ -53,7 +53,7 @@ Detailed Design
 Java 21
 Spring Boot 4.1
 Spring Security
-Plain MyBatis 4
+Plain MyBatis（Spring Boot Starter 4.x；MyBatis Core 3.5.x）
 MySQL 8.4 LTS
 Redis
 Flyway
