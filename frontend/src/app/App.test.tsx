@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { App } from './App'
 
 describe('App', () => {
-  it('identifies the repository foundation milestone', () => {
+  it('falls back to sign in when bootstrap has no refresh session', async () => {
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: 'AI CostOps' })).toBeInTheDocument()
-    expect(screen.getByText(/repository foundation/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    expect(screen.getByText('AI CostOps')).toBeInTheDocument()
   })
 })

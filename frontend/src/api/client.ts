@@ -49,7 +49,12 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
         })
     }
 
-    await refreshInFlight
+    try {
+      await refreshInFlight
+    } catch (refreshError) {
+      options.tokenStore.clear()
+      return Promise.reject(refreshError)
+    }
     return client.request(requestConfig)
   })
 
