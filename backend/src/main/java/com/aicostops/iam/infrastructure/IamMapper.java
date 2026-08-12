@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface IamMapper {
@@ -60,6 +61,22 @@ public interface IamMapper {
             LIMIT 1
             """)
     LoginIdentityRecord findLoginIdentity(String email);
+
+    @Select("""
+            SELECT u.id AS user_id, u.email_normalized, u.display_name, u.status, u.security_version,
+                   m.id AS organization_member_id, m.org_id AS organization_id
+            FROM app_user u
+            JOIN organization_member m ON m.user_id=u.id AND m.status='ACTIVE'
+            JOIN organization o ON o.id=m.org_id AND o.status='ACTIVE'
+            WHERE u.id=#{userId} ORDER BY m.id LIMIT 1
+            """)
+    AuthenticatedIdentityRecord findAuthenticatedIdentity(long userId);
+
+    @Select("SELECT security_version FROM app_user WHERE id=#{userId} AND status='ACTIVE'")
+    Long findActiveSecurityVersion(long userId);
+
+    @Update("UPDATE app_user SET security_version=security_version+1, updated_at=#{now} WHERE id=#{userId} AND status='ACTIVE'")
+    int incrementSecurityVersion(@Param("userId") long userId, @Param("now") Instant now);
 
     @Insert("""
             INSERT INTO role_assignment(org_member_id,role_id,scope_type,scope_id,assigned_by,created_at)

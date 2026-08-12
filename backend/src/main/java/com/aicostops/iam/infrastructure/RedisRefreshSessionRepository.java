@@ -59,6 +59,8 @@ public class RedisRefreshSessionRepository {
         var key = key(sessionId);
         redis.opsForHash().putAll(key, fields);
         redis.expire(key, sessionLifetime);
+        redis.opsForSet().add(userSessionsKey(userId), sessionId);
+        redis.expire(userSessionsKey(userId), sessionLifetime);
         return new RefreshCredential(sessionId + "." + secret);
     }
 
@@ -102,8 +104,22 @@ public class RedisRefreshSessionRepository {
     public void revoke(String rawCredential) {
         var parsed = parse(rawCredential);
         if (parsed != null) {
+            var values = redis.opsForHash().entries(key(parsed.sessionId()));
             redis.delete(key(parsed.sessionId()));
+            var userId = values.get("user_id");
+            if (userId != null) {
+                redis.opsForSet().remove(userSessionsKey(Long.parseLong((String) userId)), parsed.sessionId());
+            }
         }
+    }
+
+    public void revokeAll(long userId) {
+        var indexKey = userSessionsKey(userId);
+        var sessionIds = redis.opsForSet().members(indexKey);
+        if (sessionIds != null && !sessionIds.isEmpty()) {
+            redis.delete(sessionIds.stream().map(RedisRefreshSessionRepository::key).toList());
+        }
+        redis.delete(indexKey);
     }
 
     private String randomPart() {
@@ -126,6 +142,10 @@ public class RedisRefreshSessionRepository {
 
     private static String key(String sessionId) {
         return PREFIX + sessionId;
+    }
+
+    private static String userSessionsKey(long userId) {
+        return "aicostops:v1:auth:user-sessions:" + userId;
     }
 
     private record ParsedCredential(String sessionId, String secret) {

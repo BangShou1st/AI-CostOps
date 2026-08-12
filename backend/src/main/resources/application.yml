@@ -47,3 +47,5 @@ aicostops:
     login-window: ${AICOSTOPS_LOGIN_RATE_LIMIT_WINDOW:15m}
     login-ip-limit: ${AICOSTOPS_LOGIN_IP_LIMIT:20}
     login-account-limit: ${AICOSTOPS_LOGIN_ACCOUNT_LIMIT:8}
+    security-cache-ttl: ${AICOSTOPS_SECURITY_CACHE_TTL:1m}
+    allowed-origins: ${AICOSTOPS_ALLOWED_ORIGINS:http://localhost:8080}
