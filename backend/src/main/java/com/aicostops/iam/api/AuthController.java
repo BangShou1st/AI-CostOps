@@ -147,7 +147,7 @@ public class AuthController {
 
     private void validateOrigin(HttpServletRequest request) {
         var origin = request.getHeader("Origin");
-        if (origin != null && !allowedOrigins.contains(origin)) {
+        if (origin == null || !allowedOrigins.contains(origin)) {
             throw new DomainException(HttpStatus.FORBIDDEN, ProblemCode.FORBIDDEN,
                     "Origin rejected", "The request origin is not allowed.");
         }

@@ -42,6 +42,7 @@ The Auth acceptance run used a clean Compose database and Redis and proved:
 - login returns a short-lived JWT and an HttpOnly refresh cookie;
 - `/auth/me` accepts the JWT;
 - refresh rotates credentials;
+- refresh/logout reject both missing and non-allowlisted Origin headers;
 - an obsolete refresh credential is rejected as `AUTH_REFRESH_REPLAY`;
 - logout revokes the current refresh session;
 - forgot password returns the generic acceptance shape;

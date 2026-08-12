@@ -103,6 +103,9 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
 
         mockMvc.perform(post("/api/v1/auth/refresh").header("Origin", "https://evil.example").cookie(cookie))
                 .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/v1/auth/refresh").cookie(cookie))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         mockMvc.perform(post("/api/v1/auth/logout-all").header("Authorization", "Bearer " + access))
                 .andExpect(status().isNoContent());
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
