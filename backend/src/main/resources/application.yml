@@ -1,6 +1,8 @@
 spring:
   application:
     name: ai-costops-backend
+  autoconfigure:
+    exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
     username: ${SPRING_DATASOURCE_USERNAME:aicostops}
