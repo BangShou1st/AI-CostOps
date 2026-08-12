@@ -107,7 +107,8 @@ AIC-001 ... AIC-073
 M0 Repository Foundation
 AIC-001 Repository Governance（已完成）
 AIC-002～AIC-008、AIC-010 Foundation Implementation（已完成）
-AIC-009 Required Status Checks（等待真实 PR checks 成功后配置）
+AIC-009 Required Status Checks（已配置并完成失败 CI 阻断验证）
+M0 实现与仓库保护收尾已完成；Milestone 最终验收仍待第二位 Contributor 独立 clean-clone/bootstrap 证据。
 ```
 
 当前仓库可执行基线：Java 21 / Spring Boot 4.1.0 / MyBatis Spring Boot Starter 4.1.0（Core 3.5.19）、React 19 / TypeScript 6 / Vite 8、MySQL 8.4 / Redis / MinIO、Docker Compose 与 GitHub Actions。
