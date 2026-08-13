@@ -1,6 +1,7 @@
 package com.aicostops.shared.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,5 +67,41 @@ class SecurityConfigurationTest {
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"))
                 .andExpect(jsonPath("$.traceId").isString())
                 .andExpect(jsonPath("$.instance").value("/api/v1/not-implemented"));
+    }
+
+    @Test
+    void exactIamReadRoutesRequireAuthentication() throws Exception {
+        for (var path : java.util.List.of(
+                "/api/v1/users", "/api/v1/users/123", "/api/v1/roles", "/api/v1/permissions")) {
+            mockMvc.perform(get(path))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        }
+    }
+
+    @Test
+    void unsupportedMethodsOnIamReadPathsRemainDenied() throws Exception {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        var token = tokens.issue(42L, 0L).token();
+
+        for (var path : java.util.List.of(
+                "/api/v1/users", "/api/v1/users/123", "/api/v1/roles", "/api/v1/permissions")) {
+            mockMvc.perform(post(path).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    @Test
+    void iamReadMatchersDoNotOpenRouteFamilies() throws Exception {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        var token = tokens.issue(42L, 0L).token();
+
+        for (var path : java.util.List.of(
+                "/api/v1/users/123/roles", "/api/v1/roles/123", "/api/v1/permissions/123")) {
+            mockMvc.perform(get(path).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
     }
 }
