@@ -41,6 +41,9 @@ public class AuthorizationInvalidationService {
         if (newVersion == null) {
             throw new IllegalStateException("Updated user security version is unavailable");
         }
+        if (oldVersion == Long.MAX_VALUE || newVersion.longValue() != oldVersion + 1) {
+            throw new IllegalStateException("Authorization security version changed concurrently");
+        }
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override

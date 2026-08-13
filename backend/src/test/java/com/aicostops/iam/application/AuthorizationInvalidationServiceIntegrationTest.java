@@ -1,6 +1,7 @@
 package com.aicostops.iam.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.aicostops.iam.infrastructure.RedisRefreshSessionRepository;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
@@ -82,6 +83,31 @@ class AuthorizationInvalidationServiceIntegrationTest extends AuthenticationCont
         assertThat(redis.opsForValue().get(oldContextKey)).isNull();
         assertThat(redis.opsForValue().get(newContextKey)).isNull();
         assertThat(refreshSessions.load(refresh.value())).isNull();
+    }
+
+    @Test
+    void mismatchedOldVersionRollsBackWithoutRuntimeMaintenance() {
+        var targetUserId = insertUser("mismatch-target@invalidation.test", "ACTIVE", 7L);
+        var securityKey = "aicostops:v1:auth:security:" + targetUserId;
+        var wrongOldContextKey = "aicostops:v1:iam:context:" + targetUserId + ":6";
+        var actualOldContextKey = "aicostops:v1:iam:context:" + targetUserId + ":7";
+        var newContextKey = "aicostops:v1:iam:context:" + targetUserId + ":8";
+        redis.opsForValue().set(securityKey, "7");
+        redis.opsForValue().set(wrongOldContextKey, "wrong-old-context");
+        redis.opsForValue().set(actualOldContextKey, "actual-old-context");
+        redis.opsForValue().set(newContextKey, "new-context");
+        var refresh = refreshSessions.create(targetUserId, 22L, 7L, "browser");
+
+        var failure = catchThrowable(() -> new TransactionTemplate(transactionManager).executeWithoutResult(
+                status -> invalidationService.bumpInTransaction(targetUserId, 6L)));
+
+        assertThat(securityVersion(targetUserId)).isEqualTo(7L);
+        assertThat(redis.opsForValue().get(securityKey)).isEqualTo("7");
+        assertThat(redis.opsForValue().get(wrongOldContextKey)).isEqualTo("wrong-old-context");
+        assertThat(redis.opsForValue().get(actualOldContextKey)).isEqualTo("actual-old-context");
+        assertThat(redis.opsForValue().get(newContextKey)).isEqualTo("new-context");
+        assertThat(refreshSessions.load(refresh.value())).isNotNull();
+        assertThat(failure).isInstanceOf(IllegalStateException.class);
     }
 
     private long insertUser(String email, String status, long securityVersion) {
