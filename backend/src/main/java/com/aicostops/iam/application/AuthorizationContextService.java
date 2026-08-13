@@ -32,7 +32,7 @@ public class AuthorizationContextService {
                 .map(grant -> grant.roleCode())
                 .collect(Collectors.toUnmodifiableSet());
         return new AuthorizationContext(identity.userId(), identity.organizationId(),
-                identity.organizationMemberId(), identity.securityVersion(), roleCodes, grants);
+                identity.organizationMemberId(), identity.securityVersion(), grants, roleCodes);
     }
 
     private DomainException sessionExpired() {

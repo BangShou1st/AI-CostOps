@@ -40,9 +40,7 @@ The first four tasks establish these exact cross-task contracts:
 ```java
 public enum ScopeType { ORG, PROJECT, TEAM, COST_CENTER }
 public record ScopedPermissionGrant(String permissionCode, ScopeType scopeType, long scopeId) {}
-public record AuthorizationContext(long userId, long organizationId,
-        long organizationMemberId, long securityVersion,
-        Set<ScopedPermissionGrant> grants) {}
+public record AuthorizationContext(long userId, long organizationId, long organizationMemberId, long securityVersion, Set<ScopedPermissionGrant> grants, Set<String> roleCodes) {}
 public record ResourceScope(boolean organizationWide, Set<Long> resourceIds) {}
 
 public interface AuthorizationContextCache {

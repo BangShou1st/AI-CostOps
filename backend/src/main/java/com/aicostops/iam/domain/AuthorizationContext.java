@@ -8,11 +8,11 @@ public record AuthorizationContext(
         long organizationId,
         long organizationMemberId,
         long securityVersion,
-        Set<String> roleCodes,
-        Set<ScopedPermissionGrant> grants) {
+        Set<ScopedPermissionGrant> grants,
+        Set<String> roleCodes) {
 
     public AuthorizationContext {
-        roleCodes = Set.copyOf(Objects.requireNonNull(roleCodes, "Role codes are required"));
         grants = Set.copyOf(Objects.requireNonNull(grants, "Permission grants are required"));
+        roleCodes = Set.copyOf(Objects.requireNonNull(roleCodes, "Role codes are required"));
     }
 }

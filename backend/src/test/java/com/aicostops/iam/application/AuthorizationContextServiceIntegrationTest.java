@@ -3,6 +3,7 @@ package com.aicostops.iam.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.aicostops.iam.domain.AuthorizationContext;
 import com.aicostops.iam.domain.ScopeType;
 import com.aicostops.iam.domain.ScopedPermissionGrant;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -116,6 +117,17 @@ class AuthorizationContextServiceIntegrationTest extends MySqlContainerSupport {
                 new ScopedPermissionGrant("LEDGER_POST", ScopeType.COST_CENTER, 9),
                 new ScopedPermissionGrant("IMPORT_CONFIRM", ScopeType.COST_CENTER, 9),
                 new ScopedPermissionGrant("AUDIT_READ", ScopeType.COST_CENTER, 9));
+    }
+
+    @Test
+    void constructsContextWithGrantsBeforeRoleCodes() {
+        var grants = Set.of(new ScopedPermissionGrant("USER_READ", ScopeType.ORG, 2));
+        var roleCodes = Set.of("SYSTEM_ADMIN");
+
+        var context = new AuthorizationContext(1, 2, 3, 4, grants, roleCodes);
+
+        assertThat(context.grants()).isEqualTo(grants);
+        assertThat(context.roleCodes()).isEqualTo(roleCodes);
     }
 
     private void assign(String roleCode, String scopeType, long scopeId) {
