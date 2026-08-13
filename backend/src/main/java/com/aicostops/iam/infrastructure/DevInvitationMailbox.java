@@ -105,7 +105,7 @@ public class DevInvitationMailbox implements InvitationDelivery {
         }
     }
 
-    void enforceOwnerOnly(Path path, boolean directory) throws IOException {
+    private void enforceOwnerOnly(Path path, boolean directory) throws IOException {
         if (Files.isSymbolicLink(path)) {
             throw new IOException("Invitation mailbox paths cannot be symbolic links");
         }

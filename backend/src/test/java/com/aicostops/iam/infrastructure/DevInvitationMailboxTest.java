@@ -68,25 +68,30 @@ class DevInvitationMailboxTest {
     }
 
     @Test
-    void posixSymlinkCannotChangeTargetPermissions() throws Exception {
+    void posixSymlinkMailboxCannotChangeTargetPermissions() throws Exception {
         Assumptions.assumeTrue(Files.getFileAttributeView(mailbox, PosixFileAttributeView.class,
                 LinkOption.NOFOLLOW_LINKS) != null);
-        var target = mailbox.resolve("target.txt");
-        Files.writeString(target, "target");
+        var target = mailbox.resolve("target");
+        Files.createDirectory(target);
         var originalPermissions = Set.of(
                 PosixFilePermission.OWNER_READ,
                 PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE,
                 PosixFilePermission.GROUP_READ,
-                PosixFilePermission.OTHERS_READ);
+                PosixFilePermission.GROUP_EXECUTE,
+                PosixFilePermission.OTHERS_READ,
+                PosixFilePermission.OTHERS_EXECUTE);
         Files.setPosixFilePermissions(target, originalPermissions);
-        var link = mailbox.resolve("mailbox-link");
+        var link = mailbox.resolve("invitations");
         Files.createSymbolicLink(link, target.getFileName());
-        var sink = new DevInvitationMailbox(mailbox.resolve("invitations"),
+        var sink = new DevInvitationMailbox(link,
                 "http://localhost:8080/accept-invitation");
 
-        assertThatThrownBy(() -> sink.enforceOwnerOnly(link, false))
-                .isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> sink.deliver("person@example.com", "invitation-secret-value"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasCauseInstanceOf(IOException.class);
         assertThat(Files.getPosixFilePermissions(target)).isEqualTo(originalPermissions);
+        assertThat(Files.list(target)).isEmpty();
     }
 
     private void assertOwnerOnlyAcl(Path path) throws Exception {
