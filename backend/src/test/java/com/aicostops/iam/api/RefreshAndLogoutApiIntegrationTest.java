@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.aicostops.iam.application.RegisterCommand;
 import com.aicostops.iam.application.RegistrationService;
+import com.aicostops.audit.application.AuditService;
+import com.aicostops.iam.infrastructure.RedisRefreshSessionRepository;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +23,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 @SpringBootTest(properties = {
         "aicostops.auth.allow-public-registration=true",
@@ -37,6 +41,8 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
     @Autowired RegistrationService registrationService;
     @Autowired JdbcTemplate jdbc;
     @Autowired StringRedisTemplate redis;
+    @MockitoSpyBean RedisRefreshSessionRepository refreshSessions;
+    @MockitoSpyBean AuditService auditService;
 
     @BeforeEach
     void setUp() {
@@ -106,6 +112,27 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
     }
 
     @Test
+    void logoutRedisFailureReturnsUnavailableWithoutClearingCookieOrRecordingSuccess() throws Exception {
+        var login = login();
+        var access = com.jayway.jsonpath.JsonPath.<String>read(login.getResponse().getContentAsString(), "$.accessToken");
+        var liveCookie = login.getResponse().getCookie("aicostops_refresh");
+        org.mockito.Mockito.doThrow(new DataAccessResourceFailureException("redis unavailable"))
+                .when(refreshSessions).revoke(liveCookie.getValue());
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .header("Authorization", "Bearer " + access)
+                        .header("Origin", "http://localhost:8080").cookie(liveCookie))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("REDIS_UNAVAILABLE_FOR_AUTH"))
+                .andExpect(header().doesNotExist("Set-Cookie"));
+
+        org.mockito.Mockito.verify(auditService, org.mockito.Mockito.never()).append(
+                org.mockito.ArgumentMatchers.eq("LOGOUT"), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyMap());
+    }
+
+    @Test
     void rejectsForeignOriginAndLogoutAllDurablyInvalidatesOldJwtAndRefresh() throws Exception {
         var login = login();
         var access = com.jayway.jsonpath.JsonPath.<String>read(login.getResponse().getContentAsString(), "$.accessToken");
@@ -124,6 +151,35 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .header("Origin", "http://localhost:8080").cookie(cookie))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void meRejectsAValidJwtWhenActiveMembershipContextHasVanished() throws Exception {
+        var login = login();
+        var access = com.jayway.jsonpath.JsonPath.<String>read(login.getResponse().getContentAsString(), "$.accessToken");
+        jdbc.update("DELETE ra FROM role_assignment ra JOIN organization_member om ON om.id=ra.org_member_id "
+                + "JOIN app_user u ON u.id=om.user_id WHERE u.email_normalized='lifecycle@auth.test'");
+        jdbc.update("DELETE om FROM organization_member om JOIN app_user u ON u.id=om.user_id "
+                + "WHERE u.email_normalized='lifecycle@auth.test'");
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + access))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_SESSION_EXPIRED"));
+    }
+
+    @Test
+    void missingRedisRefreshStateIsSafelyRejectedWithoutCreatingAnotherSession() throws Exception {
+        var login = login();
+        var liveCookie = login.getResponse().getCookie("aicostops_refresh");
+        var sessionId = liveCookie.getValue().substring(0, liveCookie.getValue().indexOf('.'));
+        redis.delete("aicostops:v1:auth:refresh:" + sessionId);
+
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .header("Origin", "http://localhost:8080").cookie(liveCookie))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_SESSION_EXPIRED"));
+
+        org.assertj.core.api.Assertions.assertThat(redis.keys("aicostops:v1:auth:refresh:*")).isEmpty();
     }
 
     private MvcResult login() throws Exception {

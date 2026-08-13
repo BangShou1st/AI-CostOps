@@ -279,9 +279,9 @@ paths:
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
-        '409':
+        '429':
           $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -304,13 +304,11 @@ paths:
                 $ref: '#/components/schemas/IdentityResponse'
         '400':
           $ref: '#/components/responses/Problem'
-        '401':
-          $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
         '409':
           $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -331,15 +329,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginResponse'
-        '400':
-          $ref: '#/components/responses/Problem'
         '401':
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
         '409':
           $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
   /auth/logout:
@@ -350,15 +346,11 @@ paths:
       responses:
         '204':
           description: Session revoked and refresh cookie cleared
-        '400':
-          $ref: '#/components/responses/Problem'
         '401':
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
   /auth/logout-all:
     post:
@@ -368,15 +360,7 @@ paths:
       responses:
         '204':
           description: Durable security version increment completed
-        '400':
-          $ref: '#/components/responses/Problem'
         '401':
-          $ref: '#/components/responses/Problem'
-        '403':
-          $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
           $ref: '#/components/responses/Problem'
   /auth/password/forgot:
     post:
@@ -392,13 +376,9 @@ paths:
                 $ref: '#/components/schemas/ForgotPasswordResponse'
         '400':
           $ref: '#/components/responses/Problem'
-        '401':
+        '429':
           $ref: '#/components/responses/Problem'
-        '403':
-          $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -421,9 +401,7 @@ paths:
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -444,15 +422,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MeResponse'
-        '400':
-          $ref: '#/components/responses/Problem'
         '401':
-          $ref: '#/components/responses/Problem'
-        '403':
-          $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
           $ref: '#/components/responses/Problem'
   /invitations/{token}/accept:
     post:
@@ -468,13 +438,7 @@ paths:
                 $ref: '#/components/schemas/IdentityResponse'
         '400':
           $ref: '#/components/responses/Problem'
-        '401':
-          $ref: '#/components/responses/Problem'
-        '403':
-          $ref: '#/components/responses/Problem'
         '409':
-          $ref: '#/components/responses/Problem'
-        '422':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:

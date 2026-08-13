@@ -20,12 +20,21 @@ public class SecurityProblemWriter {
 
     public void unauthorized(HttpServletRequest request, HttpServletResponse response,
             ProblemCode code, String detail) throws IOException {
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        write(request, response, HttpServletResponse.SC_UNAUTHORIZED, "Unauthorized", code, detail);
+    }
+
+    public void forbidden(HttpServletRequest request, HttpServletResponse response, String detail) throws IOException {
+        write(request, response, HttpServletResponse.SC_FORBIDDEN, "Forbidden", ProblemCode.FORBIDDEN, detail);
+    }
+
+    private void write(HttpServletRequest request, HttpServletResponse response, int status,
+            String title, ProblemCode code, String detail) throws IOException {
+        response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
         var body = new LinkedHashMap<String, Object>();
         body.put("type", "https://aicostops.dev/problems/" + code.name().toLowerCase().replace('_', '-'));
-        body.put("title", "Unauthorized");
-        body.put("status", HttpServletResponse.SC_UNAUTHORIZED);
+        body.put("title", title);
+        body.put("status", status);
         body.put("detail", detail);
         body.put("instance", request.getRequestURI());
         body.put("code", code.name());

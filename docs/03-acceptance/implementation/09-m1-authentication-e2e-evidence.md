@@ -1,6 +1,6 @@
 # M1 Authentication E2E Implementation Evidence
 
-Date: 2026-08-13 (Asia/Shanghai)
+Date: 2026-08-13 (Asia/Singapore)
 
 Branch: `feat/m1-authentication-e2e`
 
@@ -18,9 +18,9 @@ module on 2026-08-13. GitHub Actions was not invoked.
 
 | Area | Command | Observed result |
 |---|---|---|
-| Backend unit | `cd backend; .\mvnw.cmd -B "-DexcludedGroups=architecture,integration" test` | PASS — 33 tests, 0 failures, 0 errors, 0 skipped |
+| Backend unit | `cd backend; .\mvnw.cmd clean -B "-DexcludedGroups=architecture,integration" test` | PASS — 43 tests, 0 failures, 0 errors, 0 skipped |
 | Architecture | `cd backend; .\mvnw.cmd -B -Dgroups=architecture test` | PASS — 1 test, 0 failures, 0 errors, 0 skipped |
-| Backend integration | `cd backend; .\mvnw.cmd -B -Dgroups=integration verify` | PASS — 34 tests, 0 failures, 0 errors, 0 skipped; MySQL 8.4 and Redis 8.8.1 Testcontainers |
+| Backend integration | `cd backend; .\mvnw.cmd -B "-Dgroups=integration" verify` | PASS — 39 tests, 0 failures, 0 errors, 0 skipped; MySQL 8.4 and Redis 8.8.1 Testcontainers |
 | Frontend install | `cd frontend; npm ci` | PASS — 294 packages installed |
 | Frontend lint | `cd frontend; npm run lint` | PASS |
 | Frontend tests | `cd frontend; npm test -- --run` | PASS — 6 files, 13 tests |
@@ -46,7 +46,8 @@ The Auth acceptance run used a clean Compose database and Redis and proved:
 - an obsolete refresh credential is rejected as `AUTH_REFRESH_REPLAY`;
 - logout revokes the current refresh session;
 - forgot password returns the generic acceptance shape;
-- a test-only reset challenge is consumed once;
+- forgot password delivers a real reset link through the dev-only file-backed mailbox;
+- the smoke reads that mailbox reset link/token and consumes the challenge once through the reset API;
 - password reset changes the credential and invalidates the old JWT/session;
 - the new password can authenticate.
 
@@ -65,6 +66,20 @@ The Auth acceptance run used a clean Compose database and Redis and proved:
   now normalizes the wrapper line endings and the complete image build passed.
 - The smoke script was rerun from its first step after PowerShell compatibility
   fixes; the final complete run passed.
+- Ordinary logout under Redis failure initially returned `204`, cleared the
+  refresh cookie, and recorded a successful logout. The focused regression now
+  returns `503 REDIS_UNAVAILABLE_FOR_AUTH`, preserves the cookie, and records no
+  `LOGOUT` audit event; logout-all remains best-effort after its durable MySQL
+  security-version update.
+- An authenticated deny-all request initially returned Spring Security's empty
+  `403`. It now returns the shared `application/problem+json` contract with
+  `FORBIDDEN` and all required fields.
+- `/auth/me` initially dereferenced a missing active membership context. The
+  regression now returns `401 AUTH_SESSION_EXPIRED` instead.
+- Missing Redis refresh-session state is covered by a regression that returns
+  `401 AUTH_SESSION_EXPIRED` and verifies that no replacement session is created.
+- Role seed integration coverage now compares all five roles to their complete,
+  exact documented permission sets and verifies the exact total row count.
 
 ## Known warnings and limitations
 
@@ -73,9 +88,12 @@ The Auth acceptance run used a clean Compose database and Redis and proved:
 - Docker CLI warns when MySQL/Redis passwords are supplied to their command-line
   clients during the local acceptance script. Values come from the local example
   env file and are not logged by the application.
-- `PasswordResetDelivery` is a secret-safe no-op production boundary in M1;
-  SMTP/provider delivery is not configured. Tests inject a delivery spy and the
-  smoke test injects a Redis challenge directly.
+- The `dev` profile provides a file-backed password-reset mailbox. The smoke
+  performs `POST forgot` → dev `PasswordResetDelivery` → mailbox read of the
+  real `resetLink`/token → `POST reset`; it does not inject Redis state.
+- Default/production has no SMTP or provider integration. Production password
+  reset delivery is not operational until such a provider is connected, and
+  this evidence does not claim production mail delivery is implemented.
 - Cross-tab coordination is intentionally not implemented; refresh is
   single-flight within one browser tab, as scoped.
 - Not yet verified on real GitHub PR CI.

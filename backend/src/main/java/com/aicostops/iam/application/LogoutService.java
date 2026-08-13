@@ -8,6 +8,9 @@ import java.util.Map;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import com.aicostops.shared.web.DomainException;
+import com.aicostops.shared.web.ProblemCode;
 
 @Service
 public class LogoutService {
@@ -23,7 +26,11 @@ public class LogoutService {
     }
 
     public void logout(long userId, String refreshCredential) {
-        try { sessions.revoke(refreshCredential); } catch (DataAccessException ignored) { }
+        try { sessions.revoke(refreshCredential); }
+        catch (DataAccessException exception) {
+            throw new DomainException(HttpStatus.SERVICE_UNAVAILABLE, ProblemCode.REDIS_UNAVAILABLE_FOR_AUTH,
+                    "Authentication runtime unavailable", "Authentication is temporarily unavailable.");
+        }
         audit.append("LOGOUT", null, userId, "USER", userId, Map.of("scope", "CURRENT_SESSION"));
     }
 

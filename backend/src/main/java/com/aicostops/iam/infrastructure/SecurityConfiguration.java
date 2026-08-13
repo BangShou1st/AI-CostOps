@@ -22,7 +22,8 @@ public class SecurityConfiguration {
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) -> {
                     problems.unauthorized(request, response, ProblemCode.AUTH_ACCESS_EXPIRED,
                             "Authentication is required.");
-                }))
+                }).accessDeniedHandler((request, response, exception) ->
+                        problems.forbidden(request, response, "Access to this resource is forbidden.")))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh",

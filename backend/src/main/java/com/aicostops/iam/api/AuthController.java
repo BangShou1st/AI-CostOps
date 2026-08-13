@@ -94,7 +94,12 @@ public class AuthController {
 
     @GetMapping("/me")
     public MeResponse me(@AuthenticationPrincipal AuthenticatedUser user) {
-        return MeResponse.from(iamMapper.findAuthenticatedIdentity(user.userId()));
+        var identity = iamMapper.findAuthenticatedIdentity(user.userId());
+        if (identity == null) {
+            throw new DomainException(HttpStatus.UNAUTHORIZED, ProblemCode.AUTH_SESSION_EXPIRED,
+                    "Authentication session expired", "Sign in again.");
+        }
+        return MeResponse.from(identity);
     }
 
     @PostMapping("/logout")
