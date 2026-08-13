@@ -59,12 +59,78 @@ class RoleAssignmentServiceTest {
     }
 
     @Test
+    void unqualifiedNaturalAssignmentConstraintIsConflict() {
+        var duplicate = duplicate("Duplicate entry '10-5-ORG-2' for key "
+                + "'uq_role_assignment_natural'");
+        var fixture = fixture(duplicate);
+
+        var error = catchThrowableOfType(DomainException.class,
+                () -> fixture.service().create(fixture.actor(), fixture.request()));
+
+        assertThat(error.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(error.code()).isEqualTo(ProblemCode.STATE_CONFLICT);
+    }
+
+    @Test
     void unrelatedDuplicateConstraintPropagates() {
         var duplicate = duplicate("Duplicate entry '99' for key 'role_assignment.PRIMARY'");
         var fixture = fixture(duplicate);
 
         assertThatThrownBy(() -> fixture.service().create(fixture.actor(), fixture.request()))
                 .isSameAs(duplicate);
+    }
+
+    @Test
+    void unterminatedKeyQuotePropagates() {
+        assertDuplicatePropagates("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment.uq_role_assignment_natural");
+    }
+
+    @Test
+    void unquotedKeyPropagates() {
+        assertDuplicatePropagates("Duplicate entry '99' for key PRIMARY");
+    }
+
+    @Test
+    void leadingDotQualifierPropagates() {
+        assertDuplicatePropagates("Duplicate entry '10-5-ORG-2' for key "
+                + "'.uq_role_assignment_natural'");
+    }
+
+    @Test
+    void emptyMiddleQualifierPropagates() {
+        assertDuplicatePropagates("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment..uq_role_assignment_natural'");
+    }
+
+    @Test
+    void whitespaceQualifierPropagates() {
+        assertDuplicatePropagates("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment. .uq_role_assignment_natural'");
+    }
+
+    @Test
+    void trailingDotQualifierPropagates() {
+        assertDuplicatePropagates("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment.uq_role_assignment_natural.'");
+    }
+
+    @Test
+    void validNaturalKeyFollowedByUnquotedKeyPropagates() {
+        assertDuplicatePropagates("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment.uq_role_assignment_natural' for key PRIMARY");
+    }
+
+    @Test
+    void validNaturalKeyFollowedByUnterminatedKeyPropagates() {
+        assertDuplicatePropagates("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment.uq_role_assignment_natural' for key 'PRIMARY");
+    }
+
+    @Test
+    void twoValidKeySegmentsPropagate() {
+        assertDuplicatePropagates("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment.uq_role_assignment_natural' for key 'role_assignment.PRIMARY'");
     }
 
     @Test
@@ -155,6 +221,14 @@ class RoleAssignmentServiceTest {
         return new Fixture(new RoleAssignmentService(
                 contexts, mapper, organizations, invalidation, audit,
                 Clock.fixed(Instant.parse("2026-08-13T05:00:00Z"), ZoneOffset.UTC)), actor, request);
+    }
+
+    private void assertDuplicatePropagates(String mysqlMessage) {
+        var duplicate = duplicate(mysqlMessage);
+        var fixture = fixture(duplicate);
+
+        assertThatThrownBy(() -> fixture.service().create(fixture.actor(), fixture.request()))
+                .isSameAs(duplicate);
     }
 
     private DuplicateKeyException duplicate(String mysqlMessage) {

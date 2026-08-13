@@ -28,9 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class RoleAssignmentService {
 
     private static final String NATURAL_ASSIGNMENT_CONSTRAINT = "uq_role_assignment_natural";
-    private static final Pattern MYSQL_DUPLICATE_KEY_IDENTIFIER = Pattern.compile(
-            "\\bfor\\s+key\\s+(['`])([^'`]+)\\1",
-            Pattern.CASE_INSENSITIVE);
+    private static final Pattern MYSQL_FOR_KEY = Pattern.compile("for\\s+key", Pattern.CASE_INSENSITIVE);
+    private static final Pattern MYSQL_QUOTED_KEY_REMAINDER = Pattern.compile(
+            "\\s+(['`])([^'`]+)\\1\\s*");
 
     private final AuthorizationContextService authorizationContexts;
     private final IamAdminMapper mapper;
@@ -195,16 +195,26 @@ public class RoleAssignmentService {
         if (message == null) {
             return false;
         }
-        var matcher = MYSQL_DUPLICATE_KEY_IDENTIFIER.matcher(message);
-        if (!matcher.find()) {
+        var forKeyMatcher = MYSQL_FOR_KEY.matcher(message);
+        if (!forKeyMatcher.find()) {
             return false;
         }
-        var qualifiedIdentifier = matcher.group(2);
-        if (matcher.find()) {
+        var keyRemainderStart = forKeyMatcher.end();
+        if (forKeyMatcher.find()) {
             return false;
         }
-        var qualifierSeparator = qualifiedIdentifier.lastIndexOf('.');
-        var constraint = qualifiedIdentifier.substring(qualifierSeparator + 1);
+        var keyMatcher = MYSQL_QUOTED_KEY_REMAINDER.matcher(message.substring(keyRemainderStart));
+        if (!keyMatcher.matches()) {
+            return false;
+        }
+        var qualifiedIdentifier = keyMatcher.group(2);
+        var components = qualifiedIdentifier.split("\\.", -1);
+        for (var component : components) {
+            if (component.isBlank()) {
+                return false;
+            }
+        }
+        var constraint = components[components.length - 1];
         return NATURAL_ASSIGNMENT_CONSTRAINT.equalsIgnoreCase(constraint);
     }
 
