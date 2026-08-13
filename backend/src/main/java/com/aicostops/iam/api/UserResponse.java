@@ -22,9 +22,12 @@ public record UserResponse(
 
     public record RoleAssignmentResponse(
             ApiId id,
-            RoleResponse role,
+            RoleReferenceResponse role,
             String scopeType,
             ApiId scopeId,
             Instant createdAt) {
+    }
+
+    public record RoleReferenceResponse(ApiId id, String code, String name) {
     }
 }

@@ -1,6 +1,5 @@
 package com.aicostops.iam.application;
 
-import com.aicostops.iam.api.RoleResponse;
 import com.aicostops.iam.api.UserResponse;
 import com.aicostops.iam.infrastructure.IamAdminMapper;
 import com.aicostops.iam.infrastructure.IamAdminMapper.RoleAssignmentRow;
@@ -76,7 +75,8 @@ public class UserAdminService {
         var assignments = assignmentsByUser.getOrDefault(row.id(), List.of()).stream()
                 .map(assignment -> new UserResponse.RoleAssignmentResponse(
                         ApiId.of(assignment.id()),
-                        new RoleResponse(ApiId.of(assignment.roleId()), assignment.roleCode(), assignment.roleName()),
+                        new UserResponse.RoleReferenceResponse(
+                                ApiId.of(assignment.roleId()), assignment.roleCode(), assignment.roleName()),
                         assignment.scopeType(), ApiId.of(assignment.scopeId()), assignment.createdAt()))
                 .toList();
         return new UserResponse(ApiId.of(row.id()), row.email(), row.displayName(), row.status(),

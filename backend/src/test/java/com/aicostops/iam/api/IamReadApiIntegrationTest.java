@@ -11,6 +11,7 @@ import com.aicostops.testsupport.AuthenticationContainersSupport;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import java.util.stream.StreamSupport;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -104,6 +105,8 @@ class IamReadApiIntegrationTest extends AuthenticationContainersSupport {
         assertThat(detail.path("roleAssignments").get(0).path("id").isTextual()).isTrue();
         assertThat(detail.path("roleAssignments").get(0).path("role").path("code").asText())
                 .isEqualTo("EMPLOYEE");
+        assertThat(detail.path("roleAssignments").get(0).path("role").propertyNames())
+                .containsExactlyInAnyOrder("id", "code", "name");
         assertThat(detail.path("roleAssignments").get(0).path("scopeType").asText()).isEqualTo("ORG");
         assertThat(detail.path("roleAssignments").get(0).path("scopeId").asText())
                 .isEqualTo(Long.toString(organizationId));
@@ -141,7 +144,30 @@ class IamReadApiIntegrationTest extends AuthenticationContainersSupport {
         assertThat(roles.isArray()).isTrue();
         assertThat(roles).hasSize(5);
         assertThat(roles.get(0).path("id").isTextual()).isTrue();
-        assertThat(roles.toString()).contains("SYSTEM_ADMIN", "System Admin");
+        var systemAdmin = StreamSupport.stream(roles.spliterator(), false)
+                .filter(role -> role.path("code").asText().equals("SYSTEM_ADMIN"))
+                .findFirst().orElseThrow();
+        assertThat(systemAdmin.path("name").asText()).isEqualTo("System Admin");
+        assertThat(systemAdmin.path("permissions").isArray()).isTrue();
+        assertThat(StreamSupport.stream(systemAdmin.path("permissions").spliterator(), false)
+                .map(permission -> permission.path("code").asText())
+                .collect(java.util.stream.Collectors.toSet()))
+                .isEqualTo(Set.of(
+                        "USER_READ", "USER_MANAGE", "USER_INVITE", "ROLE_READ", "ROLE_ASSIGN",
+                        "PROJECT_READ", "PROJECT_MANAGE", "PROJECT_MEMBER_MANAGE", "TEAM_READ", "TEAM_MANAGE",
+                        "COST_CENTER_READ", "COST_CENTER_MANAGE", "PROVIDER_ACCOUNT_READ",
+                        "PROVIDER_ACCOUNT_MANAGE", "AUDIT_READ"));
+        assertThat(StreamSupport.stream(systemAdmin.path("permissions").spliterator(), false)
+                .allMatch(permission -> new java.util.HashSet<>(permission.propertyNames())
+                        .equals(Set.of("id", "code", "name"))
+                        && permission.path("id").isTextual()
+                        && permission.path("name").isTextual()))
+                .isTrue();
+        var userRead = StreamSupport.stream(systemAdmin.path("permissions").spliterator(), false)
+                .filter(permission -> permission.path("code").asText().equals("USER_READ"))
+                .findFirst().orElseThrow();
+        assertThat(userRead.path("id").asText()).isEqualTo("1");
+        assertThat(userRead.path("name").asText()).isEqualTo("Read users");
         assertThat(permissions.isArray()).isTrue();
         assertThat(permissions).hasSize(48);
         assertThat(permissions.get(0).path("id").isTextual()).isTrue();

@@ -71,6 +71,14 @@ public interface IamAdminMapper {
     @Select("SELECT id, code, name FROM `role` ORDER BY id")
     List<RoleRow> findRoles();
 
+    @Select("""
+            SELECT rp.role_id, p.id AS permission_id, p.code AS permission_code, p.name AS permission_name
+            FROM role_permission rp
+            JOIN permission p ON p.id=rp.permission_id
+            ORDER BY rp.role_id, p.id
+            """)
+    List<RolePermissionRow> findRolePermissions();
+
     @Select("SELECT id, code, name FROM permission ORDER BY id")
     List<PermissionRow> findPermissions();
 
@@ -98,6 +106,13 @@ public interface IamAdminMapper {
     }
 
     record RoleRow(long id, String code, String name) {
+    }
+
+    record RolePermissionRow(
+            long roleId,
+            long permissionId,
+            String permissionCode,
+            String permissionName) {
     }
 
     record PermissionRow(long id, String code, String name) {

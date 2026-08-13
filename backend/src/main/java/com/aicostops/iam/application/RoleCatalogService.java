@@ -5,6 +5,8 @@ import com.aicostops.iam.api.RoleResponse;
 import com.aicostops.iam.infrastructure.IamAdminMapper;
 import com.aicostops.shared.json.ApiId;
 import com.aicostops.shared.security.AuthenticatedUser;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
@@ -22,8 +24,15 @@ public class RoleCatalogService {
 
     public List<RoleResponse> roles(AuthenticatedUser authenticatedUser) {
         requireRoleRead(authenticatedUser);
+        var permissionsByRole = new LinkedHashMap<Long, List<PermissionResponse>>();
+        for (var permission : mapper.findRolePermissions()) {
+            permissionsByRole.computeIfAbsent(permission.roleId(), ignored -> new ArrayList<>())
+                    .add(new PermissionResponse(
+                            ApiId.of(permission.permissionId()), permission.permissionCode(), permission.permissionName()));
+        }
         return mapper.findRoles().stream()
-                .map(role -> new RoleResponse(ApiId.of(role.id()), role.code(), role.name()))
+                .map(role -> new RoleResponse(ApiId.of(role.id()), role.code(), role.name(),
+                        permissionsByRole.getOrDefault(role.id(), List.of())))
                 .toList();
     }
 
