@@ -15,15 +15,31 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
-function Get-ProblemCode($ErrorRecord) {
-    if ($ErrorRecord.ErrorDetails.Message) {
-        try { return (($ErrorRecord.ErrorDetails.Message | ConvertFrom-Json).code) } catch { }
-    }
+function Get-ProblemBody($ErrorRecord) {
+    if ($ErrorRecord.ErrorDetails.Message) { return $ErrorRecord.ErrorDetails.Message }
     $response = $ErrorRecord.Exception.Response
     if (-not $response) { return $null }
-    if ($response.Content) { return (($response.Content.ReadAsStringAsync().GetAwaiter().GetResult() | ConvertFrom-Json).code) }
+    if ($response.Content) { return $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() }
     $reader = [System.IO.StreamReader]::new($response.GetResponseStream())
-    try { return (($reader.ReadToEnd() | ConvertFrom-Json).code) } finally { $reader.Dispose() }
+    try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
+}
+
+function Get-ProblemCode($ErrorRecord) {
+    $body = Get-ProblemBody $ErrorRecord
+    if ($body) {
+        try { return (($body | ConvertFrom-Json).code) } catch { }
+    }
+    return $null
+}
+
+function Get-ProblemStatus($ErrorRecord) {
+    $body = Get-ProblemBody $ErrorRecord
+    if ($body) {
+        try { return [int](($body | ConvertFrom-Json).status) } catch { }
+    }
+    $response = $ErrorRecord.Exception.Response
+    if ($response -and $response.StatusCode) { return [int]$response.StatusCode }
+    return $null
 }
 
 function Invoke-ApiJson([string]$Method, [string]$Uri, [hashtable]$Headers, $Body = $null) {
@@ -33,13 +49,15 @@ function Invoke-ApiJson([string]$Method, [string]$Uri, [hashtable]$Headers, $Bod
     return Invoke-RestMethod -Method $Method -Uri $Uri -Headers $Headers -ContentType "application/json" -Body ($Body | ConvertTo-Json)
 }
 
-function Assert-ApiError([string]$Method, [string]$Uri, [hashtable]$Headers, $Body, [string]$ExpectedCode, [string]$Message) {
+function Assert-ApiError([string]$Method, [string]$Uri, [hashtable]$Headers, $Body, [int]$ExpectedStatus, [string]$ExpectedCode, [string]$Message) {
     try {
         Invoke-ApiJson $Method $Uri $Headers $Body | Out-Null
         throw "${Message}: request unexpectedly succeeded"
     } catch {
         if ($_.Exception.Message -like "*unexpectedly succeeded*") { throw }
+        $status = Get-ProblemStatus $_
         $code = Get-ProblemCode $_
+        Assert-True ($status -eq $ExpectedStatus) "$Message (expected HTTP $ExpectedStatus, got '$status')"
         Assert-True ($code -eq $ExpectedCode) "$Message (expected $ExpectedCode, got '$code')"
     }
 }
@@ -73,7 +91,6 @@ $employeeLogin = Invoke-ApiJson "Post" "$BaseUrl/auth/login" @{} @{ email=$admin
 $employeeMe = Invoke-ApiJson "Get" "$BaseUrl/auth/me" @{ Authorization = "Bearer $($employeeLogin.accessToken)" }
 Assert-True ($employeeMe.organizationMemberId -match '^\d+$') "login did not expose the organization member ID"
 $adminMemberId = $employeeMe.organizationMemberId
-$orgId = $employeeMe.organizationId
 
 # The ONLY direct SQL in the acceptance flow: bootstrap the first test administrator.
 $bootstrapSql = "INSERT INTO role_assignment (org_member_id, role_id, scope_type, scope_id, assigned_by, created_at) " +
@@ -112,7 +129,7 @@ $memberHeaders = @{ Authorization = "Bearer $($memberLogin.accessToken)" }
 $memberMe = Invoke-ApiJson "Get" "$BaseUrl/auth/me" $memberHeaders
 $memberMemberId = $memberMe.organizationMemberId
 Assert-True (-not ($memberMe.permissions -contains 'PROJECT_MANAGE')) "Assert-WrongRole403: EMPLOYEE unexpectedly has PROJECT_MANAGE"
-Assert-ApiError "Post" "$BaseUrl/projects" $memberHeaders @{ code="EMP-PROJ"; name="Employee Project" } "FORBIDDEN" "Assert-WrongRole403: EMPLOYEE project create was not forbidden"
+Assert-ApiError "Post" "$BaseUrl/projects" $memberHeaders @{ code="EMP-PROJ"; name="Employee Project" } 403 "FORBIDDEN" "Assert-WrongRole403: EMPLOYEE project create was not 403 FORBIDDEN"
 
 # ---------------------------------------------------------------
 # Master data created by the administrator (all through HTTP).
@@ -183,8 +200,8 @@ $memberLogin2b = Invoke-ApiJson "Post" "$BaseUrl/auth/login" @{} @{ email=$membe
 $memberHeaders2 = @{ Authorization = "Bearer $($memberLogin2b.accessToken)" }
 
 function Assert-WrongScope404([string]$Name) {
-    Assert-ApiError "Patch" "$BaseUrl/projects/$project2Id" $memberHeaders2 @{ name="Hijack" } "RESOURCE_NOT_FOUND" "${Name}: out-of-scope project update was not a privacy 404"
-    Assert-ApiError "Post" "$BaseUrl/projects" $memberHeaders2 @{ code="SMOKE-P3-$stamp"; name="Third" } "RESOURCE_NOT_FOUND" "${Name}: scoped grant could not create master data"
+    Assert-ApiError "Patch" "$BaseUrl/projects/$project2Id" $memberHeaders2 @{ name="Hijack" } 404 "RESOURCE_NOT_FOUND" "${Name}: out-of-scope project update was not a privacy 404"
+    Assert-ApiError "Post" "$BaseUrl/projects" $memberHeaders2 @{ code="SMOKE-P3-$stamp"; name="Third" } 404 "RESOURCE_NOT_FOUND" "${Name}: scoped grant could not create master data"
     $inScope = Invoke-ApiJson "Patch" "$BaseUrl/projects/$project1Id" $memberHeaders2 @{ name="Smoke Project One Updated" }
     Assert-True ($inScope.name -eq "Smoke Project One Updated") "${Name}: in-scope project update did not succeed"
 }
@@ -199,11 +216,7 @@ $disabled = Invoke-ApiJson "Patch" "$BaseUrl/users/$memberUserId/status" $adminH
 Assert-True ($disabled.status -eq "DISABLED") "user disable did not persist"
 Assert-True ([string]::IsNullOrWhiteSpace($disabled.securityVersion) -eq $false) "user disable did not return a new securityVersion"
 
-$disabledTokenRejected = $false
-try {
-    Invoke-ApiJson "Get" "$BaseUrl/auth/me" $memberHeaders2 | Out-Null
-} catch { $disabledTokenRejected = $true }
-Assert-True $disabledTokenRejected "Assert-OldJwt401: disabled user token remained valid"
+Assert-ApiError "Get" "$BaseUrl/auth/me" $memberHeaders2 $null 401 "AUTH_SESSION_EXPIRED" "Assert-OldJwt401: disabled user token was not rejected with 401 AUTH_SESSION_EXPIRED"
 
 $memberUser2 = Invoke-ApiJson "Get" "$BaseUrl/users/$memberUserId" $adminHeaders
 $enabled = Invoke-ApiJson "Patch" "$BaseUrl/users/$memberUserId/status" $adminHeaders @{ status="ACTIVE"; expectedVersion=$memberUser2.securityVersion }
@@ -238,11 +251,15 @@ $teamList2 = Invoke-ApiJson "Get" "$BaseUrl/teams" $adminHeaders
 Assert-True ($teamList2.totalElements -ge 1) "archived team disappeared from the list"
 
 # ---------------------------------------------------------------
-# Invitation creation delivers a mailbox link; the raw token never
-# appears in audit metadata (Assert-AuditSecretAbsence).
+# Invitation creation delivers a mailbox link; the API response never
+# returns the raw token, and the delivery message carries the accept
+# link (Assert-AuditSecretAbsence). Audit secret absence itself is
+# proven by the HTTP-driven integration tests over API-created
+# subjects, not by direct SQL from this script.
 # ---------------------------------------------------------------
 $invitation = Invoke-ApiJson "Post" "$BaseUrl/invitations" $adminHeaders @{ email=$inviteEmail; initialRoleCode="EMPLOYEE"; expiresInHours=72 }
 Assert-True ($invitation.status -eq "PENDING") "invitation create did not return a PENDING invitation"
+Assert-True ($null -eq $invitation.PSObject.Properties['token'] -and $null -eq $invitation.PSObject.Properties['acceptToken']) "Assert-AuditSecretAbsence: invitation response exposed a raw token"
 $inviteMessagePath = (docker compose --env-file $EnvFile exec -T backend sh -c "grep -l 'email=$inviteEmail' /var/lib/aicostops/invitations/*.txt | tail -n 1").Trim()
 Assert-True (-not [string]::IsNullOrWhiteSpace($inviteMessagePath)) "Assert-AuditSecretAbsence: dev invitation mailbox did not create a message"
 $inviteBody = docker compose --env-file $EnvFile exec -T backend sh -c "cat '$inviteMessagePath'"
@@ -253,9 +270,6 @@ Assert-True $inviteTokenMatch.Success "Assert-AuditSecretAbsence: invitation lin
 $inviteToken = [uri]::UnescapeDataString($inviteTokenMatch.Groups[1].Value.Replace('+', ' '))
 Assert-True ($inviteToken.Length -ge 32) "Assert-AuditSecretAbsence: invitation token is not high-entropy"
 
-$secretCount = Invoke-Mysql "SELECT COUNT(*) FROM audit_event WHERE org_id = $orgId AND metadata_json LIKE '%$inviteToken%'"
-Assert-True ([int]$secretCount -eq 0) "Assert-AuditSecretAbsence: invitation raw token leaked into audit metadata"
-
 # ---------------------------------------------------------------
 # Assert-OldJwt401: revoking a REAL role assignment bumps the target
 # user's security version and the pre-revoke JWT is rejected.
@@ -264,16 +278,12 @@ $memberLogin3 = Invoke-ApiJson "Post" "$BaseUrl/auth/login" @{} @{ email=$member
 $memberHeaders3 = @{ Authorization = "Bearer $($memberLogin3.accessToken)" }
 Invoke-ApiJson "Get" "$BaseUrl/auth/me" $memberHeaders3 | Out-Null
 Invoke-ApiJson "Delete" "$BaseUrl/role-assignments/$scopedAdminAssignmentId" $adminHeaders $null | Out-Null
-$oldJwtRejected = $false
-try {
-    Invoke-ApiJson "Get" "$BaseUrl/auth/me" $memberHeaders3 | Out-Null
-} catch { $oldJwtRejected = $true }
-Assert-True $oldJwtRejected "Assert-OldJwt401: pre-revoke JWT remained valid after role revoke"
+Assert-ApiError "Get" "$BaseUrl/auth/me" $memberHeaders3 $null 401 "AUTH_SESSION_EXPIRED" "Assert-OldJwt401: pre-revoke JWT was not rejected with 401 AUTH_SESSION_EXPIRED"
 
 # ---------------------------------------------------------------
 # Assert-M2Denied: M2 endpoints stay behind the final denyAll.
 # ---------------------------------------------------------------
-Assert-ApiError "Get" "$BaseUrl/costs/charges" $adminHeaders $null "FORBIDDEN" "Assert-M2Denied: /costs/charges was not denied"
-Assert-ApiError "Get" "$BaseUrl/budgets" $adminHeaders $null "FORBIDDEN" "Assert-M2Denied: /budgets was not denied"
+Assert-ApiError "Get" "$BaseUrl/costs/charges" $adminHeaders $null 403 "FORBIDDEN" "Assert-M2Denied: /costs/charges was not denied with 403 FORBIDDEN"
+Assert-ApiError "Get" "$BaseUrl/budgets" $adminHeaders $null 403 "FORBIDDEN" "Assert-M2Denied: /budgets was not denied with 403 FORBIDDEN"
 
 Write-Output "ORG_AUTH_SMOKE_PASS admin=$adminEmail member=$memberEmail"

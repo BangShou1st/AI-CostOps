@@ -60,8 +60,8 @@ Audit success is proven by HTTP-driven integration tests over API-created subjec
 
 - Permission-aware layout and six settings routes: nav hiding without READ permission, direct unauthorized URL renders authenticated 403 with no redirect and no child mount/request (`AuthenticatedLayout.test.tsx`, `PermissionRoute.test.tsx`).
 - Users/Roles: loading/empty/error/data, independent `USER_MANAGE`/`USER_INVITE`/`ROLE_ASSIGN` action gating, `securityVersion` stays a string and is sent verbatim as `expectedVersion`, 409 shows the ProblemDetail and refetches without retry, mutation cache invalidation (`UsersPage.test.tsx`, `RolesPage.test.tsx`).
-- Projects/Teams/Cost centers/Provider accounts: all query states, manage-gated actions, immutable code/providerCode, lifecycle editing, member drawers with pagination and exact invalidation, provider metadata secret-key client validation (`ProjectsPage.test.tsx`, `TeamsPage.test.tsx`, `CostCentersPage.test.tsx`, `ProviderAccountsPage.test.tsx`).
-- Authorization/session change behavior: a 403 refetches `/auth/me` exactly once and surfaces the original error without retrying the mutation; a post-refresh `401 AUTH_SESSION_EXPIRED` clears the token and auth query cache, sets the session anonymous, redirects to `/login`, and never starts a refresh loop (`useAuthorizationMutation.test.tsx`, `AuthSessionProvider.test.tsx`, `client.test.ts`).
+- Projects/Teams/Cost centers/Provider accounts: all query states, manage-gated actions, immutable code/providerCode, lifecycle editing, member drawers with pagination and exact invalidation; `PROJECT_MEMBER_MANAGE`/`TEAM_MANAGE` work without `USER_READ` (no hidden `/users` request; manual member-ID fallback), and provider metadata is edited as typed JSON with normalized secret-key client validation (`ProjectsPage.test.tsx`, `TeamsPage.test.tsx`, `CostCentersPage.test.tsx`, `ProviderAccountsPage.test.tsx`).
+- Authorization/session change behavior: a 403 refetches `/auth/me` exactly once (awaited before the original forbidden error is surfaced, never replaced by a refresh failure) and the mutation is not retried; a `401 AUTH_SESSION_EXPIRED` — whether on a retried request or from the refresh itself — clears the token and the whole query cache (auth and session-bound settings data), sets the session anonymous, redirects to `/login`, and never starts a refresh loop (`useAuthorizationMutation.test.tsx`, `AuthSessionProvider.test.tsx`, `client.test.ts`).
 
 ## 4. Smoke evidence
 
@@ -75,8 +75,8 @@ Prerequisite: `.\scripts\auth-smoke.ps1` passes (PASS line printed).
 4. Master data through HTTP only — project/team/cost-center/provider-account create, list, and update; lifecycle status transitions persist; memberships add/list/remove through real APIs.
 5. `Assert-WrongScope404` — a real `POST /role-assignments` grants PROJECT_OWNER at an explicit project; the member's list returns only that project and reads/updates of another real project return 404 `RESOURCE_NOT_FOUND`.
 6. User status — disable with the displayed `securityVersion` as `expectedVersion`; the disabled user's token is rejected; re-enable with the returned version.
-7. `Assert-OldJwt401` — revoking a real role assignment bumps the target user's version and the pre-revoke JWT is rejected with 401.
-8. Invitation — `POST /invitations` returns PENDING; the dev mailbox contains the `acceptLink`; `Assert-AuditSecretAbsence` proves the raw token never appears in `audit_event.metadata_json` (audit business rows are asserted by the HTTP-driven integration tests cited in section 2).
+7. `Assert-OldJwt401` — revoking a real role assignment bumps the target user's version and the pre-revoke JWT is rejected with exactly `401 AUTH_SESSION_EXPIRED`.
+8. Invitation — `POST /invitations` returns PENDING and never exposes a raw token; the dev mailbox contains the `acceptLink` with a high-entropy token. `Assert-AuditSecretAbsence` proves the API response and delivery channel never leak the raw token; audit secret absence is proven by the HTTP-driven integration tests cited in section 2 (no direct SQL from this script).
 9. `Assert-M2Denied` — `/costs/charges` and `/budgets` remain denied by the final `anyRequest().denyAll()`.
 
 Direct SQL was used only to bootstrap the first test administrator, not to satisfy #22/#23/#25 acceptance behavior.
