@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class ProblemDetailAdvice {
@@ -42,6 +43,13 @@ public class ProblemDetailAdvice {
             HttpServletRequest request) {
         return problem(HttpStatus.BAD_REQUEST, ProblemCode.REQUEST_MALFORMED,
                 "Malformed request", "The request body is not valid JSON.", request);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException exception,
+            HttpServletRequest request) {
+        return problem(HttpStatus.BAD_REQUEST, ProblemCode.REQUEST_MALFORMED,
+                "Malformed request", "A request parameter has an invalid value.", request);
     }
 
     private ResponseEntity<ProblemDetail> problem(HttpStatus status, ProblemCode code, String title,
