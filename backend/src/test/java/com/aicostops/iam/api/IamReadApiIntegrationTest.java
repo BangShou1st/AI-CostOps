@@ -12,6 +12,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import java.util.stream.StreamSupport;
 import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -48,13 +49,7 @@ class IamReadApiIntegrationTest extends AuthenticationContainersSupport {
     @BeforeEach
     void setUp() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
-        jdbcTemplate.update("DELETE FROM audit_event");
-        jdbcTemplate.update("DELETE FROM role_assignment");
-        jdbcTemplate.update("DELETE FROM organization_member");
-        jdbcTemplate.update("DELETE FROM cost_center");
-        jdbcTemplate.update("DELETE FROM user_credential");
-        jdbcTemplate.update("DELETE FROM app_user");
-        jdbcTemplate.update("DELETE FROM organization");
+        cleanDatabase();
 
         organizationId = insertOrganization("IAM Read", "iam-read");
         var foreignOrganizationId = insertOrganization("Foreign", "iam-read-foreign");
@@ -75,6 +70,21 @@ class IamReadApiIntegrationTest extends AuthenticationContainersSupport {
 
         foreignUserId = insertUser("foreign@iam-read.test", "Foreign Member", 11);
         insertMember(foreignOrganizationId, foreignUserId, "OUT-1", null);
+    }
+
+    @AfterEach
+    void tearDown() {
+        cleanDatabase();
+    }
+
+    private void cleanDatabase() {
+        jdbcTemplate.update("DELETE FROM audit_event");
+        jdbcTemplate.update("DELETE FROM role_assignment");
+        jdbcTemplate.update("DELETE FROM organization_member");
+        jdbcTemplate.update("DELETE FROM cost_center");
+        jdbcTemplate.update("DELETE FROM user_credential");
+        jdbcTemplate.update("DELETE FROM app_user");
+        jdbcTemplate.update("DELETE FROM organization");
     }
 
     @Test

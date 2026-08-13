@@ -14,6 +14,7 @@ import com.aicostops.testsupport.AuthenticationContainersSupport;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Tag;
@@ -64,17 +65,7 @@ class IamMutationApiIntegrationTest extends AuthenticationContainersSupport {
     @BeforeEach
     void setUp() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
-        jdbc.update("DELETE FROM audit_event");
-        jdbc.update("DELETE FROM role_assignment");
-        jdbc.update("DELETE FROM project_member");
-        jdbc.update("DELETE FROM team_member");
-        jdbc.update("DELETE FROM project");
-        jdbc.update("DELETE FROM team");
-        jdbc.update("DELETE FROM organization_member");
-        jdbc.update("DELETE FROM cost_center");
-        jdbc.update("DELETE FROM user_credential");
-        jdbc.update("DELETE FROM app_user");
-        jdbc.update("DELETE FROM organization");
+        cleanDatabase();
 
         organizationId = insertOrganization("IAM Mutation", "iam-mutation");
         foreignOrganizationId = insertOrganization("Foreign IAM Mutation", "foreign-iam-mutation");
@@ -92,6 +83,25 @@ class IamMutationApiIntegrationTest extends AuthenticationContainersSupport {
         foreignProjectId = insertProject(foreignOrganizationId, "FOREIGN-PROJECT");
         foreignTeamId = insertTeam(foreignOrganizationId, "FOREIGN-TEAM");
         foreignCostCenterId = insertCostCenter(foreignOrganizationId, "FOREIGN-CC");
+    }
+
+    @AfterEach
+    void tearDown() {
+        cleanDatabase();
+    }
+
+    private void cleanDatabase() {
+        jdbc.update("DELETE FROM audit_event");
+        jdbc.update("DELETE FROM role_assignment");
+        jdbc.update("DELETE FROM project_member");
+        jdbc.update("DELETE FROM team_member");
+        jdbc.update("DELETE FROM project");
+        jdbc.update("DELETE FROM team");
+        jdbc.update("DELETE FROM organization_member");
+        jdbc.update("DELETE FROM cost_center");
+        jdbc.update("DELETE FROM user_credential");
+        jdbc.update("DELETE FROM app_user");
+        jdbc.update("DELETE FROM organization");
     }
 
     @Test
