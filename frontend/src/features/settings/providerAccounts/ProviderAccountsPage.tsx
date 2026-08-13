@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Input, Modal, Select, Table, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
@@ -9,6 +9,7 @@ import { settingsApi } from '../api/settingsApi'
 import { settingsKeys } from '../api/settingsKeys'
 import type { MasterDataStatus, ProviderAccount } from '../api/settingsTypes'
 import { hasPermission } from '../permissions'
+import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { MASTER_DATA_STATUS_OPTIONS } from '../shared/LifecycleEditorModal'
 
 const SECRET_KEY_PATTERN = /password|token|secret|apikey/i
@@ -31,7 +32,7 @@ export function ProviderAccountsPage() {
 
   const canManage = hasPermission(auth.user?.permissions, 'PROVIDER_ACCOUNT_MANAGE')
 
-  const saveMutation = useMutation({
+  const saveMutation = useAuthorizationMutation({
     mutationFn: (input: {
       providerCode: string
       displayName: string

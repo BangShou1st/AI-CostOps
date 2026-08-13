@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Table, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
@@ -9,6 +9,7 @@ import { settingsApi } from '../api/settingsApi'
 import { settingsKeys } from '../api/settingsKeys'
 import type { MasterDataRecord } from '../api/settingsTypes'
 import { hasPermission } from '../permissions'
+import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { LifecycleEditorModal, type LifecycleFormValues } from '../shared/LifecycleEditorModal'
 
 export function CostCentersPage() {
@@ -25,7 +26,7 @@ export function CostCentersPage() {
 
   const canManage = hasPermission(auth.user?.permissions, 'COST_CENTER_MANAGE')
 
-  const saveMutation = useMutation({
+  const saveMutation = useAuthorizationMutation({
     mutationFn: (values: LifecycleFormValues) => {
       if (editor?.mode === 'edit') {
         return settingsApi.updateCostCenter(editor.record.id, { name: values.name, status: values.status })

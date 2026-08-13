@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Drawer, Select, Table } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
@@ -9,6 +9,7 @@ import { settingsApi } from '../api/settingsApi'
 import { authMeKey, settingsKeys } from '../api/settingsKeys'
 import type { MasterDataRecord, OrganizationMemberRecord, User } from '../api/settingsTypes'
 import { hasPermission } from '../permissions'
+import { useAuthorizationMutation } from '../useAuthorizationMutation'
 
 export function ProjectMembersDrawer({ project, onClose }: { project: MasterDataRecord; onClose: () => void }) {
   const auth = useAuth()
@@ -35,14 +36,14 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
     void queryClient.invalidateQueries({ queryKey: authMeKey })
   }
 
-  const addMutation = useMutation({
+  const addMutation = useAuthorizationMutation({
     mutationFn: (organizationMemberId: string) => settingsApi.addProjectMember(project.id, organizationMemberId),
     retry: false,
     onSuccess: () => { setProblem(null); setSelectedMemberId(undefined); refresh() },
     onError: (error) => { setProblem(toProblemDetail(error)); refresh() },
   })
 
-  const removeMutation = useMutation({
+  const removeMutation = useAuthorizationMutation({
     mutationFn: (memberId: string) => settingsApi.removeProjectMember(project.id, memberId),
     retry: false,
     onSuccess: () => { setProblem(null); refresh() },

@@ -31,6 +31,7 @@ function renderProviderAccountsPage(permissions: string[]) {
     status: 'authenticated',
     user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '11', permissions },
     login: vi.fn(),
+    refreshMe: vi.fn(),
     logout: vi.fn(),
   } as ReturnType<typeof useAuth>)
   render(

@@ -45,3 +45,7 @@ export async function refreshWithRaceRetry(
     return refresh()
   }
 }
+
+export async function refreshMe(api: AuthApi): Promise<AuthUser> {
+  return api.me()
+}

@@ -13,6 +13,7 @@ function renderPermissionRoute(permissions: string[], initialPath = '/settings/u
     status: 'authenticated',
     user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '3', permissions },
     login: vi.fn(),
+    refreshMe: vi.fn(),
     logout: vi.fn(),
   } as ReturnType<typeof useAuth>)
   render(
@@ -45,6 +46,7 @@ describe('PermissionRoute', () => {
       status: 'authenticated',
       user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '3', permissions: [] },
       login: vi.fn(),
+    refreshMe: vi.fn(),
       logout: vi.fn(),
     } as ReturnType<typeof useAuth>)
     render(

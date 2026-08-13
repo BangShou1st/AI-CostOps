@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Drawer, Input, InputNumber, Modal, Select, Table, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
@@ -9,6 +9,7 @@ import { settingsApi } from '../api/settingsApi'
 import { authMeKey, settingsKeys } from '../api/settingsKeys'
 import type { Role, ScopeType, User } from '../api/settingsTypes'
 import { hasPermission, ROLE_SCOPE_APPLICABILITY } from '../permissions'
+import { useAuthorizationMutation } from '../useAuthorizationMutation'
 
 function refreshUsersAndMe(queryClient: ReturnType<typeof useQueryClient>) {
   void queryClient.invalidateQueries({ queryKey: settingsKeys.usersAll() })
@@ -83,7 +84,7 @@ function InviteMemberModal({ onClose, onError }: { onClose: () => void; onError:
 
   const rolesQuery = useQuery({ queryKey: settingsKeys.roles(), queryFn: () => settingsApi.listRoles() })
 
-  const inviteMutation = useMutation({
+  const inviteMutation = useAuthorizationMutation({
     mutationFn: () => settingsApi.createInvitation(email, initialRoleCode!, expiresInHours ?? undefined),
     retry: false,
     onSuccess: () => {
@@ -137,7 +138,7 @@ function UserActions({ user }: { user: User }) {
   const canManage = hasPermission(auth.user?.permissions, 'USER_MANAGE')
   const canAssign = hasPermission(auth.user?.permissions, 'ROLE_ASSIGN')
 
-  const statusMutation = useMutation({
+  const statusMutation = useAuthorizationMutation({
     mutationFn: (status: User['status']) => settingsApi.updateUserStatus(user.id, status, user.securityVersion),
     retry: false,
     onSuccess: () => { setProblem(null); refreshUsersAndMe(queryClient) },
@@ -171,7 +172,7 @@ function RoleAssignmentDrawer({ user, onClose }: { user: User; onClose: () => vo
 
   const refresh = () => refreshUsersAndMe(queryClient)
 
-  const revokeMutation = useMutation({
+  const revokeMutation = useAuthorizationMutation({
     mutationFn: (assignmentId: string) => settingsApi.revokeRoleAssignment(assignmentId),
     retry: false,
     onSuccess: () => { setProblem(null); refresh() },
@@ -213,7 +214,7 @@ function AssignRoleModal({ memberId, onClose, onDone }: { memberId: string; onCl
 
   const rolesQuery = useQuery({ queryKey: settingsKeys.roles(), queryFn: () => settingsApi.listRoles() })
 
-  const createMutation = useMutation({
+  const createMutation = useAuthorizationMutation({
     mutationFn: () => settingsApi.createRoleAssignment(memberId, roleId!, scopeType!, scopeId),
     retry: false,
     onSuccess: () => { onDone(); onClose() },
