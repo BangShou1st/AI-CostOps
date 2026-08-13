@@ -4,9 +4,12 @@ import com.aicostops.iam.application.UserAdminService;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.PageRequest;
 import com.aicostops.shared.web.PageResponse;
+import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,5 +37,13 @@ public class UserAdminController {
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
             @PathVariable long id) {
         return users.get(authenticatedUser, id);
+    }
+
+    @PatchMapping("/{id}/status")
+    public UserResponse updateStatus(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long id,
+            @Valid @RequestBody UpdateUserStatusRequest request) {
+        return users.updateStatus(authenticatedUser, id, request.status(), request.expectedVersion());
     }
 }

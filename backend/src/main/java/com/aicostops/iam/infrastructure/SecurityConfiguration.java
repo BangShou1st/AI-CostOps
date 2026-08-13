@@ -33,6 +33,9 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/v1/auth/logout", "/api/v1/auth/logout-all", "/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/users", "/api/v1/users/{id}",
                                 "/api/v1/roles", "/api/v1/permissions").authenticated()
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/users/{id}/status").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/role-assignments").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/role-assignments/{id}").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

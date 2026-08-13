@@ -1,6 +1,8 @@
 package com.aicostops.shared.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -100,6 +102,34 @@ class SecurityConfigurationTest {
         for (var path : java.util.List.of(
                 "/api/v1/users/123/roles", "/api/v1/roles/123", "/api/v1/permissions/123")) {
             mockMvc.perform(get(path).header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    @Test
+    void exactIamMutationRoutesRequireAuthentication() throws Exception {
+        mockMvc.perform(patch("/api/v1/users/123/status"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        mockMvc.perform(post("/api/v1/role-assignments"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        mockMvc.perform(delete("/api/v1/role-assignments/123"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+    }
+
+    @Test
+    void unsupportedMethodsOnIamMutationPathsRemainDenied() throws Exception {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        var token = tokens.issue(42L, 0L).token();
+
+        for (var request : java.util.List.of(
+                post("/api/v1/users/123/status"),
+                patch("/api/v1/role-assignments"),
+                post("/api/v1/role-assignments/123"))) {
+            mockMvc.perform(request.header("Authorization", "Bearer " + token))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         }
