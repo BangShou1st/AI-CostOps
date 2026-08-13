@@ -7,6 +7,10 @@ services:
       AICOSTOPS_REFRESH_COOKIE_SECURE: "false"
       AICOSTOPS_DEV_MAILBOX_PATH: /var/lib/aicostops/mailbox
       AICOSTOPS_DEV_RESET_PAGE_URL: http://localhost:${FRONTEND_PORT}/reset-password
+      AICOSTOPS_IAM_DEV_INVITATION_MAILBOX_PATH: /var/lib/aicostops/invitations
+      AICOSTOPS_IAM_DEV_INVITE_PAGE_URL: http://localhost:${FRONTEND_PORT}/invite
+    volumes:
+      - dev-invitation-mailbox-data:/var/lib/aicostops/invitations
   mysql:
     ports:
       - "${MYSQL_PORT}:3306"
@@ -19,3 +23,6 @@ services:
     ports:
       - "${MINIO_API_PORT}:9000"
       - "${MINIO_CONSOLE_PORT}:9001"
+
+volumes:
+  dev-invitation-mailbox-data:

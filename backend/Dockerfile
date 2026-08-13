@@ -14,7 +14,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system aicostops \
     && useradd --system --gid aicostops --home-dir /app --shell /usr/sbin/nologin aicostops \
-    && mkdir -p /var/lib/aicostops/mailbox \
+    && mkdir -p /var/lib/aicostops/mailbox /var/lib/aicostops/invitations \
     && chown -R aicostops:aicostops /var/lib/aicostops
 
 WORKDIR /app
