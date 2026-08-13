@@ -32,11 +32,13 @@ class RedisAuthorizationContextCacheIntegrationTest extends RedisContainerSuppor
     }
 
     @Test
-    void storesAndLoadsTheCompleteContextAtTheVersionedKeyForSixtySeconds() {
+    void cacheHitReturnsSameContext() {
         var cache = new RedisAuthorizationContextCache(redis, objectMapper, Duration.ofSeconds(60));
         var context = new AuthorizationContext(
                 11L, 22L, 33L, 7L,
-                Set.of(new ScopedPermissionGrant("LEDGER_POST", ScopeType.COST_CENTER, 44L)),
+                Set.of(
+                        new ScopedPermissionGrant("LEDGER_POST", ScopeType.COST_CENTER, 44L),
+                        new ScopedPermissionGrant("BUDGET_READ", ScopeType.ORG, 22L)),
                 Set.of("FINANCE_REVIEWER"));
 
         cache.put(context);
@@ -46,5 +48,7 @@ class RedisAuthorizationContextCacheIntegrationTest extends RedisContainerSuppor
         assertThat(redis.getExpire(key)).isBetween(55L, 60L);
         assertThat(cache.get(11L, 7L)).isEqualTo(context);
         assertThat(cache.get(11L, 7L).roleCodes()).containsExactly("FINANCE_REVIEWER");
+        assertThat(cache.get(11L, 7L).grants()).contains(
+                new ScopedPermissionGrant("BUDGET_READ", ScopeType.ORG, 22L));
     }
 }

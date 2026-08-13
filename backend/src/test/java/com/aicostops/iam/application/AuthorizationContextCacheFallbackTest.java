@@ -26,7 +26,7 @@ import tools.jackson.databind.ObjectMapper;
 class AuthorizationContextCacheFallbackTest {
 
     @Test
-    void loadsTheMysqlContextWhenCacheMisses() {
+    void cacheMissLoadsMysql() {
         var cache = mock(AuthorizationContextCache.class);
         var mapper = mapperWithCurrentIdentity();
         var service = new AuthorizationContextService(mapper, cache);
@@ -38,7 +38,7 @@ class AuthorizationContextCacheFallbackTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void loadsTheMysqlContextWhenCacheJsonIsMalformed() {
+    void malformedCacheFallsBackMysql() {
         var redis = mock(StringRedisTemplate.class);
         var values = mock(ValueOperations.class);
         when(redis.opsForValue()).thenReturn(values);
@@ -53,7 +53,7 @@ class AuthorizationContextCacheFallbackTest {
     }
 
     @Test
-    void loadsTheMysqlContextWhenRedisIsUnavailableInsteadOfReturningEmptyGrants() {
+    void redisUnavailableFallsBackMysql() {
         var cache = mock(AuthorizationContextCache.class);
         when(cache.get(11L, 7L)).thenThrow(new DataAccessResourceFailureException("redis down"));
         var mapper = mapperWithCurrentIdentity();
@@ -66,7 +66,7 @@ class AuthorizationContextCacheFallbackTest {
     }
 
     @Test
-    void deniesAnInvalidMysqlIdentityAfterCacheFailure() {
+    void inactiveMysqlIdentityIsDenied() {
         var cache = mock(AuthorizationContextCache.class);
         when(cache.get(11L, 7L)).thenThrow(new DataAccessResourceFailureException("redis down"));
         var mapper = mock(AuthorizationContextMapper.class);
@@ -79,18 +79,36 @@ class AuthorizationContextCacheFallbackTest {
                 });
     }
 
+    @Test
+    void cacheWriteFailureDoesNotRejectMysqlContext() {
+        var cache = mock(AuthorizationContextCache.class);
+        var mapper = mapperWithCurrentIdentity();
+        var service = new AuthorizationContextService(mapper, cache);
+        org.mockito.Mockito.doThrow(new IllegalStateException("serialization failed"))
+                .when(cache).put(expectedContext());
+
+        var context = service.current(new AuthenticatedUser(11L, 7L));
+
+        assertThat(context).isEqualTo(expectedContext());
+        assertThat(context.grants()).contains(
+                new ScopedPermissionGrant("BUDGET_READ", ScopeType.ORG, 22L));
+    }
+
     private AuthorizationContextMapper mapperWithCurrentIdentity() {
         var mapper = mock(AuthorizationContextMapper.class);
         when(mapper.findIdentity(11L)).thenReturn(new AuthorizationIdentityRecord(11L, 7L, 33L, 22L));
         when(mapper.findGrants(33L)).thenReturn(List.of(
-                new ScopedPermissionGrantRecord("FINANCE_REVIEWER", "LEDGER_POST", "COST_CENTER", 44L)));
+                new ScopedPermissionGrantRecord("FINANCE_REVIEWER", "LEDGER_POST", "COST_CENTER", 44L),
+                new ScopedPermissionGrantRecord("FINANCE_REVIEWER", "BUDGET_READ", "ORG", 22L)));
         return mapper;
     }
 
     private AuthorizationContext expectedContext() {
         return new AuthorizationContext(
                 11L, 22L, 33L, 7L,
-                java.util.Set.of(new ScopedPermissionGrant("LEDGER_POST", ScopeType.COST_CENTER, 44L)),
+                java.util.Set.of(
+                        new ScopedPermissionGrant("LEDGER_POST", ScopeType.COST_CENTER, 44L),
+                        new ScopedPermissionGrant("BUDGET_READ", ScopeType.ORG, 22L)),
                 java.util.Set.of("FINANCE_REVIEWER"));
     }
 }

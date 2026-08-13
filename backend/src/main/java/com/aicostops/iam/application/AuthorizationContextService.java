@@ -6,7 +6,6 @@ import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.util.stream.Collectors;
-import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -31,13 +30,13 @@ public class AuthorizationContextService {
             if (cached != null) {
                 return cached;
             }
-        } catch (DataAccessException | IllegalArgumentException ignored) {
+        } catch (RuntimeException ignored) {
             // MySQL remains the durable authorization truth.
         }
         var context = load(authenticatedUser);
         try {
             authorizationContextCache.put(context);
-        } catch (DataAccessException ignored) {
+        } catch (RuntimeException ignored) {
             // A cache outage must not deny an otherwise valid request.
         }
         return context;
