@@ -126,6 +126,45 @@ describe('ProjectsPage', () => {
     })
   })
 
+  it('projectMemberTargetFollowsCurrentPermissionMode', async () => {
+    const permissionsRef = { current: ['PROJECT_READ', 'PROJECT_MEMBER_MANAGE', 'USER_READ'] }
+    mockedUseAuth.mockImplementation(() => ({
+      status: 'authenticated',
+      user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '11', permissions: permissionsRef.current },
+      login: vi.fn(),
+      refreshMe: vi.fn(),
+      logout: vi.fn(),
+    } as ReturnType<typeof useAuth>))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}><MemoryRouter><ProjectsPage /></MemoryRouter></QueryClientProvider>,
+    )
+
+    // Select mode with USER_READ: pick member A.
+    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    await screen.findByText('Alpha')
+    fireEvent.mouseDown(screen.getByRole('combobox'))
+    fireEvent.click(await screen.findByText('Alpha (alpha@example.com)'))
+
+    // Permission refresh revokes USER_READ but keeps PROJECT_MEMBER_MANAGE.
+    permissionsRef.current = ['PROJECT_READ', 'PROJECT_MEMBER_MANAGE']
+    rerender(
+      <QueryClientProvider client={queryClient}><MemoryRouter><ProjectsPage /></MemoryRouter></QueryClientProvider>,
+    )
+
+    // Manual mode: member B is typed and submitted; the stale Select target A
+    // must never win.
+    const usersCalls = mockedSettingsApi.listUsers.mock.calls.length
+    fireEvent.change(await screen.findByLabelText(/organization member id/i), { target: { value: '42' } })
+    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.addProjectMember).toHaveBeenCalledTimes(1)
+      expect(mockedSettingsApi.addProjectMember).toHaveBeenCalledWith('1', '42')
+    })
+    expect(mockedSettingsApi.listUsers.mock.calls.length).toBe(usersCalls)
+  })
+
   it('organizationMutationsInvalidateExactKeys', async () => {
     mockedSettingsApi.createProject.mockResolvedValue({ ...project, id: '9' })
     renderProjectsPage(['PROJECT_READ', 'PROJECT_MANAGE', 'PROJECT_MEMBER_MANAGE', 'USER_READ'])

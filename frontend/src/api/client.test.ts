@@ -161,6 +161,37 @@ describe('API client', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 
+  it('emits session expired exactly once for concurrent refresh failures', async () => {
+    const store = createAccessTokenStore()
+    store.set('expired-token')
+    let attempts = 0
+    const adapter: AxiosAdapter = (config) => {
+      attempts += 1
+      return unauthorized(config)
+    }
+    const response: AxiosResponse = {
+      config: { headers: {} } as InternalAxiosRequestConfig,
+      data: { code: 'AUTH_SESSION_EXPIRED' },
+      headers: {},
+      status: 401,
+      statusText: 'Unauthorized',
+    }
+    const refreshAccessToken = vi.fn().mockRejectedValue(
+      new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', undefined, undefined, response),
+    )
+    const client = createApiClient({ tokenStore: store, adapter, refreshAccessToken })
+    const listener = vi.fn()
+    const unsubscribe = authEvents.subscribe(listener)
+
+    await Promise.allSettled([client.get('/first'), client.get('/second')])
+    unsubscribe()
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(store.get()).toBeNull()
+    expect(attempts).toBe(2)
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+  })
+
   it('does not emit session expired for a plain unauthorized retry', async () => {
     const store = createAccessTokenStore()
     store.set('expired-token')

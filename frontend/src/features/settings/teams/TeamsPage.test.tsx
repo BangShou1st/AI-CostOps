@@ -136,6 +136,45 @@ describe('TeamsPage', () => {
     })
   })
 
+  it('teamMemberTargetFollowsCurrentPermissionMode', async () => {
+    const permissionsRef = { current: ['TEAM_READ', 'TEAM_MANAGE', 'USER_READ'] }
+    mockedUseAuth.mockImplementation(() => ({
+      status: 'authenticated',
+      user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '11', permissions: permissionsRef.current },
+      login: vi.fn(),
+      refreshMe: vi.fn(),
+      logout: vi.fn(),
+    } as ReturnType<typeof useAuth>))
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}><MemoryRouter><TeamsPage /></MemoryRouter></QueryClientProvider>,
+    )
+
+    // Select mode with USER_READ: pick member A.
+    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    await screen.findByText('Beta')
+    fireEvent.mouseDown(screen.getByRole('combobox'))
+    fireEvent.click(await screen.findByText('Beta (beta@example.com)'))
+
+    // Permission refresh revokes USER_READ but keeps TEAM_MANAGE.
+    permissionsRef.current = ['TEAM_READ', 'TEAM_MANAGE']
+    rerender(
+      <QueryClientProvider client={queryClient}><MemoryRouter><TeamsPage /></MemoryRouter></QueryClientProvider>,
+    )
+
+    // Manual mode: member B is typed and submitted; the stale Select target A
+    // must never win.
+    const usersCalls = mockedSettingsApi.listUsers.mock.calls.length
+    fireEvent.change(await screen.findByLabelText(/organization member id/i), { target: { value: '77' } })
+    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.addTeamMember).toHaveBeenCalledTimes(1)
+      expect(mockedSettingsApi.addTeamMember).toHaveBeenCalledWith('2', '77')
+    })
+    expect(mockedSettingsApi.listUsers.mock.calls.length).toBe(usersCalls)
+  })
+
   it('teamMembershipMutationInvalidatesMembers', async () => {
     mockedSettingsApi.removeTeamMember.mockResolvedValue(undefined)
     renderTeamsPage(['TEAM_READ', 'TEAM_MANAGE'])

@@ -24,7 +24,8 @@ export function isSecretMetadataKey(key: string): boolean {
 }
 
 function containsSecretMetadataKey(value: unknown): boolean {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  if (Array.isArray(value)) return value.some((child) => containsSecretMetadataKey(child))
+  if (value === null || typeof value !== 'object') return false
   return Object.entries(value).some(
     ([key, child]) => isSecretMetadataKey(key) || containsSecretMetadataKey(child),
   )
@@ -73,7 +74,9 @@ export function ProviderAccountsPage() {
           metadata?: Record<string, unknown>
         } = {
           displayName: input.displayName,
-          externalAccountRef: input.externalAccountRef || undefined,
+          // An explicitly cleared field must be sent as "" so the backend
+          // stores null instead of keeping the previous value.
+          externalAccountRef: input.externalAccountRef,
           status: input.status,
         }
         // Untouched metadata stays out of the request so the backend keeps it

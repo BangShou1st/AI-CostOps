@@ -120,6 +120,10 @@ describe('ProviderAccountsPage', () => {
     fireEvent.change(metadataTextarea, { target: { value: '{ "api_key": "s3cr3t" }' } })
     expect(screen.getByText(/metadata keys may not contain password, token, secret or apikey/i)).toBeInTheDocument()
 
+    // Arrays are recursed like the backend's object recursion.
+    fireEvent.change(metadataTextarea, { target: { value: '{ "regions": [{ "access_token": "x" }] }' } })
+    expect(screen.getByText(/metadata keys may not contain password, token, secret or apikey/i)).toBeInTheDocument()
+
     fireEvent.change(metadataTextarea, { target: { value: '{ "region": "s3cr3t" }' } })
     expect(screen.queryByText(/metadata keys may not contain password, token, secret or apikey/i)).not.toBeInTheDocument()
 
@@ -178,6 +182,21 @@ describe('ProviderAccountsPage', () => {
       expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledWith('7', expect.objectContaining({
         metadata: { enabled: false, retries: 5, nested: { env: 'staging' }, regions: ['sg', 'us', 'jp'] },
       }))
+    })
+  })
+
+  it('externalAccountRefCanBeClearedOnEdit', async () => {
+    renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.change(await screen.findByLabelText(/external account ref/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledTimes(1)
+      expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledWith('7', {
+        displayName: 'Production AWS', externalAccountRef: '', status: 'ACTIVE',
+      })
     })
   })
 

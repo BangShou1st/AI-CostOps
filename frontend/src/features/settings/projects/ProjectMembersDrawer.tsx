@@ -43,7 +43,12 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
   const addMutation = useAuthorizationMutation({
     mutationFn: (organizationMemberId: string) => settingsApi.addProjectMember(project.id, organizationMemberId),
     retry: false,
-    onSuccess: () => { setProblem(null); setSelectedMemberId(undefined); refresh() },
+    onSuccess: () => {
+      setProblem(null)
+      setSelectedMemberId(undefined)
+      setManualMemberId('')
+      refresh()
+    },
     onError: (error) => { setProblem(toProblemDetail(error)); refresh() },
   })
 
@@ -117,7 +122,12 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
             type="primary"
             loading={addMutation.isPending}
             disabled={canLoadUsers ? !selectedMemberId : !manualMemberId.trim()}
-            onClick={() => addMutation.mutate(selectedMemberId ?? manualMemberId.trim())}
+            onClick={() => {
+              // The submission target always follows the CURRENT permission
+              // mode; a stale Select selection must never leak into manual mode.
+              const target = canLoadUsers ? selectedMemberId : manualMemberId.trim()
+              if (target) addMutation.mutate(target)
+            }}
           >
             Add member
           </Button>

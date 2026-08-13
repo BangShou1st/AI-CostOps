@@ -45,6 +45,15 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
           options.tokenStore.set(token)
           return token
         })
+        .catch((refreshError: unknown) => {
+          // One emit per shared refresh attempt: every waiter observes the
+          // same single-flight failure, so the session-expired event must not
+          // fire once per waiting request.
+          if (isSessionExpired(refreshError)) {
+            authEvents.emit()
+          }
+          throw refreshError
+        })
         .finally(() => {
           refreshInFlight = null
         })
@@ -53,9 +62,6 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
     try {
       await refreshInFlight
     } catch (refreshError) {
-      if (isSessionExpired(refreshError)) {
-        authEvents.emit()
-      }
       options.tokenStore.clear()
       return Promise.reject(refreshError)
     }
