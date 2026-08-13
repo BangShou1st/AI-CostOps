@@ -243,4 +243,36 @@ class SecurityConfigurationTest {
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         }
     }
+
+    @Test
+    void exactTeamMembershipRoutesRequireAuthentication() throws Exception {
+        for (var request : java.util.List.of(
+                get("/api/v1/teams/123/members"),
+                post("/api/v1/teams/123/members"),
+                delete("/api/v1/teams/123/members/456"))) {
+            mockMvc.perform(request)
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        }
+    }
+
+    @Test
+    void unsupportedTeamMembershipMethodsAndFamilyPathsRemainDenied() throws Exception {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        var token = tokens.issue(42L, 0L).token();
+
+        for (var request : java.util.List.of(
+                patch("/api/v1/teams/123/members"),
+                delete("/api/v1/teams/123/members"),
+                put("/api/v1/teams/123/members"),
+                get("/api/v1/teams/123/members/456"),
+                post("/api/v1/teams/123/members/456"),
+                patch("/api/v1/teams/123/members/456"),
+                put("/api/v1/teams/123/members/456"),
+                delete("/api/v1/teams/123/members/456/extra"))) {
+            mockMvc.perform(request.header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
 }
