@@ -117,6 +117,51 @@ components:
               $ref: '#/components/schemas/Id'
             displayName:
               type: string
+    RegisterRequest:
+      type: object
+      required: [email, displayName, password]
+      properties:
+        email: { type: string, format: email }
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+        password: { type: string, minLength: 8, maxLength: 200 }
+    IdentityResponse:
+      type: object
+      required: [userId, organizationMemberId, organizationId]
+      properties:
+        userId: { $ref: '#/components/schemas/Id' }
+        organizationMemberId: { $ref: '#/components/schemas/Id' }
+        organizationId: { $ref: '#/components/schemas/Id' }
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    ForgotPasswordResponse:
+      type: object
+      required: [accepted]
+      properties:
+        accepted: { type: boolean, const: true }
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token: { type: string, minLength: 1 }
+        newPassword: { type: string, minLength: 8, maxLength: 200 }
+    InvitationAcceptRequest:
+      type: object
+      required: [displayName, password]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+        password: { type: string, minLength: 8, maxLength: 200 }
+    MeResponse:
+      type: object
+      required: [id, email, displayName, organizationId, organizationMemberId]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        organizationId: { $ref: '#/components/schemas/Id' }
+        organizationMemberId: { $ref: '#/components/schemas/Id' }
     EvidenceUploadResponse:
       type: object
       required:
@@ -234,9 +279,9 @@ paths:
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
-        '409':
+        '429':
           $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -256,16 +301,14 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/IdentityResponse'
         '400':
-          $ref: '#/components/responses/Problem'
-        '401':
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
         '409':
           $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -273,7 +316,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/RegisterRequest'
   /auth/refresh:
     post:
       summary: 旋转 Refresh Session
@@ -286,15 +329,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LoginResponse'
-        '400':
-          $ref: '#/components/responses/Problem'
         '401':
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
         '409':
           $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
   /auth/logout:
@@ -303,17 +344,13 @@ paths:
       tags:
       - Auth
       responses:
-        '200':
-          description: 成功
-        '400':
-          $ref: '#/components/responses/Problem'
+        '204':
+          description: Session revoked and refresh cookie cleared
         '401':
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
   /auth/logout-all:
     post:
@@ -321,17 +358,9 @@ paths:
       tags:
       - Auth
       responses:
-        '200':
-          description: 成功
-        '400':
-          $ref: '#/components/responses/Problem'
+        '204':
+          description: Durable security version increment completed
         '401':
-          $ref: '#/components/responses/Problem'
-        '403':
-          $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
           $ref: '#/components/responses/Problem'
   /auth/password/forgot:
     post:
@@ -339,21 +368,17 @@ paths:
       tags:
       - Auth
       responses:
-        '200':
-          description: 成功
+        '202':
+          description: Generic acceptance response
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/ForgotPasswordResponse'
         '400':
           $ref: '#/components/responses/Problem'
-        '401':
+        '429':
           $ref: '#/components/responses/Problem'
-        '403':
-          $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -361,28 +386,22 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/ForgotPasswordRequest'
   /auth/password/reset:
     post:
       summary: 重置密码
       tags:
       - Auth
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                type: object
+        '204':
+          description: Password changed and sessions invalidated
         '400':
           $ref: '#/components/responses/Problem'
         '401':
           $ref: '#/components/responses/Problem'
         '403':
           $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
+        '503':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -390,7 +409,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/ResetPasswordRequest'
   /auth/me:
     get:
       summary: 读取当前身份与权限上下文
@@ -402,16 +421,8 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-        '400':
-          $ref: '#/components/responses/Problem'
+                $ref: '#/components/schemas/MeResponse'
         '401':
-          $ref: '#/components/responses/Problem'
-        '403':
-          $ref: '#/components/responses/Problem'
-        '409':
-          $ref: '#/components/responses/Problem'
-        '422':
           $ref: '#/components/responses/Problem'
   /invitations/{token}/accept:
     post:
@@ -424,16 +435,10 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/IdentityResponse'
         '400':
           $ref: '#/components/responses/Problem'
-        '401':
-          $ref: '#/components/responses/Problem'
-        '403':
-          $ref: '#/components/responses/Problem'
         '409':
-          $ref: '#/components/responses/Problem'
-        '422':
           $ref: '#/components/responses/Problem'
       security: []
       requestBody:
@@ -441,7 +446,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/InvitationAcceptRequest'
   /users:
     get:
       summary: 查询用户

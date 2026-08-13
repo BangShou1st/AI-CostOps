@@ -1,0 +1,55 @@
+INSERT INTO `role` (code, name) VALUES
+('EMPLOYEE','Employee'),
+('PROJECT_OWNER','Project Owner'),
+('FINANCE_REVIEWER','Finance Reviewer'),
+('FINANCE_ADMIN','Finance Admin'),
+('SYSTEM_ADMIN','System Admin');
+
+INSERT INTO permission (code, name) VALUES
+('USER_READ','Read users'),('USER_MANAGE','Manage users'),('USER_INVITE','Invite users'),('ROLE_READ','Read roles'),('ROLE_ASSIGN','Assign roles'),
+('PROJECT_READ','Read projects'),('PROJECT_MANAGE','Manage projects'),('PROJECT_MEMBER_MANAGE','Manage project members'),('TEAM_READ','Read teams'),('TEAM_MANAGE','Manage teams'),
+('COST_CENTER_READ','Read cost centers'),('COST_CENTER_MANAGE','Manage cost centers'),('PROVIDER_ACCOUNT_READ','Read provider accounts'),('PROVIDER_ACCOUNT_MANAGE','Manage provider accounts'),
+('EVIDENCE_UPLOAD_OWN','Upload own evidence'),('EVIDENCE_UPLOAD_PROVIDER','Upload provider evidence'),('EVIDENCE_READ','Read evidence'),('EVIDENCE_DOWNLOAD','Download evidence'),
+('IMPORT_READ','Read imports'),('IMPORT_RETRY','Retry imports'),('IMPORT_CONFIRM','Confirm imports'),('IMPORT_CANCEL','Cancel imports'),
+('COST_READ','Read costs'),('DUPLICATE_REVIEW','Review duplicates'),('ALLOCATION_READ','Read allocations'),('ALLOCATION_EDIT','Edit allocations'),('ALLOCATION_CONFIRM','Confirm allocations'),('ALLOCATION_RULE_MANAGE','Manage allocation rules'),
+('EXPENSE_CREATE_OWN','Create own expenses'),('EXPENSE_READ_OWN','Read own expenses'),('EXPENSE_SUBMIT_OWN','Submit own expenses'),('EXPENSE_REVIEW','Review expenses'),('EXPENSE_POST','Post expenses'),
+('BUDGET_READ','Read budgets'),('BUDGET_MANAGE','Manage budgets'),('COMMITMENT_REQUEST','Request commitments'),('COMMITMENT_APPROVE','Approve commitments'),('COMMITMENT_RELEASE','Release commitments'),
+('LEDGER_READ','Read ledger'),('LEDGER_POST','Post ledger'),('LEDGER_CORRECT','Correct ledger'),
+('RECONCILIATION_READ','Read reconciliation'),('RECONCILIATION_RUN','Run reconciliation'),('RECONCILIATION_RESOLVE','Resolve reconciliation'),
+('PERIOD_READ','Read periods'),('PERIOD_CLOSE','Close periods'),('PERIOD_REOPEN','Reopen periods'),('AUDIT_READ','Read audit');
+
+INSERT INTO role_permission (role_id, permission_id)
+SELECT r.id, p.id FROM `role` r JOIN permission p
+WHERE r.code='EMPLOYEE' AND p.code IN (
+  'EVIDENCE_UPLOAD_OWN','EXPENSE_CREATE_OWN','EXPENSE_READ_OWN','EXPENSE_SUBMIT_OWN','COMMITMENT_REQUEST');
+
+INSERT INTO role_permission (role_id, permission_id)
+SELECT r.id, p.id FROM `role` r JOIN permission p
+WHERE r.code='PROJECT_OWNER' AND p.code IN (
+  'EVIDENCE_UPLOAD_OWN','EXPENSE_CREATE_OWN','EXPENSE_READ_OWN','EXPENSE_SUBMIT_OWN',
+  'PROJECT_READ','PROJECT_MEMBER_MANAGE','COST_READ','DUPLICATE_REVIEW','ALLOCATION_READ','ALLOCATION_EDIT','ALLOCATION_CONFIRM',
+  'BUDGET_READ','COMMITMENT_REQUEST','COMMITMENT_APPROVE');
+
+INSERT INTO role_permission (role_id, permission_id)
+SELECT r.id, p.id FROM `role` r JOIN permission p
+WHERE r.code='FINANCE_REVIEWER' AND p.code IN (
+  'EVIDENCE_UPLOAD_PROVIDER','EVIDENCE_READ','EVIDENCE_DOWNLOAD','IMPORT_READ','IMPORT_RETRY','IMPORT_CONFIRM','IMPORT_CANCEL',
+  'COST_READ','DUPLICATE_REVIEW','ALLOCATION_READ','ALLOCATION_EDIT','ALLOCATION_CONFIRM',
+  'EXPENSE_REVIEW','EXPENSE_POST','BUDGET_READ','COMMITMENT_REQUEST','COMMITMENT_APPROVE','COMMITMENT_RELEASE',
+  'LEDGER_READ','LEDGER_POST','RECONCILIATION_READ','RECONCILIATION_RUN','RECONCILIATION_RESOLVE','PERIOD_READ','AUDIT_READ');
+
+INSERT INTO role_permission (role_id, permission_id)
+SELECT r.id, p.id FROM `role` r JOIN permission p
+WHERE r.code='FINANCE_ADMIN' AND p.code IN (
+  'EVIDENCE_UPLOAD_PROVIDER','EVIDENCE_READ','EVIDENCE_DOWNLOAD','IMPORT_READ','IMPORT_RETRY','IMPORT_CONFIRM','IMPORT_CANCEL',
+  'COST_READ','DUPLICATE_REVIEW','ALLOCATION_READ','ALLOCATION_EDIT','ALLOCATION_CONFIRM','ALLOCATION_RULE_MANAGE',
+  'EXPENSE_REVIEW','EXPENSE_POST','BUDGET_READ','BUDGET_MANAGE','COMMITMENT_REQUEST','COMMITMENT_APPROVE','COMMITMENT_RELEASE',
+  'LEDGER_READ','LEDGER_POST','LEDGER_CORRECT','RECONCILIATION_READ','RECONCILIATION_RUN','RECONCILIATION_RESOLVE',
+  'PERIOD_READ','PERIOD_CLOSE','PERIOD_REOPEN','PROVIDER_ACCOUNT_READ','PROVIDER_ACCOUNT_MANAGE','AUDIT_READ');
+
+INSERT INTO role_permission (role_id, permission_id)
+SELECT r.id, p.id FROM `role` r JOIN permission p
+WHERE r.code='SYSTEM_ADMIN' AND p.code IN (
+  'USER_READ','USER_MANAGE','USER_INVITE','ROLE_READ','ROLE_ASSIGN',
+  'PROJECT_READ','PROJECT_MANAGE','PROJECT_MEMBER_MANAGE','TEAM_READ','TEAM_MANAGE',
+  'COST_CENTER_READ','COST_CENTER_MANAGE','PROVIDER_ACCOUNT_READ','PROVIDER_ACCOUNT_MANAGE','AUDIT_READ');
