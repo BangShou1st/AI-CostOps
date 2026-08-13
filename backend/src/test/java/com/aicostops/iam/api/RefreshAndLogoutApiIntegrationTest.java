@@ -52,7 +52,7 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
     }
 
     @Test
-    void authenticatesMeRotatesRefreshRejectsReplayAndLogsOutRepeatSafely() throws Exception {
+    void authenticatesMeAndRejectsReplay() throws Exception {
         var login = login();
         var access = com.jayway.jsonpath.JsonPath.<String>read(login.getResponse().getContentAsString(), "$.accessToken");
         var firstCookie = login.getResponse().getCookie("aicostops_refresh");
@@ -71,8 +71,6 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
                 .andExpect(jsonPath("$.accessToken").isString())
                 .andExpect(header().exists("Set-Cookie"))
                 .andReturn();
-        var secondCookie = refreshed.getResponse().getCookie("aicostops_refresh");
-
         mockMvc.perform(post("/api/v1/auth/refresh")
                         .header("Origin", "http://localhost:8080").cookie(firstCookie))
                 .andExpect(status().isConflict())
@@ -84,11 +82,23 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH_REFRESH_REPLAY"));
 
+    }
+
+    @Test
+    void logoutRevokesAnOtherwiseLiveRefreshAndRemainsRepeatSafe() throws Exception {
+        var login = login();
+        var access = com.jayway.jsonpath.JsonPath.<String>read(login.getResponse().getContentAsString(), "$.accessToken");
+        var liveCookie = login.getResponse().getCookie("aicostops_refresh");
+
         mockMvc.perform(post("/api/v1/auth/logout")
                         .header("Authorization", "Bearer " + access)
-                        .header("Origin", "http://localhost:8080").cookie(secondCookie))
+                        .header("Origin", "http://localhost:8080").cookie(liveCookie))
                 .andExpect(status().isNoContent())
                 .andExpect(header().string("Set-Cookie", org.hamcrest.Matchers.containsString("Max-Age=0")));
+        mockMvc.perform(post("/api/v1/auth/refresh")
+                        .header("Origin", "http://localhost:8080").cookie(liveCookie))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_SESSION_EXPIRED"));
         mockMvc.perform(post("/api/v1/auth/logout")
                         .header("Authorization", "Bearer " + access)
                         .header("Origin", "http://localhost:8080"))

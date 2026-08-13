@@ -2,6 +2,8 @@ package com.aicostops.shared.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,6 +27,20 @@ class SecurityConfigurationTest {
     @Test
     void requiresAuthenticationForEveryOtherRequest() throws Exception {
         mockMvc.perform(get("/api/v1/not-implemented"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"))
+                .andExpect(jsonPath("$.traceId").isString())
+                .andExpect(jsonPath("$.instance").value("/api/v1/not-implemented"));
+    }
+
+    @Test
+    void invalidBearerUsesTheSameProblemDetailContract() throws Exception {
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer not-a-jwt"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentType("application/problem+json"))
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"))
+                .andExpect(jsonPath("$.traceId").isString())
+                .andExpect(jsonPath("$.instance").value("/api/v1/auth/me"));
     }
 }

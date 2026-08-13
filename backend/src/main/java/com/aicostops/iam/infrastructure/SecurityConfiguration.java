@@ -1,9 +1,10 @@
 package com.aicostops.iam.infrastructure;
 
 import com.aicostops.iam.application.SecurityVersionService;
+import com.aicostops.shared.security.SecurityProblemWriter;
+import com.aicostops.shared.web.ProblemCode;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
@@ -13,15 +14,14 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfiguration {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenService tokens,
-            SecurityVersionService versions) throws Exception {
-        var bearer = new BearerAuthenticationFilter(tokens, versions);
+            SecurityVersionService versions, SecurityProblemWriter problems) throws Exception {
+        var bearer = new BearerAuthenticationFilter(tokens, versions, problems);
         return http.csrf(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable).httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable).requestCache(AbstractHttpConfigurer::disable)
                 .exceptionHandling(exceptions -> exceptions.authenticationEntryPoint((request, response, exception) -> {
-                    response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                    response.setContentType("application/problem+json");
-                    response.getWriter().write("{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Authentication is required.\",\"code\":\"AUTH_ACCESS_EXPIRED\"}");
+                    problems.unauthorized(request, response, ProblemCode.AUTH_ACCESS_EXPIRED,
+                            "Authentication is required.");
                 }))
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()

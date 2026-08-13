@@ -13,7 +13,9 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system aicostops \
-    && useradd --system --gid aicostops --home-dir /app --shell /usr/sbin/nologin aicostops
+    && useradd --system --gid aicostops --home-dir /app --shell /usr/sbin/nologin aicostops \
+    && mkdir -p /var/lib/aicostops/mailbox \
+    && chown -R aicostops:aicostops /var/lib/aicostops
 
 WORKDIR /app
 COPY --from=build --chown=aicostops:aicostops /workspace/target/backend-*.jar app.jar

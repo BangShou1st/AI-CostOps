@@ -5,9 +5,8 @@ services:
       PUBLIC_REGISTRATION_ORG_SLUG: ${PUBLIC_REGISTRATION_ORG_SLUG:-local-dev}
       AICOSTOPS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT}
       AICOSTOPS_REFRESH_COOKIE_SECURE: "false"
-    ports:
-      - "${BACKEND_PORT}:8080"
-
+      AICOSTOPS_DEV_MAILBOX_PATH: /var/lib/aicostops/mailbox
+      AICOSTOPS_DEV_RESET_PAGE_URL: http://localhost:${FRONTEND_PORT}/reset-password
   mysql:
     ports:
       - "${MYSQL_PORT}:3306"

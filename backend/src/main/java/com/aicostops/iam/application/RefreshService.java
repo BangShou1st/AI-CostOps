@@ -10,6 +10,7 @@ import com.aicostops.shared.web.ProblemCode;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.dao.DataAccessException;
 
 @Service
 public class RefreshService {
@@ -24,8 +25,14 @@ public class RefreshService {
     }
 
     public LoginResult refresh(String credential) {
-        var before = sessions.load(credential);
-        var rotation = sessions.rotate(credential);
+        final com.aicostops.iam.infrastructure.RefreshSessionData before;
+        final com.aicostops.iam.infrastructure.RefreshRotationResult rotation;
+        try {
+            before = sessions.load(credential);
+            rotation = sessions.rotate(credential);
+        } catch (DataAccessException exception) {
+            throw redisUnavailable();
+        }
         if (rotation.outcome() == RefreshRotationOutcome.RACE) {
             throw problem(HttpStatus.CONFLICT, ProblemCode.AUTH_REFRESH_RACE,
                     "Refresh already in progress", "Retry refresh once after a brief wait.");
@@ -40,10 +47,13 @@ public class RefreshService {
             throw problem(HttpStatus.UNAUTHORIZED, ProblemCode.AUTH_SESSION_EXPIRED,
                     "Refresh session expired", "Sign in again.");
         }
-        var session = sessions.load(rotation.nextCredential());
+        final com.aicostops.iam.infrastructure.RefreshSessionData session;
+        try { session = sessions.load(rotation.nextCredential()); }
+        catch (DataAccessException exception) { throw redisUnavailable(); }
         var identity = iam.findAuthenticatedIdentity(session.userId());
         if (identity == null || identity.securityVersion() != session.securityVersion()) {
-            sessions.revoke(rotation.nextCredential());
+            try { sessions.revoke(rotation.nextCredential()); }
+            catch (DataAccessException exception) { throw redisUnavailable(); }
             throw problem(HttpStatus.UNAUTHORIZED, ProblemCode.AUTH_SESSION_EXPIRED,
                     "Refresh session expired", "Sign in again.");
         }
@@ -54,5 +64,10 @@ public class RefreshService {
 
     private DomainException problem(HttpStatus status, ProblemCode code, String title, String detail) {
         return new DomainException(status, code, title, detail);
+    }
+
+    private DomainException redisUnavailable() {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, ProblemCode.REDIS_UNAVAILABLE_FOR_AUTH,
+                "Authentication runtime unavailable", "Authentication is temporarily unavailable.");
     }
 }

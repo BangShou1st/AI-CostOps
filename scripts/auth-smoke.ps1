@@ -50,9 +50,13 @@ $refresh = $refreshResponse.Content | ConvertFrom-Json
 Assert-True ($refresh.accessToken -ne $oldAccess) "refresh did not rotate the access JWT"
 $currentRefresh = [regex]::Match($refreshResponse.Headers['Set-Cookie'], 'aicostops_refresh=([^;]+)').Groups[1].Value
 
+# Replay uses an independent live session so it cannot revoke the session used to prove logout.
+$replayLogin = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$BaseUrl/auth/login" -SessionVariable replayAuthSession -ContentType "application/json" -Body (@{ email=$email; password=$oldPassword } | ConvertTo-Json)
+$replayOldRefresh = [regex]::Match($replayLogin.Headers['Set-Cookie'], 'aicostops_refresh=([^;]+)').Groups[1].Value
+Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$BaseUrl/auth/refresh" -WebSession $replayAuthSession -Headers @{ Origin=$origin } | Out-Null
 Start-Sleep -Seconds 11
 Invoke-WebRequest -UseBasicParsing -Uri $origin -SessionVariable replaySession | Out-Null
-$replaySession.Cookies.Add([System.Net.Cookie]::new('aicostops_refresh', $oldRefresh, '/api/v1/auth', ([uri]$BaseUrl).Host))
+$replaySession.Cookies.Add([System.Net.Cookie]::new('aicostops_refresh', $replayOldRefresh, '/api/v1/auth', ([uri]$BaseUrl).Host))
 try {
     Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/refresh" -WebSession $replaySession -Headers @{ Origin=$origin }
     throw "stale refresh replay was accepted"
@@ -70,16 +74,17 @@ Assert-True $refreshRejected "refresh succeeded after logout"
 $forgot = Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/password/forgot" -ContentType "application/json" -Body (@{ email=$email } | ConvertTo-Json)
 Assert-True ($forgot.accepted -eq $true) "forgot password did not return the generic response"
 
-$userId = docker compose --env-file $EnvFile exec -T mysql mysql "-u$(Get-EnvValue 'MYSQL_USER')" "-p$(Get-EnvValue 'MYSQL_PASSWORD')" "$(Get-EnvValue 'MYSQL_DATABASE')" -Nse "SELECT id FROM app_user WHERE email_normalized='$email'"
-$tokenId = "smoke$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
-$resetSecret = "smoke-reset-secret-32-bytes-minimum-value"
-$sha256 = [System.Security.Cryptography.SHA256]::Create()
-try { $sha = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($resetSecret)) } finally { $sha256.Dispose() }
-$tokenHash = ([System.BitConverter]::ToString($sha) -replace '-', '').ToLowerInvariant()
-$redisPassword = Get-EnvValue 'REDIS_PASSWORD'
-docker compose --env-file $EnvFile exec -T redis redis-cli -a $redisPassword HSET "aicostops:v1:auth:reset:$tokenId" user_id $userId token_hash $tokenHash | Out-Null
-docker compose --env-file $EnvFile exec -T redis redis-cli -a $redisPassword EXPIRE "aicostops:v1:auth:reset:$tokenId" 1800 | Out-Null
-Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/password/reset" -ContentType "application/json" -Body (@{ token="$tokenId.$resetSecret"; newPassword=$newPassword } | ConvertTo-Json)
+$messagePath = (docker compose --env-file $EnvFile exec -T backend sh -c "grep -l 'email=$email' /var/lib/aicostops/mailbox/*.txt | tail -n 1").Trim()
+Assert-True (-not [string]::IsNullOrWhiteSpace($messagePath)) "dev password reset delivery did not create a mailbox message"
+$messageBody = docker compose --env-file $EnvFile exec -T backend sh -c "cat '$messagePath'"
+$resetLinkLine = $messageBody | Where-Object { $_ -like 'resetLink=*' } | Select-Object -First 1
+$resetLink = ($resetLinkLine -split '=', 2)[1]
+$resetTokenMatch = [regex]::Match(([uri]$resetLink).Query, '(?:^|[?&])token=([^&]+)')
+$resetToken = if ($resetTokenMatch.Success) {
+    [uri]::UnescapeDataString($resetTokenMatch.Groups[1].Value.Replace('+', ' '))
+} else { $null }
+Assert-True (-not [string]::IsNullOrWhiteSpace($resetToken)) "dev mailbox reset link did not contain a token"
+Invoke-RestMethod -Method Post -Uri "$BaseUrl/auth/password/reset" -ContentType "application/json" -Body (@{ token=$resetToken; newPassword=$newPassword } | ConvertTo-Json)
 
 $oldAccessRejected = $false
 try {

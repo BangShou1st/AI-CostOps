@@ -62,23 +62,32 @@ public class LoginService {
                     "Account disabled", "This account is disabled.");
         }
 
+        final com.aicostops.iam.infrastructure.RefreshCredential refresh;
         try {
-            var refresh = refreshSessions.create(identity.userId(), identity.organizationMemberId(),
+            refresh = refreshSessions.create(identity.userId(), identity.organizationMemberId(),
                     identity.securityVersion(), command.deviceLabel());
+        } catch (DataAccessException exception) {
+            throw redisUnavailable();
+        }
+        try {
             var access = jwtTokenService.issue(identity.userId(), identity.securityVersion());
             auditService.append("LOGIN_SUCCESS", identity.organizationId(), identity.userId(), "USER",
                     identity.userId(), Map.of("result", "SUCCESS"));
             return new LoginResult(access, refresh.value(), identity.userId(), identity.displayName(),
                     identity.organizationMemberId(), identity.organizationId());
-        } catch (DataAccessException exception) {
-            throw new DomainException(HttpStatus.SERVICE_UNAVAILABLE,
-                    ProblemCode.REDIS_UNAVAILABLE_FOR_AUTH,
-                    "Authentication runtime unavailable", "Authentication is temporarily unavailable.");
+        } catch (RuntimeException exception) {
+            try { refreshSessions.revoke(refresh.value()); } catch (DataAccessException ignored) { }
+            throw exception;
         }
     }
 
     private DomainException invalidCredentials() {
         return new DomainException(HttpStatus.UNAUTHORIZED, ProblemCode.AUTH_INVALID_CREDENTIALS,
                 "Invalid credentials", "The email or password is invalid.");
+    }
+
+    private DomainException redisUnavailable() {
+        return new DomainException(HttpStatus.SERVICE_UNAVAILABLE, ProblemCode.REDIS_UNAVAILABLE_FOR_AUTH,
+                "Authentication runtime unavailable", "Authentication is temporarily unavailable.");
     }
 }

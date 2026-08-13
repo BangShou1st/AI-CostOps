@@ -124,7 +124,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
           <systemPropertyVariables>
-            <aicostops.auth.jwt-signing-secret>unit-test-only-signing-secret-with-more-than-32-bytes</aicostops.auth.jwt-signing-secret>
+            <spring.config.additional-location>classpath:/application-test-defaults.yml</spring.config.additional-location>
           </systemPropertyVariables>
           <excludes>
             <exclude>**/*IntegrationTest.java</exclude>
@@ -136,7 +136,7 @@
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>
           <systemPropertyVariables>
-            <aicostops.auth.jwt-signing-secret>integration-test-only-signing-secret-with-more-than-32-bytes</aicostops.auth.jwt-signing-secret>
+            <spring.config.additional-location>classpath:/application-test-defaults.yml</spring.config.additional-location>
           </systemPropertyVariables>
           <includes>
             <include>**/*IntegrationTest.java</include>

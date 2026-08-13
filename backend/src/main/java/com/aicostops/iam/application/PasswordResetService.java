@@ -36,23 +36,29 @@ public class PasswordResetService {
         var normalized = EmailAddress.normalize(email);
         var key = "aicostops:v1:ratelimit:password-reset:" +
                 com.aicostops.iam.domain.TokenDigest.sha256(normalized + "|" + remoteIp);
+        final Long count;
         try {
-            var count = redis.opsForValue().increment(key);
+            count = redis.opsForValue().increment(key);
             if (count != null && count == 1) redis.expire(key, java.time.Duration.ofMinutes(15));
-            if (count != null && count > limit) throw new DomainException(HttpStatus.TOO_MANY_REQUESTS,
-                    ProblemCode.AUTH_RATE_LIMITED, "Too many reset attempts", "Try again later.", 900L);
-            var identity = iam.findPasswordResetIdentity(normalized);
-            if (identity != null && "ACTIVE".equals(identity.status()))
-                delivery.deliver(normalized, resets.create(identity.userId()));
         } catch (DataAccessException exception) {
-            throw new DomainException(HttpStatus.SERVICE_UNAVAILABLE, ProblemCode.REDIS_UNAVAILABLE_FOR_AUTH,
-                    "Authentication runtime unavailable", "Authentication is temporarily unavailable.");
+            throw redisUnavailable();
+        }
+        if (count != null && count > limit) throw new DomainException(HttpStatus.TOO_MANY_REQUESTS,
+                ProblemCode.AUTH_RATE_LIMITED, "Too many reset attempts", "Try again later.", 900L);
+        var identity = iam.findPasswordResetIdentity(normalized);
+        if (identity != null && "ACTIVE".equals(identity.status())) {
+            final String token;
+            try { token = resets.create(identity.userId()); }
+            catch (DataAccessException exception) { throw redisUnavailable(); }
+            delivery.deliver(normalized, token);
         }
     }
 
     @Transactional
     public void reset(String token, String newPassword) {
-        var userId = resets.consume(token);
+        final Long userId;
+        try { userId = resets.consume(token); }
+        catch (DataAccessException exception) { throw redisUnavailable(); }
         if (userId == null) throw expired();
         var identity = iam.findPasswordResetIdentityById(userId);
         if (identity == null || !"ACTIVE".equals(identity.status())) {
@@ -70,5 +76,10 @@ public class PasswordResetService {
     private DomainException expired() {
         return new DomainException(HttpStatus.UNAUTHORIZED, ProblemCode.AUTH_SESSION_EXPIRED,
                 "Reset session expired", "Request a new password reset.");
+    }
+
+    private DomainException redisUnavailable() {
+        return new DomainException(HttpStatus.SERVICE_UNAVAILABLE, ProblemCode.REDIS_UNAVAILABLE_FOR_AUTH,
+                "Authentication runtime unavailable", "Authentication is temporarily unavailable.");
     }
 }
