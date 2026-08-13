@@ -148,4 +148,35 @@ class SecurityConfigurationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
+
+    @Test
+    void exactProjectRoutesRequireAuthentication() throws Exception {
+        mockMvc.perform(get("/api/v1/projects"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        mockMvc.perform(post("/api/v1/projects"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        mockMvc.perform(patch("/api/v1/projects/123"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+    }
+
+    @Test
+    void unsupportedProjectMethodsAndFamilyPathsRemainDenied() throws Exception {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        var token = tokens.issue(42L, 0L).token();
+
+        for (var request : java.util.List.of(
+                delete("/api/v1/projects"),
+                patch("/api/v1/projects"),
+                get("/api/v1/projects/123"),
+                post("/api/v1/projects/123"),
+                delete("/api/v1/projects/123"),
+                get("/api/v1/projects/123/members"))) {
+            mockMvc.perform(request.header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
 }
