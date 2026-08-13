@@ -1,22 +1,40 @@
 package com.aicostops.shared.security;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
+import com.aicostops.iam.application.AdminInvitationService;
+import com.aicostops.iam.application.RoleAssignmentService;
+import com.aicostops.iam.application.RoleCatalogService;
+import com.aicostops.iam.application.SecurityVersionService;
+import com.aicostops.iam.application.UserAdminService;
+import com.aicostops.iam.infrastructure.JwtTokenService;
+import com.aicostops.organization.application.CostCenterService;
+import com.aicostops.organization.application.ProjectMembershipService;
+import com.aicostops.organization.application.ProjectService;
+import com.aicostops.organization.application.ProviderAccountService;
+import com.aicostops.organization.application.TeamMembershipService;
+import com.aicostops.organization.application.TeamService;
+import java.util.List;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpMethod;
 import org.springframework.test.web.servlet.MockMvc;
-import com.aicostops.iam.application.SecurityVersionService;
-import com.aicostops.iam.infrastructure.JwtTokenService;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.HandlerMapping;
 
 @SpringBootTest(properties = "spring.flyway.enabled=false")
 @AutoConfigureMockMvc
@@ -28,6 +46,99 @@ class SecurityConfigurationTest {
     private JwtTokenService tokens;
     @MockitoBean
     private SecurityVersionService versions;
+    @MockitoBean
+    private UserAdminService users;
+    @MockitoBean
+    private RoleCatalogService catalog;
+    @MockitoBean
+    private RoleAssignmentService roleAssignments;
+    @MockitoBean
+    private AdminInvitationService invitations;
+    @MockitoBean
+    private ProjectService projects;
+    @MockitoBean
+    private ProjectMembershipService projectMemberships;
+    @MockitoBean
+    private TeamService teams;
+    @MockitoBean
+    private TeamMembershipService teamMemberships;
+    @MockitoBean
+    private CostCenterService costCenters;
+    @MockitoBean
+    private ProviderAccountService providerAccounts;
+
+    @Test
+    void implementedM1RoutesRequireAuthentication() throws Exception {
+        var bearer = bearer();
+
+        for (var operation : implementedM1Operations()) {
+            mockMvc.perform(operation.get())
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+
+            var authenticatedResult = mockMvc.perform(operation.get().header("Authorization", bearer))
+                    .andReturn();
+            assertThat(authenticatedResult.getResponse().getStatus())
+                    .as("authenticated %s %s reaches its controller",
+                            authenticatedResult.getRequest().getMethod(),
+                            authenticatedResult.getRequest().getRequestURI())
+                    .isNotIn(401, 403);
+            assertThat(authenticatedResult.getRequest()
+                    .getAttribute(HandlerMapping.BEST_MATCHING_HANDLER_ATTRIBUTE))
+                    .as("authenticated %s %s resolves a controller handler",
+                            authenticatedResult.getRequest().getMethod(),
+                            authenticatedResult.getRequest().getRequestURI())
+                    .isInstanceOf(HandlerMethod.class);
+        }
+    }
+
+    @Test
+    void unsupportedMethodsRemainDenied() throws Exception {
+        var bearer = bearer();
+
+        for (var unsupported : List.of(
+                post("/api/v1/users"),
+                get("/api/v1/users/123/status"),
+                get("/api/v1/role-assignments"),
+                get("/api/v1/invitations"),
+                delete("/api/v1/projects/123"),
+                get("/api/v1/projects/123"),
+                get("/api/v1/projects/123/members/456"),
+                delete("/api/v1/teams/123"),
+                get("/api/v1/teams/123"),
+                get("/api/v1/teams/123/members/456"),
+                delete("/api/v1/cost-centers/123"),
+                get("/api/v1/cost-centers/123"),
+                delete("/api/v1/provider-accounts/123"),
+                get("/api/v1/provider-accounts/123"),
+                get("/api/v1/not-implemented"))) {
+            mockMvc.perform(unsupported.header("Authorization", bearer))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+
+        mockMvc.perform(post("/api/v1/invitations/public-token/accept")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void m2RoutesRemainDenied() throws Exception {
+        var bearer = bearer();
+
+        for (var routeFamily : List.of(
+                "/api/v1/evidence", "/api/v1/costs/charges", "/api/v1/budgets", "/api/v1/ledger")) {
+            for (var path : List.of(routeFamily, routeFamily + "/123")) {
+                for (var method : List.of(
+                        HttpMethod.GET, HttpMethod.POST, HttpMethod.PATCH, HttpMethod.PUT, HttpMethod.DELETE)) {
+                    mockMvc.perform(request(method, path).header("Authorization", bearer))
+                            .andExpect(status().isForbidden())
+                            .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+                }
+            }
+        }
+    }
 
     @Test
     void permitsHealthChecksWithoutAuthentication() throws Exception {
@@ -338,5 +449,40 @@ class SecurityConfigurationTest {
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         }
+    }
+
+    private List<Supplier<MockHttpServletRequestBuilder>> implementedM1Operations() {
+        return List.of(
+                () -> get("/api/v1/users"),
+                () -> get("/api/v1/users/123"),
+                () -> patch("/api/v1/users/123/status").contentType("application/json").content("{}"),
+                () -> get("/api/v1/roles"),
+                () -> get("/api/v1/permissions"),
+                () -> post("/api/v1/role-assignments").contentType("application/json").content("{}"),
+                () -> delete("/api/v1/role-assignments/123"),
+                () -> post("/api/v1/invitations").contentType("application/json").content("{}"),
+                () -> get("/api/v1/projects"),
+                () -> post("/api/v1/projects").contentType("application/json").content("{}"),
+                () -> patch("/api/v1/projects/123").contentType("application/json").content("{}"),
+                () -> get("/api/v1/projects/123/members"),
+                () -> post("/api/v1/projects/123/members").contentType("application/json").content("{}"),
+                () -> delete("/api/v1/projects/123/members/456"),
+                () -> get("/api/v1/teams"),
+                () -> post("/api/v1/teams").contentType("application/json").content("{}"),
+                () -> patch("/api/v1/teams/123").contentType("application/json").content("{}"),
+                () -> get("/api/v1/teams/123/members"),
+                () -> post("/api/v1/teams/123/members").contentType("application/json").content("{}"),
+                () -> delete("/api/v1/teams/123/members/456"),
+                () -> get("/api/v1/cost-centers"),
+                () -> post("/api/v1/cost-centers").contentType("application/json").content("{}"),
+                () -> patch("/api/v1/cost-centers/123").contentType("application/json").content("{}"),
+                () -> get("/api/v1/provider-accounts"),
+                () -> post("/api/v1/provider-accounts").contentType("application/json").content("{}"),
+                () -> patch("/api/v1/provider-accounts/123").contentType("application/json").content("{}"));
+    }
+
+    private String bearer() {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        return "Bearer " + tokens.issue(42L, 0L).token();
     }
 }
