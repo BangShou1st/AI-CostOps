@@ -54,3 +54,23 @@ export interface Invitation {
   expiresAt: string
   createdAt: string
 }
+
+export interface MasterDataRecord {
+  id: string
+  code: string
+  name: string
+  status: MasterDataStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OrganizationMemberRecord {
+  id: string
+  organizationMemberId: string
+  userId: string
+  email: string
+  displayName: string
+  userStatus: UserStatus
+  status: MasterDataStatus
+  joinedAt: string
+}

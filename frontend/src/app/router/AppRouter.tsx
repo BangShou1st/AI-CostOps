@@ -2,6 +2,8 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { ForgotPasswordPage, InvitationPage, LoginPage, RegisterPage, ResetPasswordPage } from '../../features/auth/AuthPages'
 import { RolesPage } from '../../features/settings/roles/RolesPage'
+import { ProjectsPage } from '../../features/settings/projects/ProjectsPage'
+import { TeamsPage } from '../../features/settings/teams/TeamsPage'
 import { UsersPage } from '../../features/settings/users/UsersPage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ProtectedRoute } from './ProtectedRoute'
@@ -30,10 +32,10 @@ export function AppRouter() {
           <Route index element={<RolesPage />} />
         </Route>
         <Route path="/settings/projects" element={<PermissionRoute permission="PROJECT_READ" />}>
-          <Route index element={<SettingsPlaceholder name="Projects" />} />
+          <Route index element={<ProjectsPage />} />
         </Route>
         <Route path="/settings/teams" element={<PermissionRoute permission="TEAM_READ" />}>
-          <Route index element={<SettingsPlaceholder name="Teams" />} />
+          <Route index element={<TeamsPage />} />
         </Route>
         <Route path="/settings/cost-centers" element={<PermissionRoute permission="COST_CENTER_READ" />}>
           <Route index element={<SettingsPlaceholder name="Cost centers" />} />

@@ -1,0 +1,102 @@
+import { useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { Alert, Button, Table, Typography } from 'antd'
+import type { TableProps } from 'antd'
+import { useState } from 'react'
+import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
+import { useAuth } from '../../auth/AuthSessionProvider'
+import { settingsApi } from '../api/settingsApi'
+import { settingsKeys } from '../api/settingsKeys'
+import type { MasterDataRecord } from '../api/settingsTypes'
+import { hasPermission } from '../permissions'
+import { LifecycleEditorModal, type LifecycleFormValues } from '../shared/LifecycleEditorModal'
+import { TeamMembersDrawer } from './TeamMembersDrawer'
+
+export function TeamsPage() {
+  const auth = useAuth()
+  const queryClient = useQueryClient()
+  const [page, setPage] = useState(0)
+  const [editor, setEditor] = useState<{ mode: 'create' } | { mode: 'edit'; record: MasterDataRecord } | null>(null)
+  const [membersOf, setMembersOf] = useState<MasterDataRecord | null>(null)
+  const [problem, setProblem] = useState<ProblemDetail | null>(null)
+
+  const listQuery = useQuery({
+    queryKey: settingsKeys.teams(page, 50),
+    queryFn: () => settingsApi.listTeams(page, 50),
+  })
+
+  const canManage = hasPermission(auth.user?.permissions, 'TEAM_MANAGE')
+
+  const saveMutation = useMutation({
+    mutationFn: (values: LifecycleFormValues) => {
+      if (editor?.mode === 'edit') {
+        return settingsApi.updateTeam(editor.record.id, { name: values.name, status: values.status })
+      }
+      return settingsApi.createTeam(values.code, values.name)
+    },
+    retry: false,
+    onSuccess: () => {
+      setProblem(null)
+      setEditor(null)
+      void queryClient.invalidateQueries({ queryKey: settingsKeys.teamsAll() })
+    },
+    onError: (error) => setProblem(toProblemDetail(error)),
+  })
+
+  const columns: TableProps<MasterDataRecord>['columns'] = [
+    { title: 'Code', dataIndex: 'code', key: 'code' },
+    { title: 'Name', dataIndex: 'name', key: 'name' },
+    { title: 'Status', dataIndex: 'status', key: 'status', render: (status: string) => status.toLowerCase() },
+    { title: 'Updated', dataIndex: 'updatedAt', key: 'updatedAt', render: (value: string) => new Date(value).toLocaleDateString() },
+    {
+      title: 'Actions', key: 'actions',
+      render: (_, record) => (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canManage && <Button size="small" onClick={() => { setProblem(null); setEditor({ mode: 'edit', record }) }}>Edit</Button>}
+          <Button size="small" onClick={() => setMembersOf(record)}>Members</Button>
+        </div>
+      ),
+    },
+  ]
+
+  return (
+    <main className="settings-page">
+      <div className="settings-toolbar">
+        <div>
+          <h1>Teams</h1>
+          <Typography.Text type="secondary">Manage teams and their membership.</Typography.Text>
+        </div>
+        {canManage && <Button type="primary" onClick={() => { setProblem(null); setEditor({ mode: 'create' }) }}>Create team</Button>}
+      </div>
+      {listQuery.isLoading && <div role="status">Loading teams…</div>}
+      {listQuery.isError && (
+        <Alert type="error" role="alert" message={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
+      )}
+      {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">No teams in this organization.</div>}
+      {listQuery.data && listQuery.data.items.length > 0 && (
+        <Table<MasterDataRecord>
+          rowKey="id"
+          columns={columns}
+          dataSource={listQuery.data.items}
+          pagination={{
+            current: listQuery.data.page + 1,
+            pageSize: listQuery.data.size,
+            total: listQuery.data.totalElements,
+            onChange: (current) => setPage(current - 1),
+          }}
+        />
+      )}
+      {editor && (
+        <LifecycleEditorModal
+          title={editor.mode === 'edit' ? `Edit team ${editor.record.code}` : 'Create team'}
+          submitting={saveMutation.isPending}
+          error={problem}
+          initial={editor.mode === 'edit' ? { code: editor.record.code, name: editor.record.name, status: editor.record.status } : undefined}
+          onCancel={() => setEditor(null)}
+          onSave={(values) => saveMutation.mutate(values)}
+        />
+      )}
+      {membersOf && <TeamMembersDrawer team={membersOf} onClose={() => setMembersOf(null)} />}
+    </main>
+  )
+}

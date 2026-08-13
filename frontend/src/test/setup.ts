@@ -22,3 +22,11 @@ console.error = (...args: unknown[]) => {
   if (message.includes('not wrapped in act')) return
   originalConsoleError(...args)
 }
+
+// antd popups (Select, Drawer, Dropdown) rely on ResizeObserver for layout.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver = globalThis.ResizeObserver ?? ResizeObserverStub
