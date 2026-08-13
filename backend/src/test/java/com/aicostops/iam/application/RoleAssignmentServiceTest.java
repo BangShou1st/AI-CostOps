@@ -24,7 +24,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 
@@ -44,8 +46,79 @@ class RoleAssignmentServiceTest {
     }
 
     @Test
+    void backtickQuotedNaturalAssignmentConstraintIsConflict() {
+        var duplicate = duplicate("Duplicate entry '10-5-ORG-2' for key "
+                + "`role_assignment.uq_role_assignment_natural`");
+        var fixture = fixture(duplicate);
+
+        var error = catchThrowableOfType(DomainException.class,
+                () -> fixture.service().create(fixture.actor(), fixture.request()));
+
+        assertThat(error.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(error.code()).isEqualTo(ProblemCode.STATE_CONFLICT);
+    }
+
+    @Test
     void unrelatedDuplicateConstraintPropagates() {
         var duplicate = duplicate("Duplicate entry '99' for key 'role_assignment.PRIMARY'");
+        var fixture = fixture(duplicate);
+
+        assertThatThrownBy(() -> fixture.service().create(fixture.actor(), fixture.request()))
+                .isSameAs(duplicate);
+    }
+
+    @Test
+    void naturalConstraintPrefixWithDashSuffixPropagates() {
+        var duplicate = duplicate("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment.uq_role_assignment_natural-copy'");
+        var fixture = fixture(duplicate);
+
+        assertThatThrownBy(() -> fixture.service().create(fixture.actor(), fixture.request()))
+                .isSameAs(duplicate);
+    }
+
+    @Test
+    void naturalConstraintPrefixWithDollarSuffixPropagates() {
+        var duplicate = duplicate("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment.uq_role_assignment_natural$archive'");
+        var fixture = fixture(duplicate);
+
+        assertThatThrownBy(() -> fixture.service().create(fixture.actor(), fixture.request()))
+                .isSameAs(duplicate);
+    }
+
+    @Test
+    void naturalConstraintTokenOutsideKeyIdentifierPropagates() {
+        var duplicate = duplicate("Duplicate entry 'uq_role_assignment_natural' "
+                + "for key 'role_assignment.PRIMARY'");
+        var fixture = fixture(duplicate);
+
+        assertThatThrownBy(() -> fixture.service().create(fixture.actor(), fixture.request()))
+                .isSameAs(duplicate);
+    }
+
+    @Test
+    void naturalConstraintInNextSqlExceptionIsConflict() {
+        var first = mysqlDuplicate("Duplicate entry '99' for key 'role_assignment.PRIMARY'");
+        first.setNextException(mysqlDuplicate("Duplicate entry '10-5-ORG-2' for key "
+                + "'role_assignment.uq_role_assignment_natural'"));
+        var fixture = fixture(duplicate(first));
+
+        var error = catchThrowableOfType(DomainException.class,
+                () -> fixture.service().create(fixture.actor(), fixture.request()));
+
+        assertThat(error.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(error.code()).isEqualTo(ProblemCode.STATE_CONFLICT);
+    }
+
+    @Test
+    @Timeout(value = 2, unit = TimeUnit.SECONDS)
+    void cycleInSqlExceptionGraphPropagatesWithoutHanging() {
+        var first = mysqlDuplicate("Duplicate entry '99' for key 'role_assignment.PRIMARY'");
+        var second = mysqlDuplicate("Duplicate entry '100' for key 'role_assignment.other_unique'");
+        first.setNextException(second);
+        second.setNextException(first);
+        var duplicate = duplicate(first);
         var fixture = fixture(duplicate);
 
         assertThatThrownBy(() -> fixture.service().create(fixture.actor(), fixture.request()))
@@ -85,8 +158,15 @@ class RoleAssignmentServiceTest {
     }
 
     private DuplicateKeyException duplicate(String mysqlMessage) {
-        return new DuplicateKeyException("Role assignment insert failed",
-                new SQLIntegrityConstraintViolationException(mysqlMessage, "23000", 1062));
+        return duplicate(mysqlDuplicate(mysqlMessage));
+    }
+
+    private DuplicateKeyException duplicate(SQLIntegrityConstraintViolationException cause) {
+        return new DuplicateKeyException("Role assignment insert failed", cause);
+    }
+
+    private SQLIntegrityConstraintViolationException mysqlDuplicate(String mysqlMessage) {
+        return new SQLIntegrityConstraintViolationException(mysqlMessage, "23000", 1062);
     }
 
     private record Fixture(

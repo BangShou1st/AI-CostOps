@@ -14,6 +14,7 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.sql.SQLException;
 import java.time.Clock;
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -26,8 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class RoleAssignmentService {
 
-    private static final Pattern NATURAL_ASSIGNMENT_CONSTRAINT = Pattern.compile(
-            "(?<![A-Za-z0-9_])uq_role_assignment_natural(?![A-Za-z0-9_])",
+    private static final String NATURAL_ASSIGNMENT_CONSTRAINT = "uq_role_assignment_natural";
+    private static final Pattern MYSQL_DUPLICATE_KEY_IDENTIFIER = Pattern.compile(
+            "\\bfor\\s+key\\s+(['`])([^'`]+)\\1",
             Pattern.CASE_INSENSITIVE);
 
     private final AuthorizationContextService authorizationContexts;
@@ -167,13 +169,43 @@ public class RoleAssignmentService {
 
     private boolean causedByNaturalAssignmentConstraint(DuplicateKeyException exception) {
         var visited = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
-        for (Throwable cause = exception; cause != null && visited.add(cause); cause = cause.getCause()) {
-            if (cause instanceof SQLException && cause.getMessage() != null
-                    && NATURAL_ASSIGNMENT_CONSTRAINT.matcher(cause.getMessage()).find()) {
-                return true;
+        var pending = new ArrayDeque<Throwable>();
+        pending.add(exception);
+        while (!pending.isEmpty()) {
+            var cause = pending.removeFirst();
+            if (!visited.add(cause)) {
+                continue;
+            }
+            if (cause instanceof SQLException sqlException) {
+                if (namesNaturalAssignmentConstraint(sqlException.getMessage())) {
+                    return true;
+                }
+                if (sqlException.getNextException() != null) {
+                    pending.addLast(sqlException.getNextException());
+                }
+            }
+            if (cause.getCause() != null) {
+                pending.addLast(cause.getCause());
             }
         }
         return false;
+    }
+
+    private boolean namesNaturalAssignmentConstraint(String message) {
+        if (message == null) {
+            return false;
+        }
+        var matcher = MYSQL_DUPLICATE_KEY_IDENTIFIER.matcher(message);
+        if (!matcher.find()) {
+            return false;
+        }
+        var qualifiedIdentifier = matcher.group(2);
+        if (matcher.find()) {
+            return false;
+        }
+        var qualifierSeparator = qualifiedIdentifier.lastIndexOf('.');
+        var constraint = qualifiedIdentifier.substring(qualifierSeparator + 1);
+        return NATURAL_ASSIGNMENT_CONSTRAINT.equalsIgnoreCase(constraint);
     }
 
     private DomainException validationFailed(String detail) {
