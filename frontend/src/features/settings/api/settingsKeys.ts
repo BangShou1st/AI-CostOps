@@ -13,4 +13,8 @@ export const settingsKeys = {
   teamsAll: () => ['settings', 'teams'] as const,
   teams: (page: number, size: number) => ['settings', 'teams', 'list', page, size] as const,
   teamMembers: (id: string, page: number, size: number) => ['settings', 'teams', 'members', id, page, size] as const,
+  costCentersAll: () => ['settings', 'cost-centers'] as const,
+  costCenters: (page: number, size: number) => ['settings', 'cost-centers', 'list', page, size] as const,
+  providerAccountsAll: () => ['settings', 'provider-accounts'] as const,
+  providerAccounts: (page: number, size: number) => ['settings', 'provider-accounts', 'list', page, size] as const,
 }

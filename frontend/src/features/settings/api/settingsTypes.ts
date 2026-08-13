@@ -74,3 +74,14 @@ export interface OrganizationMemberRecord {
   status: MasterDataStatus
   joinedAt: string
 }
+
+export interface ProviderAccount {
+  id: string
+  providerCode: string
+  displayName: string
+  externalAccountRef: string | null
+  status: MasterDataStatus
+  metadata: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}

@@ -1,7 +1,7 @@
 import { apiClient } from '../../auth/authApi'
 import type { PageResponse } from '../../../api/pagination'
 import type {
-  Invitation, MasterDataRecord, MasterDataStatus, OrganizationMemberRecord, Permission, Role, RoleAssignment, ScopeType, User, UserStatus,
+  Invitation, MasterDataRecord, MasterDataStatus, OrganizationMemberRecord, Permission, ProviderAccount, Role, RoleAssignment, ScopeType, User, UserStatus,
 } from './settingsTypes'
 
 export const settingsApi = {
@@ -64,5 +64,33 @@ export const settingsApi = {
   },
   async removeTeamMember(id: string, memberId: string) {
     await apiClient.delete(`/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(memberId)}`)
+  },
+  async listCostCenters(page: number, size: number, status?: MasterDataStatus) {
+    return (await apiClient.get<PageResponse<MasterDataRecord>>('/cost-centers', { params: { page, size, status } })).data
+  },
+  async createCostCenter(code: string, name: string) {
+    return (await apiClient.post<MasterDataRecord>('/cost-centers', { code, name })).data
+  },
+  async updateCostCenter(id: string, update: { name?: string; status?: MasterDataStatus }) {
+    return (await apiClient.patch<MasterDataRecord>(`/cost-centers/${encodeURIComponent(id)}`, update)).data
+  },
+  async listProviderAccounts(page: number, size: number, status?: MasterDataStatus) {
+    return (await apiClient.get<PageResponse<ProviderAccount>>('/provider-accounts', { params: { page, size, status } })).data
+  },
+  async createProviderAccount(input: {
+    providerCode: string
+    displayName: string
+    externalAccountRef?: string
+    metadata?: Record<string, unknown>
+  }) {
+    return (await apiClient.post<ProviderAccount>('/provider-accounts', input)).data
+  },
+  async updateProviderAccount(id: string, update: {
+    displayName?: string
+    externalAccountRef?: string
+    status?: MasterDataStatus
+    metadata?: Record<string, unknown>
+  }) {
+    return (await apiClient.patch<ProviderAccount>(`/provider-accounts/${encodeURIComponent(id)}`, update)).data
   },
 }

@@ -4,15 +4,13 @@ import { ForgotPasswordPage, InvitationPage, LoginPage, RegisterPage, ResetPassw
 import { RolesPage } from '../../features/settings/roles/RolesPage'
 import { ProjectsPage } from '../../features/settings/projects/ProjectsPage'
 import { TeamsPage } from '../../features/settings/teams/TeamsPage'
+import { CostCentersPage } from '../../features/settings/costCenters/CostCentersPage'
+import { ProviderAccountsPage } from '../../features/settings/providerAccounts/ProviderAccountsPage'
 import { UsersPage } from '../../features/settings/users/UsersPage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublicRoute } from './PublicRoute'
 import { PermissionRoute } from './PermissionRoute'
-
-function SettingsPlaceholder({ name }: { name: string }) {
-  return <main className="settings-placeholder"><h1>{name}</h1><p>This settings page is not available yet.</p></main>
-}
 
 export function AppRouter() {
   const auth = useAuth()
@@ -38,10 +36,10 @@ export function AppRouter() {
           <Route index element={<TeamsPage />} />
         </Route>
         <Route path="/settings/cost-centers" element={<PermissionRoute permission="COST_CENTER_READ" />}>
-          <Route index element={<SettingsPlaceholder name="Cost centers" />} />
+          <Route index element={<CostCentersPage />} />
         </Route>
         <Route path="/settings/provider-accounts" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
-          <Route index element={<SettingsPlaceholder name="Provider accounts" />} />
+          <Route index element={<ProviderAccountsPage />} />
         </Route>
         <Route path="/settings" element={<Navigate to="/settings/users" replace />} />
       </Route>
