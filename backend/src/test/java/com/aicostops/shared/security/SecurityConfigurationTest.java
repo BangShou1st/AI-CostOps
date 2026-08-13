@@ -245,6 +245,38 @@ class SecurityConfigurationTest {
     }
 
     @Test
+    void exactProviderAccountRoutesRequireAuthentication() throws Exception {
+        for (var request : java.util.List.of(
+                get("/api/v1/provider-accounts"),
+                post("/api/v1/provider-accounts"),
+                patch("/api/v1/provider-accounts/123"))) {
+            mockMvc.perform(request)
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        }
+    }
+
+    @Test
+    void unsupportedProviderAccountMethodsAndFamilyPathsRemainDenied() throws Exception {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        var token = tokens.issue(42L, 0L).token();
+
+        for (var request : java.util.List.of(
+                patch("/api/v1/provider-accounts"),
+                put("/api/v1/provider-accounts"),
+                delete("/api/v1/provider-accounts"),
+                get("/api/v1/provider-accounts/123"),
+                post("/api/v1/provider-accounts/123"),
+                put("/api/v1/provider-accounts/123"),
+                delete("/api/v1/provider-accounts/123"),
+                get("/api/v1/provider-accounts/123/extra"))) {
+            mockMvc.perform(request.header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    @Test
     void exactProjectMembershipRoutesRequireAuthentication() throws Exception {
         for (var request : java.util.List.of(
                 get("/api/v1/projects/123/members"),
