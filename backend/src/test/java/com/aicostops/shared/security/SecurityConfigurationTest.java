@@ -213,6 +213,38 @@ class SecurityConfigurationTest {
     }
 
     @Test
+    void exactCostCenterRoutesRequireAuthentication() throws Exception {
+        for (var request : java.util.List.of(
+                get("/api/v1/cost-centers"),
+                post("/api/v1/cost-centers"),
+                patch("/api/v1/cost-centers/123"))) {
+            mockMvc.perform(request)
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        }
+    }
+
+    @Test
+    void unsupportedCostCenterMethodsAndFamilyPathsRemainDenied() throws Exception {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        var token = tokens.issue(42L, 0L).token();
+
+        for (var request : java.util.List.of(
+                patch("/api/v1/cost-centers"),
+                put("/api/v1/cost-centers"),
+                delete("/api/v1/cost-centers"),
+                get("/api/v1/cost-centers/123"),
+                post("/api/v1/cost-centers/123"),
+                put("/api/v1/cost-centers/123"),
+                delete("/api/v1/cost-centers/123"),
+                get("/api/v1/cost-centers/123/extra"))) {
+            mockMvc.perform(request.header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    @Test
     void exactProjectMembershipRoutesRequireAuthentication() throws Exception {
         for (var request : java.util.List.of(
                 get("/api/v1/projects/123/members"),
