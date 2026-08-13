@@ -7,6 +7,7 @@ export interface AuthUser {
   displayName: string
   organizationId: string
   organizationMemberId: string
+  permissions: string[]
 }
 
 export interface AuthTokenResponse {

@@ -42,3 +42,19 @@ button:disabled { opacity: .55; cursor: wait; }
 .auth-card nav { display: flex; justify-content: space-between; margin-top: 20px; }
 .auth-card > a { display: inline-block; margin-top: 20px; }
 .form-error { color: #b42318; background: #fef3f2; padding: 10px; border-radius: 7px; }
+
+.settings-shell { min-height: 100vh; }
+.settings-sider { background: #101a2e !important; padding: 16px 0; }
+.settings-brand { color: #ffffff; font-weight: 800; padding: 0 20px 16px; letter-spacing: 0.02em; }
+.settings-menu { background: transparent !important; border-inline-end: 0 !important; }
+.settings-menu .ant-menu-item { color: #c3cfe2 !important; }
+.settings-menu .ant-menu-item-selected { background: #1d4ed8 !important; color: #ffffff !important; }
+.settings-identity { position: absolute; bottom: 0; left: 0; right: 0; padding: 16px 20px; color: #c3cfe2; display: grid; gap: 8px; }
+.settings-identity span { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-content { padding: 32px; max-width: 1080px; }
+.settings-content h1 { font-size: 1.75rem; letter-spacing: -0.02em; margin-bottom: 4px; }
+.settings-page { background: #ffffff; border: 1px solid #dce3ef; border-radius: 12px; padding: 24px; }
+.settings-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; }
+.settings-empty { text-align: center; color: #6b7a93; padding: 48px 0; }
+.forbidden-page { max-width: 640px; padding: 64px 0; }
+.forbidden-page h1 { font-size: 5rem; color: #1d4ed8; margin-bottom: 8px; }

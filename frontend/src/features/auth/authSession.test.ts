@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createAccessTokenStore } from './accessTokenStore'
 import { bootstrapSession, refreshWithRaceRetry, type AuthApi } from './authSession'
 
-const user = { id: '1', email: 'user@example.com', displayName: 'User', organizationId: '2', organizationMemberId: '3' }
+const user = { id: '1', email: 'user@example.com', displayName: 'User', organizationId: '2', organizationMemberId: '3', permissions: [] }
 
 describe('authentication session', () => {
   it('bootstraps through refresh then me without persisting the refresh secret', async () => {

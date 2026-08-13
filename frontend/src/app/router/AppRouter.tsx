@@ -1,8 +1,14 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
-import { AppPage, ForgotPasswordPage, InvitationPage, LoginPage, RegisterPage, ResetPasswordPage } from '../../features/auth/AuthPages'
+import { ForgotPasswordPage, InvitationPage, LoginPage, RegisterPage, ResetPasswordPage } from '../../features/auth/AuthPages'
+import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublicRoute } from './PublicRoute'
+import { PermissionRoute } from './PermissionRoute'
+
+function SettingsPlaceholder({ name }: { name: string }) {
+  return <main className="settings-placeholder"><h1>{name}</h1><p>This settings page is not available yet.</p></main>
+}
 
 export function AppRouter() {
   const auth = useAuth()
@@ -13,7 +19,30 @@ export function AppRouter() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} /><Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/invite/:token" element={<InvitationPage />} />
     </Route>
-    <Route element={<ProtectedRoute isAuthenticated={auth.status === 'authenticated'} />}><Route path="/app" element={<AppPage />} /></Route>
-    <Route path="*" element={<Navigate to={auth.status === 'authenticated' ? '/app' : '/login'} replace />} />
+    <Route element={<ProtectedRoute isAuthenticated={auth.status === 'authenticated'} />}>
+      <Route element={<AuthenticatedLayout />}>
+        <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
+          <Route index element={<SettingsPlaceholder name="Users" />} />
+        </Route>
+        <Route path="/settings/roles" element={<PermissionRoute permission="ROLE_READ" />}>
+          <Route index element={<SettingsPlaceholder name="Roles" />} />
+        </Route>
+        <Route path="/settings/projects" element={<PermissionRoute permission="PROJECT_READ" />}>
+          <Route index element={<SettingsPlaceholder name="Projects" />} />
+        </Route>
+        <Route path="/settings/teams" element={<PermissionRoute permission="TEAM_READ" />}>
+          <Route index element={<SettingsPlaceholder name="Teams" />} />
+        </Route>
+        <Route path="/settings/cost-centers" element={<PermissionRoute permission="COST_CENTER_READ" />}>
+          <Route index element={<SettingsPlaceholder name="Cost centers" />} />
+        </Route>
+        <Route path="/settings/provider-accounts" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
+          <Route index element={<SettingsPlaceholder name="Provider accounts" />} />
+        </Route>
+        <Route path="/settings" element={<Navigate to="/settings/users" replace />} />
+      </Route>
+      <Route path="/app" element={<Navigate to="/settings/users" replace />} />
+    </Route>
+    <Route path="*" element={<Navigate to={auth.status === 'authenticated' ? '/settings/users' : '/login'} replace />} />
   </Routes></BrowserRouter>
 }
