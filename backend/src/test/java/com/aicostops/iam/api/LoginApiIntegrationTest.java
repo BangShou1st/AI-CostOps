@@ -46,6 +46,7 @@ class LoginApiIntegrationTest extends AuthenticationContainersSupport {
     void setUp() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
         jdbcTemplate.update("DELETE FROM audit_event");
+        jdbcTemplate.update("DELETE FROM invitation");
         jdbcTemplate.update("DELETE FROM role_assignment");
         jdbcTemplate.update("DELETE FROM organization_member");
         jdbcTemplate.update("DELETE FROM user_credential");
