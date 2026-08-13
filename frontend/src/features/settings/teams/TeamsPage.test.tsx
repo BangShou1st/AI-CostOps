@@ -118,6 +118,24 @@ describe('TeamsPage', () => {
     expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
   })
 
+  it('teamMemberManageWorksWithoutUserRead', async () => {
+    renderTeamsPage(['TEAM_READ', 'TEAM_MANAGE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    await screen.findByText('Beta')
+
+    // Without USER_READ the /users candidate query must never fire.
+    expect(mockedSettingsApi.listUsers).not.toHaveBeenCalled()
+    const input = screen.getByLabelText(/organization member id/i)
+    fireEvent.change(input, { target: { value: '99' } })
+    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.addTeamMember).toHaveBeenCalledTimes(1)
+      expect(mockedSettingsApi.addTeamMember).toHaveBeenCalledWith('2', '99')
+    })
+  })
+
   it('teamMembershipMutationInvalidatesMembers', async () => {
     mockedSettingsApi.removeTeamMember.mockResolvedValue(undefined)
     renderTeamsPage(['TEAM_READ', 'TEAM_MANAGE'])

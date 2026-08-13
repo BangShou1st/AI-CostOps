@@ -12,10 +12,35 @@ import { hasPermission } from '../permissions'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { MASTER_DATA_STATUS_OPTIONS } from '../shared/LifecycleEditorModal'
 
-const SECRET_KEY_PATTERN = /password|token|secret|apikey/i
+const SECRET_KEY_PATTERN = /password|token|secret|apikey/
+
+/** Normalizes a metadata key the same way the backend does before matching. */
+export function normalizeMetadataKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
 
 export function isSecretMetadataKey(key: string): boolean {
-  return SECRET_KEY_PATTERN.test(key)
+  return SECRET_KEY_PATTERN.test(normalizeMetadataKey(key))
+}
+
+function containsSecretMetadataKey(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  return Object.entries(value).some(
+    ([key, child]) => isSecretMetadataKey(key) || containsSecretMetadataKey(child),
+  )
+}
+
+/** Parses a metadata JSON text into a plain object, or returns null when invalid. */
+function parseMetadataObject(text: string): Record<string, unknown> | null {
+  if (!text.trim()) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  return parsed as Record<string, unknown>
 }
 
 export function ProviderAccountsPage() {
@@ -38,21 +63,29 @@ export function ProviderAccountsPage() {
       displayName: string
       externalAccountRef?: string
       status?: MasterDataStatus
-      metadata: Record<string, unknown>
+      metadata?: Record<string, unknown>
     }) => {
       if (editor?.mode === 'edit') {
-        return settingsApi.updateProviderAccount(editor.record.id, {
+        const update: {
+          displayName: string
+          externalAccountRef?: string
+          status: MasterDataStatus
+          metadata?: Record<string, unknown>
+        } = {
           displayName: input.displayName,
           externalAccountRef: input.externalAccountRef || undefined,
           status: input.status,
-          metadata: input.metadata,
-        })
+        }
+        // Untouched metadata stays out of the request so the backend keeps it
+        // byte-for-byte instead of being rewritten through the edit form.
+        if (input.metadata !== undefined) update.metadata = input.metadata
+        return settingsApi.updateProviderAccount(editor.record.id, update)
       }
       return settingsApi.createProviderAccount({
         providerCode: input.providerCode,
         displayName: input.displayName,
         externalAccountRef: input.externalAccountRef || undefined,
-        metadata: input.metadata,
+        metadata: input.metadata ?? {},
       })
     },
     retry: false,
@@ -118,11 +151,6 @@ export function ProviderAccountsPage() {
   )
 }
 
-interface MetadataEntry {
-  key: string
-  value: string
-}
-
 function ProviderAccountEditorModal({ title, submitting, error, initial, onCancel, onSave }: {
   title: string
   submitting: boolean
@@ -134,7 +162,7 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
     displayName: string
     externalAccountRef?: string
     status?: MasterDataStatus
-    metadata: Record<string, unknown>
+    metadata?: Record<string, unknown>
   }) => void
 }) {
   const editing = initial !== undefined
@@ -142,26 +170,44 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
   const [displayName, setDisplayName] = useState(initial?.displayName ?? '')
   const [externalAccountRef, setExternalAccountRef] = useState(initial?.externalAccountRef ?? '')
   const [status, setStatus] = useState<MasterDataStatus>(initial?.status ?? 'ACTIVE')
-  const [entries, setEntries] = useState<MetadataEntry[]>(
-    initial ? Object.entries(initial.metadata).map(([key, value]) => ({ key, value: String(value) })) : [],
-  )
-  const [newKey, setNewKey] = useState('')
-  const [newValue, setNewValue] = useState('')
-  const [secretKeyError, setSecretKeyError] = useState(false)
+  const [metadataText, setMetadataText] = useState(() => JSON.stringify(initial?.metadata ?? {}, null, 2))
+  const [metadataDirty, setMetadataDirty] = useState(false)
+  const [metadataProblem, setMetadataProblem] = useState<string | null>(null)
 
-  const metadata = Object.fromEntries(entries.filter((entry) => entry.key.trim()).map((entry) => [entry.key.trim(), entry.value]))
-
-  function addMetadata() {
-    const key = newKey.trim()
-    if (!key) return
-    if (isSecretMetadataKey(key)) {
-      setSecretKeyError(true)
+  function changeMetadata(text: string) {
+    setMetadataText(text)
+    setMetadataDirty(true)
+    if (!text.trim()) {
+      setMetadataProblem(null)
       return
     }
-    setSecretKeyError(false)
-    setEntries([...entries, { key, value: newValue }])
-    setNewKey('')
-    setNewValue('')
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      setMetadataProblem('Provider account metadata must be valid JSON.')
+      return
+    }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      setMetadataProblem('Provider account metadata must be a JSON object.')
+    } else if (containsSecretMetadataKey(parsed)) {
+      setMetadataProblem('Metadata keys may not contain password, token, secret or apikey fragments.')
+    } else {
+      setMetadataProblem(null)
+    }
+  }
+
+  function submit() {
+    // In edit mode an untouched metadata block is omitted so the backend keeps
+    // the stored value; explicit edits are sent as parsed, typed JSON.
+    const metadata = editing && !metadataDirty ? undefined : (parseMetadataObject(metadataText) ?? {})
+    onSave({
+      providerCode: providerCode.trim(),
+      displayName: displayName.trim(),
+      externalAccountRef: externalAccountRef.trim(),
+      status,
+      metadata,
+    })
   }
 
   return (
@@ -169,8 +215,8 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
       open
       title={title}
       okText={submitting ? 'Saving…' : editing ? 'Save' : 'Create'}
-      okButtonProps={{ disabled: !providerCode.trim() || !displayName.trim() || submitting || secretKeyError }}
-      onOk={() => onSave({ providerCode: providerCode.trim(), displayName: displayName.trim(), externalAccountRef: externalAccountRef.trim(), status, metadata })}
+      okButtonProps={{ disabled: !providerCode.trim() || !displayName.trim() || submitting || metadataProblem !== null }}
+      onOk={submit}
       onCancel={onCancel}
     >
       <div style={{ display: 'grid', gap: 12 }}>
@@ -196,24 +242,19 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
 
         <div>
           <Typography.Text strong>Metadata</Typography.Text>
-          {entries.map((entry, index) => (
-            <div key={`${entry.key}-${index}`} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              <Input aria-label={`Metadata key ${index}`} value={entry.key} readOnly />
-              <Input aria-label={`Metadata value ${index}`} value={entry.value} readOnly />
-              <Button onClick={() => setEntries(entries.filter((_, i) => i !== index))}>Remove</Button>
-            </div>
-          ))}
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <Input aria-label="Metadata key" value={newKey} placeholder="Key" onChange={(event) => setNewKey(event.target.value)} />
-            <Input aria-label="Metadata value" value={newValue} placeholder="Value" onChange={(event) => setNewValue(event.target.value)} />
-            <Button onClick={addMetadata}>Add metadata</Button>
-          </div>
-          {secretKeyError && (
+          <Input.TextArea
+            aria-label="Metadata JSON"
+            rows={6}
+            value={metadataText}
+            onChange={(event) => changeMetadata(event.target.value)}
+            style={{ marginTop: 8 }}
+          />
+          {metadataProblem && (
             <Alert
               type="warning"
               role="alert"
               style={{ marginTop: 8 }}
-              message="Metadata keys may not contain password, token, secret or apikey fragments."
+              message={metadataProblem}
               showIcon
             />
           )}

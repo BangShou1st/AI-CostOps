@@ -25,6 +25,13 @@ const account: ProviderAccount = {
   createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-02T00:00:00Z',
 }
 
+const typedAccount: ProviderAccount = {
+  id: '7', providerCode: 'AWS', displayName: 'Production AWS', externalAccountRef: 'arn:aws:123',
+  status: 'ACTIVE',
+  metadata: { enabled: true, retries: 3, nested: { env: 'prod' }, regions: ['sg', 'us'] },
+  createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-02T00:00:00Z',
+}
+
 function renderProviderAccountsPage(permissions: string[]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   mockedUseAuth.mockReturnValue({
@@ -102,23 +109,75 @@ describe('ProviderAccountsPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Create provider account' }))
     fireEvent.change(await screen.findByLabelText(/provider code/i), { target: { value: 'AZURE' } })
     fireEvent.change(screen.getByLabelText(/display name/i), { target: { value: 'Azure Prod' } })
-    fireEvent.change(screen.getByLabelText(/metadata key/i), { target: { value: 'access_token' } })
-    fireEvent.change(screen.getByLabelText(/metadata value/i), { target: { value: 's3cr3t' } })
-    fireEvent.click(screen.getByRole('button', { name: /add metadata/i }))
 
+    const metadataTextarea = screen.getByLabelText(/metadata json/i)
+    fireEvent.change(metadataTextarea, { target: { value: '{ "access_token": "s3cr3t" }' } })
     expect(screen.getByText(/metadata keys may not contain password, token, secret or apikey/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /create$/i })).toBeDisabled()
 
-    fireEvent.change(screen.getByLabelText(/metadata key/i), { target: { value: 'region' } })
-    fireEvent.click(screen.getByRole('button', { name: /add metadata/i }))
-    expect(await screen.findByLabelText('Metadata key 0')).toHaveValue('region')
-    expect(screen.getByLabelText('Metadata value 0')).toHaveValue('s3cr3t')
+    // The key is normalized (lowercase, non-alphanumeric removed) like the
+    // backend: api_key becomes apikey and is rejected too.
+    fireEvent.change(metadataTextarea, { target: { value: '{ "api_key": "s3cr3t" }' } })
+    expect(screen.getByText(/metadata keys may not contain password, token, secret or apikey/i)).toBeInTheDocument()
+
+    fireEvent.change(metadataTextarea, { target: { value: '{ "region": "s3cr3t" }' } })
+    expect(screen.queryByText(/metadata keys may not contain password, token, secret or apikey/i)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /create$/i }))
     await waitFor(() => {
       expect(mockedSettingsApi.createProviderAccount).toHaveBeenCalledWith({
         providerCode: 'AZURE', displayName: 'Azure Prod', metadata: { region: 's3cr3t' },
       })
+    })
+  })
+
+  it('metadataRejectsInvalidJsonAndNonObject', async () => {
+    renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create provider account' }))
+    fireEvent.change(await screen.findByLabelText(/provider code/i), { target: { value: 'AZURE' } })
+    fireEvent.change(screen.getByLabelText(/display name/i), { target: { value: 'Azure Prod' } })
+
+    const metadataTextarea = screen.getByLabelText(/metadata json/i)
+    fireEvent.change(metadataTextarea, { target: { value: '{ nope' } })
+    expect(screen.getByText(/must be valid JSON/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create$/i })).toBeDisabled()
+
+    fireEvent.change(metadataTextarea, { target: { value: '[1, 2]' } })
+    expect(screen.getByText(/must be a JSON object/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create$/i })).toBeDisabled()
+  })
+
+  it('metadataOmittedFromUpdateWhenUnchanged', async () => {
+    mockedSettingsApi.listProviderAccounts.mockResolvedValue(pageOf([typedAccount]))
+    renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.change(await screen.findByLabelText(/display name/i), { target: { value: 'Renamed AWS' } })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledTimes(1)
+      expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledWith('7', {
+        displayName: 'Renamed AWS', externalAccountRef: 'arn:aws:123', status: 'ACTIVE',
+      })
+    })
+  })
+
+  it('metadataEditSendsParsedTypedJson', async () => {
+    mockedSettingsApi.listProviderAccounts.mockResolvedValue(pageOf([typedAccount]))
+    renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.change(await screen.findByLabelText(/metadata json/i), {
+      target: { value: JSON.stringify({ enabled: false, retries: 5, nested: { env: 'staging' }, regions: ['sg', 'us', 'jp'] }, null, 2) },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledWith('7', expect.objectContaining({
+        metadata: { enabled: false, retries: 5, nested: { env: 'staging' }, regions: ['sg', 'us', 'jp'] },
+      }))
     })
   })
 

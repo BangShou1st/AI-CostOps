@@ -108,9 +108,27 @@ describe('ProjectsPage', () => {
     expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
   })
 
+  it('projectMemberManageWorksWithoutUserRead', async () => {
+    renderProjectsPage(['PROJECT_READ', 'PROJECT_MEMBER_MANAGE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    await screen.findByText('Alpha')
+
+    // Without USER_READ the /users candidate query must never fire.
+    expect(mockedSettingsApi.listUsers).not.toHaveBeenCalled()
+    const input = screen.getByLabelText(/organization member id/i)
+    fireEvent.change(input, { target: { value: '42' } })
+    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.addProjectMember).toHaveBeenCalledTimes(1)
+      expect(mockedSettingsApi.addProjectMember).toHaveBeenCalledWith('1', '42')
+    })
+  })
+
   it('organizationMutationsInvalidateExactKeys', async () => {
     mockedSettingsApi.createProject.mockResolvedValue({ ...project, id: '9' })
-    renderProjectsPage(['PROJECT_READ', 'PROJECT_MANAGE', 'PROJECT_MEMBER_MANAGE'])
+    renderProjectsPage(['PROJECT_READ', 'PROJECT_MANAGE', 'PROJECT_MEMBER_MANAGE', 'USER_READ'])
 
     fireEvent.click(await screen.findByRole('button', { name: 'Create project' }))
     const codeInput = await screen.findByLabelText(/code/i)

@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Drawer, Select, Table } from 'antd'
+import { Alert, Button, Drawer, Input, Select, Table } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
 import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
@@ -16,9 +16,13 @@ export function TeamMembersDrawer({ team, onClose }: { team: MasterDataRecord; o
   const queryClient = useQueryClient()
   const [page, setPage] = useState(0)
   const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>()
+  const [manualMemberId, setManualMemberId] = useState('')
   const [problem, setProblem] = useState<ProblemDetail | null>(null)
 
   const canWriteMembers = hasPermission(auth.user?.permissions, 'TEAM_MANAGE')
+  // GET /users needs USER_READ; a manager without it must still be able to
+  // manage membership, so the candidate query only runs when it is allowed.
+  const canLoadUsers = canWriteMembers && hasPermission(auth.user?.permissions, 'USER_READ')
 
   const membersQuery = useQuery({
     queryKey: settingsKeys.teamMembers(team.id, page, 50),
@@ -28,7 +32,7 @@ export function TeamMembersDrawer({ team, onClose }: { team: MasterDataRecord; o
   const usersQuery = useQuery({
     queryKey: settingsKeys.users(0, 200),
     queryFn: () => settingsApi.listUsers(0, 200),
-    enabled: canWriteMembers,
+    enabled: canLoadUsers,
   })
 
   const refresh = () => {
@@ -91,20 +95,29 @@ export function TeamMembersDrawer({ team, onClose }: { team: MasterDataRecord; o
       )}
       {canWriteMembers && (
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-          <Select
-            aria-label="Organization member"
-            placeholder="Select organization member"
-            style={{ flex: 1 }}
-            value={selectedMemberId}
-            options={memberOptions}
-            loading={usersQuery.isLoading}
-            onChange={setSelectedMemberId}
-          />
+          {canLoadUsers ? (
+            <Select
+              aria-label="Organization member"
+              placeholder="Select organization member"
+              style={{ flex: 1 }}
+              value={selectedMemberId}
+              options={memberOptions}
+              loading={usersQuery.isLoading}
+              onChange={setSelectedMemberId}
+            />
+          ) : (
+            <Input
+              aria-label="Organization member ID"
+              placeholder="Organization member ID"
+              value={manualMemberId}
+              onChange={(event) => setManualMemberId(event.target.value)}
+            />
+          )}
           <Button
             type="primary"
             loading={addMutation.isPending}
-            disabled={!selectedMemberId}
-            onClick={() => selectedMemberId && addMutation.mutate(selectedMemberId)}
+            disabled={canLoadUsers ? !selectedMemberId : !manualMemberId.trim()}
+            onClick={() => addMutation.mutate(selectedMemberId ?? manualMemberId.trim())}
           >
             Add member
           </Button>
