@@ -1,5 +1,6 @@
 package com.aicostops.organization.api;
 
+import com.aicostops.organization.application.ProjectMembershipService;
 import com.aicostops.organization.application.ProjectService;
 import com.aicostops.organization.domain.MasterDataStatus;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -8,6 +9,7 @@ import com.aicostops.shared.web.PageResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,9 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProjectController {
 
     private final ProjectService projects;
+    private final ProjectMembershipService memberships;
 
-    public ProjectController(ProjectService projects) {
+    public ProjectController(ProjectService projects, ProjectMembershipService memberships) {
         this.projects = projects;
+        this.memberships = memberships;
     }
 
     @GetMapping
@@ -51,5 +55,33 @@ public class ProjectController {
             @PathVariable long id,
             @Valid @RequestBody UpdateProjectRequest request) {
         return projects.update(authenticatedUser, id, request);
+    }
+
+    @GetMapping("/{id}/members")
+    public PageResponse<ProjectMemberResponse> listMembers(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long id,
+            @RequestParam(required = false) MasterDataStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return memberships.list(authenticatedUser, id, status, PageRequest.of(page, size));
+    }
+
+    @PostMapping("/{id}/members")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ProjectMemberResponse addMember(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long id,
+            @Valid @RequestBody AddProjectMemberRequest request) {
+        return memberships.add(authenticatedUser, id, request);
+    }
+
+    @DeleteMapping("/{id}/members/{memberId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeMember(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long id,
+            @PathVariable long memberId) {
+        memberships.remove(authenticatedUser, id, memberId);
     }
 }

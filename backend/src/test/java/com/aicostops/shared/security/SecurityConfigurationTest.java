@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -172,8 +173,39 @@ class SecurityConfigurationTest {
                 patch("/api/v1/projects"),
                 get("/api/v1/projects/123"),
                 post("/api/v1/projects/123"),
-                delete("/api/v1/projects/123"),
-                get("/api/v1/projects/123/members"))) {
+                delete("/api/v1/projects/123"))) {
+            mockMvc.perform(request.header("Authorization", "Bearer " + token))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        }
+    }
+
+    @Test
+    void exactProjectMembershipRoutesRequireAuthentication() throws Exception {
+        for (var request : java.util.List.of(
+                get("/api/v1/projects/123/members"),
+                post("/api/v1/projects/123/members"),
+                delete("/api/v1/projects/123/members/456"))) {
+            mockMvc.perform(request)
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        }
+    }
+
+    @Test
+    void unsupportedProjectMembershipMethodsAndFamilyPathsRemainDenied() throws Exception {
+        org.mockito.Mockito.when(versions.current(42L)).thenReturn(0L);
+        var token = tokens.issue(42L, 0L).token();
+
+        for (var request : java.util.List.of(
+                patch("/api/v1/projects/123/members"),
+                delete("/api/v1/projects/123/members"),
+                put("/api/v1/projects/123/members"),
+                get("/api/v1/projects/123/members/456"),
+                post("/api/v1/projects/123/members/456"),
+                patch("/api/v1/projects/123/members/456"),
+                put("/api/v1/projects/123/members/456"),
+                delete("/api/v1/projects/123/members/456/extra"))) {
             mockMvc.perform(request.header("Authorization", "Bearer " + token))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
