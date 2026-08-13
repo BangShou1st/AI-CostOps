@@ -6,6 +6,7 @@ import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.util.stream.Collectors;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -13,12 +14,40 @@ import org.springframework.stereotype.Service;
 public class AuthorizationContextService {
 
     private final AuthorizationContextMapper authorizationContextMapper;
+    private final AuthorizationContextCache authorizationContextCache;
 
-    public AuthorizationContextService(AuthorizationContextMapper authorizationContextMapper) {
+    public AuthorizationContextService(
+            AuthorizationContextMapper authorizationContextMapper,
+            AuthorizationContextCache authorizationContextCache) {
         this.authorizationContextMapper = authorizationContextMapper;
+        this.authorizationContextCache = authorizationContextCache;
+    }
+
+    public AuthorizationContext current(AuthenticatedUser authenticatedUser) {
+        if (authenticatedUser == null) throw sessionExpired();
+        try {
+            var cached = authorizationContextCache.get(
+                    authenticatedUser.userId(), authenticatedUser.securityVersion());
+            if (cached != null) {
+                return cached;
+            }
+        } catch (DataAccessException | IllegalArgumentException ignored) {
+            // MySQL remains the durable authorization truth.
+        }
+        var context = load(authenticatedUser);
+        try {
+            authorizationContextCache.put(context);
+        } catch (DataAccessException ignored) {
+            // A cache outage must not deny an otherwise valid request.
+        }
+        return context;
     }
 
     public AuthorizationContext fresh(AuthenticatedUser authenticatedUser) {
+        return load(authenticatedUser);
+    }
+
+    private AuthorizationContext load(AuthenticatedUser authenticatedUser) {
         if (authenticatedUser == null) throw sessionExpired();
         var identity = authorizationContextMapper.findIdentity(authenticatedUser.userId());
         if (identity == null || identity.securityVersion() != authenticatedUser.securityVersion()) {
