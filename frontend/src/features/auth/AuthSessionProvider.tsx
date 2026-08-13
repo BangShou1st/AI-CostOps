@@ -31,7 +31,10 @@ export function AuthSessionProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     return authEvents.subscribe(() => {
       accessTokenStore.clear()
-      queryClient.removeQueries({ queryKey: ['auth'] })
+      // Session expiry is a security boundary: drop every query cache entry
+      // (auth AND session-bound settings data), never just the auth keys.
+      void queryClient.cancelQueries()
+      queryClient.clear()
       setState({ status: 'anonymous', user: null })
       message.warning('Your permissions changed or your session expired. Please sign in again.')
     })

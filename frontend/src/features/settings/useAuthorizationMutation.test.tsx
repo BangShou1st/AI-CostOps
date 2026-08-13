@@ -90,6 +90,49 @@ describe('useAuthorizationMutation', () => {
     })
   })
 
+  it('awaits refreshMe before surfacing the original forbidden error', async () => {
+    let releaseRefresh: (() => void) | undefined
+    const refreshMe = vi.fn(() => new Promise<void>((resolve) => { releaseRefresh = resolve }))
+    mockedUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: { id: '1', email: 'a@b.c', displayName: 'A', organizationId: '2', organizationMemberId: '3', permissions: [] },
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshMe,
+    } as unknown as ReturnType<typeof useAuth>)
+    const mutationFn = vi.fn().mockRejectedValue(forbiddenProblem)
+    renderHarness(mutationFn)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run mutation' }))
+
+    await vi.waitFor(() => expect(refreshMe).toHaveBeenCalledTimes(1))
+    // While refreshMe is still pending, the original forbidden must not be surfaced yet.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(mutationFn).toHaveBeenCalledTimes(1)
+
+    releaseRefresh?.()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('You lack the required permission.')
+    expect(mutationFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('surfaces the original forbidden error even when refreshMe itself fails', async () => {
+    mockedUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: { id: '1', email: 'a@b.c', displayName: 'A', organizationId: '2', organizationMemberId: '3', permissions: [] },
+      login: vi.fn(),
+      logout: vi.fn(),
+      refreshMe: vi.fn().mockRejectedValue(new Error('session died during refresh')),
+    } as unknown as ReturnType<typeof useAuth>)
+    const mutationFn = vi.fn().mockRejectedValue(forbiddenProblem)
+    renderHarness(mutationFn)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run mutation' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('You lack the required permission.')
+    expect(mutationFn).toHaveBeenCalledTimes(1)
+  })
+
   it('does not refresh me for a non-forbidden error', async () => {
     const mutationFn = vi.fn().mockRejectedValue({
       isAxiosError: true,

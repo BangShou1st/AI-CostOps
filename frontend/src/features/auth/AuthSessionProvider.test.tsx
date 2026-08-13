@@ -86,6 +86,25 @@ describe('AuthSessionProvider session expiry', () => {
     })
   })
 
+  it('sessionExpiredClearsSessionBoundQueryCache', async () => {
+    const queryClient = renderProvider()
+
+    expect(await screen.findByText('Settings home')).toBeInTheDocument()
+    queryClient.setQueryData(['auth', 'me'], user)
+    queryClient.setQueryData(['settings', 'users', 0, 50], { sensitive: 'stale user data' })
+
+    authEvents.emit()
+
+    expect(accessTokenStore.get()).toBeNull()
+    await waitFor(() => {
+      expect(queryClient.getQueryData(['auth', 'me'])).toBeUndefined()
+      expect(queryClient.getQueryData(['settings', 'users', 0, 50])).toBeUndefined()
+      expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    })
+    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1)
+    expect(mockedAuthApi.me).toHaveBeenCalledTimes(1)
+  })
+
   it('sessionExpiredDoesNotStartRefreshLoop', async () => {
     renderProvider()
     await screen.findByText('Settings home')

@@ -17,5 +17,5 @@ export class AuthEventBus {
   }
 }
 
-/** Emitted when a request still receives AUTH_SESSION_EXPIRED after the single-flight refresh. */
+/** Emitted when the session is dead: a retried request still gets AUTH_SESSION_EXPIRED, or the refresh itself returns it. */
 export const authEvents = new AuthEventBus()

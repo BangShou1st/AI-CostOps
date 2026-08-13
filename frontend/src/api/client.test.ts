@@ -115,6 +115,52 @@ describe('API client', () => {
     expect(listener).toHaveBeenCalledTimes(1)
   })
 
+  it('emits session expired when the refresh itself expires', async () => {
+    const store = createAccessTokenStore()
+    store.set('expired-token')
+    let attempts = 0
+    const adapter: AxiosAdapter = (config) => {
+      attempts += 1
+      return unauthorized(config)
+    }
+    const response: AxiosResponse = {
+      config: { headers: {} } as InternalAxiosRequestConfig,
+      data: { code: 'AUTH_SESSION_EXPIRED' },
+      headers: {},
+      status: 401,
+      statusText: 'Unauthorized',
+    }
+    const refreshAccessToken = vi.fn().mockRejectedValue(
+      new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', undefined, undefined, response),
+    )
+    const client = createApiClient({ tokenStore: store, adapter, refreshAccessToken })
+    const listener = vi.fn()
+    const unsubscribe = authEvents.subscribe(listener)
+
+    await expect(client.get('/expired-refresh')).rejects.toMatchObject({ response: { status: 401 } })
+    unsubscribe()
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(store.get()).toBeNull()
+    expect(attempts).toBe(1)
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not emit session expired when the refresh fails with a transport error', async () => {
+    const store = createAccessTokenStore()
+    store.set('expired-token')
+    const adapter: AxiosAdapter = (config) => unauthorized(config)
+    const refreshAccessToken = vi.fn().mockRejectedValue(new Error('network down'))
+    const client = createApiClient({ tokenStore: store, adapter, refreshAccessToken })
+    const listener = vi.fn()
+    const unsubscribe = authEvents.subscribe(listener)
+
+    await expect(client.get('/refresh-network-error')).rejects.toThrow('network down')
+    unsubscribe()
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+
   it('does not emit session expired for a plain unauthorized retry', async () => {
     const store = createAccessTokenStore()
     store.set('expired-token')

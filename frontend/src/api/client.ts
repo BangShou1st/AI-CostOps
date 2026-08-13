@@ -53,6 +53,9 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
     try {
       await refreshInFlight
     } catch (refreshError) {
+      if (isSessionExpired(refreshError)) {
+        authEvents.emit()
+      }
       options.tokenStore.clear()
       return Promise.reject(refreshError)
     }
