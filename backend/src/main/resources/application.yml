@@ -44,6 +44,10 @@ server:
 aicostops:
   iam:
     context-cache-ttl: ${AICOSTOPS_IAM_CONTEXT_CACHE_TTL:60s}
+    invitation-default-lifetime: ${AICOSTOPS_IAM_INVITATION_DEFAULT_LIFETIME:72h}
+    invitation-max-lifetime: ${AICOSTOPS_IAM_INVITATION_MAX_LIFETIME:168h}
+    dev-invitation-mailbox-path: ${AICOSTOPS_IAM_DEV_INVITATION_MAILBOX_PATH:.local-dev/invitations}
+    dev-invite-page-url: ${AICOSTOPS_IAM_DEV_INVITE_PAGE_URL:http://localhost:8080/accept-invitation}
   auth:
     allow-public-registration: ${AICOSTOPS_ALLOW_PUBLIC_REGISTRATION:false}
     public-registration-org-slug: ${PUBLIC_REGISTRATION_ORG_SLUG:local-dev}

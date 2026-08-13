@@ -136,6 +136,37 @@ public interface IamAdminMapper {
     @Select("SELECT id,code,name FROM `role` WHERE id=#{roleId}")
     RoleRow findRole(long roleId);
 
+    @Select("SELECT id FROM `role` WHERE code=#{roleCode}")
+    Long findRoleIdByCode(String roleCode);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM app_user u
+            WHERE u.email_normalized=#{email}
+              AND (u.status='ACTIVE' OR EXISTS (
+                    SELECT 1 FROM organization_member m
+                    WHERE m.user_id=u.id AND m.org_id=#{organizationId}
+              ))
+            """)
+    int countConflictingInvitationIdentities(
+            @Param("email") String email,
+            @Param("organizationId") long organizationId);
+
+    @Insert("""
+            INSERT INTO invitation(
+                org_id,email_normalized,token_hash,initial_role_code,status,expires_at,invited_by,created_at)
+            VALUES (#{organizationId},#{email},#{tokenHash},#{initialRoleCode},'PENDING',
+                    #{expiresAt},#{invitedBy},#{createdAt})
+            """)
+    int insertInvitation(
+            @Param("organizationId") long organizationId,
+            @Param("email") String email,
+            @Param("tokenHash") String tokenHash,
+            @Param("initialRoleCode") String initialRoleCode,
+            @Param("expiresAt") Instant expiresAt,
+            @Param("invitedBy") long invitedBy,
+            @Param("createdAt") Instant createdAt);
+
     @Select("""
             SELECT id FROM role_assignment
             WHERE org_member_id=#{organizationMemberId} AND role_id=#{roleId}

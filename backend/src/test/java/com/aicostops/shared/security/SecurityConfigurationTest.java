@@ -118,6 +118,9 @@ class SecurityConfigurationTest {
         mockMvc.perform(delete("/api/v1/role-assignments/123"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        mockMvc.perform(post("/api/v1/invitations"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
     }
 
     @Test
@@ -128,10 +131,21 @@ class SecurityConfigurationTest {
         for (var request : java.util.List.of(
                 post("/api/v1/users/123/status"),
                 patch("/api/v1/role-assignments"),
-                post("/api/v1/role-assignments/123"))) {
+                post("/api/v1/role-assignments/123"),
+                patch("/api/v1/invitations"),
+                get("/api/v1/invitations/not-an-operation"),
+                get("/api/v1/invitations/public-token/accept"))) {
             mockMvc.perform(request.header("Authorization", "Bearer " + token))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         }
+    }
+
+    @Test
+    void invitationAcceptancePostRemainsPublic() throws Exception {
+        mockMvc.perform(post("/api/v1/invitations/public-token/accept")
+                        .contentType("application/json").content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 }
