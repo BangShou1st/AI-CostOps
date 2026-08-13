@@ -1,5 +1,16 @@
+import type { ScopeType } from './api/settingsTypes'
+
 export function hasPermission(permissions: readonly string[] | undefined, code: string): boolean {
   return permissions?.includes(code) ?? false
+}
+
+/** Frozen M1 role scope matrix, presented read-only for diagnostics. */
+export const ROLE_SCOPE_APPLICABILITY: Record<string, readonly ScopeType[]> = {
+  EMPLOYEE: ['ORG'],
+  PROJECT_OWNER: ['PROJECT'],
+  FINANCE_REVIEWER: ['ORG', 'COST_CENTER'],
+  FINANCE_ADMIN: ['ORG'],
+  SYSTEM_ADMIN: ['ORG', 'PROJECT', 'TEAM', 'COST_CENTER'],
 }
 
 export interface SettingsNavEntry {

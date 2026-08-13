@@ -1,6 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { ForgotPasswordPage, InvitationPage, LoginPage, RegisterPage, ResetPasswordPage } from '../../features/auth/AuthPages'
+import { RolesPage } from '../../features/settings/roles/RolesPage'
+import { UsersPage } from '../../features/settings/users/UsersPage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublicRoute } from './PublicRoute'
@@ -22,10 +24,10 @@ export function AppRouter() {
     <Route element={<ProtectedRoute isAuthenticated={auth.status === 'authenticated'} />}>
       <Route element={<AuthenticatedLayout />}>
         <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
-          <Route index element={<SettingsPlaceholder name="Users" />} />
+          <Route index element={<UsersPage />} />
         </Route>
         <Route path="/settings/roles" element={<PermissionRoute permission="ROLE_READ" />}>
-          <Route index element={<SettingsPlaceholder name="Roles" />} />
+          <Route index element={<RolesPage />} />
         </Route>
         <Route path="/settings/projects" element={<PermissionRoute permission="PROJECT_READ" />}>
           <Route index element={<SettingsPlaceholder name="Projects" />} />
