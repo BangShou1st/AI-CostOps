@@ -69,7 +69,7 @@ export function ProviderAccountsPage() {
         const update: {
           displayName: string
           externalAccountRef?: string
-          status: MasterDataStatus
+          status?: MasterDataStatus
           metadata?: Record<string, unknown>
         } = {
           displayName: input.displayName,
