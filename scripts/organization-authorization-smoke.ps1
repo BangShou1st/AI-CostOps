@@ -15,30 +15,27 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
-function Get-ProblemBody($ErrorRecord) {
-    if ($ErrorRecord.ErrorDetails.Message) { return $ErrorRecord.ErrorDetails.Message }
-    $response = $ErrorRecord.Exception.Response
-    if (-not $response) { return $null }
-    if ($response.Content) { return $response.Content.ReadAsStringAsync().GetAwaiter().GetResult() }
-    $reader = [System.IO.StreamReader]::new($response.GetResponseStream())
-    try { return $reader.ReadToEnd() } finally { $reader.Dispose() }
-}
-
-function Get-ProblemCode($ErrorRecord) {
-    $body = Get-ProblemBody $ErrorRecord
-    if ($body) {
-        try { return (($body | ConvertFrom-Json).code) } catch { }
+function Get-ProblemObject($ErrorRecord) {
+    $body = $null
+    if ($ErrorRecord.ErrorDetails.Message) {
+        $body = $ErrorRecord.ErrorDetails.Message
+    } else {
+        $response = $ErrorRecord.Exception.Response
+        if (-not $response) { return $null }
+        try {
+            if ($response.Content) {
+                $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            } else {
+                $reader = [System.IO.StreamReader]::new($response.GetResponseStream())
+                try { $body = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            }
+        } catch {
+            return $null
+        }
     }
-    return $null
-}
-
-function Get-ProblemStatus($ErrorRecord) {
-    $body = Get-ProblemBody $ErrorRecord
     if ($body) {
-        try { return [int](($body | ConvertFrom-Json).status) } catch { }
+        try { return ($body | ConvertFrom-Json) } catch { }
     }
-    $response = $ErrorRecord.Exception.Response
-    if ($response -and $response.StatusCode) { return [int]$response.StatusCode }
     return $null
 }
 
@@ -55,8 +52,11 @@ function Assert-ApiError([string]$Method, [string]$Uri, [hashtable]$Headers, $Bo
         throw "${Message}: request unexpectedly succeeded"
     } catch {
         if ($_.Exception.Message -like "*unexpectedly succeeded*") { throw }
-        $status = Get-ProblemStatus $_
-        $code = Get-ProblemCode $_
+        # Parse the ProblemDetail body exactly once: on PS 5.1 the error-details
+        # text is empty for 403 and the response stream is single-use.
+        $problem = Get-ProblemObject $_
+        $status = if ($problem) { [int]$problem.status } else { $null }
+        $code = if ($problem) { [string]$problem.code } else { $null }
         Assert-True ($status -eq $ExpectedStatus) "$Message (expected HTTP $ExpectedStatus, got '$status')"
         Assert-True ($code -eq $ExpectedCode) "$Message (expected $ExpectedCode, got '$code')"
     }
