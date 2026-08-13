@@ -75,6 +75,9 @@ public interface IamMapper {
     @Select("SELECT security_version FROM app_user WHERE id=#{userId} AND status='ACTIVE'")
     Long findActiveSecurityVersion(long userId);
 
+    @Select("SELECT security_version FROM app_user WHERE id=#{userId}")
+    Long findSecurityVersionById(long userId);
+
     @Select("SELECT id AS user_id, email_normalized, status FROM app_user WHERE email_normalized=#{email}")
     PasswordResetIdentityRecord findPasswordResetIdentity(String email);
 
@@ -83,6 +86,10 @@ public interface IamMapper {
 
     @Update("UPDATE app_user SET security_version=security_version+1, updated_at=#{now} WHERE id=#{userId} AND status='ACTIVE'")
     int incrementSecurityVersion(@Param("userId") long userId, @Param("now") Instant now);
+
+    @Update("UPDATE app_user SET security_version=security_version+1, updated_at=#{now} WHERE id=#{userId}")
+    int incrementSecurityVersionForAuthorizationChange(
+            @Param("userId") long userId, @Param("now") Instant now);
 
     @Update("""
             UPDATE user_credential SET password_hash=#{passwordHash}, password_changed_at=#{now}, updated_at=#{now}

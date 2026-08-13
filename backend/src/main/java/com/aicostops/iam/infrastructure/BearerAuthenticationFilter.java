@@ -47,7 +47,7 @@ public class BearerAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         var current = versions.current(userId);
-        if (current == null || current != tokenVersion) {
+        if (current == null || current.longValue() != tokenVersion) {
             problems.unauthorized(request, response, ProblemCode.AUTH_SESSION_EXPIRED,
                     "Authentication session expired.");
             return;

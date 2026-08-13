@@ -77,6 +77,21 @@ class RedisRefreshSessionRepositoryIntegrationTest extends RedisContainerSupport
         assertThat(repository.rotate(revoked.value()).outcome()).isEqualTo(RefreshRotationOutcome.EXPIRED);
     }
 
+    @Test
+    void revokeAllUsesExistingSessionIndex() {
+        var repository = repository(Duration.ofDays(7));
+        var first = repository.create(11L, 22L, 3L, "browser");
+        var second = repository.create(11L, 23L, 3L, "mobile");
+        var otherUser = repository.create(12L, 24L, 5L, "browser");
+
+        repository.revokeAll(11L);
+
+        assertThat(repository.load(first.value())).isNull();
+        assertThat(repository.load(second.value())).isNull();
+        assertThat(repository.load(otherUser.value())).isNotNull();
+        assertThat(redis.hasKey("aicostops:v1:auth:user-sessions:11")).isFalse();
+    }
+
     private RedisRefreshSessionRepository repository(Duration duration) {
         return new RedisRefreshSessionRepository(redis, clock, new SecureRandom(), duration, Duration.ofSeconds(10));
     }
