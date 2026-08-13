@@ -371,6 +371,8 @@ After the bump, an access token containing the previous `sv` is stale and is rej
 
 Cache maintenance is post-commit and cannot roll back MySQL truth. If Redis is unavailable, subsequent security/context resolution falls back to MySQL and rejects the old version; the authorization path never accepts an old context merely because cache invalidation failed.
 
+For M1, bearer-token security-version validation intentionally reads durable MySQL truth first and treats Redis only as a best-effort write-through acceleration. This is a deliberate security-over-latency tradeoff: Redis recovery or a stale cached value cannot resurrect an old JWT. Authorization context remains version-keyed in Redis with a 60-second TTL, while `app_user.security_version` remains the durable authority. After-commit maintenance reuses the existing `RedisRefreshSessionRepository.revokeAll(long userId)` and simple cache eviction; M1 does not add distributed invalidation infrastructure. Benchmark this MySQL-first bearer path only after V1 correctness is established.
+
 Project/team membership changes bump the affected member’s user version because those relationships can be used by current or future scoped business rules even though this design defines no implicit scope inheritance.
 
 ## 12. IAM admin API
@@ -411,6 +413,7 @@ id
 email
 displayName
 status: ACTIVE | DISABLED
+securityVersion
 organizationMember:
   id
   status
@@ -426,7 +429,9 @@ roleAssignments[]:
 
 `GET /users` returns this full representation for every page item. M1 does not introduce separate UserSummary and UserDetail product models. SQL joins are organization constrained and aggregate Role assignments without N+1 authorization queries. The count query uses the same organization and user filters as the row query.
 
-`PATCH /users/{id}/status` accepts only `ACTIVE` or `DISABLED`. A real status change bumps `security_version`, invalidates old sessions and returns the updated representation. ACTIVE to DISABLED audits `USER_DISABLED`; DISABLED to ACTIVE audits `USER_ENABLED`. Repeating the current status returns the current representation without another version bump. A caller cannot use this endpoint to move a user into a different organization.
+`securityVersion` is the decimal-string representation of durable `app_user.security_version`. Both `GET /users` and `GET /users/{id}` return it, and JSON represents it as a string, never a JavaScript number.
+
+`PATCH /users/{id}/status` accepts `{ status: "ACTIVE" | "DISABLED", expectedVersion: string }`, where `expectedVersion` is a required decimal string mapped to `app_user.security_version`. Its transaction order is fixed: freshly revalidate the actor's `USER_MANAGE` ORG grant; find and lock the target in the current organization; compare the locked target version; and only then evaluate the requested status. A mismatch returns `409 STATE_CONFLICT` with no mutation or audit, including when the requested status already equals the current status. A matching version plus a real status change updates status, increments `security_version` exactly once, appends `USER_DISABLED` or `USER_ENABLED`, and schedules after-commit invalidation. A matching version plus the same status returns the current representation without a bump or audit. Success always returns the current/new `securityVersion`. A caller cannot use this endpoint to move a user into a different organization.
 
 ### 12.2 Role and Permission reads
 
@@ -597,6 +602,8 @@ master-data create/update
 
 Authorization-sensitive mutations revalidate actor and target organization inside the transaction. Natural database constraints remain the final race-safe guard. Constraint races are translated to `409 STATE_CONFLICT` rather than leaking SQL details.
 
+User status additionally uses explicit optimistic concurrency against the locked `app_user.security_version`: compare the request's decimal-string `expectedVersion` before checking whether status is already unchanged. This ordering makes every stale request conflict and prevents a stale same-status request from being mistaken for an idempotent success.
+
 No API hard-deletes project, team, cost center, provider account, project membership or team membership. Role assignment revoke is the documented exception because the table represents a current grant and audit preserves the event history.
 
 ## 16. HTTP and error contract
@@ -613,6 +620,8 @@ No API hard-deletes project, team, cost center, provider account, project member
 
 Every error uses the existing ProblemDetail shape with `type`, `title`, `status`, `detail`, `instance`, `code` and `traceId`. Error detail must not distinguish missing, foreign-organization and out-of-scope resources.
 
+Spring Security route exposure is method-specific from the first task that introduces an M1 route. Each delivered operation opens only its exact `HttpMethod` and exact path pattern as authenticated; broad matchers such as `/users/**`, `/projects/**`, or `/teams/**` are forbidden even temporarily. For every task, security regression proves the implemented method/path pair requires authentication, an unsupported method on the same path remains denied, and final `anyRequest().denyAll()` remains effective.
+
 ## 17. API documentation synchronization
 
 Implementation of this design must update both:
@@ -622,7 +631,9 @@ docs/02-development/api/02-接口矩阵.md
 docs/02-development/api/openapi.yaml
 ```
 
-The matrix must add the approved GET/PATCH/member routes listed in section 14. OpenAPI must replace generic IAM/master-data objects with concrete request, response, page, status and ProblemDetail schemas, including string-form IDs and the 403/404 distinction. No additional M1 routes are implied beyond sections 12 and 14.
+The matrix must add the approved GET/PATCH/member routes listed in section 14. OpenAPI must replace generic IAM/master-data objects with concrete request, response, page, status and ProblemDetail schemas, including string-form IDs and versions, the user-status `expectedVersion` contract, and the 403/404 distinction. No additional M1 routes are implied beyond sections 12 and 14.
+
+Executable contract tests parse `openapi.yaml` as YAML and traverse the resulting mapping; text search is useful only as a diagnostic, never as correctness proof. The operation inventory and each operation's exact response-status set are asserted by equality, alongside page-shape, unpaged-catalog, string ID/version, and Problem schema references.
 
 ## 18. `/auth/me` contract
 
@@ -669,7 +680,7 @@ No Redux or second UI/API framework is added. Server state uses TanStack Query; 
 - Cost Centers: list, create and edit lifecycle.
 - Provider Accounts: list, create and edit lifecycle using the existing provider-account fields.
 
-Every page has an explicit loading state, empty state, successful data state and ProblemDetail error state. Mutations show pending/disabled controls and display server validation/conflict messages. Role assignment, Role revoke, user-status and membership mutations invalidate the affected list/detail and `/auth/me`; master-data and invitation mutations invalidate only their affected list/detail queries.
+Every page has an explicit loading state, empty state, successful data state and ProblemDetail error state. Mutations show pending/disabled controls and display server validation/conflict messages. Role assignment, Role revoke, user-status and membership mutations invalidate the affected list/detail and `/auth/me`; master-data and invitation mutations invalidate only their affected list/detail queries. User-status controls send the displayed row's `securityVersion` as `expectedVersion`. On `409 STATE_CONFLICT`, the UI displays the conflict, invalidates/refetches the affected User list/detail query, and never blindly retries the mutation.
 
 ### 19.3 Permission-aware UX
 
@@ -742,6 +753,9 @@ Real MySQL 8.4 and Redis containers cover:
 | FINANCE_ADMIN + ORG | valid assignment; all seeded FINANCE_ADMIN grants retained at ORG |
 | Role revoked | assignment removed, audit written, version bumped, old JWT rejected |
 | user disabled | durable disabled state, audit written, version bumped, old JWT rejected |
+| user status with matching version and real change | status changes, version increments exactly once, audit written, response returns new decimal-string version |
+| user status with matching version and same status | current representation returned, no version bump or audit |
+| user status with stale expectedVersion, including same status | 409 `STATE_CONFLICT`, no mutation or audit |
 | SYSTEM_ADMIN only | no finance-sensitive permission |
 | SYSTEM_ADMIN + explicit FINANCE_ADMIN | context union includes explicitly assigned FINANCE_ADMIN permissions |
 | non-M1 permission present in context | no M2 endpoint is opened or implemented |
@@ -760,7 +774,7 @@ Scoped list tests assert returned rows and count totals, proving filtering occur
 
 ### 21.2 API contract tests
 
-Contract tests cover string-form IDs, current-organization derivation, concrete request/response schemas, immutable fields, lifecycle states, pagination, 403 versus 404, and ProblemDetail codes. Security configuration tests prove only the delivered authenticated routes are opened and unfinished routes remain denied.
+Contract tests cover string-form IDs and versions, required decimal-string `expectedVersion`, current-organization derivation, concrete request/response schemas, immutable fields, lifecycle states, pagination, 403 versus 404, exact per-operation response statuses, and ProblemDetail codes. Security configuration tests prove only the delivered method/path pairs are opened, unsupported methods on those paths remain denied, and unfinished routes remain denied.
 
 ### 21.3 Frontend tests
 
@@ -777,6 +791,7 @@ loading state
 empty state
 ProblemDetail error state
 successful mutation cache invalidation
+user status sends displayed expectedVersion; 409 refetches User data without retry
 member and Role-assignment mutation refresh
 403 causes one /auth/me refresh and permission UI update
 401 AUTH_SESSION_EXPIRED clears session and redirects with message
@@ -790,6 +805,8 @@ GitHub #22 is satisfied by sections 6–11 and the authorization matrix: four sc
 GitHub #23 is satisfied by sections 14–17 and master-data tests: organization-bound APIs, code uniqueness, membership rules, scoped authorization, lifecycle preservation and synchronized API documents. Organization CRUD itself remains excluded by the approved V1 boundary.
 
 GitHub #25 is satisfied by sections 18–19 and frontend tests: all six settings pages, backend-aligned permission/scope behavior, lifecycle UX, shared ProblemDetail handling and loading/empty/error coverage.
+
+The acceptance smoke may use direct SQL only once to bootstrap the first test administrator: public registration identifies the organization member, one ORG-scoped SYSTEM_ADMIN assignment is inserted, its security version is incremented, and the administrator logs in again. After that bootstrap, invitation, Role assignment/revoke, master-data, memberships, user status, wrong-Role/wrong-scope checks, old-JWT invalidation, and audit verification all use real HTTP APIs and API-created identifiers. Acceptance evidence states exactly: “Direct SQL was used only to bootstrap the first test administrator, not to satisfy #22/#23/#25 acceptance behavior.”
 
 ## 22. Security and scope invariants
 
@@ -807,6 +824,7 @@ The feature is acceptable only while all of these remain true:
 10. frontend checks are UX only.
 11. historical master data is disabled/archived rather than deleted.
 12. secrets never enter audit or ordinary logs.
+13. direct SQL acceptance setup is limited to first-administrator bootstrap; all acceptance behavior uses HTTP APIs.
 
 ## 23. Completion definition
 
