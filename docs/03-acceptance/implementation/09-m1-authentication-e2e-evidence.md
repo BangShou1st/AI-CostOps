@@ -11,10 +11,10 @@ AIC-015/#20, AIC-016/#21, and AIC-019/#24.
 
 Does not cover AIC-017/#22, AIC-018/#23, or AIC-020/#25.
 
-## Verification evidence
+## Local verification evidence
 
 All results below were observed locally from the repository root or the named
-module on 2026-08-13. GitHub Actions was not invoked.
+module on 2026-08-13.
 
 | Area | Command | Observed result |
 |---|---|---|
@@ -81,6 +81,36 @@ The Auth acceptance run used a clean Compose database and Redis and proved:
 - Role seed integration coverage now compares all five roles to their complete,
   exact documented permission sets and verifies the exact total row count.
 
+## GitHub PR CI evidence
+
+Pull request: `#27 feat(auth): deliver M1 Authentication E2E`.
+
+The first real PR CI run, `31658535914`, exposed a test-fixture isolation defect
+that the local execution order had not surfaced. Six of the seven required jobs
+passed, while `backend-integration` reported 39 tests with 9 setup errors. The
+errors were all foreign-key cleanup failures: accepted `invitation` rows from an
+earlier integration test still referenced `app_user`, while later fixtures tried
+to delete `app_user` before deleting `invitation`.
+
+No production code was changed for this failure. The affected integration
+fixtures were corrected to delete `invitation` before identity rows, matching the
+schema's foreign-key order and the cleanup pattern already used by the invitation
+tests.
+
+The subsequent code-bearing PR CI run, `31658896041`, completed successfully
+with all seven required jobs green:
+
+- `backend-unit` — success
+- `backend-architecture` — success
+- `backend-integration` — success
+- `frontend-build` — success
+- `frontend-lint` — success
+- `frontend-test` — success
+- `docker-build` — success
+
+This evidence update is documentation-only. The final PR head must still satisfy
+the repository's required status checks before merge.
+
 ## Known warnings and limitations
 
 - Maven emits the existing Mockito/Byte Buddy dynamic-agent warning on Java 21.
@@ -96,4 +126,3 @@ The Auth acceptance run used a clean Compose database and Redis and proved:
   this evidence does not claim production mail delivery is implemented.
 - Cross-tab coordination is intentionally not implemented; refresh is
   single-flight within one browser tab, as scoped.
-- Not yet verified on real GitHub PR CI.
