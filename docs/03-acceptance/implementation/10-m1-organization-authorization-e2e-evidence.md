@@ -56,7 +56,7 @@ Audit success is proven by HTTP-driven integration tests over API-created subjec
 
 ## 3. Frontend test evidence
 
-`npm test -- --run` reports 16 files / 53 tests passing; `npm run lint` and `npm run build` exit 0. Coverage includes:
+`npm test -- --run` reports 16 files / 63 tests passing; `npm run lint` and `npm run build` exit 0. Coverage includes:
 
 - Permission-aware layout and six settings routes: nav hiding without READ permission, direct unauthorized URL renders authenticated 403 with no redirect and no child mount/request (`AuthenticatedLayout.test.tsx`, `PermissionRoute.test.tsx`).
 - Users/Roles: loading/empty/error/data, independent `USER_MANAGE`/`USER_INVITE`/`ROLE_ASSIGN` action gating, `securityVersion` stays a string and is sent verbatim as `expectedVersion`, 409 shows the ProblemDetail and refetches without retry, mutation cache invalidation (`UsersPage.test.tsx`, `RolesPage.test.tsx`).
@@ -71,12 +71,12 @@ Prerequisite: `.\scripts\auth-smoke.ps1` passes (PASS line printed).
 
 1. **Bootstrap boundary** — public registration identifies the organization member; the ONLY direct SQL inserts one ORG-scoped `SYSTEM_ADMIN` `role_assignment` for that member and increments its `security_version`; the administrator then logs in again.
 2. `Assert-AdminPermissions` — `/auth/me.permissions` contains every M1 admin permission (USER/ROLE/PROJECT/TEAM/COST_CENTER/PROVIDER_ACCOUNT read+manage, USER_INVITE, ROLE_ASSIGN) and the identity is unchanged.
-3. `Assert-WrongRole403` — a freshly registered EMPLOYEE cannot create a project (403 `FORBIDDEN`); a PROJECT_OWNER cannot create master data.
+3. `Assert-WrongRole403` — a freshly registered EMPLOYEE cannot create a project (403 `FORBIDDEN`). Scoped-role behavior proven elsewhere: the PROJECT_OWNER project list is scoped to the explicit project (step 5), and a PROJECT-scoped SYSTEM_ADMIN grant gets 404 `RESOURCE_NOT_FOUND` for out-of-scope resource access and cannot satisfy the ORG-only create.
 4. Master data through HTTP only — project/team/cost-center/provider-account create, list, and update; lifecycle status transitions persist; memberships add/list/remove through real APIs.
 5. `Assert-WrongScope404` — a real `POST /role-assignments` grants PROJECT_OWNER at an explicit project; the member's list returns only that project and reads/updates of another real project return 404 `RESOURCE_NOT_FOUND`.
 6. User status — disable with the displayed `securityVersion` as `expectedVersion`; the disabled user's token is rejected; re-enable with the returned version.
 7. `Assert-OldJwt401` — revoking a real role assignment bumps the target user's version and the pre-revoke JWT is rejected with exactly `401 AUTH_SESSION_EXPIRED`.
-8. Invitation — `POST /invitations` returns PENDING and never exposes a raw token; the dev mailbox contains the `acceptLink` with a high-entropy token. `Assert-AuditSecretAbsence` proves the API response and delivery channel never leak the raw token; audit secret absence is proven by the HTTP-driven integration tests cited in section 2 (no direct SQL from this script).
+8. Invitation — `POST /invitations` returns PENDING and the API response never exposes a raw token; the dev invitation mailbox intentionally delivers the `acceptLink` carrying the high-entropy token (Assert-AuditSecretAbsence asserts the API response and the mailbox link, not a clean delivery channel). Raw-token absence in `audit_event.metadata_json` is proven by the HTTP-driven integration tests cited in section 2 (no direct SQL from this script).
 9. `Assert-M2Denied` — `/costs/charges` and `/budgets` remain denied by the final `anyRequest().denyAll()`.
 
 Direct SQL was used only to bootstrap the first test administrator, not to satisfy #22/#23/#25 acceptance behavior.

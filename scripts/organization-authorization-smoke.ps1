@@ -15,6 +15,12 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
+function Get-TransportStatus($ErrorRecord) {
+    $response = $ErrorRecord.Exception.Response
+    if ($response -and $response.StatusCode) { return [int]$response.StatusCode }
+    return $null
+}
+
 function Get-ProblemObject($ErrorRecord) {
     $body = $null
     if ($ErrorRecord.ErrorDetails.Message) {
@@ -52,13 +58,18 @@ function Assert-ApiError([string]$Method, [string]$Uri, [hashtable]$Headers, $Bo
         throw "${Message}: request unexpectedly succeeded"
     } catch {
         if ($_.Exception.Message -like "*unexpectedly succeeded*") { throw }
-        # Parse the ProblemDetail body exactly once: on PS 5.1 the error-details
-        # text is empty for 403 and the response stream is single-use.
+        # Assert the REAL transport status from the response, never the
+        # ProblemDetail body's own status field. The body is parsed exactly
+        # once (PS 5.1 leaves ErrorDetails empty for 403 and the stream is
+        # single-use) and only contributes the ProblemDetail code.
+        $transportStatus = Get-TransportStatus $_
         $problem = Get-ProblemObject $_
-        $status = if ($problem) { [int]$problem.status } else { $null }
         $code = if ($problem) { [string]$problem.code } else { $null }
-        Assert-True ($status -eq $ExpectedStatus) "$Message (expected HTTP $ExpectedStatus, got '$status')"
+        Assert-True ($transportStatus -eq $ExpectedStatus) "$Message (expected HTTP $ExpectedStatus, got '$transportStatus')"
         Assert-True ($code -eq $ExpectedCode) "$Message (expected $ExpectedCode, got '$code')"
+        if ($problem -and $null -ne $problem.status) {
+            Assert-True ([int]$problem.status -eq $transportStatus) "$Message (ProblemDetail status '$($problem.status)' mismatched transport status '$transportStatus')"
+        }
     }
 }
 
