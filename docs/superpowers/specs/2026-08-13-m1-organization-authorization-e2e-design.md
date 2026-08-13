@@ -24,7 +24,7 @@ Success means an authenticated administrator can manage users, role assignments,
 - Java 21, Spring Boot 4.1.0, MyBatis Core 3.5.19 and `mybatis-spring-boot-starter` 4.1.0.
 - MySQL 8.4 is durable authorization truth. Redis is only a short-lived runtime cache.
 - React 19, TypeScript 6, Vite 8, React Router, TanStack Query, Ant Design and the existing Axios client.
-- Modular monolith, root package `com.aicostops`, package by feature with `api`, `application`, `domain` and `infrastructure` subpackages where needed.
+- Modular monolith, root package `com.aicostops`, package by feature; each implemented feature uses its `api`, `application`, `domain` and `infrastructure` boundaries.
 - Plain MyBatis and explicit SQL for authorization-sensitive reads and writes. No JPA, MyBatis-Plus or new infrastructure framework.
 - External API base `/api/v1`; BIGINT values use the existing `ApiId` JSON string representation.
 - Errors use the existing RFC 9457-style ProblemDetail response, `ProblemCode`, trace ID and shared frontend mapping.
@@ -164,7 +164,9 @@ permission grants
 scoped grants
 ```
 
-The context representation groups effective grants by permission. For each permission it records whether ORG is granted and the explicit PROJECT, TEAM and COST_CENTER IDs granted after applicability filtering. Duplicate grants collapse into sets. Role codes may be retained for admin display and diagnostics, but services authorize permissions, never Role names.
+The context representation loads every permission attached to every explicit `role_assignment` through the seeded `role_permission` rows and preserves that assignment's exact scope type and scope ID. It does not discard a grant because its permission is not consumed by an M1 admin endpoint. Duplicate permission-and-scope grants collapse into sets. Role codes are retained for admin display and diagnostics, but services authorize permissions, never Role names.
+
+For example, `FINANCE_REVIEWER` at `COST_CENTER:9` contributes all seeded FINANCE_REVIEWER permissions as explicit COST_CENTER:9 grants. M1 exposes no Finance endpoints, so those grants do not create M2 API access. A future M2 design will define how Evidence, Import, Cost and other Finance endpoints consume them.
 
 Inactive users, organizations or memberships produce no context. A context whose `securityVersion` differs from the authenticated JWT is rejected as `401 AUTH_SESSION_EXPIRED`.
 
@@ -195,11 +197,11 @@ Versioning makes an old context key unreachable after a durable version bump. Ex
 
 ### 7.3 Fresh validation for sensitive administration
 
-`ROLE_ASSIGN` and `USER_MANAGE` are sensitive. Before a mutation requiring either permission, the application service performs a fresh MySQL context validation in the same request instead of authorizing solely from the context cache. The target resource and actor membership are then locked or checked within the mutation transaction as appropriate.
+`ROLE_ASSIGN` and `USER_MANAGE` are sensitive. Before a mutation requiring either permission, the application service performs a fresh MySQL context validation in the same request instead of authorizing solely from the context cache. Inside the mutation transaction, it revalidates the actor's ACTIVE membership and locks the target mutable row with the authorization-sensitive lookup before changing state.
 
 This rule applies even when the preceding non-sensitive page read came from Redis.
 
-## 8. Scope model and applicability
+## 8. Role scope validity and permission applicability
 
 The only scope types are:
 
@@ -218,6 +220,24 @@ No fifth scope is introduced. Scope IDs are interpreted by scope type:
 - COST_CENTER: `scope_id` is a cost-center ID in the current organization.
 
 There is no implicit hierarchy or inheritance. `TEAM:7` grants nothing for projects merely related to Team 7. `PROJECT:42` grants nothing for that project’s cost center. Any future relationship-based propagation requires a separate explicit design.
+
+### 8.1 Role assignment scope validity
+
+Role assignment creation first validates the requested Role and scope against this frozen matrix:
+
+| Role | Valid assignment scopes |
+|---|---|
+| `EMPLOYEE` | ORG |
+| `PROJECT_OWNER` | PROJECT |
+| `FINANCE_REVIEWER` | ORG, COST_CENTER |
+| `FINANCE_ADMIN` | ORG |
+| `SYSTEM_ADMIN` | ORG, PROJECT, TEAM, COST_CENTER |
+
+The scope ID must then identify the current authorization boundary: ORG requires `scope_id == organizationId`; PROJECT, TEAM and COST_CENTER require an existing resource of the matching type in the current organization. Role scope validity is independent of whether an M1 admin endpoint consumes any permission seeded on that Role.
+
+Consequently, `EMPLOYEE + ORG`, `PROJECT_OWNER + PROJECT`, `FINANCE_REVIEWER + ORG`, `FINANCE_REVIEWER + COST_CENTER`, `FINANCE_ADMIN + ORG` and every matrix-listed SYSTEM_ADMIN scope are valid. `PROJECT_OWNER + ORG` and `FINANCE_REVIEWER + PROJECT` are invalid.
+
+### 8.2 M1 admin permission applicability
 
 M1 admin permission applicability is frozen as follows:
 
@@ -238,9 +258,9 @@ M1 admin permission applicability is frozen as follows:
 | `PROVIDER_ACCOUNT_READ` | ORG |
 | `PROVIDER_ACCOUNT_MANAGE` | ORG |
 
-Context resolution applies a Role assignment permission by permission. A Role assigned at a given scope grants only its permissions applicable to that scope; incompatible permissions from the same Role are not promoted or inherited. A new Role assignment is valid only when the Role exists and at least one permission on that Role is semantically applicable to the requested scope. This allows the frozen Role catalog to remain unchanged without turning a scoped assignment into organization-wide authority.
+This table is used only when an M1 admin endpoint evaluates its required permission against the explicit grants in `AuthorizationContext`. It does not decide whether a Role assignment can be created and does not filter grants during context resolution. An admin permission grant authorizes an endpoint only when the grant's explicit scope appears in that permission's applicable-scope row and the requested resource matches that scope.
 
-Permissions outside the M1 admin endpoints remain seeded but do not activate their M2 APIs. Their existing catalog and finance separation remain unchanged.
+Permissions outside the M1 admin endpoints remain in the context with their explicit assignment scopes but do not activate M2 APIs. Their existing catalog and finance separation remain unchanged.
 
 ## 9. Authorization decision semantics
 
@@ -336,7 +356,7 @@ begin MySQL transaction
            updated_at = :now
        WHERE id = :targetUserId
 commit
-  -> update or invalidate aicostops:v1:auth:security:{targetUserId}
+  -> write the new version to aicostops:v1:auth:security:{targetUserId}
   -> delete authorization-context keys known for the old/new version
   -> best-effort revoke target refresh sessions where the existing auth runtime supports it
 ```
@@ -368,11 +388,23 @@ All routes are under `/api/v1`, require bearer authentication and are limited to
 | DELETE | `/role-assignments/{id}` | `ROLE_ASSIGN` / ORG, fresh | 204 |
 | POST | `/invitations` | `USER_INVITE` / ORG | created invitation metadata |
 
-List endpoints use the existing `PageRequest`/`PageResponse` contract where pagination is appropriate. All IDs serialize as strings.
+These collection endpoints are paged with the existing `PageRequest`/`PageResponse` contract:
+
+```text
+GET /users
+GET /projects
+GET /projects/{id}/members
+GET /teams
+GET /teams/{id}/members
+GET /cost-centers
+GET /provider-accounts
+```
+
+`GET /roles` and `GET /permissions` are unpaged reference-catalog reads. For every paged endpoint, count and row queries use the same organization, scope and filter predicates. All IDs serialize as strings.
 
 ### 12.1 User representation
 
-User responses contain at least:
+The complete M1 User representation returned by both `GET /users` and `GET /users/{id}` is:
 
 ```text
 id
@@ -392,7 +424,7 @@ roleAssignments[]:
   createdAt
 ```
 
-The user list may use the same shape to keep one stable frontend model. SQL joins are organization constrained and aggregate Role assignments without N+1 authorization queries.
+`GET /users` returns this full representation for every page item. M1 does not introduce separate UserSummary and UserDetail product models. SQL joins are organization constrained and aggregate Role assignments without N+1 authorization queries. The count query uses the same organization and user filters as the row query.
 
 `PATCH /users/{id}/status` accepts only `ACTIVE` or `DISABLED`. A real status change bumps `security_version`, invalidates old sessions and returns the updated representation. ACTIVE to DISABLED audits `USER_DISABLED`; DISABLED to ACTIVE audits `USER_ENABLED`. Repeating the current status returns the current representation without another version bump. A caller cannot use this endpoint to move a user into a different organization.
 
@@ -418,10 +450,10 @@ In one organization-constrained transaction, creation validates:
 3. Role exists in the frozen catalog;
 4. scope type is one of the four supported values;
 5. ORG scope ID equals the current organization ID, or the typed resource exists in the current organization;
-6. at least one Role permission is semantically applicable to that scope;
+6. the Role and requested scope match the Role Scope Validity matrix in section 8.1;
 7. the natural tuple is unique.
 
-Duplicate natural assignments return `409 STATE_CONFLICT`. Invalid request shape or unsupported scope type returns `400 VALIDATION_FAILED`. A foreign or invisible scope resource returns privacy-preserving `404 RESOURCE_NOT_FOUND`.
+Duplicate natural assignments return `409 STATE_CONFLICT`. Invalid request shape, unsupported scope type and a Role/scope pair absent from the Role Scope Validity matrix return `400 VALIDATION_FAILED`. A foreign or invisible scope resource returns privacy-preserving `404 RESOURCE_NOT_FOUND`.
 
 On success, insert `role_assignment`, bump the target user’s security version and append `ROLE_ASSIGNED`.
 
@@ -463,7 +495,7 @@ invite as EMPLOYEE
   -> administrator explicitly assigns PROJECT_OWNER at PROJECT:{id}
 ```
 
-Other initial Roles must be valid for ORG scope under the applicability rule and existing Role catalog.
+Other initial Roles must be listed with ORG scope in the Role Scope Validity matrix and exist in the frozen Role catalog.
 
 ### 13.2 Delivery
 
@@ -605,7 +637,7 @@ organizationMemberId
 permissions: string[]
 ```
 
-`permissions` is the sorted, deduplicated set of permission codes having at least one effective grant in the current context. Complete scope truth is not exposed to the browser. This list supports navigation and action visibility only; backend scope SQL remains authoritative.
+`permissions` is the sorted, deduplicated projection of M1 admin permission codes having at least one explicit context grant whose scope is applicable under section 8.2. Thus a PROJECT-scoped SYSTEM_ADMIN assignment does not expose ORG-only `USER_READ`, while its PROJECT-applicable permissions remain visible. Non-M1 seeded permissions remain in the backend `AuthorizationContext` but are not included in this M1 browser projection because no M2 page or endpoint is delivered. Complete scope truth is not exposed to the browser. This list supports navigation and action visibility only; backend scope SQL remains authoritative.
 
 `/auth/me` resolves the same versioned authorization context used by application services. A stale security version returns `401 AUTH_SESSION_EXPIRED`.
 
@@ -637,7 +669,7 @@ No Redux or second UI/API framework is added. Server state uses TanStack Query; 
 - Cost Centers: list, create and edit lifecycle.
 - Provider Accounts: list, create and edit lifecycle using the existing provider-account fields.
 
-Every page has an explicit loading state, empty state, successful data state and ProblemDetail error state. Mutations show pending/disabled controls, display server validation/conflict messages and invalidate the affected list/detail plus `/auth/me` when authorization may have changed.
+Every page has an explicit loading state, empty state, successful data state and ProblemDetail error state. Mutations show pending/disabled controls and display server validation/conflict messages. Role assignment, Role revoke, user-status and membership mutations invalidate the affected list/detail and `/auth/me`; master-data and invitation mutations invalidate only their affected list/detail queries.
 
 ### 19.3 Permission-aware UX
 
@@ -648,9 +680,9 @@ Navigation and actions use `/auth/me.permissions`:
 - corresponding READ permission shows each master-data page.
 - corresponding MANAGE permission shows create/edit/member actions.
 
-Having a permission code can show the page, but the backend may return a scoped subset or a privacy-preserving 404. The UI does not attempt to reconstruct scope truth.
+A required READ permission code makes its settings route navigable. Backend list queries return the authorized scoped subset, and an inaccessible resource ID returns privacy-preserving 404. The UI does not attempt to reconstruct scope truth.
 
-A protected settings route without the required read permission renders a forbidden page or redirects to the first authorized application destination; it never issues hidden mutation requests.
+Navigation hides a settings item when the required READ permission is absent. If an authenticated user directly navigates to that settings URL without the required READ permission, the authenticated layout renders a 403 Forbidden page in place. It does not redirect and does not issue hidden API or mutation requests. Backend authorization remains authoritative.
 
 ### 19.4 Role/security change handling
 
@@ -701,10 +733,18 @@ Real MySQL 8.4 and Redis containers cover:
 | context Redis hit | same decision as MySQL resolution |
 | Redis unavailable | MySQL fallback, same decision |
 | malformed cached context | ignore cache and resolve MySQL |
+| EMPLOYEE + ORG | valid assignment; all seeded EMPLOYEE grants retained at ORG |
+| PROJECT_OWNER + PROJECT | valid assignment; all seeded PROJECT_OWNER grants retained at that PROJECT |
+| PROJECT_OWNER + ORG | 400 invalid Role/scope pair |
+| FINANCE_REVIEWER + ORG | valid assignment; all seeded grants retained at ORG |
+| FINANCE_REVIEWER + COST_CENTER | valid assignment; all seeded grants retained at that COST_CENTER |
+| FINANCE_REVIEWER + PROJECT | 400 invalid Role/scope pair |
+| FINANCE_ADMIN + ORG | valid assignment; all seeded FINANCE_ADMIN grants retained at ORG |
 | Role revoked | assignment removed, audit written, version bumped, old JWT rejected |
 | user disabled | durable disabled state, audit written, version bumped, old JWT rejected |
 | SYSTEM_ADMIN only | no finance-sensitive permission |
-| SYSTEM_ADMIN + explicit finance Role | union contains explicitly assigned finance permissions |
+| SYSTEM_ADMIN + explicit FINANCE_ADMIN | context union includes explicitly assigned FINANCE_ADMIN permissions |
+| non-M1 permission present in context | no M2 endpoint is opened or implemented |
 | cross-org project membership | rejected without foreign data disclosure |
 | cross-org team membership | rejected without foreign data disclosure |
 | disabled/archived master data | preserved; no destructive deletion |
@@ -729,6 +769,8 @@ Use the existing Vitest/Testing Library setup to cover:
 ```text
 authenticated application layout and protected settings routes
 permission-aware navigation and action visibility
+missing READ permission hides the settings navigation item
+direct unauthorized settings URL renders authenticated 403 without redirect or hidden request
 USER_READ without USER_MANAGE hides Disable
 PROJECT_READ without PROJECT_MANAGE hides Create/Edit
 loading state
