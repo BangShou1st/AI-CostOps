@@ -48,6 +48,7 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
     void setUp() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
         jdbc.update("DELETE FROM audit_event");
+        jdbc.update("DELETE FROM invitation");
         jdbc.update("DELETE FROM role_assignment");
         jdbc.update("DELETE FROM organization_member");
         jdbc.update("DELETE FROM user_credential");
