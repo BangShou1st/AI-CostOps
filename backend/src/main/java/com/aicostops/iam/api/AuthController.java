@@ -5,9 +5,9 @@ import com.aicostops.iam.application.RegistrationService;
 import com.aicostops.iam.application.LoginCommand;
 import com.aicostops.iam.application.LoginService;
 import com.aicostops.iam.application.LogoutService;
+import com.aicostops.iam.application.MeService;
 import com.aicostops.iam.application.RefreshService;
 import com.aicostops.iam.application.PasswordResetService;
-import com.aicostops.iam.infrastructure.IamMapper;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -40,7 +40,7 @@ public class AuthController {
     private final Duration refreshSessionLifetime;
     private final RefreshService refreshService;
     private final LogoutService logoutService;
-    private final IamMapper iamMapper;
+    private final MeService meService;
     private final Set<String> allowedOrigins;
     private final PasswordResetService passwordResetService;
 
@@ -50,7 +50,7 @@ public class AuthController {
             RefreshService refreshService,
             LogoutService logoutService,
             PasswordResetService passwordResetService,
-            IamMapper iamMapper,
+            MeService meService,
             @Value("${aicostops.auth.refresh-cookie-secure:true}") boolean refreshCookieSecure,
             @Value("${aicostops.auth.refresh-session-lifetime:7d}") Duration refreshSessionLifetime,
             @Value("${aicostops.auth.allowed-origins:http://localhost:8080}") String allowedOrigins) {
@@ -60,7 +60,7 @@ public class AuthController {
         this.refreshSessionLifetime = refreshSessionLifetime;
         this.refreshService = refreshService;
         this.logoutService = logoutService;
-        this.iamMapper = iamMapper;
+        this.meService = meService;
         this.passwordResetService = passwordResetService;
         this.allowedOrigins = Set.copyOf(Arrays.stream(allowedOrigins.split(",")).map(String::trim).toList());
     }
@@ -94,12 +94,7 @@ public class AuthController {
 
     @GetMapping("/me")
     public MeResponse me(@AuthenticationPrincipal AuthenticatedUser user) {
-        var identity = iamMapper.findAuthenticatedIdentity(user.userId());
-        if (identity == null) {
-            throw new DomainException(HttpStatus.UNAUTHORIZED, ProblemCode.AUTH_SESSION_EXPIRED,
-                    "Authentication session expired", "Sign in again.");
-        }
-        return MeResponse.from(identity);
+        return MeResponse.from(meService.me(user));
     }
 
     @PostMapping("/logout")
