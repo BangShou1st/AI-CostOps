@@ -203,6 +203,7 @@ class IamMutationApiIntegrationTest extends AuthenticationContainersSupport {
     void roleScopeMatrixControlsAssignmentCreation(
             String roleCode, String scopeType, boolean valid) throws Exception {
         var scopeId = scopeId(scopeType);
+        var oldTargetJwt = bearerFor(targetUserId, 41L);
         var request = post("/api/v1/role-assignments")
                 .header("Authorization", bearer(ACTOR_VERSION))
                 .contentType("application/json")
@@ -233,6 +234,9 @@ class IamMutationApiIntegrationTest extends AuthenticationContainersSupport {
         assertThat(securityVersion(targetUserId)).isEqualTo(42L);
         assertRoleAudit("ROLE_ASSIGNED", response.path("id").asLong(), roleCode, scopeType, scopeId);
         assertThat(auditCount()).isEqualTo(1);
+        mockMvc.perform(get("/api/v1/users").header("Authorization", oldTargetJwt))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTH_SESSION_EXPIRED"));
     }
 
     @Test
@@ -318,6 +322,23 @@ class IamMutationApiIntegrationTest extends AuthenticationContainersSupport {
                         .content(roleAssignmentJson(foreignMemberId, roleId("EMPLOYEE"), "ORG", organizationId)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
+    void disabledUserCannotReceiveRoleAssignment() throws Exception {
+        jdbc.update("UPDATE app_user SET status='DISABLED' WHERE id=?", targetUserId);
+
+        mockMvc.perform(post("/api/v1/role-assignments")
+                        .header("Authorization", bearer(ACTOR_VERSION))
+                        .contentType("application/json")
+                        .content(roleAssignmentJson(targetMemberId, roleId("EMPLOYEE"), "ORG", organizationId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+
+        assertThat(userStatus(targetUserId)).isEqualTo("DISABLED");
+        assertThat(assignmentCount(targetMemberId)).isZero();
+        assertThat(securityVersion(targetUserId)).isEqualTo(41L);
+        assertThat(auditCount()).isZero();
     }
 
     @Test

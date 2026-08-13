@@ -12,8 +12,12 @@ import com.aicostops.shared.json.ApiId;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
+import java.sql.SQLException;
 import java.time.Clock;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,6 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class RoleAssignmentService {
+
+    private static final Pattern NATURAL_ASSIGNMENT_CONSTRAINT = Pattern.compile(
+            "(?<![A-Za-z0-9_])uq_role_assignment_natural(?![A-Za-z0-9_])",
+            Pattern.CASE_INSENSITIVE);
 
     private final AuthorizationContextService authorizationContexts;
     private final IamAdminMapper mapper;
@@ -75,6 +83,9 @@ public class RoleAssignmentService {
                 throw new IllegalStateException("Role assignment must insert exactly one row");
             }
         } catch (DuplicateKeyException exception) {
+            if (!causedByNaturalAssignmentConstraint(exception)) {
+                throw exception;
+            }
             throw duplicateAssignment();
         }
         var assignmentId = mapper.lastInsertId();
@@ -152,6 +163,17 @@ public class RoleAssignmentService {
                 "roleCode", roleCode,
                 "scopeType", scopeType.name(),
                 "scopeId", Long.toString(scopeId));
+    }
+
+    private boolean causedByNaturalAssignmentConstraint(DuplicateKeyException exception) {
+        var visited = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+        for (Throwable cause = exception; cause != null && visited.add(cause); cause = cause.getCause()) {
+            if (cause instanceof SQLException && cause.getMessage() != null
+                    && NATURAL_ASSIGNMENT_CONSTRAINT.matcher(cause.getMessage()).find()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private DomainException validationFailed(String detail) {

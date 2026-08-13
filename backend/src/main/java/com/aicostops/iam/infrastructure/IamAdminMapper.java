@@ -126,6 +126,7 @@ public interface IamAdminMapper {
             JOIN app_user u ON u.id=m.user_id
             JOIN organization o ON o.id=m.org_id AND o.status='ACTIVE'
             WHERE m.id=#{organizationMemberId} AND m.org_id=#{organizationId} AND m.status='ACTIVE'
+              AND u.status='ACTIVE'
             FOR UPDATE
             """)
     TargetMemberRow findActiveTargetMemberForUpdate(
