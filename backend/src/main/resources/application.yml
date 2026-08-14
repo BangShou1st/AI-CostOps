@@ -54,6 +54,14 @@ aicostops:
     # Spring DataSize suffixes are B/KB/MB/GB/TB; "MB" means 1024^2 bytes (binary MiB).
     upload-limit: ${AICOSTOPS_STORAGE_UPLOAD_LIMIT:512MB}
     auto-create-bucket: ${AICOSTOPS_STORAGE_AUTO_CREATE_BUCKET:true}
+  ingestion:
+    worker-enabled: ${AICOSTOPS_IMPORT_WORKER_ENABLED:true}
+    worker-concurrency: ${AICOSTOPS_IMPORT_WORKER_CONCURRENCY:2}
+    poll-interval: ${AICOSTOPS_IMPORT_POLL_INTERVAL:1s}
+    lease-duration: ${AICOSTOPS_IMPORT_LEASE_DURATION:60s}
+    heartbeat-interval: ${AICOSTOPS_IMPORT_HEARTBEAT_INTERVAL:20s}
+    max-lease-recoveries: ${AICOSTOPS_IMPORT_MAX_LEASE_RECOVERIES:3}
+    persistence-batch-size: ${AICOSTOPS_IMPORT_PERSISTENCE_BATCH_SIZE:500}
   iam:
     context-cache-ttl: ${AICOSTOPS_IAM_CONTEXT_CACHE_TTL:60s}
     invitation-default-lifetime: ${AICOSTOPS_IAM_INVITATION_DEFAULT_LIFETIME:72h}

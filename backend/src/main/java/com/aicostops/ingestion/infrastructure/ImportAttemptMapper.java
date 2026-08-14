@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface ImportAttemptMapper {
@@ -75,4 +76,85 @@ public interface ImportAttemptMapper {
               AND ia.trigger_type='LEASE_RECOVERY'
             """)
     int countLeaseRecoveriesByBatch(@Param("batchId") long batchId);
+
+    @Select("""
+            SELECT
+            """ + IMPORT_ATTEMPT_COLUMNS + """
+            FROM import_attempt ia
+            WHERE ia.status='QUEUED'
+              AND ia.available_at <= UTC_TIMESTAMP(6)
+            ORDER BY ia.available_at, ia.id
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+            """)
+    ImportAttempt claimNextQueued();
+
+    @Update("""
+            UPDATE import_attempt ia
+            SET ia.status='RUNNING',
+                ia.lease_owner=#{workerId},
+                ia.lease_until=TIMESTAMPADD(MICROSECOND,#{leaseMicros},UTC_TIMESTAMP(6)),
+                ia.lease_version=ia.lease_version+1,
+                ia.started_at=COALESCE(ia.started_at,UTC_TIMESTAMP(6))
+            WHERE ia.id=#{attemptId}
+            """)
+    int markRunning(
+            @Param("attemptId") long attemptId,
+            @Param("workerId") String workerId,
+            @Param("leaseMicros") long leaseMicros);
+
+    @Update("""
+            UPDATE import_attempt ia
+            SET ia.lease_until=TIMESTAMPADD(MICROSECOND,#{leaseMicros},UTC_TIMESTAMP(6))
+            WHERE ia.id=#{attemptId}
+              AND ia.status='RUNNING'
+              AND ia.lease_owner=#{workerId}
+              AND ia.lease_version=#{leaseVersion}
+              AND ia.lease_until > UTC_TIMESTAMP(6)
+            """)
+    int renewLease(
+            @Param("attemptId") long attemptId,
+            @Param("workerId") String workerId,
+            @Param("leaseVersion") long leaseVersion,
+            @Param("leaseMicros") long leaseMicros);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM import_attempt ia
+            WHERE ia.id=#{attemptId}
+              AND ia.status='RUNNING'
+              AND ia.lease_owner=#{workerId}
+              AND ia.lease_version=#{leaseVersion}
+              AND ia.lease_until > UTC_TIMESTAMP(6)
+            """)
+    int countOwnedRunning(
+            @Param("attemptId") long attemptId,
+            @Param("workerId") String workerId,
+            @Param("leaseVersion") long leaseVersion);
+
+    @Select("""
+            SELECT
+            """ + IMPORT_ATTEMPT_COLUMNS + """
+            FROM import_attempt ia
+            WHERE ia.status='RUNNING'
+              AND ia.lease_until < UTC_TIMESTAMP(6)
+            ORDER BY ia.lease_until, ia.id
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+            """)
+    ImportAttempt findExpiredRunning();
+
+    @Update("""
+            UPDATE import_attempt ia
+            SET ia.status='FAILED',
+                ia.finished_at=UTC_TIMESTAMP(6),
+                ia.error_code=#{errorCode},
+                ia.error_summary=#{errorSummary}
+            WHERE ia.id=#{attemptId}
+              AND ia.status='RUNNING'
+            """)
+    int failRunningAttempt(
+            @Param("attemptId") long attemptId,
+            @Param("errorCode") String errorCode,
+            @Param("errorSummary") String errorSummary);
 }
