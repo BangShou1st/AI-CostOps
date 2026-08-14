@@ -6,8 +6,6 @@ import com.aicostops.ingestion.domain.ImportIssueSeverity;
 import com.aicostops.ingestion.infrastructure.ImportAttemptMapper;
 import com.aicostops.ingestion.infrastructure.ImportBatchMapper;
 import com.aicostops.ingestion.infrastructure.ImportWorkerProperties;
-import java.time.Clock;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,7 +30,7 @@ public class ImportAttemptExecutor {
     private final EvidencePersistenceService evidencePersistence;
     private final ObjectStoragePort storage;
     private final ImportWorkerProperties properties;
-    private final Clock clock;
+    private final ImportAttemptFinalizationService finalizer;
     private final ConcurrentHashMap<Long, ImportLeaseService.ImportLease> activeLeases =
             new ConcurrentHashMap<>();
 
@@ -45,7 +43,7 @@ public class ImportAttemptExecutor {
             EvidencePersistenceService evidencePersistence,
             ObjectStoragePort storage,
             ImportWorkerProperties properties,
-            Clock clock) {
+            ImportAttemptFinalizationService finalizer) {
         this.registry = registry;
         this.leases = leases;
         this.persistence = persistence;
@@ -54,7 +52,7 @@ public class ImportAttemptExecutor {
         this.evidencePersistence = evidencePersistence;
         this.storage = storage;
         this.properties = properties;
-        this.clock = clock;
+        this.finalizer = finalizer;
     }
 
     public void execute(ImportLeaseService.ImportLease lease) {
@@ -116,19 +114,24 @@ public class ImportAttemptExecutor {
             var sink = new BoundedRecordSink(lease, persistence, properties.persistenceBatchSize());
             adapter.parse(source, inspection, sink);
             sink.flush();
-            var finished = attemptMapper.findById(lease.attemptId());
-            if (finished == null) {
-                throw new IllegalStateException("Executing ImportAttempt must remain readable");
-            }
-            if (finished.errorCount() > 0) {
-                fail(lease, "DATA_ERRORS", "Provider records contained ERROR issues.");
-            } else {
-                succeed(lease);
-            }
         } catch (LeaseLostException lost) {
             // Lease lost: stop silently; a successor may already be queued by recovery.
+            return;
         } catch (RuntimeException failure) {
-            fail(lease, "EXECUTION_FAILED", boundedSummary(failure));
+            fail(lease, "EXECUTION_FAILED", safeFailureSummary(failure));
+            return;
+        }
+
+        // Finalization is a separate atomic transaction; its failure propagates so
+        // no second (potentially double) finalization is attempted.
+        var finished = attemptMapper.findById(lease.attemptId());
+        if (finished == null) {
+            throw new IllegalStateException("Executing ImportAttempt must remain readable");
+        }
+        if (finished.errorCount() > 0) {
+            fail(lease, "DATA_ERRORS", "Provider records contained ERROR issues.");
+        } else {
+            succeed(lease);
         }
     }
 
@@ -137,25 +140,19 @@ public class ImportAttemptExecutor {
     }
 
     private void succeed(ImportLeaseService.ImportLease lease) {
-        if (attemptMapper.finishSucceeded(
-                lease.attemptId(), lease.leaseOwner(), lease.leaseVersion()) == 1) {
-            batchMapper.updateStatus(lease.importBatchId(), "PARSED", clock.instant());
-        }
+        finalizer.completeSuccess(lease);
     }
 
     private void fail(ImportLeaseService.ImportLease lease, String errorCode, String errorSummary) {
-        if (attemptMapper.finishFailed(lease.attemptId(), lease.leaseOwner(), lease.leaseVersion(),
-                errorCode, errorSummary) == 1) {
-            batchMapper.updateStatus(lease.importBatchId(), "FAILED", clock.instant());
-        }
+        finalizer.completeFailure(lease, errorCode, errorSummary);
     }
 
-    private String boundedSummary(RuntimeException failure) {
-        var message = failure.getMessage();
-        if (message == null || message.isBlank()) {
-            return failure.getClass().getSimpleName();
-        }
-        return message.length() <= 400 ? message : message.substring(0, 400);
+    /**
+     * Stable, secret-free failure summary: only the exception category is recorded,
+     * never the raw provider message.
+     */
+    private String safeFailureSummary(RuntimeException failure) {
+        return "Provider import execution failed (" + failure.getClass().getSimpleName() + ").";
     }
 
     private static final class BoundedRecordSink implements ProviderRecordSink {

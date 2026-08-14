@@ -1,6 +1,7 @@
 package com.aicostops.ingestion.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.evidence.application.EvidenceStorageService;
 import com.aicostops.ingestion.domain.ImportIssueSeverity;
@@ -343,6 +344,30 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
     // ------------------------------------------------------------------
     // Review fix: heartbeat must cover every concurrently active execution
     // ------------------------------------------------------------------
+
+    @Test
+    void batchFinalizationFailureRollsBackAttemptAndBatchAtomically() {
+        adapter.records = List.of(record(0, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 0)));
+        var batchId = insertBatchWithAttempt(storeEvidence("atomic-finalize-content"));
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+        // A temporary CHECK forbids the PARSED transition so the Batch finalization
+        // statement fails inside the finalization transaction.
+        jdbc.update("""
+                ALTER TABLE import_batch
+                ADD CONSTRAINT chk_test_fail_parsed CHECK (status <> 'PARSED')
+                """);
+        try {
+            assertThatThrownBy(() -> executor.execute(lease))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("chk_test_fail_parsed");
+
+            // The finalization transaction rolled back: no SUCCEEDED + PROCESSING split.
+            assertThat(attemptStatus(lease.attemptId())).isEqualTo("RUNNING");
+            assertThat(batchStatus(batchId)).isEqualTo("PROCESSING");
+        } finally {
+            jdbc.update("ALTER TABLE import_batch DROP CHECK chk_test_fail_parsed");
+        }
+    }
 
     @Test
     void heartbeatRenewsAllConcurrentlyActiveExecutions() throws Exception {
