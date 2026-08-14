@@ -590,7 +590,32 @@ aicostops.ingestion.provider-parser
   max-expanded-bytes:  1073741824 (1 GiB)
   max-compression-ratio: 100.0
   compression-ratio-check-after-bytes: 1048576 (1 MiB)
+  max-json-buckets: 10000
+  max-inspection-issues: 256
 ```
+
+Parser safety implementation limits（工程配置，非 Provider 事实）：
+
+- `max-json-buckets`：官方 OpenAI JSON page 的 bucket 数上限；超过即
+  inspection incompatible（`TOO_MANY_JSON_BUCKETS`）。
+- `max-inspection-issues`：单次 inspection 收集的 issue 样本上限；schema 级
+  issue 按 (issueCode, fieldName) 去重，未知字段与 optional-missing 上报也受
+  同一上限；截断后追加一次 `INSPECTION_ISSUES_TRUNCATED`（WARN），而
+  compatibility 由独立的 `sawError` 状态决定，被截断的 ERROR 仍 fail-closed。
+
+OpenAI JSON 解析为 bounded two-pass：Pass A 只收集每个 bucket 的 epoch 窗口并
+完成 page/bucket/result shape 校验（root `object=page`、bucket 必须同时具备
+`object`/`start_time`/`end_time`（integral）/`results`，缺任一即
+MALFORMED_JSON）；Pass B 重新 open Evidence 逐 result 物化、normalize、释放。
+JSON property order 不影响语义。
+
+Header 读取统一走 `ProviderFieldLookup`：normalize(raw key) ==
+normalize(canonical header) 才匹配，raw lineage 不变；duplicate normalized
+headers 已被 inspection fail-closed，lookup 遇歧义直接失败而非 first-wins。
+
+`PayloadRedactor` 在 key-based 规则之上增加 value-level fail-closed：所有 String
+scalar 经过 `SecretShapes`（Bearer、key=value、`sk-`/`ghp_`/`AKIA` 形状）替换为
+`[REDACTED]`；`credentialId`/`credentialLabel` 等普通 provider identity 不受影响。
 
 ZIP 使用 Commons Compress 流式统计，不落盘；XLSX 使用 POI SAX/event 读取，
 禁止 `new XSSFWorkbook(inputStream)`，不放松 POI ZipSecureFile 默认 ZIP-bomb 防御。

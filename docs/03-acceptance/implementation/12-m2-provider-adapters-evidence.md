@@ -106,6 +106,14 @@ git status --short      : clean
 > logical sheet、MiMo malformed components、ZIP in-flight limits、locator/fieldName
 > fail-closed、OpenAI 当前官方契约（object markers / credentialId / quantity /
 > required number/null validation / bounded streaming 10k results）等回归。
+>
+> hardening round 在 review-fix 之上新增：page/bucket shape fail-closed（root
+> object / bucket times / results 必须存在）、JSON property-order 无关的 two-pass
+> parse、`max-json-buckets` / `max-inspection-issues` 安全上限、10k malformed
+> results 的 bounded inspection 回归、`ProviderFieldLookup` normalized header 解析
+> （whitespace/NFKC 变体 + secret 变体 header 移除）、`PayloadRedactor` value-level
+> secret-shaped redaction（unknown field 中隐藏的 sentinel 值 0 泄漏，credentialId
+> 保留）。
 
 Provider-focused 明细（同一 fresh run 内）：
 
