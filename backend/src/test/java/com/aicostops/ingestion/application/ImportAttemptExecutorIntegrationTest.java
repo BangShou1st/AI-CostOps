@@ -438,6 +438,57 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         assertThat(attemptStatus(blockingLease.attemptId())).isEqualTo("SUCCEEDED");
     }
 
+    // ------------------------------------------------------------------
+    // Review fix: secret fail-closed for issues and error summaries
+    // ------------------------------------------------------------------
+
+    @Test
+    void secretLiteralsInAdapterIssuesNeverReachTheDatabase() {
+        adapter.inspectionIssues = List.of(new ImportIssueDraft(
+                ImportIssueSeverity.ERROR, "SECRET_LEAK", "row=1", "credentials",
+                "password=supersecret123 token=abc123 api_key=sk-live Authorization: Bearer eyJraw",
+                "sk-raw-secret-value"));
+        var batchId = insertBatchWithAttempt(storeEvidence("secret-issue-content"));
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("FAILED");
+        assertThat(batchStatus(batchId)).isEqualTo("FAILED");
+        var rows = jdbc.queryForList(
+                "SELECT message, raw_value_masked FROM import_issue WHERE import_attempt_id=?",
+                lease.attemptId());
+        assertThat(rows).isNotEmpty();
+        for (var row : rows) {
+            assertThat(String.valueOf(row.get("message")))
+                    .doesNotContain("supersecret123", "abc123", "sk-live", "eyJraw")
+                    .contains("[REDACTED]");
+            assertThat(String.valueOf(row.get("raw_value_masked")))
+                    .doesNotContain("sk-raw-secret-value")
+                    .isEqualTo("[REDACTED]");
+        }
+    }
+
+    @Test
+    void parseExceptionSecretsNeverReachErrorSummary() {
+        TestExecutorAdapter.failMessage = "boom password=supersecret123 token=abc123";
+        TestExecutorAdapter.failAfterRecords = 1;
+        TestExecutorAdapter.records = List.of(
+                record(0, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 0)));
+        var batchId = insertBatchWithAttempt(storeEvidence("secret-parse-content"));
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("FAILED");
+        var row = jdbc.queryForMap("SELECT error_code, error_summary FROM import_attempt WHERE id=?", lease.attemptId());
+        assertThat(row.get("error_code")).isEqualTo("EXECUTION_FAILED");
+        assertThat(String.valueOf(row.get("error_summary")))
+                .isEqualTo("Provider import execution failed (IllegalStateException).")
+                .doesNotContain("supersecret123", "abc123");
+        assertThat(batchStatus(batchId)).isEqualTo("FAILED");
+    }
+
     private java.sql.Timestamp leaseUntil(long attemptId) {
         return jdbc.queryForObject(
                 "SELECT lease_until FROM import_attempt WHERE id=?", java.sql.Timestamp.class, attemptId);
@@ -544,6 +595,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         static volatile boolean blockParse;
         static volatile CountDownLatch enteredLatch = new CountDownLatch(0);
         static volatile CountDownLatch releaseLatch = new CountDownLatch(0);
+        static volatile String failMessage = "simulated late parse failure";
 
         static void reset() {
             compatible = true;
@@ -554,6 +606,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
             blockParse = false;
             enteredLatch = new CountDownLatch(0);
             releaseLatch = new CountDownLatch(0);
+            failMessage = "simulated late parse failure";
         }
 
         @Override
@@ -586,7 +639,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
                 sink.accept(record);
                 emitted++;
                 if (failAfterRecords >= 0 && emitted == failAfterRecords) {
-                    throw new IllegalStateException("simulated late parse failure");
+                    throw new IllegalStateException(failMessage);
                 }
             }
         }
