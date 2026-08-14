@@ -1,12 +1,16 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
+import { resetMediaMatches, setMediaMatches } from '../../test/setup'
 import { AuthenticatedLayout } from './AuthenticatedLayout'
 
 vi.mock('../../features/auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
 
 const mockedUseAuth = vi.mocked(useAuth)
+
+const ALL_PERMISSIONS = ['USER_READ', 'ROLE_READ', 'PROJECT_READ', 'TEAM_READ', 'COST_CENTER_READ', 'PROVIDER_ACCOUNT_READ']
+const NAV_LABELS = ['用户管理', '角色与权限', '项目管理', '团队管理', '成本中心', '云账号']
 
 function renderLayout(permissions: string[]) {
   mockedUseAuth.mockReturnValue({
@@ -16,35 +20,40 @@ function renderLayout(permissions: string[]) {
     refreshMe: vi.fn(),
     logout: vi.fn(),
   } as ReturnType<typeof useAuth>)
-  render(
+  return render(
     <MemoryRouter initialEntries={['/settings/users']}>
       <Routes>
         <Route element={<AuthenticatedLayout />}>
           <Route path="/settings/users" element={<h1>Users page</h1>} />
+          <Route path="/settings/projects" element={<h1>Projects page</h1>} />
         </Route>
       </Routes>
     </MemoryRouter>,
   )
 }
 
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => {
+  vi.clearAllMocks()
+  resetMediaMatches()
+  localStorage.clear()
+})
 
-describe('AuthenticatedLayout', () => {
+describe('AuthenticatedLayout desktop sidebar', () => {
   it('hidesNavigationWithoutReadPermission', () => {
     renderLayout(['USER_READ'])
 
-    expect(screen.getByRole('menuitem', { name: 'Users' })).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Projects' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Roles' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Teams' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Cost centers' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Provider accounts' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '用户管理' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '项目管理' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '角色与权限' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '团队管理' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '成本中心' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '云账号' })).not.toBeInTheDocument()
   })
 
   it('shows every settings item with all read permissions', () => {
-    renderLayout(['USER_READ', 'ROLE_READ', 'PROJECT_READ', 'TEAM_READ', 'COST_CENTER_READ', 'PROVIDER_ACCOUNT_READ'])
+    renderLayout(ALL_PERMISSIONS)
 
-    for (const label of ['Users', 'Roles', 'Projects', 'Teams', 'Cost centers', 'Provider accounts']) {
+    for (const label of NAV_LABELS) {
       expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument()
     }
   })
@@ -58,7 +67,97 @@ describe('AuthenticatedLayout', () => {
   it('keeps logout available', () => {
     renderLayout([])
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
     expect(mockedUseAuth.mock.results[0].value.logout).toHaveBeenCalledTimes(1)
+  })
+
+  it('sidebarExpandedRendersLabels', () => {
+    renderLayout(ALL_PERMISSIONS)
+
+    expect(screen.getByText('AI CostOps')).toBeInTheDocument()
+    for (const label of NAV_LABELS) {
+      expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument()
+    }
+    expect(screen.getByRole('button', { name: '收起侧边栏' })).toBeInTheDocument()
+  })
+
+  it('sidebarCollapseHidesLabelsButRetainsNav', () => {
+    renderLayout(ALL_PERMISSIONS)
+
+    fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }))
+
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument()
+    // The nav keeps every entry; the rail collapses to icons only (jsdom
+    // cannot assert rendered pixels, so the collapsed class is the contract).
+    expect(screen.getAllByRole('menuitem')).toHaveLength(NAV_LABELS.length)
+    expect(document.querySelector('.app-shell-collapsed')).not.toBeNull()
+    expect(document.querySelector('.ant-menu-inline-collapsed')).not.toBeNull()
+  })
+
+  it('collapseButtonAriaLabelToggles', () => {
+    renderLayout(ALL_PERMISSIONS)
+
+    const collapse = screen.getByRole('button', { name: '收起侧边栏' })
+    fireEvent.click(collapse)
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
+    expect(screen.getByRole('button', { name: '收起侧边栏' })).toBeInTheDocument()
+  })
+
+  it('collapsedPreferenceRoundTripsThroughStorage', () => {
+    const first = renderLayout(ALL_PERMISSIONS)
+    fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }))
+
+    expect(localStorage.getItem('aicostops:settings-sidebar-collapsed')).toBe('true')
+
+    // A fresh mount restores the preference.
+    first.unmount()
+    renderLayout(ALL_PERMISSIONS)
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toBeInTheDocument()
+  })
+
+  it('malformedPreferenceFallsBackSafely', () => {
+    localStorage.setItem('aicostops:settings-sidebar-collapsed', 'not-a-boolean')
+
+    renderLayout(ALL_PERMISSIONS)
+
+    expect(screen.getByRole('button', { name: '收起侧边栏' })).toBeInTheDocument()
+    expect(document.querySelector('.app-shell-collapsed')).toBeNull()
+  })
+
+  it('userFooterRemainsStructuralFooter', () => {
+    renderLayout(ALL_PERMISSIONS)
+
+    const identity = document.querySelector('.settings-identity')
+    expect(identity).not.toBeNull()
+    // The footer is a direct child of the sidebar, not of the scroll area.
+    expect(identity?.parentElement?.className).toContain('settings-sider')
+  })
+})
+
+describe('AuthenticatedLayout mobile navigation', () => {
+  it('mobileUsesMenuButtonAndDrawerWithoutPermanentSidebar', () => {
+    setMediaMatches({ '(min-width: 1024px)': false })
+    renderLayout(ALL_PERMISSIONS)
+
+    expect(document.querySelector('.settings-sider')).toBeNull()
+    expect(screen.getByRole('button', { name: '菜单' })).toBeInTheDocument()
+    expect(screen.getByText('AI CostOps')).toBeInTheDocument()
+  })
+
+  it('mobileDrawerOpensClosesAndSelectsRoute', async () => {
+    setMediaMatches({ '(min-width: 1024px)': false })
+    renderLayout(ALL_PERMISSIONS)
+
+    fireEvent.click(screen.getByRole('button', { name: '菜单' }))
+    const drawer = await screen.findByRole('dialog')
+    expect(drawer).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: '项目管理' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
+
+    // Selecting a route closes the Drawer.
+    fireEvent.click(screen.getByRole('menuitem', { name: '项目管理' }))
+    expect(screen.getByRole('heading', { name: 'Projects page' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
