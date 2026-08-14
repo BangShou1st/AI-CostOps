@@ -53,6 +53,22 @@ public interface ImportAttemptMapper {
             """)
     ImportAttempt findLatestByBatch(@Param("batchId") long batchId);
 
+    /**
+     * Current read (locking) variant used only on the concurrent duplicate-key
+     * convergence path: a plain consistent read would reuse the transaction's old
+     * REPEATABLE READ snapshot and could miss the winner's freshly committed Attempt.
+     */
+    @Select("""
+            SELECT
+            """ + IMPORT_ATTEMPT_COLUMNS + """
+            FROM import_attempt ia
+            WHERE ia.import_batch_id=#{batchId}
+            ORDER BY ia.attempt_no DESC, ia.id DESC
+            LIMIT 1
+            FOR UPDATE
+            """)
+    ImportAttempt findLatestByBatchForUpdate(@Param("batchId") long batchId);
+
     @Select("""
             SELECT
             """ + IMPORT_ATTEMPT_COLUMNS + """

@@ -110,10 +110,13 @@ public class ProviderImportService {
                     sourceType.name(), parserVersion, createdByMemberId, now);
         } catch (DuplicateKeyException concurrentIdentity) {
             // Concurrent same-identity creation converges on the winner's Batch.
+            // The winner's Initial Attempt must be read with a locking current read:
+            // a consistent read would reuse this transaction's old REPEATABLE READ
+            // snapshot and could miss the just-committed Attempt.
             var winner = batchMapper.findByIdentityForUpdate(
                     evidenceId, providerAccountId, sourceType.name(), parserVersion);
             if (winner != null) {
-                return reuse(winner);
+                return reuseAfterConcurrentWinner(winner);
             }
             throw concurrentIdentity;
         }
@@ -133,6 +136,14 @@ public class ProviderImportService {
             throw new IllegalStateException("An existing ImportBatch must have at least one Attempt");
         }
         return new BatchOutcome(existing, latest, true);
+    }
+
+    private BatchOutcome reuseAfterConcurrentWinner(ImportBatch winner) {
+        var latest = attemptMapper.findLatestByBatchForUpdate(winner.id());
+        if (latest == null) {
+            throw new IllegalStateException("A concurrently created ImportBatch must have at least one Attempt");
+        }
+        return new BatchOutcome(winner, latest, true);
     }
 
     public record ProviderImportResult(

@@ -13,11 +13,17 @@ import com.aicostops.ingestion.application.ProviderAdapter;
 import com.aicostops.ingestion.application.ProviderRecordSink;
 import com.aicostops.ingestion.application.ProviderSource;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
+import com.aicostops.ingestion.infrastructure.ImportAttemptMapper;
+import com.aicostops.ingestion.infrastructure.ImportBatchMapper;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MinioAuthenticationContainersSupport;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -31,6 +37,8 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties =
         "aicostops.auth.jwt-signing-secret=provider-import-test-only-signing-secret-with-more-than-32-bytes")
@@ -48,6 +56,12 @@ class ProviderImportApiIntegrationTest extends MinioAuthenticationContainersSupp
     private JwtTokenService tokens;
     @Autowired
     private StringRedisTemplate redis;
+    @Autowired
+    private ImportBatchMapper batchMapper;
+    @Autowired
+    private ImportAttemptMapper attemptMapper;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private long organizationId;
     private long foreignOrganizationId;
@@ -205,6 +219,77 @@ class ProviderImportApiIntegrationTest extends MinioAuthenticationContainersSupp
         }
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_batch", Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_attempt", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentDuplicateKeyConvergenceReadsWinnerAttemptWithCurrentRead() throws Exception {
+        assign("IMPORT_CREATOR", "ORG", organizationId);
+        var sha256 = "9".repeat(64);
+        jdbc.update("""
+                INSERT INTO evidence(
+                    org_id,sha256,object_key,original_filename,media_type,size_bytes,
+                    uploaded_by_member_id,storage_status,storage_error_code,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,'AVAILABLE',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, organizationId, sha256, "org/" + organizationId + "/evidence/" + sha256,
+                "race.csv", "text/csv", 1L, actorMemberId);
+        var evidenceId = jdbc.queryForObject(
+                "SELECT id FROM evidence WHERE org_id=? AND sha256=?", Long.class, organizationId, sha256);
+
+        var snapshotEstablished = new CountDownLatch(1);
+        var winnerCommitted = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            // Loser transaction: establishes its REPEATABLE READ snapshot first,
+            // then converges on the winner through a locking current read.
+            var loser = pool.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                assertThat(batchMapper.findByIdentity(evidenceId, activeProviderAccountId,
+                        "FILE_EXPORT", "test-parser-v1")).isNull();
+                snapshotEstablished.countDown();
+                try {
+                    assertThat(winnerCommitted.await(10, TimeUnit.SECONDS)).isTrue();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("interrupted while awaiting winner commit", exception);
+                }
+                // Locking current read sees the winner's committed Batch even under
+                // the old snapshot...
+                var winner = batchMapper.findByIdentityForUpdate(evidenceId, activeProviderAccountId,
+                        "FILE_EXPORT", "test-parser-v1");
+                assertThat(winner).isNotNull();
+                // ...and the convergence path must read the winner's Initial Attempt
+                // with a current read too: a plain consistent read would use the old
+                // snapshot and return null (the PR #41 race).
+                var latest = attemptMapper.findLatestByBatchForUpdate(winner.id());
+                assertThat(latest).isNotNull();
+                return latest;
+            }));
+            // Winner transaction: inserts Batch + Initial Attempt only after the
+            // loser's snapshot exists, then commits atomically.
+            var winner = pool.submit(() -> {
+                try {
+                    assertThat(snapshotEstablished.await(10, TimeUnit.SECONDS)).isTrue();
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("interrupted while awaiting loser snapshot", exception);
+                }
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                    var now = Instant.now();
+                    batchMapper.insert(organizationId, evidenceId, activeProviderAccountId,
+                            "TEST_PROVIDER", "FILE_EXPORT", "test-parser-v1", actorMemberId, now);
+                    var batchId = batchMapper.lastInsertId();
+                    attemptMapper.insertQueued(batchId, 1, "INITIAL", null, "test-parser-v1", now, now);
+                });
+                winnerCommitted.countDown();
+                return null;
+            });
+            winner.get(30, TimeUnit.SECONDS);
+
+            var loserSeesAttempt = loser.get(30, TimeUnit.SECONDS);
+            assertThat(loserSeesAttempt).isNotNull();
+            assertThat(loserSeesAttempt.attemptNo()).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     private org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder importRequest(
