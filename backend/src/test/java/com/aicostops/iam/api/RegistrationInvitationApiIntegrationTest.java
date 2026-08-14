@@ -9,6 +9,7 @@ import com.aicostops.iam.domain.TokenDigest;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,23 @@ class RegistrationInvitationApiIntegrationTest extends MySqlContainerSupport {
 
     @BeforeEach
     void setUp() {
+        cleanDatabase();
+        jdbcTemplate.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('API Registration','api-registration-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
+        organizationId = jdbcTemplate.queryForObject(
+                "SELECT id FROM organization WHERE slug='api-registration-org'", Long.class);
+    }
+
+    @AfterEach
+    void tearDown() {
+        //: The invitation acceptance test marks its invitation ACCEPTED with
+        //: accepted_by_user_id referencing a freshly created app_user; without
+        //: cleanup that row leaks into the shared MySQL testcontainer and the
+        //: next integration class fails its own DELETE FROM app_user on the
+        //: invitation FK (test isolation, not production behavior).
+        cleanDatabase();
+    }
+
+    private void cleanDatabase() {
         jdbcTemplate.update("DELETE FROM audit_event");
         jdbcTemplate.update("DELETE FROM invitation");
         jdbcTemplate.update("DELETE FROM role_assignment");
@@ -44,9 +62,6 @@ class RegistrationInvitationApiIntegrationTest extends MySqlContainerSupport {
         jdbcTemplate.update("DELETE FROM user_credential");
         jdbcTemplate.update("DELETE FROM app_user");
         jdbcTemplate.update("DELETE FROM organization WHERE slug='api-registration-org'");
-        jdbcTemplate.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('API Registration','api-registration-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
-        organizationId = jdbcTemplate.queryForObject(
-                "SELECT id FROM organization WHERE slug='api-registration-org'", Long.class);
     }
 
     @Test
