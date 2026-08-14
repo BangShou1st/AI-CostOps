@@ -157,4 +157,34 @@ public interface ImportAttemptMapper {
             @Param("attemptId") long attemptId,
             @Param("errorCode") String errorCode,
             @Param("errorSummary") String errorSummary);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM import_attempt ia
+            WHERE ia.id=#{attemptId}
+              AND ia.status='RUNNING'
+              AND ia.lease_owner=#{workerId}
+              AND ia.lease_version=#{leaseVersion}
+              AND ia.lease_until > UTC_TIMESTAMP(6)
+            FOR UPDATE
+            """)
+    int lockAndVerifyOwnership(
+            @Param("attemptId") long attemptId,
+            @Param("workerId") String workerId,
+            @Param("leaseVersion") long leaseVersion);
+
+    @Update("""
+            UPDATE import_attempt ia
+            SET ia.records_seen=ia.records_seen+#{seen},
+                ia.records_valid=ia.records_valid+#{valid},
+                ia.warning_count=ia.warning_count+#{warnings},
+                ia.error_count=ia.error_count+#{errors}
+            WHERE ia.id=#{attemptId}
+            """)
+    int incrementCounters(
+            @Param("attemptId") long attemptId,
+            @Param("seen") long seen,
+            @Param("valid") long valid,
+            @Param("warnings") long warnings,
+            @Param("errors") long errors);
 }
