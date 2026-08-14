@@ -2,12 +2,15 @@ package com.aicostops.ingestion.providers.fixtures;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 /**
- * Deterministic XLSX fixture generation from explicit frozen schemas.
+ * Deterministic XLSX/CSV-ZIP fixture generation from explicit frozen schemas.
  *
  * <p>Every fixture produced here is synthetic and labeled by its evidence class in
  * the fixture README; no real private billing data is ever written into the
@@ -40,5 +43,18 @@ public final class ProviderFixtureFactory {
             workbook.write(bytes);
             return bytes.toByteArray();
         }
+    }
+
+    /** ZIP of raw file contents keyed by entry name, written in insertion order. */
+    public static byte[] zip(Map<String, String> entries) throws IOException {
+        var bytes = new ByteArrayOutputStream();
+        try (var zip = new ZipOutputStream(bytes)) {
+            for (var entry : entries.entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
     }
 }

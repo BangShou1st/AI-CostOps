@@ -6,6 +6,7 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
+import org.springframework.stereotype.Component;
 
 /**
  * Streaming, bounded ZIP traversal using Commons Compress stream statistics.
@@ -18,6 +19,7 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
  * <p>The content {@link InputStream} handed to {@link EntryConsumer} is valid only
  * for the duration of the callback; consumers must fully consume or stop reading.
  */
+@Component
 public final class SafeZipReader {
 
     private static final Pattern NESTED_ARCHIVE = Pattern.compile(

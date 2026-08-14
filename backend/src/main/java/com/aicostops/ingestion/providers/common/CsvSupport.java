@@ -1,5 +1,6 @@
 package com.aicostops.ingestion.providers.common;
 
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -19,6 +20,10 @@ import org.apache.commons.csv.CSVParser;
  * Header names are returned raw (BOM-stripped) so provider row maps keep original
  * header text; comparison uses {@link HeaderNormalizer}. Duplicate normalized headers
  * are rejected; unknown columns are preserved in the row map.
+ *
+ * <p>The caller owns the input stream lifecycle: the internal parser may close its
+ * reader, but the supplied stream is never closed by this class, so callers can hand
+ * in archive entry streams that must stay open for further iteration.
  */
 public final class CsvSupport {
 
@@ -32,7 +37,7 @@ public final class CsvSupport {
 
     /** Raw header names with the UTF-8 BOM stripped from the first cell. */
     public static List<String> readHeader(InputStream input) throws IOException {
-        try (var parser = CSVParser.parse(input, StandardCharsets.UTF_8, FORMAT)) {
+        try (var parser = CSVParser.parse(nonClosing(input), StandardCharsets.UTF_8, FORMAT)) {
             var raw = parser.getHeaderNames();
             if (raw == null || raw.isEmpty()) {
                 return List.of();
@@ -48,7 +53,7 @@ public final class CsvSupport {
     }
 
     public static void forEachRecord(InputStream input, RowConsumer consumer) throws IOException {
-        try (var parser = CSVParser.parse(input, StandardCharsets.UTF_8, FORMAT)) {
+        try (var parser = CSVParser.parse(nonClosing(input), StandardCharsets.UTF_8, FORMAT)) {
             var header = stripBom(parser.getHeaderNames());
             if (header.isEmpty()) {
                 return;
@@ -63,6 +68,16 @@ public final class CsvSupport {
                 consumer.accept(rowNumber, values);
             }
         }
+    }
+
+    private static InputStream nonClosing(InputStream input) {
+        return new FilterInputStream(input) {
+            @Override
+            public void close() {
+                // The caller owns the stream lifecycle (e.g. a ZIP entry stream that
+                // must stay readable for the enclosing archive iteration).
+            }
+        };
     }
 
     private static List<String> stripBom(List<String> header) {
