@@ -95,9 +95,11 @@ public class ImportAttemptExecutor {
         var evidence = evidencePersistence.findByIdAndOrganization(batch.evidenceId(), batch.organizationId())
                 .orElseThrow(() -> new IllegalStateException("ImportBatch Evidence must exist"));
         var source = new EvidenceBackedProviderSource(storage, evidence.objectKey(), evidence.sizeBytes());
+        var input = new ProviderInput(source, batch.sourceType(),
+                evidence.originalFilename(), evidence.mediaType());
 
         try {
-            var inspection = adapter.inspect(source);
+            var inspection = adapter.inspect(input);
             if (!inspection.issues().isEmpty()) {
                 var issueResult = persistence.persistInspectionIssues(lease, inspection.issues());
                 if (issueResult.leaseLost()) {
@@ -112,7 +114,7 @@ public class ImportAttemptExecutor {
                 return;
             }
             var sink = new BoundedRecordSink(lease, persistence, properties.persistenceBatchSize());
-            adapter.parse(source, inspection, sink);
+            adapter.parse(input, inspection, sink);
             sink.flush();
         } catch (LeaseLostException lost) {
             // Lease lost: stop silently; a successor may already be queued by recovery.

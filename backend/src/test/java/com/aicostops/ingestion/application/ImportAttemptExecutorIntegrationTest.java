@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.evidence.application.EvidenceStorageService;
 import com.aicostops.ingestion.domain.ImportIssueSeverity;
+import com.aicostops.ingestion.domain.ImportSourceType;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MinioContainerSupport;
@@ -322,6 +323,39 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
     }
 
     @Test
+    void adapterReceivesExactBatchAndEvidenceMetadata() {
+        var content = "executor-metadata-content";
+        var evidenceId = storeEvidence(content);
+        insertBatchWithAttempt(evidenceId);
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("SUCCEEDED");
+        var captured = TestExecutorAdapter.capturedInput;
+        assertThat(captured).isNotNull();
+        assertThat(captured.sourceType()).isEqualTo(ImportSourceType.FILE_EXPORT);
+        assertThat(captured.originalFilename()).isEqualTo("executor.csv");
+        assertThat(captured.mediaType()).isEqualTo("text/csv");
+        assertThat(captured.source().sizeBytes())
+                .isEqualTo(content.getBytes(StandardCharsets.UTF_8).length);
+        var sha256 = sha256Hex(content);
+        assertThat(captured.source().objectKey())
+                .isEqualTo("org/" + organizationId + "/evidence/sha256/"
+                        + sha256.substring(0, 2) + "/" + sha256);
+    }
+
+    private static String sha256Hex(String content) {
+        try {
+            return java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256")
+                            .digest(content.getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 must be available", impossible);
+        }
+    }
+
+    @Test
     void staleWorkerCannotFinalizeSuccessOrFailure() {
         adapter.records = List.of(record(0, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 0)));
         var evidenceId = storeEvidence("stale-finalize-content");
@@ -596,6 +630,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         static volatile CountDownLatch enteredLatch = new CountDownLatch(0);
         static volatile CountDownLatch releaseLatch = new CountDownLatch(0);
         static volatile String failMessage = "simulated late parse failure";
+        static volatile ProviderInput capturedInput;
 
         static void reset() {
             compatible = true;
@@ -607,6 +642,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
             enteredLatch = new CountDownLatch(0);
             releaseLatch = new CountDownLatch(0);
             failMessage = "simulated late parse failure";
+            capturedInput = null;
         }
 
         @Override
@@ -620,12 +656,13 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         }
 
         @Override
-        public InspectionResult inspect(ProviderSource source) {
-            return new InspectionResult("TEST_PROVIDER", fingerprint, compatible, inspectionIssues);
+        public InspectionResult inspect(ProviderInput input) {
+            capturedInput = input;
+            return new InspectionResult("TEST_PROVIDER", "test.file.v1", fingerprint, compatible, inspectionIssues);
         }
 
         @Override
-        public void parse(ProviderSource source, InspectionResult inspection, ProviderRecordSink sink) {
+        public void parse(ProviderInput input, InspectionResult inspection, ProviderRecordSink sink) {
             enteredLatch.countDown();
             if (blockParse) {
                 try {
@@ -645,7 +682,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         }
 
         @Override
-        public NormalizedProviderRecord normalize(ParsedProviderRecord record) {
+        public NormalizedProviderRecord normalize(ParsedProviderRecord record, InspectionResult inspection) {
             return new NormalizedProviderRecord(record.index(), record.locator(), null,
                     Map.of(), Map.of(), null, null, RawRecordNormalizeStatus.NORMALIZED, List.of());
         }
