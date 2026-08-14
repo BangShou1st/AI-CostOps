@@ -108,6 +108,49 @@ AICOSTOPS_ALLOW_PUBLIC_REGISTRATION=true
 
 真实 `.env` Ignore。
 
+## 5.1 M2 Evidence / Import 配置
+
+### Storage（Evidence 对象存储）
+
+```text
+AICOSTOPS_STORAGE_ENDPOINT        http://localhost:9000
+AICOSTOPS_STORAGE_ACCESS_KEY      aicostops
+AICOSTOPS_STORAGE_SECRET_KEY      change-me-local-only
+AICOSTOPS_STORAGE_BUCKET          aicostops-evidence
+AICOSTOPS_STORAGE_UPLOAD_LIMIT    512MB   # Spring DataSize；MB = 1024^2 字节（二进制 MiB）
+AICOSTOPS_STORAGE_AUTO_CREATE_BUCKET true
+```
+
+Multipart 框架上限略高于领域上限：
+
+```text
+AICOSTOPS_MULTIPART_MAX_FILE_SIZE    520MB
+AICOSTOPS_MULTIPART_MAX_REQUEST_SIZE 525MB
+```
+
+### Ingestion Worker
+
+```text
+AICOSTOPS_IMPORT_WORKER_ENABLED             true
+AICOSTOPS_IMPORT_WORKER_CONCURRENCY         2
+AICOSTOPS_IMPORT_POLL_INTERVAL              1s
+AICOSTOPS_IMPORT_LEASE_DURATION             60s
+AICOSTOPS_IMPORT_HEARTBEAT_INTERVAL         20s
+AICOSTOPS_IMPORT_MAX_LEASE_RECOVERIES       3
+AICOSTOPS_IMPORT_PERSISTENCE_BATCH_SIZE     500
+```
+
+测试环境默认 `aicostops.ingestion.worker-enabled=false`（`application-test-defaults.yml`），
+只有 worker/coordinator 专项测试显式开启，避免普通集成测试出现异步竞态。
+
+### MinIO 初始化
+
+Bucket 只在首次真实存储操作时懒初始化（bucketExists / makeBucket 后 memoize）。
+Bean 构造、`@PostConstruct`、普通 Spring context 启动不得访问 MinIO，否则会破坏
+不依赖对象存储的 M1 测试。MinIO 镜像固定：
+`quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`（该 release tag 在 quay.io 存在；
+plan 原指定的 `RELEASE.2025-10-15T17-29-55Z` 在官方 registry 不存在）。
+
 ## 6. Local IDE Mode
 
 推荐：

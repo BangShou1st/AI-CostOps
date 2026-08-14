@@ -130,7 +130,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         var sensitive = Map.of(
                 "user_id", "u-1",
                 "cost", 12.5,
-                "api_key", "sk-live-secret-value",
+                "api_key", "live-api-key-value",
                 "password_hash", "{bcrypt}abc",
                 "refresh_token", "tok-123",
                 "nested", Map.of("client.secret", "s3cr3t", "safe", "keep-me"));
@@ -143,7 +143,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
                 """, String.class, lease.attemptId());
         assertThat(stored)
                 .contains("\"[REDACTED]\"")
-                .doesNotContain("sk-live-secret-value", "{bcrypt}abc", "tok-123", "s3cr3t");
+                .doesNotContain("live-api-key-value", "{bcrypt}abc", "tok-123", "s3cr3t");
         assertThat(stored).contains("\"safe\"", "keep-me").contains("\"user_id\"", "u-1");
     }
 

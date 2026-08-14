@@ -100,7 +100,15 @@ class MeApiIntegrationTest extends AuthenticationContainersSupport {
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.permissions", contains(
-                        "PROVIDER_ACCOUNT_MANAGE", "PROVIDER_ACCOUNT_READ")));
+                        "EVIDENCE_DOWNLOAD",
+                        "EVIDENCE_READ",
+                        "EVIDENCE_UPLOAD_PROVIDER",
+                        "IMPORT_CANCEL",
+                        "IMPORT_CONFIRM",
+                        "IMPORT_READ",
+                        "IMPORT_RETRY",
+                        "PROVIDER_ACCOUNT_MANAGE",
+                        "PROVIDER_ACCOUNT_READ")));
     }
 
     @Test
@@ -114,6 +122,13 @@ class MeApiIntegrationTest extends AuthenticationContainersSupport {
                 .andExpect(jsonPath("$.permissions", contains(
                         "COST_CENTER_MANAGE",
                         "COST_CENTER_READ",
+                        "EVIDENCE_DOWNLOAD",
+                        "EVIDENCE_READ",
+                        "EVIDENCE_UPLOAD_PROVIDER",
+                        "IMPORT_CANCEL",
+                        "IMPORT_CONFIRM",
+                        "IMPORT_READ",
+                        "IMPORT_RETRY",
                         "PROJECT_MANAGE",
                         "PROJECT_MEMBER_MANAGE",
                         "PROJECT_READ",
