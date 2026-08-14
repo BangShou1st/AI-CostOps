@@ -31,7 +31,7 @@ class DeepSeekProviderAdapterTest {
     private final DeepSeekProviderAdapter adapter = new DeepSeekProviderAdapter(
             new com.aicostops.ingestion.providers.common.SafeZipReader(
                     new com.aicostops.ingestion.providers.common.ProviderParserProperties(
-                            64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256)));
+                            64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256, 512)));
 
     // ------------------------------------------------------------------
     // inspection
@@ -318,6 +318,26 @@ class DeepSeekProviderAdapterTest {
                 .containsEntry("model", "deepseek-chat");
         assertThat(amount.rawPayload().toString()).doesNotContain("SECRET-SENTINEL");
         assertThat(amount.rawPayload()).doesNotContainKey(" api_key ");
+    }
+
+    @Test
+    void whitespaceVariantCostTimeHeadersStillProduceInstants() throws Exception {
+        var entries = new java.util.LinkedHashMap<String, String>();
+        entries.put("amount-1.csv", AMOUNT_HEADER + "\n");
+        entries.put("cost-1.csv",
+                "user_id, start_time_iso , end_time_iso ,model,wallet_type,cost,currency\n"
+                        + "user-1,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,deepseek-chat,main_wallet,1.25,CNY\n");
+        var zip = ProviderFixtureFactory.zip(entries);
+        var inspection = adapter.inspect(input(ImportSourceType.FILE_EXPORT, zip, "deepseek-export.zip"));
+        assertThat(inspection.compatible()).isTrue();
+
+        var records = parse(zip);
+        var cost = records.get(0);
+        assertThat(cost.locator()).isEqualTo("cost.csv:row:1");
+        assertThat(cost.usageStart()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
+        assertThat(cost.usageEnd()).isEqualTo(Instant.parse("2026-08-01T01:00:00Z"));
+        // Raw lineage keeps the original header text untouched.
+        assertThat(cost.rawPayload()).containsKey(" start_time_iso ");
     }
 
     @Test

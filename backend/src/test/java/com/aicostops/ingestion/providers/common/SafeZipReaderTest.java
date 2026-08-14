@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 class SafeZipReaderTest {
 
     private final ProviderParserProperties properties =
-            new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256);
+            new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256, 512);
 
     @Test
     void streamsTwoNormalCsvEntriesWithoutExtraction() throws IOException {
@@ -89,7 +89,7 @@ class SafeZipReaderTest {
 
     @Test
     void rejectsExpandedBytesAboveLimit() throws IOException {
-        var properties = new ProviderParserProperties(64, 1_024L, 100.0d, 1_048_576L, 10_000, 256);
+        var properties = new ProviderParserProperties(64, 1_024L, 100.0d, 1_048_576L, 10_000, 256, 512);
         var zip = zip(Map.of("big.csv", "A".repeat(2_048)));
 
         assertThatThrownBy(() -> new SafeZipReader(properties)
@@ -103,7 +103,7 @@ class SafeZipReaderTest {
     void rejectsAbnormalCompressionRatioAfterCheckWindow() throws IOException {
         // ~2 MiB of repeated bytes deflates to a few KiB: ratio far above 100 after
         // the 1 MiB check window, but harmless to generate.
-        var properties = new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256);
+        var properties = new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256, 512);
         var zip = zip(Map.of("bomb.csv", "A".repeat(2 * 1_048_576)));
 
         assertThatThrownBy(() -> new SafeZipReader(properties)
@@ -115,7 +115,7 @@ class SafeZipReaderTest {
 
     @Test
     void lowRatioLargeContentUnderLimitsStreamsFine() throws IOException {
-        var properties = new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256);
+        var properties = new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256, 512);
         // Deterministic pseudo-random bytes are incompressible: ratio ~1, size above
         // the check window, so the ratio defense must not false-positive.
         var random = new java.util.Random(42);
@@ -132,7 +132,7 @@ class SafeZipReaderTest {
 
     @Test
     void expandedByteLimitFiresDuringReadNotAfterDrain() throws IOException {
-        var properties = new ProviderParserProperties(64, 1_024L, 100.0d, 1_048_576L, 10_000, 256);
+        var properties = new ProviderParserProperties(64, 1_024L, 100.0d, 1_048_576L, 10_000, 256, 512);
         var zip = zip(Map.of("big.csv", "A".repeat(64 * 1024)));
         var read = new long[1];
 
@@ -154,7 +154,7 @@ class SafeZipReaderTest {
 
     @Test
     void ratioBombAfterIncompressiblePaddingIsStillRejected() throws IOException {
-        var properties = new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256);
+        var properties = new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256, 512);
         var random = new java.util.Random(42);
         var padding = new byte[2 * 1_048_576];
         random.nextBytes(padding);

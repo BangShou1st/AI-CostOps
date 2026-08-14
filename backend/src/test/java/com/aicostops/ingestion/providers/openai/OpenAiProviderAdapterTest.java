@@ -27,11 +27,11 @@ class OpenAiProviderAdapterTest {
     private final OpenAiProviderAdapter adapter =
             new OpenAiProviderAdapter(tools.jackson.databind.json.JsonMapper.builder().build(),
                     new com.aicostops.ingestion.providers.common.ProviderParserProperties(
-                            64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256));
+                            64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256, 512));
     private final OpenAiProviderAdapter tinyLimitsAdapter =
             new OpenAiProviderAdapter(tools.jackson.databind.json.JsonMapper.builder().build(),
                     new com.aicostops.ingestion.providers.common.ProviderParserProperties(
-                            64, 1_073_741_824L, 100.0d, 1_048_576L, 3, 256));
+                            64, 1_073_741_824L, 100.0d, 1_048_576L, 3, 256, 8));
 
     // ------------------------------------------------------------------
     // Part A: observed empty CSV export
@@ -602,6 +602,54 @@ class OpenAiProviderAdapterTest {
         assertThat(result.issues()).extracting(i -> i.issueCode()).contains("TOO_MANY_JSON_BUCKETS");
     }
 
+    @Test
+    void bucketBoundStopsInspectionBeforeReadingRest() {
+        // The fourth bucket is truncated mid-value: any implementation that keeps
+        // scanning after the bound would hit a Jackson parse error (MALFORMED_JSON).
+        // The bounded implementation must stop at the bucket limit and report
+        // TOO_MANY_JSON_BUCKETS without ever reading the broken tail.
+        var json = "{\"object\":\"page\",\"data\":["
+                + "{\"object\":\"bucket\",\"start_time\":1780000000,\"end_time\":1780003600,\"results\":["
+                + "{\"object\":\"organization.usage.completions.result\",\"input_tokens\":100,"
+                + "\"output_tokens\":20,\"num_model_requests\":2}]},"
+                + "{\"object\":\"bucket\",\"start_time\":1780000001,\"end_time\":1780003601,\"results\":["
+                + "{\"object\":\"organization.usage.completions.result\",\"input_tokens\":100,"
+                + "\"output_tokens\":20,\"num_model_requests\":2}]},"
+                + "{\"object\":\"bucket\",\"start_time\":1780000002,\"end_time\":1780003602,\"results\":["
+                + "{\"object\":\"organization.usage.completions.result\",\"input_tokens\":100,"
+                + "\"output_tokens\":20,\"num_model_requests\":2}]},"
+                + "{\"object\":\"bucket\",\"start_time\":1780000003,\"end_time\":";
+        var result = tinyLimitsAdapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json.getBytes(StandardCharsets.UTF_8), "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("TOO_MANY_JSON_BUCKETS");
+        assertThat(result.issues()).extracting(i -> i.issueCode()).doesNotContain("MALFORMED_JSON");
+    }
+
+    @Test
+    void uniqueResultFieldsAreBounded() {
+        // 20 results each with a unique unknown field; the schema-field accumulation
+        // must stop at maxJsonSchemaFields=8 and fail closed instead of growing.
+        var json = new StringBuilder();
+        json.append("{\"object\":\"page\",\"data\":[{\"object\":\"bucket\",\"start_time\":1780000000,"
+                + "\"end_time\":1780003600,\"results\":[");
+        for (var i = 0; i < 20; i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            json.append("{\"object\":\"organization.usage.completions.result\",\"input_tokens\":100,"
+                    + "\"output_tokens\":20,\"num_model_requests\":2,\"future_field_").append(i).append("\":1}");
+        }
+        json.append("]}]}");
+        var result = tinyLimitsAdapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json.toString().getBytes(StandardCharsets.UTF_8), "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode())
+                .contains("TOO_MANY_JSON_SCHEMA_FIELDS");
+    }
+
     // ------------------------------------------------------------------
     // hardening: bounded inspection issue collection
     // ------------------------------------------------------------------
@@ -616,9 +664,11 @@ class OpenAiProviderAdapterTest {
                 json.append(",");
             }
             // Each result misses the required input_tokens (deduped schema ERROR) and
-            // carries a unique unknown field (capped by max-inspection-issues).
+            // carries an unknown field from a pool of 300 names: enough unique
+            // (code, fieldName) issues to hit max-inspection-issues=256 without
+            // tripping the max-json-schema-fields=512 accumulation bound.
             json.append("{\"object\":\"organization.usage.completions.result\",\"output_tokens\":20,"
-                    + "\"num_model_requests\":2,\"future_field_").append(i).append("\":1}");
+                    + "\"num_model_requests\":2,\"future_field_").append(i % 300).append("\":1}");
         }
         json.append("]}]}");
         var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,

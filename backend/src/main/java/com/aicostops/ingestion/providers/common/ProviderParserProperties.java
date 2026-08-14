@@ -15,7 +15,8 @@ public record ProviderParserProperties(
         double maxCompressionRatio,
         long compressionRatioCheckAfterBytes,
         int maxJsonBuckets,
-        int maxInspectionIssues) {
+        int maxInspectionIssues,
+        int maxJsonSchemaFields) {
 
     public ProviderParserProperties {
         if (maxArchiveEntries <= 0) {
@@ -35,6 +36,9 @@ public record ProviderParserProperties(
         }
         if (maxInspectionIssues <= 0) {
             throw new IllegalArgumentException("aicostops.ingestion.provider-parser.max-inspection-issues must be positive");
+        }
+        if (maxJsonSchemaFields <= 0) {
+            throw new IllegalArgumentException("aicostops.ingestion.provider-parser.max-json-schema-fields must be positive");
         }
     }
 }

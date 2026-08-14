@@ -251,8 +251,10 @@ public final class DeepSeekProviderAdapter implements ProviderAdapter {
         }
         return new NormalizedProviderRecord(record.index(), record.locator(), null,
                 new LinkedHashMap<>(fields), builder.build(),
-                ProviderTimeParser.offsetInstant(string(fields.get("start_time_iso"))).orElse(null),
-                ProviderTimeParser.offsetInstant(string(fields.get("end_time_iso"))).orElse(null),
+                ProviderTimeParser.offsetInstant(
+                        string(ProviderFieldLookup.get(fields, "start_time_iso"))).orElse(null),
+                ProviderTimeParser.offsetInstant(
+                        string(ProviderFieldLookup.get(fields, "end_time_iso"))).orElse(null),
                 status, issues);
     }
 

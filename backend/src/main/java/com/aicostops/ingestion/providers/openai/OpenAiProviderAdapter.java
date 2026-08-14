@@ -253,12 +253,19 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         var sourceType = usage ? ImportSourceType.USAGE_API_JSON : ImportSourceType.COSTS_API_JSON;
         try (var content = input.source().openStream()) {
             var accumulator = new PageAccumulator(usage, required, recognized, expectedResultObject,
-                    properties.maxInspectionIssues());
+                    properties.maxInspectionIssues(), properties.maxJsonSchemaFields());
             scanPage(content, accumulator);
-            if (accumulator.bucketCount > properties.maxJsonBuckets()) {
+            if (accumulator.bucketLimitExceeded) {
                 return incompatible(variant, List.of(issue(ImportIssueSeverity.ERROR,
                         "TOO_MANY_JSON_BUCKETS", input.originalFilename(), null,
                         "Official API page exceeds the parser bucket limit")));
+            }
+            if (accumulator.schemaFieldsExceeded) {
+                var issues = new ArrayList<ImportIssueDraft>(accumulator.issues);
+                issues.add(issue(ImportIssueSeverity.ERROR, "TOO_MANY_JSON_SCHEMA_FIELDS",
+                        input.originalFilename(), null,
+                        "Official API page exceeds the parser schema-field limit"));
+                return new InspectionResult(PROVIDER_CODE, variant, "", false, issues);
             }
             if (!accumulator.shapeValid) {
                 return incompatible(variant, List.of(issue(ImportIssueSeverity.ERROR, "MALFORMED_JSON",
@@ -304,9 +311,15 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
                             accumulator.shapeValid = false;
                             return;
                         }
+                        accumulator.bucketCount++;
+                        if (accumulator.bucketCount > properties.maxJsonBuckets()) {
+                            // Stop traversal immediately; the remaining payload is
+                            // never read, so a hostile tail cannot force more work.
+                            accumulator.bucketLimitExceeded = true;
+                            return;
+                        }
                         scanBucket(parser, bucketIndex, accumulator);
                         bucketIndex++;
-                        accumulator.bucketCount++;
                     }
                 } else if ("object".equals(field)) {
                     if (parser.nextToken() != JsonToken.VALUE_STRING
@@ -386,7 +399,13 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         }
         var keys = new TreeSet<String>();
         result.propertyNames().forEach(keys::add);
-        accumulator.allKeys.addAll(keys);
+        for (var key : keys) {
+            if (accumulator.allKeys.size() >= accumulator.maxSchemaFields) {
+                accumulator.schemaFieldsExceeded = true;
+                return;
+            }
+            accumulator.allKeys.add(key);
+        }
 
         var resultObject = result.path("object").asText("");
         if (!accumulator.expectedResultObject.equals(resultObject)) {
@@ -440,6 +459,7 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         private final List<String> recognized;
         private final String expectedResultObject;
         private final int maxIssues;
+        private final int maxSchemaFields;
         private final Set<String> allKeys = new TreeSet<>();
         private final List<ImportIssueDraft> issues = new ArrayList<>();
         private final Set<String> reportedSchemaIssues = new TreeSet<>();
@@ -449,15 +469,18 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         private boolean sawError;
         private int bucketCount;
         private boolean truncated;
+        private boolean bucketLimitExceeded;
+        private boolean schemaFieldsExceeded;
 
         private PageAccumulator(
                 boolean usage, List<String> required, List<String> recognized,
-                String expectedResultObject, int maxIssues) {
+                String expectedResultObject, int maxIssues, int maxSchemaFields) {
             this.usage = usage;
             this.required = required;
             this.recognized = recognized;
             this.expectedResultObject = expectedResultObject;
             this.maxIssues = maxIssues;
+            this.maxSchemaFields = maxSchemaFields;
         }
 
         void add(ImportIssueDraft draft) {
