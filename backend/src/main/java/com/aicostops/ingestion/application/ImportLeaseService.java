@@ -66,6 +66,43 @@ public class ImportLeaseService {
         return attemptMapper.countOwnedRunning(attemptId, workerId, leaseVersion) == 1;
     }
 
+    /**
+     * Recovers at most one expired RUNNING Attempt: the old Attempt becomes
+     * FAILED(WORKER_LEASE_EXPIRED) and a successor LEASE_RECOVERY Attempt is queued,
+     * unless the automatic recovery budget is exhausted (Batch then FAILED).
+     */
+    public Optional<RecoveredLease> recoverExpiredLease() {
+        return transactions.execute(status -> {
+            var expired = attemptMapper.findExpiredRunning();
+            if (expired == null) {
+                return Optional.empty();
+            }
+            var batch = batchMapper.findByIdForUpdate(expired.importBatchId());
+            if (batch == null) {
+                throw new IllegalStateException("Expired Attempt's ImportBatch must exist");
+            }
+            attemptMapper.failRunningAttempt(expired.id(), "WORKER_LEASE_EXPIRED",
+                    "Worker lease expired before execution finished.");
+            var now = Instant.now();
+            var recoveryCount = attemptMapper.countLeaseRecoveriesByBatch(batch.id());
+            if (recoveryCount >= properties.maxLeaseRecoveries()) {
+                batchMapper.updateStatus(batch.id(), "FAILED", now);
+                return Optional.empty();
+            }
+            attemptMapper.insertQueued(batch.id(), expired.attemptNo() + 1, "LEASE_RECOVERY",
+                    expired.id(), expired.parserVersion(), now, now);
+            batchMapper.updateStatus(batch.id(), "PENDING", now);
+            var successor = attemptMapper.findById(attemptMapper.lastInsertId());
+            if (successor == null) {
+                throw new IllegalStateException("Recovery successor must be readable");
+            }
+            return Optional.of(new RecoveredLease(successor.id(), successor.importBatchId()));
+        });
+    }
+
     public record ImportLease(long attemptId, long importBatchId, String leaseOwner, long leaseVersion) {
+    }
+
+    public record RecoveredLease(long attemptId, long importBatchId) {
     }
 }

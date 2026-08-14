@@ -161,6 +161,142 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
                 Long.class, attemptId)).isEqualTo(2L);
     }
 
+    // ------------------------------------------------------------------
+    // Task 9: lease-expiry crash recovery
+    // ------------------------------------------------------------------
+
+    @Test
+    void expiredLeaseFailsOldAttemptAndQueuesRecoverySuccessorWithLineage() {
+        var batchId = insertBatchWithQueuedAttempt("h".repeat(64), 1);
+        var oldAttemptId = runAttemptWithExpiredLease(batchId, 1);
+
+        var recovery = leases.recoverExpiredLease().orElseThrow();
+
+        var old = jdbc.queryForMap("SELECT * FROM import_attempt WHERE id=?", oldAttemptId);
+        assertThat(old.get("status")).isEqualTo("FAILED");
+        assertThat(old.get("error_code")).isEqualTo("WORKER_LEASE_EXPIRED");
+
+        var successor = jdbc.queryForMap("SELECT * FROM import_attempt WHERE id=?", recovery.attemptId());
+        assertThat(successor.get("status")).isEqualTo("QUEUED");
+        assertThat(successor.get("trigger_type")).isEqualTo("LEASE_RECOVERY");
+        assertThat(successor.get("attempt_no")).isEqualTo(2);
+        assertThat(successor.get("predecessor_attempt_id")).isEqualTo(oldAttemptId);
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, batchId)).isEqualTo("PENDING");
+    }
+
+    @Test
+    void rawRowsOfFailedAttemptRemainAfterRecovery() {
+        var batchId = insertBatchWithQueuedAttempt("i".repeat(64), 1);
+        var oldAttemptId = runAttemptWithExpiredLease(batchId, 1);
+        jdbc.update("""
+                INSERT INTO raw_provider_record(
+                    import_attempt_id,record_index,record_locator,provider_record_key,
+                    raw_payload,normalized_payload,usage_start,usage_end,normalize_status,created_at)
+                VALUES (?,0,'cost.csv:row=1',NULL,JSON_OBJECT(),NULL,NULL,NULL,'NORMALIZED',UTC_TIMESTAMP(6))
+                """, oldAttemptId);
+
+        leases.recoverExpiredLease();
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM raw_provider_record WHERE import_attempt_id=?",
+                Integer.class, oldAttemptId)).isEqualTo(1);
+    }
+
+    @Test
+    void recoveryBudgetExhaustionFailsBatchWithoutSuccessor() {
+        var batchId = insertBatchWithQueuedAttempt("j".repeat(64), 1);
+        var oldAttemptId = runAttemptWithExpiredLease(batchId, 1);
+        // Three earlier LEASE_RECOVERY attempts already consumed the whole budget.
+        jdbc.update("""
+                INSERT INTO import_attempt(
+                    import_batch_id,attempt_no,status,trigger_type,predecessor_attempt_id,
+                    available_at,lease_owner,lease_until,lease_version,parser_version,
+                    detected_provider_code,schema_fingerprint,started_at,finished_at,error_code,error_summary,
+                    records_seen,records_valid,warning_count,error_count,created_at)
+                VALUES (?,2,'FAILED','LEASE_RECOVERY',NULL,UTC_TIMESTAMP(6),NULL,NULL,0,'test-parser-v1',
+                    NULL,NULL,NULL,UTC_TIMESTAMP(6),'WORKER_LEASE_EXPIRED',NULL,0,0,0,0,UTC_TIMESTAMP(6)),
+                       (?,3,'FAILED','LEASE_RECOVERY',NULL,UTC_TIMESTAMP(6),NULL,NULL,0,'test-parser-v1',
+                    NULL,NULL,NULL,UTC_TIMESTAMP(6),'WORKER_LEASE_EXPIRED',NULL,0,0,0,0,UTC_TIMESTAMP(6)),
+                       (?,4,'FAILED','LEASE_RECOVERY',NULL,UTC_TIMESTAMP(6),NULL,NULL,0,'test-parser-v1',
+                    NULL,NULL,NULL,UTC_TIMESTAMP(6),'WORKER_LEASE_EXPIRED',NULL,0,0,0,0,UTC_TIMESTAMP(6))
+                """, batchId, batchId, batchId);
+
+        var recovery = leases.recoverExpiredLease();
+
+        assertThat(recovery).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT status FROM import_attempt WHERE id=?",
+                String.class, oldAttemptId)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, batchId)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM import_attempt WHERE import_batch_id=? AND status='QUEUED'",
+                Integer.class, batchId)).isZero();
+    }
+
+    @Test
+    void nonexpiredRunningAttemptIsNotRecovered() {
+        var batchId = insertBatchWithQueuedAttempt("k".repeat(64), 1);
+        var attemptId = jdbc.queryForObject(
+                "SELECT id FROM import_attempt WHERE import_batch_id=?", Long.class, batchId);
+        jdbc.update("""
+                UPDATE import_attempt
+                SET status='RUNNING', lease_owner='alive-worker', lease_version=1,
+                    lease_until=DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 30 SECOND)
+                WHERE id=?
+                """, attemptId);
+        jdbc.update("UPDATE import_batch SET status='PROCESSING', updated_at=UTC_TIMESTAMP(6) WHERE id=?",
+                batchId);
+
+        assertThat(leases.recoverExpiredLease()).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT status FROM import_attempt WHERE id=?",
+                String.class, attemptId)).isEqualTo("RUNNING");
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, batchId)).isEqualTo("PROCESSING");
+    }
+
+    @Test
+    void concurrentRecoveryWorkersCreateExactlyOneSuccessor() throws Exception {
+        var batchId = insertBatchWithQueuedAttempt("l".repeat(64), 1);
+        runAttemptWithExpiredLease(batchId, 1);
+
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var start = new CountDownLatch(1);
+            Callable<Long> recover = () -> {
+                start.await();
+                return leases.recoverExpiredLease().map(r -> r.attemptId()).orElse(-1L);
+            };
+            var future1 = pool.submit(recover);
+            var future2 = pool.submit(recover);
+            start.countDown();
+            var results = List.of(future1.get(), future2.get());
+
+            assertThat(results).containsExactlyInAnyOrder(-1L, results.stream().filter(id -> id > 0).findFirst().orElseThrow());
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM import_attempt WHERE import_batch_id=? AND trigger_type='LEASE_RECOVERY'",
+                Integer.class, batchId)).isEqualTo(1);
+    }
+
+    private long runAttemptWithExpiredLease(long batchId, int attemptNo) {
+        var attemptId = jdbc.queryForObject(
+                "SELECT id FROM import_attempt WHERE import_batch_id=? AND attempt_no=?",
+                Long.class, batchId, attemptNo);
+        jdbc.update("""
+                UPDATE import_attempt
+                SET status='RUNNING', lease_owner='crashed-worker', lease_version=1,
+                    lease_until=DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND),
+                    started_at=UTC_TIMESTAMP(6)
+                WHERE id=?
+                """, attemptId);
+        jdbc.update("UPDATE import_batch SET status='PROCESSING', updated_at=UTC_TIMESTAMP(6) WHERE id=?",
+                batchId);
+        return attemptId;
+    }
+
     private long insertBatchWithQueuedAttempt(String sha256, int attemptNo) {
         jdbc.update("""
                 INSERT INTO evidence(

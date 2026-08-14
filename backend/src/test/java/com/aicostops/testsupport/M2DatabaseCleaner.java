@@ -17,6 +17,8 @@ public final class M2DatabaseCleaner {
     public static void clean(JdbcTemplate jdbc) {
         jdbc.update("DELETE FROM import_issue");
         jdbc.update("DELETE FROM raw_provider_record");
+        // predecessor_attempt_id self-references import_attempt; clear it before deletion.
+        jdbc.update("UPDATE import_attempt SET predecessor_attempt_id=NULL");
         jdbc.update("DELETE FROM import_attempt");
         jdbc.update("DELETE FROM import_batch");
         jdbc.update("DELETE FROM evidence");
