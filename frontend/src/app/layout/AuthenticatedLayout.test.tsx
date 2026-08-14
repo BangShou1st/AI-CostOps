@@ -186,6 +186,13 @@ describe('AuthenticatedLayout mobile navigation', () => {
     expect(screen.getByRole('menuitem', { name: '项目管理' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '退出登录' })).toBeInTheDocument()
 
+    // Drawer nav and identity live inside the drawer-body scope that owns the
+    // light-background contrast overrides.
+    const drawerBody = document.querySelector('.settings-drawer-body')
+    expect(drawerBody).not.toBeNull()
+    expect(drawerBody?.querySelector('.settings-menu-drawer')).not.toBeNull()
+    expect(drawerBody?.querySelector('.settings-identity')).not.toBeNull()
+
     // Selecting a route closes the Drawer.
     fireEvent.click(screen.getByRole('menuitem', { name: '项目管理' }))
     expect(screen.getByRole('heading', { name: 'Projects page' })).toBeInTheDocument()

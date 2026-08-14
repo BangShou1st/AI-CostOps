@@ -194,6 +194,30 @@ button:disabled { opacity: .55; cursor: wait; }
 .settings-drawer-body .settings-menu-drawer { flex: 1; }
 .settings-drawer-body .settings-identity { margin-top: 0; border-top: 1px solid #e5eaf3; }
 
+/* The mobile Drawer sits on the default white Drawer surface. The desktop
+   sidebar rules above use light foreground colors for the dark rail; here
+   they are overridden scoped to the drawer only, so nav text, icons, the
+   current user and 退出登录 stay readable on white. */
+.settings-drawer-body .settings-menu .ant-menu-item {
+  color: #344054 !important;
+}
+.settings-drawer-body .settings-menu .ant-menu-item:hover {
+  color: #1d4ed8 !important;
+  background: #f2f4f7 !important;
+}
+.settings-drawer-body .settings-menu .ant-menu-item-selected {
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+.settings-drawer-body .settings-identity-user,
+.settings-drawer-body .settings-identity button {
+  color: #344054;
+}
+.settings-drawer-body .settings-identity button:hover {
+  background: #f2f4f7;
+  color: #101828;
+}
+
 /* Main content: full width, comfortable desktop density. The antd
    Layout.Content default (flex: auto) is fine; min-width: 0 is what keeps
    the content from overflowing the flex container. */
