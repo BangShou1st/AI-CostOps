@@ -39,7 +39,7 @@ public class EvidenceStorageService {
         this.clock = clock;
     }
 
-    public Evidence store(
+    public StoredEvidence store(
             long organizationId,
             long uploadedByMemberId,
             String originalFilename,
@@ -57,7 +57,7 @@ public class EvidenceStorageService {
         }
     }
 
-    private Evidence storeStaged(
+    private StoredEvidence storeStaged(
             long organizationId,
             long uploadedByMemberId,
             String originalFilename,
@@ -69,7 +69,7 @@ public class EvidenceStorageService {
                 organizationId, staged.sha256(), objectKey, originalFilename, mediaType,
                 staged.sizeBytes(), uploadedByMemberId, now);
         if (reserved.storageStatus() == EvidenceStorageStatus.AVAILABLE) {
-            return reserved;
+            return new StoredEvidence(reserved, true);
         }
 
         var existing = storage.stat(objectKey);
@@ -91,7 +91,12 @@ public class EvidenceStorageService {
             }
             persistence.markAvailable(reserved.id(), organizationId, now);
         }
-        return persistence.findByIdAndOrganization(reserved.id(), organizationId).orElseThrow();
+        var evidence = persistence.findByIdAndOrganization(reserved.id(), organizationId).orElseThrow();
+        return new StoredEvidence(evidence, false);
+    }
+
+    /** Evidence row plus whether the identity already existed before this store. */
+    public record StoredEvidence(Evidence evidence, boolean duplicate) {
     }
 
     /**

@@ -66,10 +66,10 @@ class EvidenceDownloadApiIntegrationTest extends MinioAuthenticationContainersSu
         createPermissionRole("EVIDENCE_UPLOADER", List.of("EVIDENCE_UPLOAD_PROVIDER"));
 
         availableEvidenceId = storage.store(
-                organizationId, actorMemberId, "invoice.csv", "text/csv", new ByteArrayInputStream(CONTENT)).id();
+                organizationId, actorMemberId, "invoice.csv", "text/csv", new ByteArrayInputStream(CONTENT)).evidence().id();
         foreignEvidenceId = storage.store(
                 foreignOrganizationId, insertMember(foreignOrganizationId, insertUser("foreign@example.com")),
-                "invoice.csv", "text/csv", new ByteArrayInputStream(CONTENT)).id();
+                "invoice.csv", "text/csv", new ByteArrayInputStream(CONTENT)).evidence().id();
         stagingEvidenceId = insertEvidence(organizationId, "STAGING", "c".repeat(64));
         failedEvidenceId = insertEvidence(organizationId, "FAILED", "d".repeat(64));
     }

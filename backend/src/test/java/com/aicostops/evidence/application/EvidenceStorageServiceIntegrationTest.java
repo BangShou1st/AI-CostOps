@@ -146,8 +146,8 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         var second = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT));
 
-        assertThat(second.id()).isEqualTo(first.id());
-        assertThat(second.storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
+        assertThat(second.evidence().id()).isEqualTo(first.evidence().id());
+        assertThat(second.evidence().storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
         assertThat(recording.putKeys()).containsExactly(EvidenceStorageService.objectKey(organizationId, sha256Of(CONTENT)));
         assertThat(evidenceCount()).isEqualTo(1);
     }
@@ -162,7 +162,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         var foreign = service.store(foreignOrganizationId, foreignUploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT));
 
-        assertThat(foreign.id()).isNotEqualTo(local.id());
+        assertThat(foreign.evidence().id()).isNotEqualTo(local.evidence().id());
         assertThat(recording.putKeys()).containsExactlyInAnyOrder(
                 EvidenceStorageService.objectKey(organizationId, sha256Of(CONTENT)),
                 EvidenceStorageService.objectKey(foreignOrganizationId, sha256Of(CONTENT)));
@@ -199,7 +199,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         var repaired = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT));
 
-        assertThat(repaired.storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
+        assertThat(repaired.evidence().storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
         assertThat(recording.putKeys()).isEmpty();
     }
 
