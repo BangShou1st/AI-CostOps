@@ -85,4 +85,31 @@ class ModuleDependencyArchitectureTest {
 
         allowedIngestionDependencies.check(productionClasses);
     }
+
+    @Test
+    void providerAdapterPackagesStayInsideParserBoundaries() {
+        // Provider adapters may use the ingestion application/domain contracts and
+        // parser libraries only. They must never reach MyBatis mappers, MinIO
+        // implementation, organization mutation services, or canonical-cost modules.
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule providerRule = classes()
+                .that().resideInAPackage("com.aicostops.ingestion.providers..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.ingestion.providers..",
+                        "com.aicostops.ingestion.application..",
+                        "com.aicostops.ingestion.domain..",
+                        "java..",
+                        "javax.xml..",
+                        "org.xml.sax..",
+                        "org.springframework..",
+                        "org.apache.commons..",
+                        "org.apache.poi..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        providerRule.check(productionClasses);
+    }
 }
