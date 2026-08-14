@@ -44,9 +44,9 @@ import org.springframework.stereotype.Component;
 @Component
 public final class GlmProviderAdapter implements ProviderAdapter {
 
-    static final String PROVIDER_CODE = "GLM";
-    static final String PARSER_VERSION = "glm-provider-import-v1";
-    static final String SCHEMA_VARIANT = "glm.monthly-billing-summary-workbook.v1";
+    public static final String PROVIDER_CODE = "GLM";
+    public static final String PARSER_VERSION = "glm-provider-import-v1";
+    public static final String SCHEMA_VARIANT = "glm.monthly-billing-summary-workbook.v1";
 
     private static final List<String> REQUIRED_HEADERS = List.of(
             "账期(月)", "目录总价", "总消费金额", "信用支付金额", "赠金抵扣金额",

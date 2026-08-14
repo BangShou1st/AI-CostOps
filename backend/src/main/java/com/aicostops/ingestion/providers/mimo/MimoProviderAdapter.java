@@ -42,9 +42,9 @@ import org.springframework.stereotype.Component;
 @Component
 public final class MimoProviderAdapter implements ProviderAdapter {
 
-    static final String PROVIDER_CODE = "MIMO";
-    static final String PARSER_VERSION = "mimo-provider-import-v1";
-    static final String SCHEMA_VARIANT = "mimo.usage-workbook.v1";
+    public static final String PROVIDER_CODE = "MIMO";
+    public static final String PARSER_VERSION = "mimo-provider-import-v1";
+    public static final String SCHEMA_VARIANT = "mimo.usage-workbook.v1";
     static final String CREDENTIAL_HINT = "********";
 
     static final String MODEL_SHEET = "Model usage detail";

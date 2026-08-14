@@ -41,9 +41,9 @@ import org.springframework.stereotype.Component;
 @Component
 public final class KimiProviderAdapter implements ProviderAdapter {
 
-    static final String PROVIDER_CODE = "KIMI";
-    static final String PARSER_VERSION = "kimi-provider-import-v1";
-    static final String SCHEMA_VARIANT = "kimi.billing-summary-workbook.v1";
+    public static final String PROVIDER_CODE = "KIMI";
+    public static final String PARSER_VERSION = "kimi-provider-import-v1";
+    public static final String SCHEMA_VARIANT = "kimi.billing-summary-workbook.v1";
     static final String CURRENCY = "CNY";
 
     static final String SUMMARY_SHEET = "账单汇总";

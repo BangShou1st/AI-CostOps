@@ -39,9 +39,9 @@ import org.springframework.stereotype.Component;
 @Component
 public final class DeepSeekProviderAdapter implements ProviderAdapter {
 
-    static final String PROVIDER_CODE = "DEEPSEEK";
-    static final String PARSER_VERSION = "deepseek-provider-import-v1";
-    static final String SCHEMA_VARIANT = "deepseek.usage-zip.v1";
+    public static final String PROVIDER_CODE = "DEEPSEEK";
+    public static final String PARSER_VERSION = "deepseek-provider-import-v1";
+    public static final String SCHEMA_VARIANT = "deepseek.usage-zip.v1";
     static final String CREDENTIAL_HINT = "********";
 
     private static final Pattern AMOUNT_ENTRY = Pattern.compile("^amount-.*\\.csv$", Pattern.CASE_INSENSITIVE);

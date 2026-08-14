@@ -57,12 +57,12 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public final class OpenAiProviderAdapter implements ProviderAdapter {
 
-    static final String PROVIDER_CODE = "OPENAI";
-    static final String PARSER_VERSION = "openai-provider-import-v1";
+    public static final String PROVIDER_CODE = "OPENAI";
+    public static final String PARSER_VERSION = "openai-provider-import-v1";
 
-    static final String OBSERVED_EMPTY_EXPORT = "openai.observed-empty-export.v1";
-    static final String USAGE_JSON = "openai.organization-usage-completions-json.v1";
-    static final String COSTS_JSON = "openai.organization-costs-json.v1";
+    public static final String OBSERVED_EMPTY_EXPORT = "openai.observed-empty-export.v1";
+    public static final String USAGE_JSON = "openai.organization-usage-completions-json.v1";
+    public static final String COSTS_JSON = "openai.organization-costs-json.v1";
 
     static final String EXPORT_ROLE = "export";
     private static final List<String> REQUIRED_EXPORT_HEADERS =

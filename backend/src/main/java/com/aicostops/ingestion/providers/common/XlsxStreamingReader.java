@@ -17,6 +17,7 @@ import org.apache.poi.xssf.eventusermodel.XSSFSheetXMLHandler;
 import org.apache.poi.xssf.eventusermodel.XSSFSheetXMLHandler.SheetContentsHandler;
 import org.apache.poi.xssf.usermodel.XSSFComment;
 import org.apache.poi.util.XMLHelper;
+import org.springframework.stereotype.Component;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.XMLReader;
@@ -32,6 +33,7 @@ import org.xml.sax.XMLReader;
  * <p>The first non-empty row of each sheet is treated as the header row; rows before
  * it are skipped. Data row numbers are real spreadsheet positions (1-based).
  */
+@Component
 public final class XlsxStreamingReader {
 
     public WorkbookSchema inspect(InputStream workbook) throws IOException {
