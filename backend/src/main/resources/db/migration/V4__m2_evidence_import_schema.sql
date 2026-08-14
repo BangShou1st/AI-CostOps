@@ -1,0 +1,122 @@
+-- M2 Group 1: Evidence and Ingestion schema.
+-- Evidence is an immutable per-organization byte identity; ImportBatch/ImportAttempt
+-- record durable execution lineage. M2 ends at ImportBatch PARSED/FAILED (no canonical facts).
+
+CREATE TABLE evidence (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    org_id BIGINT NOT NULL,
+    sha256 CHAR(64) NOT NULL,
+    object_key VARCHAR(512) NOT NULL,
+    original_filename VARCHAR(255) NOT NULL,
+    media_type VARCHAR(100) NULL,
+    size_bytes BIGINT NOT NULL,
+    uploaded_by_member_id BIGINT NOT NULL,
+    storage_status VARCHAR(32) NOT NULL,
+    storage_error_code VARCHAR(100) NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_evidence_org_sha256 UNIQUE (org_id, sha256),
+    CONSTRAINT fk_evidence_org FOREIGN KEY (org_id) REFERENCES organization(id),
+    CONSTRAINT fk_evidence_uploader FOREIGN KEY (uploaded_by_member_id) REFERENCES organization_member(id),
+    CONSTRAINT chk_evidence_storage_status CHECK (storage_status IN ('STAGING','AVAILABLE','FAILED')),
+    CONSTRAINT chk_evidence_size CHECK (size_bytes >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE import_batch (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    org_id BIGINT NOT NULL,
+    evidence_id BIGINT NOT NULL,
+    provider_account_id BIGINT NOT NULL,
+    expected_provider_code VARCHAR(100) NOT NULL,
+    source_type VARCHAR(64) NOT NULL,
+    parser_version VARCHAR(100) NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    period_start DATETIME(6) NULL,
+    period_end DATETIME(6) NULL,
+    created_by_member_id BIGINT NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_import_batch_identity UNIQUE (evidence_id, provider_account_id, source_type, parser_version),
+    CONSTRAINT fk_import_batch_org FOREIGN KEY (org_id) REFERENCES organization(id),
+    CONSTRAINT fk_import_batch_evidence FOREIGN KEY (evidence_id) REFERENCES evidence(id),
+    CONSTRAINT fk_import_batch_provider_account FOREIGN KEY (provider_account_id) REFERENCES provider_account(id),
+    CONSTRAINT fk_import_batch_creator FOREIGN KEY (created_by_member_id) REFERENCES organization_member(id),
+    CONSTRAINT chk_import_batch_status CHECK (status IN ('PENDING','PROCESSING','PARSED','FAILED','CANCELED')),
+    CONSTRAINT chk_import_batch_period CHECK (period_start IS NULL OR period_end IS NULL OR period_start <= period_end)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE import_attempt (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    import_batch_id BIGINT NOT NULL,
+    attempt_no INT NOT NULL,
+    status VARCHAR(32) NOT NULL,
+    trigger_type VARCHAR(32) NOT NULL,
+    predecessor_attempt_id BIGINT NULL,
+    available_at DATETIME(6) NOT NULL,
+    lease_owner VARCHAR(100) NULL,
+    lease_until DATETIME(6) NULL,
+    lease_version BIGINT NOT NULL DEFAULT 0,
+    parser_version VARCHAR(100) NOT NULL,
+    detected_provider_code VARCHAR(100) NULL,
+    schema_fingerprint CHAR(64) NULL,
+    started_at DATETIME(6) NULL,
+    finished_at DATETIME(6) NULL,
+    error_code VARCHAR(100) NULL,
+    error_summary VARCHAR(500) NULL,
+    records_seen BIGINT NOT NULL DEFAULT 0,
+    records_valid BIGINT NOT NULL DEFAULT 0,
+    warning_count BIGINT NOT NULL DEFAULT 0,
+    error_count BIGINT NOT NULL DEFAULT 0,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_import_attempt_batch_no UNIQUE (import_batch_id, attempt_no),
+    KEY idx_import_attempt_queue (status, available_at, id),
+    KEY idx_import_attempt_lease (status, lease_until, id),
+    KEY idx_import_attempt_batch_status (import_batch_id, status, id),
+    CONSTRAINT fk_import_attempt_batch FOREIGN KEY (import_batch_id) REFERENCES import_batch(id),
+    CONSTRAINT fk_import_attempt_predecessor FOREIGN KEY (predecessor_attempt_id) REFERENCES import_attempt(id),
+    CONSTRAINT chk_import_attempt_status CHECK (status IN ('QUEUED','RUNNING','SUCCEEDED','FAILED','CANCELED')),
+    CONSTRAINT chk_import_attempt_trigger CHECK (trigger_type IN ('INITIAL','LEASE_RECOVERY','MANUAL_RETRY')),
+    CONSTRAINT chk_import_attempt_attempt_no CHECK (attempt_no > 0),
+    CONSTRAINT chk_import_attempt_lease_version CHECK (lease_version >= 0),
+    CONSTRAINT chk_import_attempt_counts CHECK (records_seen >= 0 AND records_valid >= 0 AND warning_count >= 0 AND error_count >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE raw_provider_record (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    import_attempt_id BIGINT NOT NULL,
+    record_index BIGINT NOT NULL,
+    record_locator VARCHAR(500) NOT NULL,
+    provider_record_key VARCHAR(500) NULL,
+    raw_payload JSON NOT NULL,
+    normalized_payload JSON NULL,
+    usage_start DATETIME(6) NULL,
+    usage_end DATETIME(6) NULL,
+    normalize_status VARCHAR(32) NOT NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uq_raw_provider_record_attempt_index UNIQUE (import_attempt_id, record_index),
+    CONSTRAINT fk_raw_provider_record_attempt FOREIGN KEY (import_attempt_id) REFERENCES import_attempt(id),
+    CONSTRAINT chk_raw_provider_record_normalize_status CHECK (normalize_status IN ('NORMALIZED','WARN','ERROR')),
+    CONSTRAINT chk_raw_provider_record_index CHECK (record_index >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE import_issue (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    import_attempt_id BIGINT NOT NULL,
+    raw_provider_record_id BIGINT NULL,
+    severity VARCHAR(16) NOT NULL,
+    issue_code VARCHAR(100) NOT NULL,
+    record_locator VARCHAR(500) NULL,
+    field_name VARCHAR(200) NULL,
+    message VARCHAR(1000) NOT NULL,
+    raw_value_masked VARCHAR(500) NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_import_issue_attempt (import_attempt_id),
+    CONSTRAINT fk_import_issue_attempt FOREIGN KEY (import_attempt_id) REFERENCES import_attempt(id),
+    CONSTRAINT fk_import_issue_raw_record FOREIGN KEY (raw_provider_record_id) REFERENCES raw_provider_record(id),
+    CONSTRAINT chk_import_issue_severity CHECK (severity IN ('WARN','ERROR'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

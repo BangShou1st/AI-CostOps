@@ -44,7 +44,7 @@ class RolePermissionSeedIntegrationTest extends MySqlContainerSupport {
                     "EXPENSE_REVIEW", "EXPENSE_POST", "BUDGET_READ", "COMMITMENT_REQUEST",
                     "COMMITMENT_APPROVE", "COMMITMENT_RELEASE", "LEDGER_READ", "LEDGER_POST",
                     "RECONCILIATION_READ", "RECONCILIATION_RUN", "RECONCILIATION_RESOLVE", "PERIOD_READ",
-                    "AUDIT_READ"),
+                    "AUDIT_READ", "PROVIDER_ACCOUNT_READ"),
             "FINANCE_ADMIN", Set.of("EVIDENCE_UPLOAD_PROVIDER", "EVIDENCE_READ", "EVIDENCE_DOWNLOAD",
                     "IMPORT_READ", "IMPORT_RETRY", "IMPORT_CONFIRM", "IMPORT_CANCEL", "COST_READ",
                     "DUPLICATE_REVIEW", "ALLOCATION_READ", "ALLOCATION_EDIT", "ALLOCATION_CONFIRM",
@@ -74,6 +74,9 @@ class RolePermissionSeedIntegrationTest extends MySqlContainerSupport {
         assertThat(mappings).isEqualTo(EXPECTED_MAPPINGS);
         assertThat(mappings.get("SYSTEM_ADMIN")).doesNotContain(
                 "LEDGER_POST", "LEDGER_CORRECT", "BUDGET_MANAGE", "PERIOD_CLOSE", "PERIOD_REOPEN");
+        assertThat(mappings.get("FINANCE_REVIEWER"))
+                .contains("PROVIDER_ACCOUNT_READ")
+                .doesNotContain("PROVIDER_ACCOUNT_MANAGE");
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM role_permission", Integer.class))
                 .isEqualTo(EXPECTED_MAPPINGS.values().stream().mapToInt(Set::size).sum());
     }
