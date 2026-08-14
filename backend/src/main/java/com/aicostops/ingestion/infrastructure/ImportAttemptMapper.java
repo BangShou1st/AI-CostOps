@@ -187,4 +187,52 @@ public interface ImportAttemptMapper {
             @Param("valid") long valid,
             @Param("warnings") long warnings,
             @Param("errors") long errors);
+
+    @Update("""
+            UPDATE import_attempt ia
+            SET ia.detected_provider_code=#{detectedProviderCode},
+                ia.schema_fingerprint=#{schemaFingerprint}
+            WHERE ia.id=#{attemptId}
+              AND ia.status='RUNNING'
+              AND ia.lease_owner=#{workerId}
+              AND ia.lease_version=#{leaseVersion}
+              AND ia.lease_until > UTC_TIMESTAMP(6)
+            """)
+    int recordInspection(
+            @Param("attemptId") long attemptId,
+            @Param("workerId") String workerId,
+            @Param("leaseVersion") long leaseVersion,
+            @Param("detectedProviderCode") String detectedProviderCode,
+            @Param("schemaFingerprint") String schemaFingerprint);
+
+    @Update("""
+            UPDATE import_attempt ia
+            SET ia.status='SUCCEEDED', ia.finished_at=UTC_TIMESTAMP(6)
+            WHERE ia.id=#{attemptId}
+              AND ia.status='RUNNING'
+              AND ia.lease_owner=#{workerId}
+              AND ia.lease_version=#{leaseVersion}
+              AND ia.lease_until > UTC_TIMESTAMP(6)
+            """)
+    int finishSucceeded(
+            @Param("attemptId") long attemptId,
+            @Param("workerId") String workerId,
+            @Param("leaseVersion") long leaseVersion);
+
+    @Update("""
+            UPDATE import_attempt ia
+            SET ia.status='FAILED', ia.finished_at=UTC_TIMESTAMP(6),
+                ia.error_code=#{errorCode}, ia.error_summary=#{errorSummary}
+            WHERE ia.id=#{attemptId}
+              AND ia.status='RUNNING'
+              AND ia.lease_owner=#{workerId}
+              AND ia.lease_version=#{leaseVersion}
+              AND ia.lease_until > UTC_TIMESTAMP(6)
+            """)
+    int finishFailed(
+            @Param("attemptId") long attemptId,
+            @Param("workerId") String workerId,
+            @Param("leaseVersion") long leaseVersion,
+            @Param("errorCode") String errorCode,
+            @Param("errorSummary") String errorSummary);
 }

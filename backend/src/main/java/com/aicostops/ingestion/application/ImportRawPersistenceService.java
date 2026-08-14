@@ -92,6 +92,39 @@ public class ImportRawPersistenceService {
         });
     }
 
+    /**
+     * Persists adapter inspection issues attached to the Attempt (no raw record).
+     * Also fenced; a stale worker gets zero inserts.
+     */
+    public PersistResult persistInspectionIssues(
+            ImportLeaseService.ImportLease lease, List<ImportIssueDraft> issues) {
+        if (issues.isEmpty()) {
+            return new PersistResult(0, 0, false);
+        }
+        return transactions.execute(status -> {
+            var owned = attemptMapper.lockAndVerifyOwnership(
+                    lease.attemptId(), lease.leaseOwner(), lease.leaseVersion());
+            if (owned != 1) {
+                return new PersistResult(0, 0, true);
+            }
+            var now = clock.instant();
+            var warnings = 0L;
+            var errors = 0L;
+            for (var issue : issues) {
+                issueMapper.insert(lease.attemptId(), null, issue.severity().name(),
+                        issue.issueCode(), issue.recordLocator(), issue.fieldName(),
+                        issue.message(), issue.rawValueMasked(), now);
+                if (issue.severity().name().equals("ERROR")) {
+                    errors++;
+                } else {
+                    warnings++;
+                }
+            }
+            attemptMapper.incrementCounters(lease.attemptId(), 0, 0, warnings, errors);
+            return new PersistResult(0, issues.size(), false);
+        });
+    }
+
     public int persistenceBatchSize() {
         return properties.persistenceBatchSize();
     }

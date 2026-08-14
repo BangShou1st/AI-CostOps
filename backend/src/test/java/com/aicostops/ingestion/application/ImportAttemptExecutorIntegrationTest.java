@@ -2,10 +2,13 @@ package com.aicostops.ingestion.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.aicostops.evidence.application.EvidenceStorageService;
 import com.aicostops.ingestion.domain.ImportIssueSeverity;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
 import com.aicostops.testsupport.M2DatabaseCleaner;
-import com.aicostops.testsupport.MySqlContainerSupport;
+import com.aicostops.testsupport.MinioContainerSupport;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -15,11 +18,13 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-@SpringBootTest
+@SpringBootTest(properties = "aicostops.ingestion.persistence-batch-size=2")
 @Tag("integration")
-class ImportAttemptExecutorIntegrationTest extends MySqlContainerSupport {
+class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -27,12 +32,19 @@ class ImportAttemptExecutorIntegrationTest extends MySqlContainerSupport {
     private ImportLeaseService leases;
     @Autowired
     private ImportRawPersistenceService persistence;
+    @Autowired
+    private ImportAttemptExecutor executor;
+    @Autowired
+    private EvidenceStorageService evidenceStorage;
+    @Autowired
+    private TestExecutorAdapter adapter;
 
     private long organizationId;
     private long memberId;
 
     @BeforeEach
     void setUp() {
+        TestExecutorAdapter.reset();
         M2DatabaseCleaner.clean(jdbc);
         organizationId = insertOrganization("Executor", "executor-test");
         var userId = insertUser("executor@example.com");
@@ -219,6 +231,169 @@ class ImportAttemptExecutorIntegrationTest extends MySqlContainerSupport {
         return new ImportIssueDraft(severity, code, locator, "field", "issue message", "masked");
     }
 
+    // ------------------------------------------------------------------
+    // Task 11: adapter execution through ImportAttemptExecutor
+    // ------------------------------------------------------------------
+
+    @Test
+    void warnOnlyImportSucceedsAttemptAndParsesBatch() {
+        adapter.records = List.of(
+                record(0, RawRecordNormalizeStatus.WARN,
+                        List.of(issue(ImportIssueSeverity.WARN, "UNKNOWN_COLUMN", "row=1")), Map.of("row", 0)),
+                record(1, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 1)));
+        var evidenceId = storeEvidence("warn-only-content");
+        var batchId = insertBatchWithAttempt(evidenceId);
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+
+        executor.execute(lease);
+
+        var counters = attemptCounters(lease.attemptId());
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("SUCCEEDED");
+        assertThat(batchStatus(batchId)).isEqualTo("PARSED");
+        assertThat(counters.recordsSeen).isEqualTo(2L);
+        assertThat(counters.recordsValid).isEqualTo(1L);
+        assertThat(counters.warningCount).isEqualTo(1L);
+        assertThat(counters.errorCount).isZero();
+    }
+
+    @Test
+    void incompatibleSchemaFailsAttemptAndBatchWithErrorIssue() {
+        adapter.compatible = false;
+        adapter.inspectionIssues = List.of(
+                issue(ImportIssueSeverity.ERROR, "UNSUPPORTED_SCHEMA", null));
+        var evidenceId = storeEvidence("incompatible-content");
+        var batchId = insertBatchWithAttempt(evidenceId);
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("FAILED");
+        assertThat(errorCodeOf(lease.attemptId())).isEqualTo("SCHEMA_INCOMPATIBLE");
+        assertThat(batchStatus(batchId)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM import_issue WHERE import_attempt_id=?",
+                Integer.class, lease.attemptId())).isEqualTo(1);
+    }
+
+    @Test
+    void lateParseErrorKeepsPartialRawRowsFromEarlierBoundedFlushes() {
+        adapter.records = List.of(
+                record(0, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 0)),
+                record(1, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 1)),
+                record(2, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 2)),
+                record(3, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 3)));
+        adapter.failAfterRecords = 3;
+        var evidenceId = storeEvidence("late-failure-content");
+        var batchId = insertBatchWithAttempt(evidenceId);
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("FAILED");
+        assertThat(errorCodeOf(lease.attemptId())).isEqualTo("EXECUTION_FAILED");
+        assertThat(batchStatus(batchId)).isEqualTo("FAILED");
+        // Batch size is 2 in this context: records 0..1 flushed, record 2 pending when parse failed.
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM raw_provider_record WHERE import_attempt_id=?",
+                Integer.class, lease.attemptId())).isEqualTo(2);
+    }
+
+    @Test
+    void schemaFingerprintDetectedProviderAndParserVersionArePersistedOnAttempt() {
+        adapter.fingerprint = "schema-fingerprint-abc123";
+        var evidenceId = storeEvidence("fingerprint-content");
+        var batchId = insertBatchWithAttempt(evidenceId);
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("SUCCEEDED");
+        var row = jdbc.queryForMap("""
+                SELECT parser_version,detected_provider_code,schema_fingerprint
+                FROM import_attempt WHERE id=?
+                """, lease.attemptId());
+        assertThat(row)
+                .containsEntry("parser_version", "test-parser-v1")
+                .containsEntry("detected_provider_code", "TEST_PROVIDER")
+                .containsEntry("schema_fingerprint", "schema-fingerprint-abc123");
+    }
+
+    @Test
+    void staleWorkerCannotFinalizeSuccessOrFailure() {
+        adapter.records = List.of(record(0, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 0)));
+        var evidenceId = storeEvidence("stale-finalize-content");
+        var batchId = insertBatchWithAttempt(evidenceId);
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+        // Recovery-style takeover: a new worker owns the attempt now.
+        jdbc.update("""
+                UPDATE import_attempt SET lease_owner='new-owner', lease_version=lease_version+1 WHERE id=?
+                """, lease.attemptId());
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("RUNNING");
+        assertThat(batchStatus(batchId)).isEqualTo("PROCESSING");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM raw_provider_record WHERE import_attempt_id=?",
+                Integer.class, lease.attemptId())).isZero();
+    }
+
+    private long storeEvidence(String content) {
+        var stored = evidenceStorage.store(organizationId, memberId, "executor.csv", "text/csv",
+                new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
+        return stored.evidence().id();
+    }
+
+    private long insertBatchWithAttempt(long evidenceId) {
+        var accountId = jdbc.queryForObject("""
+                SELECT id FROM provider_account WHERE org_id=? AND provider_code='TEST_PROVIDER'
+                """, Long.class, organizationId);
+        jdbc.update("""
+                INSERT INTO import_batch(
+                    org_id,evidence_id,provider_account_id,expected_provider_code,source_type,
+                    parser_version,status,period_start,period_end,created_by_member_id,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,'PENDING',NULL,NULL,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, organizationId, evidenceId, accountId, "TEST_PROVIDER", "FILE_EXPORT",
+                "test-parser-v1", memberId);
+        var batchId = jdbc.queryForObject("SELECT id FROM import_batch WHERE evidence_id=?",
+                Long.class, evidenceId);
+        jdbc.update("""
+                INSERT INTO import_attempt(
+                    import_batch_id,attempt_no,status,trigger_type,predecessor_attempt_id,
+                    available_at,lease_owner,lease_until,lease_version,parser_version,
+                    detected_provider_code,schema_fingerprint,started_at,finished_at,error_code,error_summary,
+                    records_seen,records_valid,warning_count,error_count,created_at)
+                VALUES (?,1,'QUEUED','INITIAL',NULL,UTC_TIMESTAMP(6),NULL,NULL,0,'test-parser-v1',
+                    NULL,NULL,NULL,NULL,NULL,NULL,0,0,0,0,UTC_TIMESTAMP(6))
+                """, batchId);
+        return batchId;
+    }
+
+    private String attemptStatus(long attemptId) {
+        return jdbc.queryForObject("SELECT status FROM import_attempt WHERE id=?", String.class, attemptId);
+    }
+
+    private String errorCodeOf(long attemptId) {
+        return jdbc.queryForObject("SELECT error_code FROM import_attempt WHERE id=?", String.class, attemptId);
+    }
+
+    private String batchStatus(long batchId) {
+        return jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?", String.class, batchId);
+    }
+
+    private Counters attemptCounters(long attemptId) {
+        var row = jdbc.queryForMap("""
+                SELECT records_seen,records_valid,warning_count,error_count
+                FROM import_attempt WHERE id=?
+                """, attemptId);
+        return new Counters(
+                (Long) row.get("records_seen"), (Long) row.get("records_valid"),
+                (Long) row.get("warning_count"), (Long) row.get("error_count"));
+    }
+
+    private record Counters(long recordsSeen, long recordsValid, long warningCount, long errorCount) {
+    }
+
     private long insertOrganization(String name, String slug) {
         jdbc.update("""
                 INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at)
@@ -242,5 +417,65 @@ class ImportAttemptExecutorIntegrationTest extends MySqlContainerSupport {
                 """, orgId, userId);
         return jdbc.queryForObject(
                 "SELECT id FROM organization_member WHERE org_id=? AND user_id=?", Long.class, orgId, userId);
+    }
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class TestExecutorAdapterConfiguration {
+
+        @Bean
+        TestExecutorAdapter testExecutorAdapter() {
+            return new TestExecutorAdapter();
+        }
+    }
+
+    /** Configurable synthetic adapter for executor behaviour tests. */
+    static class TestExecutorAdapter implements ProviderAdapter {
+
+        static volatile boolean compatible = true;
+        static volatile String fingerprint = "executor-fingerprint";
+        static volatile List<ImportIssueDraft> inspectionIssues = List.of();
+        static volatile List<NormalizedProviderRecord> records = List.of();
+        static volatile int failAfterRecords = -1;
+
+        static void reset() {
+            compatible = true;
+            fingerprint = "executor-fingerprint";
+            inspectionIssues = List.of();
+            records = List.of();
+            failAfterRecords = -1;
+        }
+
+        @Override
+        public String providerCode() {
+            return "TEST_PROVIDER";
+        }
+
+        @Override
+        public String parserVersion() {
+            return "test-parser-v1";
+        }
+
+        @Override
+        public InspectionResult inspect(ProviderSource source) {
+            return new InspectionResult("TEST_PROVIDER", fingerprint, compatible, inspectionIssues);
+        }
+
+        @Override
+        public void parse(ProviderSource source, InspectionResult inspection, ProviderRecordSink sink) {
+            var emitted = 0;
+            for (var record : records) {
+                sink.accept(record);
+                emitted++;
+                if (failAfterRecords >= 0 && emitted == failAfterRecords) {
+                    throw new IllegalStateException("simulated late parse failure");
+                }
+            }
+        }
+
+        @Override
+        public NormalizedProviderRecord normalize(ParsedProviderRecord record) {
+            return new NormalizedProviderRecord(record.index(), record.locator(), null,
+                    Map.of(), Map.of(), null, null, RawRecordNormalizeStatus.NORMALIZED, List.of());
+        }
     }
 }

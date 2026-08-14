@@ -47,6 +47,14 @@ public interface ImportBatchMapper {
             """ + IMPORT_BATCH_COLUMNS + """
             FROM import_batch ib
             WHERE ib.id=#{batchId}
+            """)
+    ImportBatch findById(@Param("batchId") long batchId);
+
+    @Select("""
+            SELECT
+            """ + IMPORT_BATCH_COLUMNS + """
+            FROM import_batch ib
+            WHERE ib.id=#{batchId}
             FOR UPDATE
             """)
     ImportBatch findByIdForUpdate(@Param("batchId") long batchId);
