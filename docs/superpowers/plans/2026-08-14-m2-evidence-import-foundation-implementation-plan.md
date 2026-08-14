@@ -23,10 +23,13 @@
 - Object storage I/O and large-file parsing must not hold a long database transaction.
 - Claim/recovery/fencing behavior must be proven against real MySQL 8.4 Testcontainers.
 - Raw provider payload persisted to MySQL must redact secret-like values; the Evidence object remains the authoritative original byte source.
+- Provider raw-evidence upload and download are organization-level finance operations: require the relevant permission **and ORG scope**.
 - Upload hard limit starts at 512 MiB and is configurable.
 - Import raw-record persistence batch size starts at 500 and is configurable.
 - Worker lease starts at 60s, heartbeat at 20s, and automatic lease recovery budget at 3.
 - Current MinIO Compose baseline must be updated from `RELEASE.2025-09-07T16-13-09Z-cpuv1` to `RELEASE.2025-10-15T17-29-55Z`.
+- MinIO bucket existence/creation is checked lazily on the first storage operation, never during unrelated Spring context startup; M1 tests must remain able to boot without a MinIO container.
+- Group 1 ships no production DeepSeek/MiMo/Kimi/GLM/OpenAI adapter. Synthetic adapters are test-only; real Provider Accounts remain unsupported for import execution until Group 2 adds their production adapters.
 
 ---
 
@@ -440,9 +443,21 @@ stat object returns exact size and sha256
 open object streams exact bytes
 ```
 
-- [ ] **Step 5: Implement the adapter**
+- [ ] **Step 5: Implement the adapter with lazy bucket initialization**
 
-The adapter must use explicit user metadata `sha256=<lowercase-hex>`. Do not treat ETag as Evidence SHA-256. When `autoCreateBucket=true`, check/create the configured bucket before use; when false and the bucket is missing, fail fast with a storage dependency exception.
+The adapter must use explicit user metadata `sha256=<lowercase-hex>`. Do not treat ETag as Evidence SHA-256.
+
+Do **not** contact MinIO from bean construction, configuration binding, `@PostConstruct`, or generic application startup. On the first actual storage operation only:
+
+```text
+if bucket state has not been initialized in this process
+-> check bucket existence
+-> if missing and autoCreateBucket=true, create it
+-> if missing and autoCreateBucket=false, throw storage dependency exception
+-> memoize successful initialization
+```
+
+A transient initialization failure must not memoize failure permanently; a later operation may retry.
 
 - [ ] **Step 6: Run GREEN**
 
@@ -451,6 +466,14 @@ The adapter must use explicit user metadata `sha256=<lowercase-hex>`. Do not tre
 ```
 
 Expected: PASS against real MinIO.
+
+Then prove an unrelated M1 context still starts with no MinIO container:
+
+```powershell
+.\mvnw.cmd -B -Dgroups=integration -Dit.test=M1SchemaIntegrationTest verify
+```
+
+Expected: PASS without attempting `localhost:9000`.
 
 - [ ] **Step 7: Validate Compose**
 
@@ -574,18 +597,20 @@ git commit -m "feat(evidence): add resilient streaming upload"
 
 **Interfaces:**
 - `GET /api/v1/evidence/{id}/download`
-- Requires `EVIDENCE_DOWNLOAD` through existing AuthorizationContext/Application Service checks.
+- Requires `EVIDENCE_DOWNLOAD` **with ORG scope** through existing AuthorizationContext/Application Service checks.
 - Cross-org and nonexistent evidence both return privacy-preserving 404.
+- Existing Evidence whose `storage_status != AVAILABLE` returns `409 STATE_CONFLICT`; no partial content is opened or streamed.
 
 - [ ] **Step 1: Write failing API tests**
 
 Cover:
 
 ```text
-Finance Reviewer with EVIDENCE_DOWNLOAD -> 200 and exact bytes
+Finance Reviewer with EVIDENCE_DOWNLOAD + ORG scope -> 200 and exact bytes
+same permission without ORG scope -> 403
 missing permission -> 403
 cross-org Evidence id -> 404
-Evidence storage_status != AVAILABLE -> 409 or dependency-safe failure; do not stream partial content
+Evidence storage_status != AVAILABLE -> 409 STATE_CONFLICT
 ```
 
 - [ ] **Step 2: Run RED**
@@ -596,7 +621,9 @@ Evidence storage_status != AVAILABLE -> 409 or dependency-safe failure; do not s
 
 - [ ] **Step 3: Implement service and controller**
 
-Use organization-scoped Evidence lookup first, then open the object. Stream with `StreamingResponseBody`; close the object stream deterministically. Build `Content-Disposition` from a sanitized filename, never from object key.
+Use current AuthorizationContext and the existing `M1AuthorizationService.requireOrg(context, "EVIDENCE_DOWNLOAD")` pattern before organization-scoped Evidence lookup. Then open the object only when Evidence is `AVAILABLE`.
+
+Stream with `StreamingResponseBody`; close the object stream deterministically. Build `Content-Disposition` from a sanitized filename, never from object key.
 
 - [ ] **Step 4: Add authenticated matcher**
 
@@ -667,6 +694,8 @@ providerCode.trim().toUpperCase(Locale.ROOT)
 
 Build an immutable map from injected adapters. Duplicate canonical codes throw at application startup/registry construction. Unknown providers return a stable validation failure; never guess from class names.
 
+The production registry may be empty in Group 1. Do not register a fake/synthetic ProviderAdapter in `src/main`; synthetic adapters belong under tests only.
+
 - [ ] **Step 4: Implement schema fingerprint contract**
 
 `InspectionResult` carries:
@@ -713,7 +742,7 @@ git commit -m "feat(import): add provider adapter registry"
 
 **Interfaces:**
 - `POST /api/v1/provider-imports` multipart fields: `file`, `providerAccountId`, `sourceType`.
-- Requires `EVIDENCE_UPLOAD_PROVIDER`.
+- Requires `EVIDENCE_UPLOAD_PROVIDER` **with ORG scope**.
 - Resolves Provider Account and Adapter before persisting a new Batch.
 - Returns existing Batch without creating a new Attempt when identity already exists.
 
@@ -734,9 +763,10 @@ Test configuration registers a `TEST_PROVIDER` adapter only in tests.
 Cover:
 
 ```text
-new file/context -> Evidence + Batch + Attempt #1 QUEUED
+new file/context + EVIDENCE_UPLOAD_PROVIDER/ORG -> Evidence + Batch + Attempt #1 QUEUED
 same bytes + same provider account + same source type + same parser version -> same Evidence/Batch/Attempt
 same bytes + different Provider Account -> same Evidence but different Batch
+same permission without ORG scope -> 403
 inactive/cross-org Provider Account -> privacy-preserving 404
 unsupported provider -> 400 and no ImportBatch
 missing EVIDENCE_UPLOAD_PROVIDER -> 403
@@ -766,7 +796,7 @@ Order:
 
 ```text
 auth context
--> require EVIDENCE_UPLOAD_PROVIDER
+-> require ORG scope + EVIDENCE_UPLOAD_PROVIDER
 -> find ACTIVE provider account in current org
 -> resolve adapter/parserVersion
 -> store/reuse Evidence
@@ -774,7 +804,7 @@ auth context
 -> return response
 ```
 
-Resolve unsupported provider before expensive file storage when possible.
+Resolve unsupported provider before expensive file storage when possible. In Group 1 production, unsupported real providers therefore return 400 until Group 2 registers their production adapters.
 
 - [ ] **Step 6: Add security matcher and GREEN test**
 
@@ -1134,11 +1164,11 @@ M2 PARSED != M3 READY_FOR_REVIEW
 `03-m2-evidence-import-api.md` records only implemented Group 1 routes:
 
 ```text
-POST /api/v1/provider-imports
-GET  /api/v1/evidence/{id}/download
+POST /api/v1/provider-imports          EVIDENCE_UPLOAD_PROVIDER / ORG
+GET  /api/v1/evidence/{id}/download    EVIDENCE_DOWNLOAD / ORG
 ```
 
-Explicitly state that Retry/Cancel/List/Detail are AIC-030 and final Confirm is M3.
+Explicitly state that Retry/Cancel/List/Detail are AIC-030 and final Confirm is M3. Also state that Group 1 contains no production provider adapters; production provider import becomes usable provider-by-provider in Group 2.
 
 - [ ] **Step 3: Run backend unit suite**
 
@@ -1182,7 +1212,8 @@ The evidence document records exact test counts/results from the commands above.
 ```text
 same-SHA dedup
 MinIO failure/recovery
-unauthorized download
+unrelated Spring contexts boot without MinIO
+unauthorized/out-of-scope download
 no long DB transaction during object upload
 dual-worker claim
 lease expiry/crash recovery
@@ -1273,7 +1304,9 @@ Before declaring Group 1 ready for PR, verify all of these explicitly:
 [ ] Evidence dedup is org-scoped, not cross-tenant
 [ ] duplicate upload does not implicitly create retry Attempt
 [ ] object upload occurs outside DB transaction
+[ ] MinIO is initialized lazily; unrelated contexts do not require MinIO
 [ ] object-key identity conflict never overwrites mismatched bytes
+[ ] provider raw upload/download require permission + ORG scope
 [ ] one Batch has at most one QUEUED/RUNNING Attempt
 [ ] claim uses real MySQL FOR UPDATE SKIP LOCKED
 [ ] lease expiry uses DB UTC time
