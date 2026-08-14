@@ -89,18 +89,23 @@ git diff --check
 git status --short
 ```
 
-### 真实结果（2026-08-14 Task 14 fresh run）
+### 真实结果（2026-08-14 Task 14 fresh run + review-fix round）
 
 ```text
-focused provider suite : Tests run: 102, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-backend unit            : Tests run: 287, Failures: 0, Errors: 0, Skipped: 1 — BUILD SUCCESS
-backend integration     : Tests run: 222, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+focused provider suite : Tests run: 124, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+backend unit            : Tests run: 309, Failures: 0, Errors: 0, Skipped: 1 — BUILD SUCCESS
+backend integration     : Tests run: 225, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
 architecture            : Tests run: 5, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-docker compose config   : exit 0（仅 .env 未设置变量的常规 warning）
-docker build            : ai-costops-backend:m2-group2 build SUCCESS
+docker compose config   : exit 0
+docker build            : ai-costops-backend:m2-group2-review-fix build SUCCESS
 git diff --check        : no output
 git status --short      : clean
 ```
+
+> review-fix round 在 Task 14 计数之上新增：duplicate-header、GLM duplicate
+> logical sheet、MiMo malformed components、ZIP in-flight limits、locator/fieldName
+> fail-closed、OpenAI 当前官方契约（object markers / credentialId / quantity /
+> required number/null validation / bounded streaming 10k results）等回归。
 
 Provider-focused 明细（同一 fresh run 内）：
 
