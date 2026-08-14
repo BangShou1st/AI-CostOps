@@ -80,3 +80,8 @@ Thumbs.db
 .cache/
 .sonar/
 .trivy/
+
+# =========================
+# Review Artifacts
+# =========================
+*.patch

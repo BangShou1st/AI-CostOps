@@ -7,6 +7,7 @@ export interface AuthUser {
   displayName: string
   organizationId: string
   organizationMemberId: string
+  permissions: string[]
 }
 
 export interface AuthTokenResponse {
@@ -43,4 +44,8 @@ export async function refreshWithRaceRetry(
     await wait(500)
     return refresh()
   }
+}
+
+export async function refreshMe(api: AuthApi): Promise<AuthUser> {
+  return api.me()
 }

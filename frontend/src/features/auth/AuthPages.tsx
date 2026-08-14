@@ -17,34 +17,34 @@ export function LoginPage() {
   const [error, setError] = useState<unknown>(); const [submitting, setSubmitting] = useState(false)
   async function submit(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(undefined)
     try { await auth.login(email, password); navigate('/app', { replace: true }) } catch (caught) { setError(caught) } finally { setSubmitting(false) } }
-  return <AuthLayout title="Sign in"><form onSubmit={submit}><label>Email<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-    <label>Password<input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><ErrorMessage error={error} />
-    <button disabled={submitting}>{submitting ? 'Signing in…' : 'Sign in'}</button></form><nav><Link to="/forgot-password">Forgot password?</Link><Link to="/register">Create account</Link></nav></AuthLayout>
+  return <AuthLayout title="登录"><form onSubmit={submit}><label>邮箱<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+    <label>密码<input required type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><ErrorMessage error={error} />
+    <button disabled={submitting}>{submitting ? '正在登录…' : '登录'}</button></form><nav><Link to="/forgot-password">忘记密码？</Link><Link to="/register">创建账号</Link></nav></AuthLayout>
 }
 export function RegisterPage() {
   const navigate = useNavigate(); const [values, setValues] = useState({ email: '', displayName: '', password: '' }); const [error, setError] = useState<unknown>(); const [submitting, setSubmitting] = useState(false)
   async function submit(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(undefined)
     try { await authApi.register(values.email, values.displayName, values.password); navigate('/login', { replace: true }) } catch (caught) { setError(caught) } finally { setSubmitting(false) } }
-  return <AuthLayout title="Create account"><form onSubmit={submit}><label>Name<input required value={values.displayName} onChange={(e) => setValues({ ...values, displayName: e.target.value })} /></label>
-    <label>Email<input required type="email" value={values.email} onChange={(e) => setValues({ ...values, email: e.target.value })} /></label><label>Password<input required minLength={8} type="password" value={values.password} onChange={(e) => setValues({ ...values, password: e.target.value })} /></label>
-    <ErrorMessage error={error} /><button disabled={submitting}>{submitting ? 'Creating…' : 'Create account'}</button></form><Link to="/login">Back to sign in</Link></AuthLayout>
+  return <AuthLayout title="创建账号"><form onSubmit={submit}><label>姓名<input required value={values.displayName} onChange={(e) => setValues({ ...values, displayName: e.target.value })} /></label>
+    <label>邮箱<input required type="email" value={values.email} onChange={(e) => setValues({ ...values, email: e.target.value })} /></label><label>密码<input required minLength={8} type="password" value={values.password} onChange={(e) => setValues({ ...values, password: e.target.value })} /></label>
+    <ErrorMessage error={error} /><button disabled={submitting}>{submitting ? '正在创建…' : '创建账号'}</button></form><Link to="/login">返回登录</Link></AuthLayout>
 }
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState(''); const [sent, setSent] = useState(false); const [error, setError] = useState<unknown>(); const [submitting, setSubmitting] = useState(false)
   async function submit(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(undefined); try { await authApi.forgotPassword(email); setSent(true) } catch (caught) { setError(caught) } finally { setSubmitting(false) } }
-  return <AuthLayout title="Reset password">{sent ? <p role="status">If the account exists, reset instructions have been sent.</p> : <form onSubmit={submit}><label>Email<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label><ErrorMessage error={error} /><button disabled={submitting}>{submitting ? 'Submitting…' : 'Send instructions'}</button></form>}<Link to="/login">Back to sign in</Link></AuthLayout>
+  return <AuthLayout title="重置密码">{sent ? <p role="status">如果该账号存在，重置说明已发送。</p> : <form onSubmit={submit}><label>邮箱<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label><ErrorMessage error={error} /><button disabled={submitting}>{submitting ? '正在提交…' : '发送说明'}</button></form>}<Link to="/login">返回登录</Link></AuthLayout>
 }
 export function ResetPasswordPage() {
   const [params] = useSearchParams(); const navigate = useNavigate(); const [password, setPassword] = useState(''); const [error, setError] = useState<unknown>(); const [submitting, setSubmitting] = useState(false); const token = params.get('token') ?? ''
   async function submit(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(undefined); try { await authApi.resetPassword(token, password); navigate('/login', { replace: true }) } catch (caught) { setError(caught) } finally { setSubmitting(false) } }
-  return <AuthLayout title="Choose a new password"><form onSubmit={submit}><label>New password<input required minLength={8} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><ErrorMessage error={error} /><button disabled={submitting || !token}>{submitting ? 'Updating…' : 'Update password'}</button></form></AuthLayout>
+  return <AuthLayout title="设置新密码"><form onSubmit={submit}><label>新密码<input required minLength={8} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><ErrorMessage error={error} /><button disabled={submitting || !token}>{submitting ? '正在更新…' : '更新密码'}</button></form></AuthLayout>
 }
 export function InvitationPage() {
   const { token = '' } = useParams(); const navigate = useNavigate(); const [displayName, setDisplayName] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState<unknown>(); const [submitting, setSubmitting] = useState(false)
   async function submit(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(undefined); try { await authApi.acceptInvitation(token, displayName, password); navigate('/login', { replace: true }) } catch (caught) { setError(caught) } finally { setSubmitting(false) } }
-  return <AuthLayout title="Accept invitation"><form onSubmit={submit}><label>Name<input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label><label>Password<input required minLength={8} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><ErrorMessage error={error} /><button disabled={submitting}>{submitting ? 'Accepting…' : 'Accept invitation'}</button></form></AuthLayout>
+  return <AuthLayout title="接受邀请"><form onSubmit={submit}><label>姓名<input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label><label>密码<input required minLength={8} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><ErrorMessage error={error} /><button disabled={submitting}>{submitting ? '正在接受…' : '接受邀请'}</button></form></AuthLayout>
 }
 export function AppPage() {
   const auth = useAuth(); if (!auth.user) return <Navigate to="/login" replace />
-  return <main className="app-shell"><p className="eyebrow">Authenticated workspace</p><h1>AI CostOps</h1><p>Signed in as {auth.user.displayName}</p><button onClick={() => void auth.logout()}>Sign out</button></main>
+  return <main className="app-shell"><p className="eyebrow">Authenticated workspace</p><h1>AI CostOps</h1><p>已登录：{auth.user.displayName}</p><button onClick={() => void auth.logout()}>退出登录</button></main>
 }

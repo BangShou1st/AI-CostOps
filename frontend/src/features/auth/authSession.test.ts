@@ -1,9 +1,9 @@
 import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import { describe, expect, it, vi } from 'vitest'
 import { createAccessTokenStore } from './accessTokenStore'
-import { bootstrapSession, refreshWithRaceRetry, type AuthApi } from './authSession'
+import { bootstrapSession, refreshMe, refreshWithRaceRetry, type AuthApi } from './authSession'
 
-const user = { id: '1', email: 'user@example.com', displayName: 'User', organizationId: '2', organizationMemberId: '3' }
+const user = { id: '1', email: 'user@example.com', displayName: 'User', organizationId: '2', organizationMemberId: '3', permissions: [] }
 
 describe('authentication session', () => {
   it('bootstraps through refresh then me without persisting the refresh secret', async () => {
@@ -39,5 +39,12 @@ describe('authentication session', () => {
     await expect(refreshWithRaceRetry(refresh, wait)).resolves.toMatchObject({ accessToken: 'fresh' })
     expect(refresh).toHaveBeenCalledTimes(2)
     expect(wait).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshMe returns the fresh me projection', async () => {
+    const api: AuthApi = { refresh: vi.fn(), me: vi.fn().mockResolvedValue(user) }
+
+    await expect(refreshMe(api)).resolves.toEqual(user)
+    expect(api.me).toHaveBeenCalledTimes(1)
   })
 })

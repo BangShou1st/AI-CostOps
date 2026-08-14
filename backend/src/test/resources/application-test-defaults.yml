@@ -2,3 +2,10 @@ aicostops:
   auth:
     # TEST ONLY. Production application.yml intentionally has no signing-key default.
     jwt-signing-secret: test-source-set-only-signing-secret-with-more-than-32-bytes
+
+spring:
+  datasource:
+    hikari:
+      # Spring caches multiple integration-test contexts against one shared MySQL container.
+      maximum-pool-size: 2
+      minimum-idle: 0

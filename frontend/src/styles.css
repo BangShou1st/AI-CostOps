@@ -42,3 +42,216 @@ button:disabled { opacity: .55; cursor: wait; }
 .auth-card nav { display: flex; justify-content: space-between; margin-top: 20px; }
 .auth-card > a { display: inline-block; margin-top: 20px; }
 .form-error { color: #b42318; background: #fef3f2; padding: 10px; border-radius: 7px; }
+
+/* =========================
+   Application shell
+   Desktop: viewport-bound collapsible sidebar; mobile: top bar + Drawer.
+   ========================= */
+/* Ant Design Layout defaults to flex-direction: column; the desktop shell
+   must be an explicit horizontal split so the sidebar is a fixed left rail
+   and main fills the remaining width. Raised specificity (.ant-layout +
+   own class) wins over the antd default regardless of style injection order. */
+.ant-layout.settings-shell {
+  min-height: 100dvh;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.settings-sider {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  flex: 0 0 auto;
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #101a2e;
+  color: #c3cfe2;
+  transition: width .18s ease;
+}
+.settings-shell-collapsed .settings-sider {
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+}
+
+.settings-brand {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 16px 16px 16px 20px;
+  color: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  min-height: 56px;
+  box-sizing: border-box;
+}
+.app-shell-collapsed .settings-brand { justify-content: center; padding: 16px 8px; }
+.settings-brand-name { white-space: nowrap; overflow: hidden; }
+.settings-brand-mark {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.settings-collapse {
+  background: transparent;
+  color: #c3cfe2;
+  padding: 6px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+}
+.settings-collapse:hover { background: rgb(255 255 255 / 10%); color: #ffffff; }
+.settings-collapse:focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; }
+
+.settings-nav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.settings-menu { background: transparent !important; border-inline-end: 0 !important; }
+.settings-menu .ant-menu-item { color: #c3cfe2 !important; }
+.settings-menu .ant-menu-item-selected { background: #1d4ed8 !important; color: #ffffff !important; }
+
+.settings-identity {
+  margin-top: auto;
+  flex-shrink: 0;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+}
+.settings-identity-user {
+  color: #c3cfe2;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.settings-identity button {
+  background: transparent;
+  color: #c3cfe2;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.settings-identity button:hover { background: rgb(255 255 255 / 10%); color: #ffffff; }
+.app-shell-collapsed .settings-identity {
+  flex-direction: column;
+  padding: 12px 8px;
+}
+.settings-avatar {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-weight: 700;
+}
+.settings-logout-icon { font-size: 16px; display: inline-flex; align-items: center; }
+
+/* Mobile top bar + navigation Drawer */
+.app-shell-mobile { min-height: 100dvh; display: flex; flex-direction: column; }
+.settings-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 16px;
+  background: #101a2e;
+  color: #ffffff;
+  box-sizing: border-box;
+}
+.settings-topbar-menu { color: #ffffff !important; font-size: 18px; }
+.settings-topbar-brand { font-weight: 800; letter-spacing: 0.02em; }
+.settings-topbar-page { margin-left: auto; color: #c3cfe2; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-drawer-body { display: flex; flex-direction: column; height: 100%; }
+.settings-drawer-body .settings-menu-drawer { flex: 1; }
+.settings-drawer-body .settings-identity { margin-top: 0; border-top: 1px solid #e5eaf3; }
+
+/* The mobile Drawer sits on the default white Drawer surface. The desktop
+   sidebar rules above use light foreground colors for the dark rail; here
+   they are overridden scoped to the drawer only, so nav text, icons, the
+   current user and 退出登录 stay readable on white. */
+.settings-drawer-body .settings-menu .ant-menu-item {
+  color: #344054 !important;
+}
+.settings-drawer-body .settings-menu .ant-menu-item:hover {
+  color: #1d4ed8 !important;
+  background: #f2f4f7 !important;
+}
+.settings-drawer-body .settings-menu .ant-menu-item-selected {
+  background: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+.settings-drawer-body .settings-identity-user,
+.settings-drawer-body .settings-identity button {
+  color: #344054;
+}
+.settings-drawer-body .settings-identity button:hover {
+  background: #f2f4f7;
+  color: #101828;
+}
+
+/* Main content: full width, comfortable desktop density. The antd
+   Layout.Content default (flex: auto) is fine; min-width: 0 is what keeps
+   the content from overflowing the flex container. */
+.settings-content {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px;
+  box-sizing: border-box;
+}
+.ant-layout-content.settings-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings-content h1 { font-size: 1.75rem; letter-spacing: -0.02em; margin-bottom: 4px; }
+
+.settings-page { background: #ffffff; border: 1px solid #dce3ef; border-radius: 12px; padding: 24px; }
+.settings-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+.settings-empty { text-align: center; color: #6b7a93; padding: 48px 0; }
+.forbidden-page { max-width: 640px; padding: 64px 0; }
+.forbidden-page h1 { font-size: 5rem; color: #1d4ed8; margin-bottom: 8px; }
+
+/* Compact action rows inside tables */
+.settings-actions { display: flex; gap: 8px; flex-wrap: nowrap; white-space: nowrap; }
+
+/* =========================
+   Responsive tweaks
+   ========================= */
+@media (max-width: 639px) {
+  .settings-content { padding: 16px; }
+  .settings-page { padding: 16px; border-radius: 10px; }
+  .settings-toolbar { align-items: flex-start; flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-sider { transition: none; }
+}

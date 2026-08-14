@@ -6,7 +6,7 @@ describe('App', () => {
   it('falls back to sign in when bootstrap has no refresh session', async () => {
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument()
     expect(screen.getByText('AI CostOps')).toBeInTheDocument()
   })
 })

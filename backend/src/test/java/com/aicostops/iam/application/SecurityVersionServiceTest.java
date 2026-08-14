@@ -1,6 +1,7 @@
 package com.aicostops.iam.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -14,17 +15,18 @@ import org.springframework.data.redis.core.ValueOperations;
 class SecurityVersionServiceTest {
     @SuppressWarnings("unchecked")
     @Test
-    void fallsBackToMysqlWhenRedisIsUnavailable() {
+    void readsMysqlBeforeRefreshingRedisCache() {
         var redis = mock(StringRedisTemplate.class);
         var values = mock(ValueOperations.class);
         var iam = mock(IamMapper.class);
         when(redis.opsForValue()).thenReturn(values);
-        when(values.get("aicostops:v1:auth:security:42"))
-                .thenThrow(new DataAccessResourceFailureException("redis down"));
-        when(iam.findActiveSecurityVersion(42)).thenReturn(7L);
+        when(values.get("aicostops:v1:auth:security:42")).thenReturn("7");
+        when(iam.findActiveSecurityVersion(42)).thenReturn(8L);
+        doThrow(new DataAccessResourceFailureException("redis down"))
+                .when(values).set("aicostops:v1:auth:security:42", "8", Duration.ofMinutes(1));
 
         var service = new SecurityVersionService(redis, iam, Duration.ofMinutes(1));
 
-        assertThat(service.current(42)).isEqualTo(7L);
+        assertThat(service.current(42)).isEqualTo(8L);
     }
 }

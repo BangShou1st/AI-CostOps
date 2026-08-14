@@ -22,18 +22,16 @@ public class SecurityVersionService {
     }
 
     public Long current(long userId) {
-        try {
-            var cached = redis.opsForValue().get(PREFIX + userId);
-            if (cached != null) return Long.parseLong(cached);
-        } catch (DataAccessException ignored) {
-            // MySQL remains the durable authentication truth.
-        }
         var current = iamMapper.findActiveSecurityVersion(userId);
         if (current != null) {
-            try { redis.opsForValue().set(PREFIX + userId, current.toString(), ttl); }
-            catch (DataAccessException ignored) { }
+            put(userId, current);
         }
         return current;
+    }
+
+    public void put(long userId, long version) {
+        try { redis.opsForValue().set(PREFIX + userId, Long.toString(version), ttl); }
+        catch (DataAccessException ignored) { }
     }
 
     public void invalidate(long userId) {

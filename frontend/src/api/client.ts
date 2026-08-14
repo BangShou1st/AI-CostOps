@@ -4,6 +4,7 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios'
 import type { AccessTokenStore } from '../features/auth/accessTokenStore'
+import { authEvents } from '../features/auth/authEvents'
 
 interface ApiClientOptions {
   tokenStore: AccessTokenStore
@@ -44,6 +45,15 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
           options.tokenStore.set(token)
           return token
         })
+        .catch((refreshError: unknown) => {
+          // One emit per shared refresh attempt: every waiter observes the
+          // same single-flight failure, so the session-expired event must not
+          // fire once per waiting request.
+          if (isSessionExpired(refreshError)) {
+            authEvents.emit()
+          }
+          throw refreshError
+        })
         .finally(() => {
           refreshInFlight = null
         })
@@ -55,8 +65,19 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
       options.tokenStore.clear()
       return Promise.reject(refreshError)
     }
-    return client.request(requestConfig)
+    return client.request(requestConfig).catch((retryError: unknown) => {
+      if (isSessionExpired(retryError)) {
+        authEvents.emit()
+      }
+      return Promise.reject(retryError)
+    })
   })
 
   return client
+}
+
+function isSessionExpired(error: unknown): boolean {
+  return axios.isAxiosError(error)
+    && error.response?.status === 401
+    && error.response?.data?.code === 'AUTH_SESSION_EXPIRED'
 }

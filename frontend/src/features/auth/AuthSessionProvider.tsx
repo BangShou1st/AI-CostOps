@@ -1,14 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
+import { message } from 'antd'
 import { accessTokenStore } from './accessTokenStore'
 import { authApi } from './authApi'
-import { bootstrapSession, type AuthUser } from './authSession'
+import { authEvents } from './authEvents'
+import { bootstrapSession, refreshMe, type AuthUser } from './authSession'
 
 type AuthState = { status: 'loading' | 'anonymous' | 'authenticated'; user: AuthUser | null }
 
 interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshMe: () => Promise<AuthUser>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -25,6 +28,18 @@ export function AuthSessionProvider({ children }: PropsWithChildren) {
     return () => { active = false }
   }, [])
 
+  useEffect(() => {
+    return authEvents.subscribe(() => {
+      accessTokenStore.clear()
+      // Session expiry is a security boundary: drop every query cache entry
+      // (auth AND session-bound settings data), never just the auth keys.
+      void queryClient.cancelQueries()
+      queryClient.clear()
+      setState({ status: 'anonymous', user: null })
+      message.warning('您的权限已变更或会话已过期，请重新登录。')
+    })
+  }, [queryClient])
+
   const value = useMemo<AuthContextValue>(() => ({ ...state,
     login: async (email, password) => {
       const result = await authApi.login(email, password)
@@ -36,6 +51,11 @@ export function AuthSessionProvider({ children }: PropsWithChildren) {
       try { await authApi.logout() } finally {
         accessTokenStore.clear(); queryClient.clear(); setState({ status: 'anonymous', user: null })
       }
+    },
+    refreshMe: async () => {
+      const user = await refreshMe(authApi)
+      setState({ status: 'authenticated', user })
+      return user
     },
   }), [state, queryClient])
 
