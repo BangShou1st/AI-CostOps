@@ -56,8 +56,13 @@ populated OpenAI CSV metric 契约
   `credentialHint`；PayloadRedactor / IssueSanitizer 未被弱化。
 - ZIP streaming（Commons Compress 统计）不落盘；XLSX 用 POI SAX 事件读取，
   禁止 `new XSSFWorkbook(inputStream)`，POI 默认 ZIP-bomb 防御未放松。
-- OpenAI Costs 只使用当前官方字段 `amount.value / amount.currency / line_item /
-  project_id`，不含过时假设 `api_key_id` / `quantity`。
+- OpenAI Costs 使用当前官方字段（2026-08-14 复核）：`amount.value` /
+  `amount.currency` 为最低 required money 语义，`api_key_id` / `line_item` /
+  `project_id` / `quantity` / `object` 为当前契约字段；`api_key_id` 是 provider
+  identity（normalized `dimensions.credentialId`），`quantity` 保留
+  provider-native 不猜 unit。
+- OpenAI JSON 解析 bounded（inspection 只保留 schema metadata；parse 逐 result
+  物化后立即释放），并验证官方 `object` type markers。
 
 ## 4. Parser 依赖（冻结版本）
 

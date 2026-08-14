@@ -522,6 +522,24 @@ OpenAI 的 observed CSV 变体故意命名为 empty-export：只支持真实观�
 `start_time,end_time,start_time_iso,end_time_iso` 四列空 bucket 导出，不声称支持
 任何未观察过的 populated CSV metric schema。
 
+OpenAI official JSON 变体（2026-08-14 复核）：
+
+- Usage completions result 字段：`object`、`input_tokens` / `output_tokens`
+  （provider totals）、cached / cache-write / uncached 与 text / audio / image
+  breakdown components、`num_model_requests`、`project_id` / `user_id` /
+  `api_key_id` / `model` / `batch` / `service_tier`。breakdown 禁止相加成假 total。
+- Costs result 字段：`amount`（`value` / `currency` 为最低 required money 语义）、
+  `api_key_id`、`line_item`、`project_id`、`quantity`、`object`；维度字段可按
+  group_by 为 optional / null。`api_key_id` 是 provider identity
+  （normalized `dimensions.credentialId`），不是 secret；`quantity` 保留
+  provider-native，不猜 unit。
+- 三个层级都必须验证官方 `object` type markers：
+  `page` / `bucket` / `organization.usage.completions.result` 或
+  `organization.costs.result`。
+- JSON 解析 bounded：inspection 只保留 schema metadata（field set / type markers /
+  validation flags / issues），parse 逐 result 物化、normalize、释放；不构造
+  results 或 normalized rows 的全量 List。
+
 ### 16.3 中间 Normalization 契约（M2 intermediate）
 
 ```text

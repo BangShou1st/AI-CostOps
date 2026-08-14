@@ -305,32 +305,37 @@ service_tier
 
 ### 官方 Costs API
 
-当前官方契约（2026-08-14 复核）支持按：
+当前官方契约（2026-08-14 复核）group_by 支持：
 
 ```text
 project_id
 line_item
+api_key_id
 ```
 
-分组，并返回：
+Costs result 当前支持：
 
 ```text
 amount.value
 amount.currency
+api_key_id
 line_item
 project_id
+quantity
+object
 ```
+
+其中 `line_item` / `project_id` / `api_key_id` 等维度字段可能根据
+group_by / 返回形态为 optional / null。
 
 映射：
 
 - `amount` → ChargeFact/provider-reported cost；
 - `line_item` → provider charge line；
+- `quantity` → provider-native quantity，不猜通用 unit（不做 M3 PricingFact）；
+- `api_key_id` → provider identity（`dimensions.credentialId`），不是 secret
+  API key value；
 - `project_id` → Attribution Hint。
-
-> 注：更早的研究文本曾提及 Costs 结果/分组包含 `api_key_id` 与 `quantity`。
-> 当前官方契约（2026-08-14 复核）未列出这些字段；M2 Group 2 的
-> `openai.organization-costs-json.v1` 仅使用 `amount.value`、`amount.currency`、
-> `line_item`、`project_id`，不包含过时的 `api_key_id` / `quantity` 假设。
 
 ---
 
