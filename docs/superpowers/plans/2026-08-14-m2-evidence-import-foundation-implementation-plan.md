@@ -4,38 +4,40 @@
 
 **Goal:** Deliver AIC-021 through AIC-024 as one backend foundation that stores immutable provider evidence in S3-compatible storage, creates durable import execution history, claims work safely through MySQL leases, and exposes a streaming ProviderAdapter framework without crossing into M3 canonical cost normalization.
 
-**Architecture:** Keep `evidence` and `ingestion` as separate feature modules. `evidence` owns byte identity, storage lifecycle, checksum, object storage, and authorized download; `ingestion` owns ImportBatch/ImportAttempt, worker leases, raw records/issues, adapter registry, and parse orchestration. MySQL is the concurrency and lifecycle source of truth, MinIO/S3 stores file bytes, and all object/network/file parsing work occurs outside long DB transactions.
+**Architecture:** Keep `evidence` and `ingestion` as separate feature modules. `evidence` owns byte identity, storage lifecycle, checksum, object storage, and authorized download; `ingestion` owns ImportBatch/ImportAttempt, worker leases, raw records/issues, adapter registry, and parse orchestration. MySQL is the concurrency/lifecycle source of truth, MinIO/S3 stores file bytes, and object/network/file parsing work occurs outside long DB transactions.
 
 **Tech Stack:** Java 21, Spring Boot 4.1.0, Plain MyBatis / mybatis-spring-boot-starter 4.1.0, MySQL 8.4, Flyway, Testcontainers 2.0.5, MinIO Java SDK 9.0.1, Spring TaskExecutor, Spring MVC, Spring Security, JUnit 5, AssertJ, ArchUnit.
 
+**Primary Spec:** `docs/superpowers/specs/2026-08-14-m2-evidence-import-foundation-design.md`
+
 ## Global Constraints
 
-- PowerShell only for local commands.
-- Repository path: `E:\AI-CostOps`.
+- PowerShell only for local commands; repository path is `E:\AI-CostOps`.
 - Planned implementation branch: `feat/m2-evidence-import-foundation`.
-- Do not use JPA, Hibernate, MyBatis-Plus, H2, RabbitMQ, Kafka, or Redis as import-job truth.
-- `evidence` must not depend on `ingestion`.
+- No JPA, Hibernate, MyBatis-Plus, H2, RabbitMQ, Kafka, or Redis job truth.
+- `evidence` must not depend on `ingestion`; `ingestion` may depend on `evidence` and read-only `organization` ports.
 - Provider adapters must not depend on ledger, budget, attribution, reporting, or M3 canonical cost types.
 - M2 ends at `ImportBatch.PARSED` or `FAILED`; `READY_FOR_REVIEW`, canonical facts, and final Confirm belong to M3.
-- Same organization + same SHA-256 reuses one Evidence identity.
+- Same organization + same SHA-256 reuses one Evidence identity; there is no cross-tenant object dedup.
 - Same Evidence + Provider Account + source type + parser version reuses one ImportBatch and does not implicitly retry.
-- Retry/recovery creates a new ImportAttempt; failed Attempts and their raw rows/issues remain available for lineage.
-- Object storage I/O and large-file parsing must not hold a long database transaction.
-- Claim/recovery/fencing behavior must be proven against real MySQL 8.4 Testcontainers.
-- Raw provider payload persisted to MySQL must redact secret-like values; the Evidence object remains the authoritative original byte source.
-- Provider raw-evidence upload and download are organization-level finance operations: require the relevant permission **and ORG scope**.
-- Upload hard limit starts at 512 MiB and is configurable.
-- Import raw-record persistence batch size starts at 500 and is configurable.
-- Worker lease starts at 60s, heartbeat at 20s, and automatic lease recovery budget at 3.
-- Current MinIO Compose baseline must be updated from `RELEASE.2025-09-07T16-13-09Z-cpuv1` to `RELEASE.2025-10-15T17-29-55Z`.
-- MinIO bucket existence/creation is checked lazily on the first storage operation, never during unrelated Spring context startup; M1 tests must remain able to boot without a MinIO container.
-- Group 1 ships no production DeepSeek/MiMo/Kimi/GLM/OpenAI adapter. Synthetic adapters are test-only; real Provider Accounts remain unsupported for import execution until Group 2 adds their production adapters.
+- Retry/recovery creates a new ImportAttempt; old Attempts and their raw rows/issues remain durable lineage.
+- Provider raw-evidence upload/download require their permission **and ORG scope**.
+- Object storage I/O and large-file parsing must not hold long DB transactions.
+- Claim/recovery/fencing must be proven against real MySQL 8.4 Testcontainers.
+- Raw provider payload stored in MySQL is redacted before persistence; Evidence object bytes remain authoritative original evidence.
+- Upload hard limit starts at 512 MiB; raw-record persistence batch starts at 500; worker lease 60s; heartbeat 20s; automatic lease recovery budget 3. All are configurable.
+- MinIO Java SDK is fixed at 9.0.1 for this PR.
+- Local MinIO image moves to `minio/minio:RELEASE.2025-10-15T17-29-55Z`.
+- MinIO bucket initialization is lazy on first storage operation. No network call from bean construction, `@PostConstruct`, configuration binding, or unrelated application startup.
+- Group 1 contains no production DeepSeek/MiMo/Kimi/GLM/OpenAI adapter. Synthetic adapters are test-only; Group 2 supplies production adapters.
+- Test environment defaults `aicostops.ingestion.worker-enabled=false`. Worker/coordinator tests explicitly opt in.
+- Every new M2 integration test using shared MySQL state performs FK-safe cleanup both before and after each test.
 
 ---
 
 ## Execution preflight
 
-Run only after the design/plan documentation PR has been merged to `main`.
+Run only after the documentation PR containing this plan/spec has been merged to `main`.
 
 ```powershell
 Set-Location E:\AI-CostOps
@@ -51,19 +53,50 @@ git push -u origin feat/m2-evidence-import-foundation
 Expected:
 
 ```text
-working tree is clean
+working tree clean
 main == origin/main
-new branch feat/m2-evidence-import-foundation tracks origin/feat/m2-evidence-import-foundation
+feature branch tracks origin/feat/m2-evidence-import-foundation
 ```
 
-If `git status --short` prints anything, stop implementation and resolve the local changes first.
+If `git status --short` prints anything, do not start implementation until the local changes are resolved.
+
+---
+
+## Test isolation rule
+
+Create `backend/src/test/java/com/aicostops/testsupport/M2DatabaseCleaner.java` and use it from M2 integration tests in `@BeforeEach` and `@AfterEach`.
+
+FK-safe delete order:
+
+```text
+import_issue
+raw_provider_record
+import_attempt
+import_batch
+evidence
+api_idempotency
+audit_event
+invitation
+role_assignment
+project_member
+team_member
+provider_account
+organization_member
+project
+team
+cost_center
+user_credential
+app_user
+organization
+```
+
+Do not delete the seeded `role`, `permission`, or `role_permission` catalog in the cleaner.
 
 ---
 
 ## File map
 
 ### Database / configuration
-
 - Create `backend/src/main/resources/db/migration/V4__m2_evidence_import_schema.sql`
 - Create `backend/src/main/resources/db/migration/V5__m2_finance_reviewer_provider_account_read.sql`
 - Modify `backend/pom.xml`
@@ -73,7 +106,6 @@ If `git status --short` prints anything, stop implementation and resolve the loc
 - Modify `.env.example`
 
 ### Evidence module
-
 - Create `backend/src/main/java/com/aicostops/evidence/domain/Evidence.java`
 - Create `backend/src/main/java/com/aicostops/evidence/domain/EvidenceStorageStatus.java`
 - Create `backend/src/main/java/com/aicostops/evidence/application/ObjectStoragePort.java`
@@ -89,13 +121,11 @@ If `git status --short` prints anything, stop implementation and resolve the loc
 - Create `backend/src/main/java/com/aicostops/evidence/api/EvidenceController.java`
 
 ### Organization read port
-
 - Create `backend/src/main/java/com/aicostops/organization/application/ProviderAccountDirectory.java`
 - Create `backend/src/main/java/com/aicostops/organization/domain/ProviderAccountSnapshot.java`
 - Create `backend/src/main/java/com/aicostops/organization/infrastructure/MyBatisProviderAccountDirectory.java`
 
 ### Ingestion module
-
 - Create `backend/src/main/java/com/aicostops/ingestion/domain/ImportSourceType.java`
 - Create `backend/src/main/java/com/aicostops/ingestion/domain/ImportBatchStatus.java`
 - Create `backend/src/main/java/com/aicostops/ingestion/domain/ImportAttemptStatus.java`
@@ -127,14 +157,13 @@ If `git status --short` prints anything, stop implementation and resolve the loc
 - Create `backend/src/main/java/com/aicostops/ingestion/api/ProviderImportController.java`
 - Create `backend/src/main/java/com/aicostops/ingestion/api/ProviderImportResponse.java`
 
-### Existing security / error files
-
+### Existing security / shared files
 - Modify `backend/src/main/java/com/aicostops/iam/infrastructure/SecurityConfiguration.java`
 - Modify `backend/src/main/java/com/aicostops/shared/web/ProblemCode.java`
 - Modify `backend/src/test/java/com/aicostops/architecture/ModuleDependencyArchitectureTest.java`
 
-### Test support and tests
-
+### Test support / tests
+- Create `backend/src/test/java/com/aicostops/testsupport/M2DatabaseCleaner.java`
 - Create `backend/src/test/java/com/aicostops/testsupport/MinioContainerSupport.java`
 - Create `backend/src/test/java/com/aicostops/M2EvidenceImportSchemaIntegrationTest.java`
 - Modify `backend/src/test/java/com/aicostops/RolePermissionSeedIntegrationTest.java`
@@ -146,9 +175,9 @@ If `git status --short` prints anything, stop implementation and resolve the loc
 - Create `backend/src/test/java/com/aicostops/ingestion/api/ProviderImportApiIntegrationTest.java`
 - Create `backend/src/test/java/com/aicostops/ingestion/application/ImportLeaseServiceIntegrationTest.java`
 - Create `backend/src/test/java/com/aicostops/ingestion/application/ImportAttemptExecutorIntegrationTest.java`
+- Create `backend/src/test/java/com/aicostops/ingestion/application/ImportWorkerCoordinatorIntegrationTest.java`
 
 ### Documentation / evidence
-
 - Modify `docs/02-development/detailed-design/02-data-model.md`
 - Modify `docs/02-development/detailed-design/15-configuration-environments.md`
 - Create `docs/02-development/api/03-m2-evidence-import-api.md`
@@ -156,91 +185,90 @@ If `git status --short` prints anything, stop implementation and resolve the loc
 
 ---
 
-### Task 1: Create the M2 schema and permission delta
+### Task 1: Create M2 schema, permission delta, and deterministic test cleanup
 
 **Files:**
-- Create: `backend/src/main/resources/db/migration/V4__m2_evidence_import_schema.sql`
-- Create: `backend/src/main/resources/db/migration/V5__m2_finance_reviewer_provider_account_read.sql`
-- Create: `backend/src/test/java/com/aicostops/M2EvidenceImportSchemaIntegrationTest.java`
-- Modify: `backend/src/test/java/com/aicostops/RolePermissionSeedIntegrationTest.java`
+- Create `V4__m2_evidence_import_schema.sql`
+- Create `V5__m2_finance_reviewer_provider_account_read.sql`
+- Create `M2EvidenceImportSchemaIntegrationTest.java`
+- Create `M2DatabaseCleaner.java`
+- Modify `RolePermissionSeedIntegrationTest.java`
 
-**Interfaces:**
-- Produces the five durable M2 tables consumed by all later tasks.
-- Produces `FINANCE_REVIEWER -> PROVIDER_ACCOUNT_READ` without granting `PROVIDER_ACCOUNT_MANAGE`.
+**Produces:** five durable M2 tables and the Finance Reviewer read-only Provider Account permission.
 
-- [ ] **Step 1: Write the failing schema integration test**
+- [ ] **Step 1: Write failing schema tests**
 
-The test must assert all five tables, core foreign keys, uniqueness, and queue/recovery indexes.
+Assert tables, key FKs, uniqueness, and these physical indexes:
 
-```java
-@SpringBootTest
-@Tag("integration")
-class M2EvidenceImportSchemaIntegrationTest extends MySqlContainerSupport {
-    @Autowired JdbcTemplate jdbcTemplate;
-
-    @Test
-    void migratesEvidenceAndImportFoundation() {
-        var tables = Set.copyOf(jdbcTemplate.queryForList(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE()",
-                String.class));
-        assertThat(tables).contains(
-                "evidence", "import_batch", "import_attempt", "raw_provider_record", "import_issue");
-    }
-
-    @Test
-    void exposesQueueAndRecoveryIndexes() {
-        var indexes = Set.copyOf(jdbcTemplate.queryForList(
-                "SELECT DISTINCT index_name FROM information_schema.statistics WHERE table_schema=DATABASE()",
-                String.class));
-        assertThat(indexes).contains(
-                "uq_evidence_org_sha256",
-                "uq_import_batch_identity",
-                "uq_import_attempt_batch_no",
-                "idx_import_attempt_queue",
-                "idx_import_attempt_lease",
-                "idx_import_attempt_batch_status",
-                "uq_raw_provider_record_attempt_index");
-    }
-}
+```text
+uq_evidence_org_sha256
+uq_import_batch_identity
+uq_import_attempt_batch_no
+idx_import_attempt_queue
+idx_import_attempt_lease
+idx_import_attempt_batch_status
+uq_raw_provider_record_attempt_index
 ```
 
-- [ ] **Step 2: Run it and verify RED**
+- [ ] **Step 2: Verify RED**
 
 ```powershell
 Set-Location E:\AI-CostOps\backend
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=M2EvidenceImportSchemaIntegrationTest verify
 ```
 
-Expected: FAIL because the M2 tables do not exist.
+Expected: FAIL because M2 tables do not exist.
 
-- [ ] **Step 3: Add `V4__m2_evidence_import_schema.sql`**
-
-Use explicit InnoDB tables, `utf8mb4_0900_ai_ci`, UTC `DATETIME(6)`, and `VARCHAR + CHECK` states. The physical indexes must be:
-
-```sql
-CONSTRAINT uq_evidence_org_sha256 UNIQUE (org_id, sha256);
-CONSTRAINT uq_import_batch_identity UNIQUE (evidence_id, provider_account_id, source_type, parser_version);
-CONSTRAINT uq_import_attempt_batch_no UNIQUE (import_batch_id, attempt_no);
-KEY idx_import_attempt_queue (status, available_at, id);
-KEY idx_import_attempt_lease (status, lease_until, id);
-KEY idx_import_attempt_batch_status (import_batch_id, status, id);
-CONSTRAINT uq_raw_provider_record_attempt_index UNIQUE (import_attempt_id, record_index);
-```
-
-Use these states exactly:
+- [ ] **Step 3: Implement V4 with these table shapes**
 
 ```text
-Evidence.storage_status = STAGING | AVAILABLE | FAILED
-ImportBatch.status = PENDING | PROCESSING | PARSED | FAILED | CANCELED
-ImportAttempt.status = QUEUED | RUNNING | SUCCEEDED | FAILED | CANCELED
-ImportAttempt.trigger_type = INITIAL | LEASE_RECOVERY | MANUAL_RETRY
-RawProviderRecord.normalize_status = NORMALIZED | WARN | ERROR
-ImportIssue.severity = WARN | ERROR
+evidence:
+  id, org_id, sha256, object_key, original_filename, media_type,
+  size_bytes, uploaded_by_member_id, storage_status, storage_error_code,
+  created_at, updated_at
+  UQ(org_id,sha256)
+
+import_batch:
+  id, org_id, evidence_id, provider_account_id,
+  expected_provider_code, source_type, parser_version, status,
+  period_start, period_end, created_by_member_id, created_at, updated_at
+  UQ(evidence_id,provider_account_id,source_type,parser_version)
+
+import_attempt:
+  id, import_batch_id, attempt_no, status, trigger_type,
+  predecessor_attempt_id, available_at, lease_owner, lease_until, lease_version,
+  parser_version, detected_provider_code, schema_fingerprint,
+  started_at, finished_at, error_code, error_summary,
+  records_seen, records_valid, warning_count, error_count, created_at
+  UQ(import_batch_id,attempt_no)
+  IDX(status,available_at,id)
+  IDX(status,lease_until,id)
+  IDX(import_batch_id,status,id)
+
+raw_provider_record:
+  id, import_attempt_id, record_index, record_locator, provider_record_key,
+  raw_payload JSON, normalized_payload JSON,
+  usage_start, usage_end, normalize_status, created_at
+  UQ(import_attempt_id,record_index)
+
+import_issue:
+  id, import_attempt_id, raw_provider_record_id,
+  severity, issue_code, record_locator, field_name,
+  message, raw_value_masked, created_at
 ```
 
-`import_batch.provider_account_id` is `NOT NULL` for this M2 provider-import workflow. `parser_version` is immutable by application contract. `predecessor_attempt_id` is nullable and references `import_attempt(id)`.
+Use `BIGINT AUTO_INCREMENT`, `DATETIME(6)`, InnoDB, `utf8mb4_0900_ai_ci`, explicit FKs, and CHECKs for the frozen states:
 
-- [ ] **Step 4: Add `V5__m2_finance_reviewer_provider_account_read.sql`**
+```text
+Evidence: STAGING|AVAILABLE|FAILED
+Batch: PENDING|PROCESSING|PARSED|FAILED|CANCELED
+Attempt: QUEUED|RUNNING|SUCCEEDED|FAILED|CANCELED
+Trigger: INITIAL|LEASE_RECOVERY|MANUAL_RETRY
+Raw normalize: NORMALIZED|WARN|ERROR
+Issue severity: WARN|ERROR
+```
+
+- [ ] **Step 4: Implement V5 permission delta**
 
 ```sql
 INSERT INTO role_permission(role_id, permission_id)
@@ -250,82 +278,67 @@ JOIN permission p
 WHERE r.code='FINANCE_REVIEWER'
   AND p.code='PROVIDER_ACCOUNT_READ'
   AND NOT EXISTS (
-      SELECT 1 FROM role_permission rp
-      WHERE rp.role_id=r.id AND rp.permission_id=p.id
+    SELECT 1 FROM role_permission rp
+    WHERE rp.role_id=r.id AND rp.permission_id=p.id
   );
 ```
 
-Do not grant `PROVIDER_ACCOUNT_MANAGE`.
+Assert Reviewer still lacks `PROVIDER_ACCOUNT_MANAGE`.
 
-- [ ] **Step 5: Extend role/permission seed integration coverage**
+- [ ] **Step 5: Implement `M2DatabaseCleaner`**
 
-Assert `FINANCE_REVIEWER` has `PROVIDER_ACCOUNT_READ` and still lacks `PROVIDER_ACCOUNT_MANAGE`.
+Use the exact FK-safe delete order in the Test isolation rule. Every new M2 integration test calls `clean(jdbcTemplate)` in both `@BeforeEach` and `@AfterEach`.
 
-- [ ] **Step 6: Run schema + seed integration tests**
+- [ ] **Step 6: Verify GREEN**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=M2EvidenceImportSchemaIntegrationTest,RolePermissionSeedIntegrationTest verify
 ```
 
-Expected: PASS.
+Expected: BUILD SUCCESS.
 
 - [ ] **Step 7: Commit**
 
 ```powershell
-git add backend/src/main/resources/db/migration backend/src/test/java/com/aicostops/M2EvidenceImportSchemaIntegrationTest.java backend/src/test/java/com/aicostops/RolePermissionSeedIntegrationTest.java
+git add backend/src/main/resources/db/migration backend/src/test/java/com/aicostops/M2EvidenceImportSchemaIntegrationTest.java backend/src/test/java/com/aicostops/RolePermissionSeedIntegrationTest.java backend/src/test/java/com/aicostops/testsupport/M2DatabaseCleaner.java
 git commit -m "feat(import): add evidence and ingestion schema"
 ```
 
 ---
 
-### Task 2: Add evidence persistence primitives
+### Task 2: Add Evidence persistence identity
 
-**Files:**
-- Create: `backend/src/main/java/com/aicostops/evidence/domain/Evidence.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/domain/EvidenceStorageStatus.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/infrastructure/EvidenceMapper.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/application/EvidencePersistenceService.java`
-- Test: `backend/src/test/java/com/aicostops/evidence/application/EvidenceStorageServiceIntegrationTest.java`
+**Files:** Evidence domain record/status, `EvidenceMapper`, `EvidencePersistenceService`, `EvidenceStorageServiceIntegrationTest`.
 
-**Interfaces:**
-- Produces `EvidencePersistenceService.reserve(...)`, `findAvailable(...)`, `markAvailable(...)`, and `markFailedUnlessAvailable(...)`.
-- Later object-storage code must not call MyBatis directly.
+**Produces:** short transactional reservation/finalization APIs; later storage code never calls MyBatis directly.
 
-- [ ] **Step 1: Write a failing integration test for same-SHA identity**
+- [ ] **Step 1: Write failing integration tests** for same `(org_id,sha256)` reuse, different-org separation, and “AVAILABLE cannot be downgraded by a late failure”. Use M2 before/after cleanup.
 
-Test that two reservations with the same `(org_id, sha256)` return the same Evidence id and that `AVAILABLE` can never be downgraded to `FAILED`.
-
-- [ ] **Step 2: Run RED**
+- [ ] **Step 2: Verify RED**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=EvidenceStorageServiceIntegrationTest verify
 ```
 
-Expected: FAIL because the evidence persistence service does not exist.
-
-- [ ] **Step 3: Implement focused domain records**
-
-`Evidence` contains the persisted columns only; do not add import state to it.
+- [ ] **Step 3: Implement the record**
 
 ```java
 public record Evidence(
-        long id,
-        long organizationId,
-        String sha256,
-        String objectKey,
-        String originalFilename,
-        String mediaType,
-        long sizeBytes,
-        long uploadedByMemberId,
-        EvidenceStorageStatus storageStatus,
-        String storageErrorCode,
-        Instant createdAt,
-        Instant updatedAt) {}
+    long id,
+    long organizationId,
+    String sha256,
+    String objectKey,
+    String originalFilename,
+    String mediaType,
+    long sizeBytes,
+    long uploadedByMemberId,
+    EvidenceStorageStatus storageStatus,
+    String storageErrorCode,
+    Instant createdAt,
+    Instant updatedAt) {}
 ```
 
-- [ ] **Step 4: Implement `EvidenceMapper` with organization-scoped SQL**
-
-Required methods:
+- [ ] **Step 4: Implement mapper methods**
 
 ```java
 Evidence findByOrganizationAndSha(long organizationId, String sha256);
@@ -336,59 +349,31 @@ int markFailedUnlessAvailable(long evidenceId, long organizationId, String error
 long lastInsertId();
 ```
 
-`markFailedUnlessAvailable` must contain `AND storage_status <> 'AVAILABLE'` so a late failing concurrent uploader cannot downgrade a successfully stored object.
+`markFailedUnlessAvailable` includes `AND storage_status <> 'AVAILABLE'`.
 
-- [ ] **Step 5: Implement transactional reservation/finalization**
+- [ ] **Step 5: Implement `EvidencePersistenceService`** with short `@Transactional` methods. Convert duplicate-key races into lookup/reuse rather than 500.
 
-`EvidencePersistenceService` owns short `@Transactional` methods. Duplicate-key races are converted into lookup/reuse; they are not surfaced as 500 errors.
-
-- [ ] **Step 6: Run GREEN**
+- [ ] **Step 6: Verify GREEN and commit**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=EvidenceStorageServiceIntegrationTest verify
-```
-
-Expected: PASS for duplicate reservation and no-downgrade behavior.
-
-- [ ] **Step 7: Commit**
-
-```powershell
 git add backend/src/main/java/com/aicostops/evidence backend/src/test/java/com/aicostops/evidence/application/EvidenceStorageServiceIntegrationTest.java
 git commit -m "feat(evidence): add evidence persistence identity"
 ```
 
 ---
 
-### Task 3: Add S3-compatible MinIO configuration and adapter
+### Task 3: Add MinIO/S3 adapter with lazy initialization
 
-**Files:**
-- Modify: `backend/pom.xml`
-- Modify: `backend/src/main/resources/application.yml`
-- Modify: `backend/src/test/resources/application-test-defaults.yml`
-- Modify: `compose.yaml`
-- Modify: `.env.example`
-- Create: `backend/src/main/java/com/aicostops/evidence/application/ObjectStoragePort.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/application/EvidenceContentReader.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/infrastructure/EvidenceStorageProperties.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/infrastructure/EvidenceStorageConfiguration.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/infrastructure/MinioObjectStorageAdapter.java`
-- Create: `backend/src/test/java/com/aicostops/testsupport/MinioContainerSupport.java`
-- Create: `backend/src/test/java/com/aicostops/evidence/infrastructure/MinioObjectStorageAdapterIntegrationTest.java`
+**Files:** `pom.xml`, application/test config, Compose, `.env.example`, `ObjectStoragePort`, `EvidenceContentReader`, storage properties/configuration, MinIO adapter, `MinioContainerSupport`, MinIO integration test.
 
-**Interfaces:**
-- `ObjectStoragePort.put(objectKey, path, size, sha256)`
-- `ObjectStoragePort.stat(objectKey)` returns size + explicit SHA-256 user metadata.
-- `ObjectStoragePort.open(objectKey)` returns a closeable stream.
-- `ObjectStoragePort` contains no MinIO classes in its public signature.
+**Produces:** S3-compatible storage behind a MinIO-free application port.
 
-- [ ] **Step 1: Add the MinIO Java dependency**
+- [ ] **Step 1: Add MinIO Java 9.0.1**
 
 ```xml
-<properties>
-  ...
-  <minio.version>9.0.1</minio.version>
-</properties>
-
+<minio.version>9.0.1</minio.version>
+...
 <dependency>
   <groupId>io.minio</groupId>
   <artifactId>minio</artifactId>
@@ -396,9 +381,7 @@ git commit -m "feat(evidence): add evidence persistence identity"
 </dependency>
 ```
 
-- [ ] **Step 2: Add configuration properties**
-
-Under `aicostops.storage` configure:
+- [ ] **Step 2: Add storage config**
 
 ```yaml
 aicostops:
@@ -411,7 +394,7 @@ aicostops:
     auto-create-bucket: ${AICOSTOPS_STORAGE_AUTO_CREATE_BUCKET:true}
 ```
 
-Keep multipart framework limits slightly above the domain limit so application code can return the domain-specific oversize error rather than Tomcat rejecting first:
+Keep framework multipart limits slightly above the domain limit:
 
 ```yaml
 spring:
@@ -421,53 +404,55 @@ spring:
       max-request-size: ${AICOSTOPS_MULTIPART_MAX_REQUEST_SIZE:525MB}
 ```
 
-- [ ] **Step 3: Update local MinIO image**
-
-In `compose.yaml` use:
+- [ ] **Step 3: In `application-test-defaults.yml`, also set**
 
 ```yaml
-image: minio/minio:RELEASE.2025-10-15T17-29-55Z
+aicostops:
+  ingestion:
+    worker-enabled: false
 ```
 
-Retain the existing S3 endpoint, bucket, access-key, and secret-key environment variables.
+This prevents async races in all ordinary integration tests.
 
-- [ ] **Step 4: Write a real MinIO integration test**
+- [ ] **Step 4: Update Compose MinIO image** to `minio/minio:RELEASE.2025-10-15T17-29-55Z`; keep existing endpoint/credential/bucket env wiring.
 
-`MinioContainerSupport` uses Testcontainers `GenericContainer` with the same MinIO image and dynamically supplies endpoint/credentials/bucket properties.
+- [ ] **Step 5: Define port without MinIO types**
 
-Test:
-
-```text
-put object with sha256 metadata
-stat object returns exact size and sha256
-open object streams exact bytes
+```java
+void put(String objectKey, Path file, long sizeBytes, String sha256);
+Optional<StoredObjectMetadata> stat(String objectKey);
+InputStream open(String objectKey);
 ```
 
-- [ ] **Step 5: Implement the adapter with lazy bucket initialization**
+`StoredObjectMetadata` carries exact size and explicit SHA-256 user metadata. ETag is never the Evidence checksum contract.
 
-The adapter must use explicit user metadata `sha256=<lowercase-hex>`. Do not treat ETag as Evidence SHA-256.
+- [ ] **Step 6: Create `MinioContainerSupport extends MySqlContainerSupport`**
 
-Do **not** contact MinIO from bean construction, configuration binding, `@PostConstruct`, or generic application startup. On the first actual storage operation only:
+It starts a `GenericContainer` for MinIO and registers dynamic storage endpoint/credentials/bucket properties. Tests needing MySQL+MinIO extend this one class; tests needing MySQL only keep using `MySqlContainerSupport`.
 
-```text
-if bucket state has not been initialized in this process
--> check bucket existence
--> if missing and autoCreateBucket=true, create it
--> if missing and autoCreateBucket=false, throw storage dependency exception
--> memoize successful initialization
-```
+- [ ] **Step 7: Write RED/GREEN real MinIO test**
 
-A transient initialization failure must not memoize failure permanently; a later operation may retry.
-
-- [ ] **Step 6: Run GREEN**
+Test put/stat/open exact bytes and metadata.
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=MinioObjectStorageAdapterIntegrationTest verify
 ```
 
-Expected: PASS against real MinIO.
+- [ ] **Step 8: Implement lazy bucket initialization**
 
-Then prove an unrelated M1 context still starts with no MinIO container:
+On first actual storage operation only:
+
+```text
+if not initialized -> bucketExists
+missing + autoCreate=true -> makeBucket
+missing + autoCreate=false -> dependency failure
+success -> memoize initialized
+failure -> do not memoize; a later operation may retry
+```
+
+No MinIO calls during bean construction/startup.
+
+- [ ] **Step 9: Regression proof that M1 boots without MinIO**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=M1SchemaIntegrationTest verify
@@ -475,192 +460,112 @@ Then prove an unrelated M1 context still starts with no MinIO container:
 
 Expected: PASS without attempting `localhost:9000`.
 
-- [ ] **Step 7: Validate Compose**
+- [ ] **Step 10: Validate/commit**
 
 ```powershell
 Set-Location E:\AI-CostOps
 docker compose config --quiet
-```
-
-Expected: exit code 0 and no output.
-
-- [ ] **Step 8: Commit**
-
-```powershell
-git add backend/pom.xml backend/src/main/resources/application.yml backend/src/test/resources/application-test-defaults.yml compose.yaml .env.example backend/src/main/java/com/aicostops/evidence backend/src/test/java/com/aicostops/testsupport/MinioContainerSupport.java backend/src/test/java/com/aicostops/evidence/infrastructure/MinioObjectStorageAdapterIntegrationTest.java
+Set-Location E:\AI-CostOps\backend
+.\mvnw.cmd -B -Dgroups=integration -Dit.test=MinioObjectStorageAdapterIntegrationTest verify
+git add pom.xml src/main/resources/application.yml src/test/resources/application-test-defaults.yml ..\compose.yaml ..\.env.example src/main/java/com/aicostops/evidence src/test/java/com/aicostops/testsupport/MinioContainerSupport.java src/test/java/com/aicostops/evidence/infrastructure/MinioObjectStorageAdapterIntegrationTest.java
 git commit -m "feat(storage): add S3-compatible evidence storage"
 ```
 
 ---
 
-### Task 4: Implement streaming upload, checksum, dedup, and storage recovery
+### Task 4: Implement streaming Evidence upload, dedup, and storage recovery
 
-**Files:**
-- Create: `backend/src/main/java/com/aicostops/evidence/application/EvidenceUploadStager.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/application/EvidenceStorageService.java`
-- Modify: `backend/src/main/java/com/aicostops/shared/web/ProblemCode.java`
-- Create: `backend/src/test/java/com/aicostops/evidence/application/EvidenceUploadStagerTest.java`
-- Extend: `backend/src/test/java/com/aicostops/evidence/application/EvidenceStorageServiceIntegrationTest.java`
+**Files:** `EvidenceUploadStager`, `EvidenceStorageService`, `ProblemCode`, stager unit test, Evidence storage integration test.
 
-**Interfaces:**
-- `EvidenceUploadStager.stage(InputStream, originalFilename, mediaType)` returns temp path, SHA-256, and size and is `AutoCloseable`/cleanup-safe.
-- `EvidenceStorageService.store(...)` returns an `Evidence` plus `reused` flag.
-
-- [ ] **Step 1: Write unit tests for streaming staging**
-
-Cover:
-
-```text
-checksum matches known bytes
-temp file is deleted after close
-limit is enforced at limit + 1 byte
-stream is processed with bounded buffer; no whole-file API is used
-```
-
-- [ ] **Step 2: Run RED**
+- [ ] **Step 1: RED unit tests** for known SHA, temp cleanup, `limit+1` rejection, and no whole-file API.
 
 ```powershell
-Set-Location E:\AI-CostOps\backend
 .\mvnw.cmd -B -Dtest=EvidenceUploadStagerTest test
 ```
 
-Expected: FAIL because the stager does not exist.
+- [ ] **Step 2: Implement bounded staging** using a fixed ~64 KiB buffer, `MessageDigest("SHA-256")`, explicit byte counter, and deterministic cleanup. Add `EVIDENCE_TOO_LARGE`, HTTP 413. Never use `readAllBytes()` or `MultipartFile.getBytes()`.
 
-- [ ] **Step 3: Implement bounded streaming**
-
-Use a fixed buffer such as 64 KiB, `MessageDigest.getInstance("SHA-256")`, and an explicit byte counter. Abort and delete the temp file when bytes exceed the configured 512 MiB limit. Do not call `readAllBytes()` or `MultipartFile.getBytes()`.
-
-Add `EVIDENCE_TOO_LARGE` to `ProblemCode` and map oversize uploads to HTTP 413.
-
-- [ ] **Step 4: Write integration tests for storage lifecycle**
-
-Cover:
+- [ ] **Step 3: RED integration tests** for:
 
 ```text
-same org + same bytes -> same Evidence id
-same bytes across different orgs -> different Evidence ids/object namespaces
-MinIO/object storage put runs with TransactionSynchronizationManager.isActualTransactionActive() == false
-STAGING + matching existing object repairs to AVAILABLE
-mismatched existing object metadata -> identity conflict; never overwrite
-late storage failure cannot downgrade AVAILABLE
+same org/same bytes -> same Evidence id
+same bytes/different org -> different Evidence id/object namespace
+storage put sees TransactionSynchronizationManager.isActualTransactionActive()==false
+STAGING + matching existing object -> AVAILABLE repair
+mismatched size/SHA metadata at deterministic key -> conflict, never overwrite
+late failure cannot downgrade AVAILABLE
 ```
 
-Use a recording/fault-injecting `ObjectStoragePort` test bean for transaction-boundary and failure-window tests; keep real MinIO behavior in Task 3 tests.
-
-- [ ] **Step 5: Implement object-key and storage lifecycle**
-
-Object key format:
+- [ ] **Step 4: Implement deterministic key**
 
 ```text
-org/{orgId}/evidence/sha256/{first-two-hex}/{sha256}
+org/{orgId}/evidence/sha256/{sha[0..1]}/{sha256}
 ```
 
-Sequence:
+Flow:
 
 ```text
-stage request bytes
--> reserve/reuse STAGING Evidence in short transaction
--> if AVAILABLE return reused result
--> stat deterministic object
--> if matching object exists mark AVAILABLE
--> else upload outside DB transaction
--> short transaction mark AVAILABLE
--> on storage error mark FAILED unless already AVAILABLE
--> always delete temp file
+stage bytes
+-> short DB reserve/reuse
+-> AVAILABLE? return
+-> stat object
+-> matching object? short DB mark AVAILABLE
+-> otherwise put outside DB tx
+-> short DB mark AVAILABLE
+-> storage failure: mark FAILED unless already AVAILABLE
+-> always remove temp file
 ```
 
-- [ ] **Step 6: Run tests**
+- [ ] **Step 5: Verify/commit**
 
 ```powershell
 .\mvnw.cmd -B -Dtest=EvidenceUploadStagerTest test
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=EvidenceStorageServiceIntegrationTest verify
-```
-
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
-
-```powershell
-git add backend/src/main/java/com/aicostops/evidence backend/src/main/java/com/aicostops/shared/web/ProblemCode.java backend/src/test/java/com/aicostops/evidence
+git add src/main/java/com/aicostops/evidence src/main/java/com/aicostops/shared/web/ProblemCode.java src/test/java/com/aicostops/evidence
 git commit -m "feat(evidence): add resilient streaming upload"
 ```
 
 ---
 
-### Task 5: Add authorized Evidence download
+### Task 5: Add authorized raw Evidence download
 
-**Files:**
-- Create: `backend/src/main/java/com/aicostops/evidence/application/EvidenceDownloadService.java`
-- Create: `backend/src/main/java/com/aicostops/evidence/api/EvidenceController.java`
-- Modify: `backend/src/main/java/com/aicostops/iam/infrastructure/SecurityConfiguration.java`
-- Create: `backend/src/test/java/com/aicostops/evidence/api/EvidenceDownloadApiIntegrationTest.java`
+**Files:** `EvidenceDownloadService`, `EvidenceController`, `SecurityConfiguration`, `EvidenceDownloadApiIntegrationTest`.
 
-**Interfaces:**
-- `GET /api/v1/evidence/{id}/download`
-- Requires `EVIDENCE_DOWNLOAD` **with ORG scope** through existing AuthorizationContext/Application Service checks.
-- Cross-org and nonexistent evidence both return privacy-preserving 404.
-- Existing Evidence whose `storage_status != AVAILABLE` returns `409 STATE_CONFLICT`; no partial content is opened or streamed.
+**Route:** `GET /api/v1/evidence/{id}/download`.
 
-- [ ] **Step 1: Write failing API tests**
+**Authorization:** `EVIDENCE_DOWNLOAD` + ORG scope. Cross-org/nonexistent = 404. Existing Evidence not `AVAILABLE` = `409 STATE_CONFLICT` and no object stream is opened.
 
-Cover:
+- [ ] **Step 1: RED API tests**
 
 ```text
-Finance Reviewer with EVIDENCE_DOWNLOAD + ORG scope -> 200 and exact bytes
-same permission without ORG scope -> 403
+Finance Reviewer + permission + ORG -> 200 exact bytes
+same permission but only non-ORG scope -> 403
 missing permission -> 403
-cross-org Evidence id -> 404
-Evidence storage_status != AVAILABLE -> 409 STATE_CONFLICT
+cross-org -> 404
+STAGING/FAILED -> 409 STATE_CONFLICT
 ```
 
-- [ ] **Step 2: Run RED**
+- [ ] **Step 2: Implement service** using `AuthorizationContextService` + `M1AuthorizationService.requireOrg(context,"EVIDENCE_DOWNLOAD")`, then org-scoped Evidence lookup, state check, and object open.
+
+- [ ] **Step 3: Implement streaming controller** with `StreamingResponseBody`; close stream deterministically and sanitize Content-Disposition filename. Never expose object key.
+
+- [ ] **Step 4: Add only the exact authenticated matcher** and retain final `.anyRequest().denyAll()`.
+
+- [ ] **Step 5: Verify/commit**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=EvidenceDownloadApiIntegrationTest verify
-```
-
-- [ ] **Step 3: Implement service and controller**
-
-Use current AuthorizationContext and the existing `M1AuthorizationService.requireOrg(context, "EVIDENCE_DOWNLOAD")` pattern before organization-scoped Evidence lookup. Then open the object only when Evidence is `AVAILABLE`.
-
-Stream with `StreamingResponseBody`; close the object stream deterministically. Build `Content-Disposition` from a sanitized filename, never from object key.
-
-- [ ] **Step 4: Add authenticated matcher**
-
-Add only the exact GET route to `SecurityConfiguration`; keep final `.anyRequest().denyAll()`.
-
-- [ ] **Step 5: Run GREEN**
-
-```powershell
-.\mvnw.cmd -B -Dgroups=integration -Dit.test=EvidenceDownloadApiIntegrationTest verify
-```
-
-- [ ] **Step 6: Commit**
-
-```powershell
-git add backend/src/main/java/com/aicostops/evidence backend/src/main/java/com/aicostops/iam/infrastructure/SecurityConfiguration.java backend/src/test/java/com/aicostops/evidence/api/EvidenceDownloadApiIntegrationTest.java
+git add src/main/java/com/aicostops/evidence src/main/java/com/aicostops/iam/infrastructure/SecurityConfiguration.java src/test/java/com/aicostops/evidence/api/EvidenceDownloadApiIntegrationTest.java
 git commit -m "feat(evidence): add authorized evidence download"
 ```
 
 ---
 
-### Task 6: Add Provider Account read port and ProviderAdapter registry
+### Task 6: Add Provider Account directory and explicit ProviderAdapter registry
 
-**Files:**
-- Create: `backend/src/main/java/com/aicostops/organization/application/ProviderAccountDirectory.java`
-- Create: `backend/src/main/java/com/aicostops/organization/domain/ProviderAccountSnapshot.java`
-- Create: `backend/src/main/java/com/aicostops/organization/infrastructure/MyBatisProviderAccountDirectory.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/ProviderSource.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/ProviderAdapter.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/ProviderAdapterRegistry.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/ProviderRecordSink.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/InspectionResult.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/ParsedProviderRecord.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/NormalizedProviderRecord.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/ImportIssueDraft.java`
-- Create: `backend/src/test/java/com/aicostops/ingestion/application/ProviderAdapterRegistryTest.java`
+**Files:** organization read port/snapshot/adapter; ProviderSource/Adapter/Registry/Sink and inspection/record/issue value types; registry unit test.
 
-**Interfaces:**
+**Adapter interface:**
 
 ```java
 public interface ProviderAdapter {
@@ -672,33 +577,11 @@ public interface ProviderAdapter {
 }
 ```
 
-`ProviderSource.openStream()` must return a fresh closeable stream each time so inspect and parse do not share an exhausted stream.
+- [ ] **Step 1: RED registry tests** for canonical lookup, unknown provider, and duplicate registration. Canonical code is `trim().toUpperCase(Locale.ROOT)`.
 
-- [ ] **Step 1: Write registry tests**
+- [ ] **Step 2: Implement registry** as immutable explicit map. Duplicate canonical code fails construction; unknown code returns stable 400 validation behavior. Empty production list is allowed in Group 1. Never register synthetic adapters in `src/main`.
 
-Cover canonical provider-code lookup, missing adapter, and duplicate canonical registration.
-
-Canonicalization rule:
-
-```java
-providerCode.trim().toUpperCase(Locale.ROOT)
-```
-
-- [ ] **Step 2: Run RED**
-
-```powershell
-.\mvnw.cmd -B -Dtest=ProviderAdapterRegistryTest test
-```
-
-- [ ] **Step 3: Implement explicit registry**
-
-Build an immutable map from injected adapters. Duplicate canonical codes throw at application startup/registry construction. Unknown providers return a stable validation failure; never guess from class names.
-
-The production registry may be empty in Group 1. Do not register a fake/synthetic ProviderAdapter in `src/main`; synthetic adapters belong under tests only.
-
-- [ ] **Step 4: Implement schema fingerprint contract**
-
-`InspectionResult` carries:
+- [ ] **Step 3: Define inspection contract**
 
 ```text
 detectedProviderCode
@@ -707,22 +590,17 @@ compatible
 issues[]
 ```
 
-Schema fingerprint is SHA-256 over a canonical schema descriptor, not over file bytes and not over row values.
+Fingerprint is SHA-256 of a canonical schema descriptor, not file bytes/row values.
 
-- [ ] **Step 5: Implement read-only Provider Account directory**
+- [ ] **Step 4: Define ProviderSource** so every `openStream()` opens a fresh object stream; inspect and parse never share an exhausted InputStream.
 
-`findActive(organizationId, providerAccountId)` must scope SQL by both id and org and require status `ACTIVE`. It returns only fields needed by ingestion: id, org id, canonicalizable provider code, display name, status.
+- [ ] **Step 5: Implement `ProviderAccountDirectory.findActive(orgId,id)`** with SQL scoped by id+org and status `ACTIVE`; return only snapshot fields ingestion needs.
 
-- [ ] **Step 6: Run GREEN**
+- [ ] **Step 6: Verify/commit**
 
 ```powershell
 .\mvnw.cmd -B -Dtest=ProviderAdapterRegistryTest test
-```
-
-- [ ] **Step 7: Commit**
-
-```powershell
-git add backend/src/main/java/com/aicostops/organization backend/src/main/java/com/aicostops/ingestion/application backend/src/test/java/com/aicostops/ingestion/application/ProviderAdapterRegistryTest.java
+git add src/main/java/com/aicostops/organization src/main/java/com/aicostops/ingestion/application src/test/java/com/aicostops/ingestion/application/ProviderAdapterRegistryTest.java
 git commit -m "feat(import): add provider adapter registry"
 ```
 
@@ -730,123 +608,76 @@ git commit -m "feat(import): add provider adapter registry"
 
 ### Task 7: Add Import persistence and idempotent provider-import creation
 
-**Files:**
-- Create: ingestion domain enums/records listed in file map
-- Create: `ImportBatchMapper.java`
-- Create: `ImportAttemptMapper.java`
-- Create: `ProviderImportService.java`
-- Create: `ProviderImportController.java`
-- Create: `ProviderImportResponse.java`
-- Modify: `SecurityConfiguration.java`
-- Create: `ProviderImportApiIntegrationTest.java`
+**Files:** ingestion enums/records, `ImportBatchMapper`, `ImportAttemptMapper`, Provider import service/controller/response, security matcher, API integration test.
 
-**Interfaces:**
-- `POST /api/v1/provider-imports` multipart fields: `file`, `providerAccountId`, `sourceType`.
-- Requires `EVIDENCE_UPLOAD_PROVIDER` **with ORG scope**.
-- Resolves Provider Account and Adapter before persisting a new Batch.
-- Returns existing Batch without creating a new Attempt when identity already exists.
-
-- [ ] **Step 1: Define M2 source type enum**
+**Source type:**
 
 ```java
-public enum ImportSourceType {
-    FILE_EXPORT,
-    USAGE_API_JSON,
-    COSTS_API_JSON
-}
+FILE_EXPORT,
+USAGE_API_JSON,
+COSTS_API_JSON
 ```
 
-- [ ] **Step 2: Write failing integration tests with a synthetic test adapter**
+**Route:** `POST /api/v1/provider-imports` multipart `file`, `providerAccountId`, `sourceType`.
 
-Test configuration registers a `TEST_PROVIDER` adapter only in tests.
+**Authorization:** `EVIDENCE_UPLOAD_PROVIDER` + ORG scope.
 
-Cover:
+- [ ] **Step 1: RED API tests with a test-only `TEST_PROVIDER` adapter**
 
 ```text
-new file/context + EVIDENCE_UPLOAD_PROVIDER/ORG -> Evidence + Batch + Attempt #1 QUEUED
-same bytes + same provider account + same source type + same parser version -> same Evidence/Batch/Attempt
-same bytes + different Provider Account -> same Evidence but different Batch
-same permission without ORG scope -> 403
-inactive/cross-org Provider Account -> privacy-preserving 404
+new context -> Evidence + Batch + Attempt #1 QUEUED
+same bytes/account/source/parser -> same Evidence/Batch/latest Attempt; no new Attempt
+same bytes + different Provider Account -> same Evidence, different Batch
+permission but non-ORG scope -> 403
+inactive/cross-org Provider Account -> 404
 unsupported provider -> 400 and no ImportBatch
-missing EVIDENCE_UPLOAD_PROVIDER -> 403
+missing upload permission -> 403
 ```
 
-- [ ] **Step 3: Run RED**
+Because test defaults disable worker, these tests can deterministically assert `QUEUED`.
 
-```powershell
-.\mvnw.cmd -B -Dgroups=integration -Dit.test=ProviderImportApiIntegrationTest verify
-```
-
-- [ ] **Step 4: Implement Batch insert/reuse transaction**
-
-Within one short transaction:
+- [ ] **Step 2: Implement Batch identity transaction**
 
 ```text
-lock/find-or-insert ImportBatch identity
-if new: insert Attempt #1 status QUEUED, trigger INITIAL, attempt_no=1
-if existing: return latest Attempt; do not create a new Attempt
+lock/find-or-insert Batch identity
+new Batch -> insert Attempt #1, INITIAL, QUEUED
+existing Batch -> return latest Attempt, no retry
 ```
 
-Any code path that creates a new Attempt must lock the parent `import_batch` row first and verify no `QUEUED` or `RUNNING` Attempt exists.
+Any future Attempt creation path locks parent `import_batch` and verifies there is no `QUEUED`/`RUNNING` Attempt before assigning `attempt_no`.
 
-- [ ] **Step 5: Implement request flow**
-
-Order:
+- [ ] **Step 3: Implement request order**
 
 ```text
-auth context
--> require ORG scope + EVIDENCE_UPLOAD_PROVIDER
--> find ACTIVE provider account in current org
--> resolve adapter/parserVersion
+auth + require ORG/EVIDENCE_UPLOAD_PROVIDER
+-> ACTIVE provider account
+-> registry resolve adapter/parserVersion
 -> store/reuse Evidence
 -> create/reuse Batch
--> return response
+-> response
 ```
 
-Resolve unsupported provider before expensive file storage when possible. In Group 1 production, unsupported real providers therefore return 400 until Group 2 registers their production adapters.
+Resolve unsupported provider before expensive file storage when possible. Group 1 production therefore returns 400 for real providers until Group 2 registers their adapters.
 
-- [ ] **Step 6: Add security matcher and GREEN test**
+- [ ] **Step 4: Verify/commit**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=ProviderImportApiIntegrationTest verify
-```
-
-- [ ] **Step 7: Commit**
-
-```powershell
-git add backend/src/main/java/com/aicostops/ingestion backend/src/main/java/com/aicostops/iam/infrastructure/SecurityConfiguration.java backend/src/test/java/com/aicostops/ingestion/api/ProviderImportApiIntegrationTest.java
+git add src/main/java/com/aicostops/ingestion src/main/java/com/aicostops/iam/infrastructure/SecurityConfiguration.java src/test/java/com/aicostops/ingestion/api/ProviderImportApiIntegrationTest.java
 git commit -m "feat(import): add idempotent provider import creation"
 ```
 
 ---
 
-### Task 8: Implement MySQL claim, lease, heartbeat, and fencing
+### Task 8: Implement MySQL claim, heartbeat, and lease fencing
 
-**Files:**
-- Create: `backend/src/main/java/com/aicostops/ingestion/application/ImportLeaseService.java`
-- Extend: `backend/src/main/java/com/aicostops/ingestion/infrastructure/ImportAttemptMapper.java`
-- Create: `backend/src/main/java/com/aicostops/ingestion/infrastructure/ImportWorkerProperties.java`
-- Create: `backend/src/test/java/com/aicostops/ingestion/application/ImportLeaseServiceIntegrationTest.java`
+**Files:** `ImportLeaseService`, `ImportAttemptMapper`, worker properties, lease integration test.
 
-**Interfaces:**
-- `claimNext(workerId)` -> optional claimed Attempt carrying lease owner/version.
-- `heartbeat(attemptId, workerId, leaseVersion)` -> boolean ownership retained.
-- `assertLeaseForUpdate(...)` is used before every bounded raw persistence transaction/finalization.
+**Produces:** `claimNext(workerId)`, `heartbeat(...)`, fenced ownership verification.
 
-- [ ] **Step 1: Write dual-worker claim test**
+- [ ] **Step 1: RED dual-worker tests** prove one queued job cannot be claimed twice and two queued jobs can be claimed by two workers without blocking each other.
 
-Insert two queued Attempts, start two concurrent claim transactions, and prove each worker receives a different Attempt. Add a single-job variant proving only one worker receives it.
-
-- [ ] **Step 2: Run RED**
-
-```powershell
-.\mvnw.cmd -B -Dgroups=integration -Dit.test=ImportLeaseServiceIntegrationTest verify
-```
-
-- [ ] **Step 3: Implement explicit claim SQL**
-
-Mapper select:
+- [ ] **Step 2: Implement claim in one short transaction**
 
 ```sql
 SELECT ...
@@ -854,51 +685,25 @@ FROM import_attempt ia
 JOIN import_batch ib ON ib.id=ia.import_batch_id
 WHERE ia.status='QUEUED'
   AND ia.available_at <= UTC_TIMESTAMP(6)
-ORDER BY ia.available_at, ia.id
+ORDER BY ia.available_at,ia.id
 FOR UPDATE SKIP LOCKED
-LIMIT 1
+LIMIT 1;
 ```
 
-In the same transaction, set:
+Then set Attempt `RUNNING`, owner, `lease_until=TIMESTAMPADD(MICROSECOND,:leaseMicros,UTC_TIMESTAMP(6))`, increment `lease_version`, set `started_at`, and parent Batch `PROCESSING` before commit.
 
-```sql
-status='RUNNING',
-lease_owner=:workerId,
-lease_until=TIMESTAMPADD(MICROSECOND,:leaseMicros,UTC_TIMESTAMP(6)),
-lease_version=lease_version+1,
-started_at=COALESCE(started_at,UTC_TIMESTAMP(6))
-```
+- [ ] **Step 3: Implement heartbeat conditional update** requiring id, `RUNNING`, owner, exact lease version, and unexpired DB-time lease. Zero rows = lease lost.
 
-and set parent Batch to `PROCESSING`.
-
-- [ ] **Step 4: Implement heartbeat fencing**
-
-Heartbeat update must require:
-
-```sql
-id=:attemptId
-AND status='RUNNING'
-AND lease_owner=:workerId
-AND lease_version=:leaseVersion
-AND lease_until > UTC_TIMESTAMP(6)
-```
-
-Zero affected rows means lease lost.
-
-- [ ] **Step 5: Test stale-owner fencing**
-
-Prove a stale owner/version cannot heartbeat or finalize after ownership changes/expiry.
-
-- [ ] **Step 6: Run GREEN**
+- [ ] **Step 4: RED/GREEN stale-owner tests** prove stale owner/version cannot heartbeat or finalize.
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=ImportLeaseServiceIntegrationTest verify
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 5: Commit**
 
 ```powershell
-git add backend/src/main/java/com/aicostops/ingestion backend/src/test/java/com/aicostops/ingestion/application/ImportLeaseServiceIntegrationTest.java
+git add src/main/java/com/aicostops/ingestion src/test/java/com/aicostops/ingestion/application/ImportLeaseServiceIntegrationTest.java
 git commit -m "feat(import): add fenced MySQL import leases"
 ```
 
@@ -906,33 +711,21 @@ git commit -m "feat(import): add fenced MySQL import leases"
 
 ### Task 9: Implement lease-expiry crash recovery
 
-**Files:**
-- Extend: `ImportLeaseService.java`
-- Extend: `ImportAttemptMapper.java`
-- Extend: `ImportBatchMapper.java`
-- Extend: `ImportLeaseServiceIntegrationTest.java`
+**Files:** extend lease service, attempt/batch mappers, lease integration test.
 
-**Interfaces:**
-- `recoverOneExpired()` atomically fails an expired Attempt and either creates one new `LEASE_RECOVERY` Attempt or leaves Batch `FAILED` when budget is exhausted.
-
-- [ ] **Step 1: Write failing recovery tests**
-
-Cover:
+- [ ] **Step 1: RED recovery tests**
 
 ```text
-expired RUNNING -> old FAILED + new QUEUED Attempt #N+1
-new Attempt predecessor_attempt_id points to expired Attempt
-new Attempt trigger_type=LEASE_RECOVERY
+expired RUNNING -> old FAILED(WORKER_LEASE_EXPIRED) + successor QUEUED
+successor attempt_no=N+1, trigger=LEASE_RECOVERY, predecessor=old id
 Batch -> PENDING
-old raw rows remain attached to old Attempt
-3 recovery Attempts exhausted -> no new Attempt, Batch FAILED
-non-expired RUNNING -> untouched
-concurrent recovery workers -> only one successor Attempt
+old raw rows remain
+3 recovery Attempts exhausted -> no successor; Batch FAILED
+nonexpired RUNNING untouched
+concurrent recovery workers -> exactly one successor
 ```
 
-- [ ] **Step 2: Implement recovery transaction**
-
-Select expired Attempts with:
+- [ ] **Step 2: Implement recovery query**
 
 ```sql
 WHERE status='RUNNING'
@@ -942,88 +735,52 @@ FOR UPDATE SKIP LOCKED
 LIMIT 1
 ```
 
-Lock the parent Batch before assigning the next Attempt number. Count existing `LEASE_RECOVERY` attempts for the Batch and compare against configured max 3.
+Lock parent Batch before successor insertion, verify no active Attempt, and count existing `LEASE_RECOVERY` attempts against max 3.
 
-- [ ] **Step 3: Run GREEN**
+- [ ] **Step 3: Verify/commit**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=ImportLeaseServiceIntegrationTest verify
-```
-
-- [ ] **Step 4: Commit**
-
-```powershell
-git add backend/src/main/java/com/aicostops/ingestion backend/src/test/java/com/aicostops/ingestion/application/ImportLeaseServiceIntegrationTest.java
+git add src/main/java/com/aicostops/ingestion src/test/java/com/aicostops/ingestion/application/ImportLeaseServiceIntegrationTest.java
 git commit -m "feat(import): add import lease crash recovery"
 ```
 
 ---
 
-### Task 10: Implement fenced bounded raw-record and issue persistence
+### Task 10: Implement fenced bounded RawProviderRecord / ImportIssue persistence
 
-**Files:**
-- Create: `RawProviderRecordMapper.java`
-- Create: `ImportIssueMapper.java`
-- Create: `ImportRawPersistenceService.java`
-- Create: raw/issue domain records listed in file map
-- Create/extend: `ImportAttemptExecutorIntegrationTest.java`
+**Files:** raw/issue mappers and records, `ImportRawPersistenceService`, executor integration test.
 
-**Interfaces:**
-- `persistBatch(claim, records, issues)` validates the current lease under row lock, then inserts at most configured 500 records and matching issues in one short transaction.
-- Raw payload is redacted before insertion.
-
-- [ ] **Step 1: Write failing tests**
-
-Cover:
+- [ ] **Step 1: RED tests**
 
 ```text
-500-record batch inserts and increments counters atomically
-501st record is handled in next transaction, not one giant transaction
-stale lease cannot insert rows
-partial rows from failed Attempt remain after failure
-full API-key/token-like raw values are not persisted
-WARN and ERROR issue counts are accurate
+500 records -> one atomic persistence batch
+501 -> second bounded transaction
+stale lease -> zero inserts
+partial rows survive later Attempt failure
+secret-like raw values are redacted before DB
+WARN/ERROR counters exact
 ```
 
-- [ ] **Step 2: Implement secret redaction**
-
-Reuse the existing M1 secret-key philosophy: recursively normalize keys and redact keys containing fragments such as `password`, `token`, `secret`, `apikey`, `api_key`, `authorization` before serializing `raw_payload`/`normalized_payload` or issue raw values.
-
-Do not log rejected secret values.
+- [ ] **Step 2: Implement recursive redaction** before JSON serialization. Normalize key names and redact fragments including `password`, `token`, `secret`, `apikey`/`api_key`, `authorization`. Do not log the rejected value.
 
 - [ ] **Step 3: Implement fenced transaction**
 
-Every persistence batch begins by locking/verifying the Attempt row against `(attemptId, leaseOwner, leaseVersion, lease_until > DB_NOW)`. Inserts + counter update occur in that same transaction.
+Each bounded transaction first locks/verifies Attempt ownership `(attemptId,owner,leaseVersion,lease_until>DB_NOW)`, then inserts rows/issues and updates counters in the same transaction.
 
-- [ ] **Step 4: Run GREEN**
+- [ ] **Step 4: Verify/commit**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration -Dit.test=ImportAttemptExecutorIntegrationTest verify
-```
-
-- [ ] **Step 5: Commit**
-
-```powershell
-git add backend/src/main/java/com/aicostops/ingestion backend/src/test/java/com/aicostops/ingestion/application/ImportAttemptExecutorIntegrationTest.java
+git add src/main/java/com/aicostops/ingestion src/test/java/com/aicostops/ingestion/application/ImportAttemptExecutorIntegrationTest.java
 git commit -m "feat(import): add fenced raw record persistence"
 ```
 
 ---
 
-### Task 11: Implement adapter execution and worker TaskExecutor lifecycle
+### Task 11: Implement adapter execution and Spring TaskExecutor worker lifecycle
 
-**Files:**
-- Create: `ImportAttemptExecutor.java`
-- Create: `ImportWorkerCoordinator.java`
-- Create: `ImportWorkerConfiguration.java`
-- Extend: `ImportWorkerProperties.java`
-- Extend: `ImportAttemptExecutorIntegrationTest.java`
-
-**Interfaces:**
-- Worker concurrency defaults to 2.
-- Poller submits only when a local concurrency permit is available.
-- A scheduled heartbeat renews the current lease every 20s while parsing.
-- Worker finalization is fenced.
+**Files:** `ImportAttemptExecutor`, `ImportWorkerCoordinator`, worker config/properties, executor integration test, coordinator integration test, application/test config.
 
 - [ ] **Step 1: Add worker config**
 
@@ -1039,138 +796,114 @@ aicostops:
     persistence-batch-size: ${AICOSTOPS_IMPORT_PERSISTENCE_BATCH_SIZE:500}
 ```
 
-- [ ] **Step 2: Configure bounded Spring executors**
+Keep test-default `worker-enabled:false` from Task 3.
 
-Use `ThreadPoolTaskExecutor` with core/max equal to configured concurrency and no unbounded queue. A local `Semaphore` must be acquired before DB claim so a successfully claimed Attempt is never left RUNNING merely because executor submission was already saturated.
+- [ ] **Step 2: Configure `@EnableScheduling` + bounded `ThreadPoolTaskExecutor`**
 
-Use a separate Spring `TaskScheduler` for heartbeat; do not block a worker thread just to sleep between renewals.
+Core/max = configured concurrency, no unbounded queue. Coordinator bean is conditional on `worker-enabled=true`. Acquire a local `Semaphore` **before** DB claim so executor saturation cannot strand a claimed Attempt. Use a separate Spring `TaskScheduler` for heartbeat.
 
-- [ ] **Step 3: Implement execution flow**
+- [ ] **Step 3: Implement coordinator `pollOnce()`**
+
+Deterministic production/test entry point:
 
 ```text
-claim
--> open Evidence-backed ProviderSource
--> inspect
--> persist inspection WARN/ERROR
--> if incompatible/ERROR: fail Attempt/Batch
--> parse streaming records
--> adapter.normalize(record)
--> redact payload
--> flush bounded batches through fenced persistence
--> final flush
--> if error_count > 0: Attempt FAILED / Batch FAILED
--> else Attempt SUCCEEDED / Batch PARSED
+recover at most one expired Attempt
+if local permit unavailable -> return
+claim next queued Attempt
+none -> release permit
+claimed -> submit executor task
+executor finally -> release permit
 ```
 
-`ProviderSource.openStream()` delegates to Evidence/ObjectStorage and opens a fresh stream for each call.
+The scheduled method delegates to `pollOnce()`. Tests call `pollOnce()` directly; they do not use arbitrary `Thread.sleep` to wait for a scheduler tick.
 
-- [ ] **Step 4: Implement heartbeat loss behavior**
+- [ ] **Step 4: Implement Attempt execution**
 
-If heartbeat returns false, mark an in-memory guard as lease-lost. Parsing/sink operations must stop; finalization must not write success. The stale worker may not create its own recovery Attempt; the DB recovery path owns that transition.
+```text
+Evidence-backed ProviderSource
+-> inspect
+-> persist inspection WARN/ERROR
+-> incompatible/ERROR -> fenced fail Attempt + Batch
+-> parse streaming records
+-> adapter.normalize(record)
+-> redact
+-> flush <=500 records through fenced persistence
+-> final flush
+-> error_count>0 -> FAILED/FAILED
+-> no ERROR -> SUCCEEDED/PARSED
+```
 
-- [ ] **Step 5: Add tests for WARN/ERROR and unknown schema**
+Persist `parserVersion`, detected provider code, and schema fingerprint on the Attempt.
 
-Use synthetic adapters:
+- [ ] **Step 5: Heartbeat guard**
+
+Schedule renewal every 20s. Renewal failure marks local lease-lost; sink/executor stops further processing and never finalizes success. The stale worker does not create a recovery Attempt itself.
+
+- [ ] **Step 6: Executor integration tests with synthetic adapters**
 
 ```text
 WARN-only -> Attempt SUCCEEDED, Batch PARSED
-ERROR/unknown schema -> Attempt FAILED, Batch FAILED
-parserVersion + schemaFingerprint persisted on Attempt
-partial raw records retained after later parse error
+unknown/incompatible schema -> FAILED/FAILED with ERROR issue
+late parse error -> partial raw rows retained
+schemaFingerprint/parserVersion persisted
 ```
 
-- [ ] **Step 6: Run GREEN**
+- [ ] **Step 7: Coordinator integration test**
+
+Override `aicostops.ingestion.worker-enabled=true`, register synthetic adapter, insert one queued Attempt, call `pollOnce()` directly, and use a `CountDownLatch` from the synthetic adapter to prove TaskExecutor dispatch. Assert final state after latch completion; no timing sleeps.
+
+- [ ] **Step 8: Verify/commit**
 
 ```powershell
-.\mvnw.cmd -B -Dgroups=integration -Dit.test=ImportAttemptExecutorIntegrationTest verify
-```
-
-- [ ] **Step 7: Commit**
-
-```powershell
-git add backend/src/main/java/com/aicostops/ingestion backend/src/main/resources/application.yml backend/src/test/resources/application-test-defaults.yml backend/src/test/java/com/aicostops/ingestion/application/ImportAttemptExecutorIntegrationTest.java
+.\mvnw.cmd -B -Dgroups=integration -Dit.test=ImportAttemptExecutorIntegrationTest,ImportWorkerCoordinatorIntegrationTest verify
+git add src/main/java/com/aicostops/ingestion src/main/resources/application.yml src/test/resources/application-test-defaults.yml src/test/java/com/aicostops/ingestion
 git commit -m "feat(import): add recoverable import worker execution"
 ```
 
 ---
 
-### Task 12: Enforce module boundaries with ArchUnit
+### Task 12: Enforce M2 module boundaries with ArchUnit
 
-**Files:**
-- Modify: `backend/src/test/java/com/aicostops/architecture/ModuleDependencyArchitectureTest.java`
+**File:** `ModuleDependencyArchitectureTest.java`.
 
-**Interfaces:**
-- Prevent future coupling that violates the approved M2/M3 boundary.
-
-- [ ] **Step 1: Write failing architecture rules**
-
-Add rules equivalent to:
+- [ ] **Step 1: Add rules**
 
 ```text
-com.aicostops.evidence.. must not depend on com.aicostops.ingestion..
-com.aicostops.ingestion.. must not depend on com.aicostops.ledger..
-com.aicostops.ingestion.. must not depend on com.aicostops.budget..
-com.aicostops.ingestion.. must not depend on com.aicostops.attribution..
-com.aicostops.ingestion.. must not depend on com.aicostops.reporting..
+evidence.. must not depend on ingestion..
+ingestion.. must not depend on ledger..
+ingestion.. must not depend on budget..
+ingestion.. must not depend on attribution..
+ingestion.. must not depend on reporting..
 ```
 
 Do not prohibit `ingestion -> evidence` or `ingestion -> organization`.
 
-- [ ] **Step 2: Run architecture tests**
+- [ ] **Step 2: Verify/commit**
 
 ```powershell
-Set-Location E:\AI-CostOps\backend
 .\mvnw.cmd -B -Dgroups=architecture test
-```
-
-Expected: PASS once package dependencies follow the design.
-
-- [ ] **Step 3: Commit**
-
-```powershell
-git add backend/src/test/java/com/aicostops/architecture/ModuleDependencyArchitectureTest.java
+git add src/test/java/com/aicostops/architecture/ModuleDependencyArchitectureTest.java
 git commit -m "test(architecture): enforce evidence ingestion boundaries"
 ```
 
 ---
 
-### Task 13: Run the Group 1 acceptance suite and update documentation
+### Task 13: Full acceptance, documentation, and evidence
 
-**Files:**
-- Modify: `docs/02-development/detailed-design/02-data-model.md`
-- Modify: `docs/02-development/detailed-design/15-configuration-environments.md`
-- Create: `docs/02-development/api/03-m2-evidence-import-api.md`
-- Create: `docs/03-acceptance/implementation/11-m2-evidence-import-foundation-evidence.md`
+**Files:** data model/config docs, new M2 API doc, new acceptance evidence doc.
 
-**Interfaces:**
-- Documents only behavior actually implemented and test evidence actually observed.
+- [ ] **Step 1: Update data-model doc** to actual V4/V5 implementation: provider account included in Batch identity, split queue/lease indexes, Batch `PARSED`, Attempt lease/fencing fields, M2/M3 boundary.
 
-- [ ] **Step 1: Update the data model doc**
-
-Reflect actual V4 schema, including:
-
-```text
-UQ(org_id,sha256)
-UQ(evidence_id,provider_account_id,source_type,parser_version)
-Batch PENDING/PROCESSING/PARSED/FAILED/CANCELED
-Attempt QUEUED/RUNNING/SUCCEEDED/FAILED/CANCELED
-lease_owner/lease_until/lease_version
-separate queue and lease indexes
-M2 PARSED != M3 READY_FOR_REVIEW
-```
-
-- [ ] **Step 2: Document Group 1 APIs**
-
-`03-m2-evidence-import-api.md` records only implemented Group 1 routes:
+- [ ] **Step 2: Create `03-m2-evidence-import-api.md`** documenting only:
 
 ```text
 POST /api/v1/provider-imports          EVIDENCE_UPLOAD_PROVIDER / ORG
 GET  /api/v1/evidence/{id}/download    EVIDENCE_DOWNLOAD / ORG
 ```
 
-Explicitly state that Retry/Cancel/List/Detail are AIC-030 and final Confirm is M3. Also state that Group 1 contains no production provider adapters; production provider import becomes usable provider-by-provider in Group 2.
+State that List/Detail/Retry/Cancel are AIC-030, Confirm is M3, and Group 1 has no production provider adapters.
 
-- [ ] **Step 3: Run backend unit suite**
+- [ ] **Step 3: Backend unit suite**
 
 ```powershell
 Set-Location E:\AI-CostOps\backend
@@ -1179,15 +912,15 @@ Set-Location E:\AI-CostOps\backend
 
 Expected: BUILD SUCCESS.
 
-- [ ] **Step 4: Run backend integration suite**
+- [ ] **Step 4: Full backend integration suite**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=integration verify
 ```
 
-Expected: BUILD SUCCESS, including M1 regression tests and new M2 MySQL/MinIO tests.
+Expected: BUILD SUCCESS, including all existing M1 regressions plus new M2 MySQL/MinIO tests.
 
-- [ ] **Step 5: Run backend architecture suite**
+- [ ] **Step 5: Architecture suite**
 
 ```powershell
 .\mvnw.cmd -B -Dgroups=architecture test
@@ -1195,7 +928,7 @@ Expected: BUILD SUCCESS, including M1 regression tests and new M2 MySQL/MinIO te
 
 Expected: BUILD SUCCESS.
 
-- [ ] **Step 6: Validate Docker/Compose**
+- [ ] **Step 6: Docker/Compose validation**
 
 ```powershell
 Set-Location E:\AI-CostOps
@@ -1203,48 +936,25 @@ docker compose config --quiet
 docker build --tag ai-costops-backend:m2-foundation backend
 ```
 
-Expected: both commands exit 0.
+Expected: exit 0.
 
-- [ ] **Step 7: Record acceptance evidence**
+- [ ] **Step 7: Record real acceptance evidence** in `11-m2-evidence-import-foundation-evidence.md` using actual test counts/output. Include evidence for same-SHA dedup, MinIO failure/recovery, unrelated context boot without MinIO, auth download, no long DB tx during object I/O, dual worker claim, lease expiry/recovery/fencing, unknown schema, parser/fingerprint lineage, WARN/ERROR behavior, and test isolation.
 
-The evidence document records exact test counts/results from the commands above. Do not invent performance claims. Include explicit evidence for:
-
-```text
-same-SHA dedup
-MinIO failure/recovery
-unrelated Spring contexts boot without MinIO
-unauthorized/out-of-scope download
-no long DB transaction during object upload
-dual-worker claim
-lease expiry/crash recovery
-lease fencing
-unknown schema
-parser version + schema fingerprint lineage
-WARN vs ERROR behavior
-```
-
-- [ ] **Step 8: Inspect diff and secrets**
+- [ ] **Step 8: Diff/secret hygiene**
 
 ```powershell
 git status --short
 git diff --check
 git diff --stat main...HEAD
-git grep -n -I -E "sk-[A-Za-z0-9_-]{16,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|password\s*[:=]\s*[^$<{]" -- . ':!docs/superpowers' ':!.env.example'
+git grep -n -I -E "sk-[A-Za-z0-9_-]{16,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY" -- . ':!docs/superpowers'
 ```
 
-Expected:
+Expected: `git diff --check` empty; no real-secret hit.
 
-```text
-git diff --check -> no output
-secret scan -> no real secret match
-```
-
-Review any secret-scan match manually; do not silence the command merely to make it green.
-
-- [ ] **Step 9: Commit documentation/evidence**
+- [ ] **Step 9: Commit docs/evidence**
 
 ```powershell
-git add docs .env.example
+git add docs
 git commit -m "docs(m2): record evidence import foundation contracts"
 ```
 
@@ -1255,11 +965,11 @@ git status --short
 git log --oneline --decorate main..HEAD
 ```
 
-Expected: clean working tree and a readable series of focused commits.
+Expected: clean tree and focused commits.
 
 ---
 
-## PR preparation after all tasks pass
+## Formal PR after all tasks pass
 
 Push:
 
@@ -1268,18 +978,18 @@ Set-Location E:\AI-CostOps
 git push
 ```
 
-Formal PR:
+PR title/body closing targets:
 
 ```text
 feat(m2): establish evidence and import foundation
 
-Closes #29  AIC-021
-Closes #30  AIC-022
-Closes #31  AIC-023
-Closes #32  AIC-024
+Closes #29
+Closes #30
+Closes #31
+Closes #32
 ```
 
-The PR must not be merged until all required checks are green:
+Required checks before merge:
 
 ```text
 backend-unit
@@ -1291,33 +1001,32 @@ frontend-build
 docker-build
 ```
 
-No required check may be disabled or bypassed to merge.
+Never disable/bypass checks to merge. Merge remains squash-only and requires explicit user authorization.
 
-## Implementation review gates
-
-Before declaring Group 1 ready for PR, verify all of these explicitly:
+## Final review gates
 
 ```text
-[ ] no canonical cost tables/types created
-[ ] no M3 READY_FOR_REVIEW/Confirm implementation
-[ ] no production DeepSeek/MiMo/Kimi/GLM/OpenAI adapter yet
-[ ] Evidence dedup is org-scoped, not cross-tenant
-[ ] duplicate upload does not implicitly create retry Attempt
-[ ] object upload occurs outside DB transaction
-[ ] MinIO is initialized lazily; unrelated contexts do not require MinIO
-[ ] object-key identity conflict never overwrites mismatched bytes
-[ ] provider raw upload/download require permission + ORG scope
-[ ] one Batch has at most one QUEUED/RUNNING Attempt
+[ ] no canonical cost tables/types
+[ ] no READY_FOR_REVIEW/Confirm implementation
+[ ] no production provider adapter in Group 1
+[ ] org-scoped Evidence dedup only
+[ ] duplicate upload never implicitly retries
+[ ] MinIO/object I/O outside DB transaction
+[ ] MinIO initialization is lazy; M1 contexts do not require MinIO
+[ ] deterministic-key mismatch never overwrites bytes
+[ ] upload/download require permission + ORG scope
+[ ] test worker disabled by default
+[ ] M2 tests clean shared DB before and after
+[ ] at most one QUEUED/RUNNING Attempt per Batch
 [ ] claim uses real MySQL FOR UPDATE SKIP LOCKED
 [ ] lease expiry uses DB UTC time
-[ ] stale lease cannot persist raw rows or finalize success
-[ ] crash recovery creates new Attempt and retains old Attempt history
-[ ] recovery loop is bounded
-[ ] raw payload redaction occurs before DB persistence
-[ ] failed Attempt raw rows/issues remain reviewable
-[ ] Adapter registry is explicit and duplicate-safe
+[ ] stale lease cannot persist/finalize
+[ ] crash recovery creates new Attempt and is bounded
+[ ] failed Attempt raw rows/issues retained
+[ ] raw payload redacted before persistence
+[ ] Adapter registry explicit and duplicate-safe
 [ ] schema fingerprint is schema-derived, not file SHA
-[ ] Group 1 API/security routes preserve final denyAll
-[ ] Finance Reviewer gained Provider Account read only, not manage
-[ ] all seven required GitHub checks are green before merge
+[ ] final security matcher still denyAll
+[ ] Finance Reviewer gains Provider Account read only, not manage
+[ ] all seven required checks green before merge
 ```
