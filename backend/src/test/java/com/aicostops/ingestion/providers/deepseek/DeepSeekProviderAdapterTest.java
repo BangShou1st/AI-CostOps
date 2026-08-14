@@ -31,7 +31,7 @@ class DeepSeekProviderAdapterTest {
     private final DeepSeekProviderAdapter adapter = new DeepSeekProviderAdapter(
             new com.aicostops.ingestion.providers.common.SafeZipReader(
                     new com.aicostops.ingestion.providers.common.ProviderParserProperties(
-                            64, 1_073_741_824L, 100.0d, 1_048_576L)));
+                            64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256)));
 
     // ------------------------------------------------------------------
     // inspection
@@ -296,6 +296,28 @@ class DeepSeekProviderAdapterTest {
         assertThat(records.get(0).issues()).extracting(i -> i.severity())
                 .containsExactly(ImportIssueSeverity.ERROR);
         assertThat(records.get(1).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+    }
+
+    @Test
+    void whitespaceVariantHeadersStillResolveValuesAndStripSecrets() throws Exception {
+        var entries = new java.util.LinkedHashMap<String, String>();
+        entries.put("amount-1.csv",
+                "user_id,start_time_iso,end_time_iso, model ,api_key_name, api_key ,type,price,amount\n"
+                        + "user-1,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,deepseek-chat,default,"
+                        + "sk-SECRET-SENTINEL-DO-NOT-PERSIST,api_call,1,2\n");
+        entries.put("cost-1.csv", COST_HEADER + "\n"
+                + "user-1,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,deepseek-chat,main_wallet,1.25,CNY\n");
+        var zip = ProviderFixtureFactory.zip(entries);
+        var inspection = adapter.inspect(input(ImportSourceType.FILE_EXPORT, zip, "deepseek-export.zip"));
+        assertThat(inspection.compatible()).isTrue();
+
+        var records = parse(zip);
+        var amount = records.get(0);
+        assertThat(amount.normalizedPayload().get("dimensions"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .containsEntry("model", "deepseek-chat");
+        assertThat(amount.rawPayload().toString()).doesNotContain("SECRET-SENTINEL");
+        assertThat(amount.rawPayload()).doesNotContainKey(" api_key ");
     }
 
     @Test

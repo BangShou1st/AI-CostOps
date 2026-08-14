@@ -176,6 +176,24 @@ class KimiProviderAdapterTest {
     }
 
     @Test
+    void nfkcEquivalentHeadersStillResolveValues() throws Exception {
+        // Half-width parentheses normalize (NFKC) to the same canonical form as the
+        // observed full-width parentheses, so a compatible inspection must resolve.
+        var bytes = fixture(sheet("账单汇总",
+                List.of("时间范围", "用户ID", "组织ID", "客户主体",
+                        "充值账户消耗(元)", "赠送账户消耗(元)"),
+                row("2026-08-01 00:00:00 - 2026-08-31 23:59:59", "user-1", "org-1", "某客户", "8.5", "1.5")));
+        var inspection = adapter.inspect(input(bytes));
+        assertThat(inspection.compatible()).isTrue();
+
+        var records = parse(bytes);
+        var components = (java.util.Map<String, Object>)
+                ((java.util.Map<String, Object>) records.get(0).normalizedPayload().get("money")).get("components");
+        assertThat(components).containsEntry("paidBalanceConsumption", new BigDecimal("8.5"))
+                .containsEntry("promotionalBalanceConsumption", new BigDecimal("1.5"));
+    }
+
+    @Test
     void rawPayloadKeepsOriginalProviderColumns() throws Exception {
         var bytes = fixture(sheet("账单汇总",
                 SUMMARY_HEADER,

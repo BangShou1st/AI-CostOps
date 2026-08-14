@@ -7,11 +7,16 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Recursively redacts secret-like fields before provider payloads reach MySQL.
+ * Recursively redacts secret-like fields and values before provider payloads reach
+ * MySQL.
  *
  * <p>Key matching is normalized (lowercase, punctuation removed) against
  * {@code password}, {@code token}, {@code secret}, {@code apikey}, {@code authorization}.
- * The rejected value is never logged; it becomes a fixed placeholder.
+ * Additionally, every String scalar passes {@link SecretShapes} so secret-shaped
+ * values hidden under unknown field names (e.g. {@code sk-...} in a
+ * {@code future_note}) fail closed as well. Ordinary provider identities such as
+ * {@code keyid_fake} are not secret-shaped and survive. The rejected value is never
+ * logged; it becomes a fixed placeholder.
  */
 public final class PayloadRedactor {
 
@@ -38,6 +43,9 @@ public final class PayloadRedactor {
                 redacted.add(redact(item));
             }
             return redacted;
+        }
+        if (value instanceof String text) {
+            return SecretShapes.redact(text);
         }
         return value;
     }

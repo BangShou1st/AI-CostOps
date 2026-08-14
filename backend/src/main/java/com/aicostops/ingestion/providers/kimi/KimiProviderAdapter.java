@@ -12,6 +12,7 @@ import com.aicostops.ingestion.domain.ImportSourceType;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
 import com.aicostops.ingestion.providers.common.HeaderNormalizer;
 import com.aicostops.ingestion.providers.common.NormalizedPayloadBuilder;
+import com.aicostops.ingestion.providers.common.ProviderFieldLookup;
 import com.aicostops.ingestion.providers.common.ProviderNumberParser;
 import com.aicostops.ingestion.providers.common.SchemaDescriptor;
 import com.aicostops.ingestion.providers.common.SchemaFingerprint;
@@ -151,8 +152,10 @@ public final class KimiProviderAdapter implements ProviderAdapter {
         var issues = new ArrayList<ImportIssueDraft>();
         var status = RawRecordNormalizeStatus.NORMALIZED;
 
-        var paid = ProviderNumberParser.decimal(string(fields.get("充值账户消耗（元）")));
-        var promotional = ProviderNumberParser.decimal(string(fields.get("赠送账户消耗（元）")));
+        var paid = ProviderNumberParser.decimal(
+                string(ProviderFieldLookup.get(fields, "充值账户消耗（元）")));
+        var promotional = ProviderNumberParser.decimal(
+                string(ProviderFieldLookup.get(fields, "赠送账户消耗（元）")));
         if (paid.missing() || paid.invalid() || promotional.missing() || promotional.invalid()) {
             issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
                     record.locator(), "充值账户消耗（元）",
@@ -161,10 +164,10 @@ public final class KimiProviderAdapter implements ProviderAdapter {
         }
 
         var builder = new NormalizedPayloadBuilder(SCHEMA_VARIANT, "BILLING_SUMMARY")
-                .dimension("providerUser", fields.get("用户ID"))
-                .dimension("providerOrganization", fields.get("组织ID"))
-                .providerField("billingEntity", fields.get("客户主体"))
-                .providerField("periodText", fields.get("时间范围"));
+                .dimension("providerUser", ProviderFieldLookup.get(fields, "用户ID"))
+                .dimension("providerOrganization", ProviderFieldLookup.get(fields, "组织ID"))
+                .providerField("billingEntity", ProviderFieldLookup.get(fields, "客户主体"))
+                .providerField("periodText", ProviderFieldLookup.get(fields, "时间范围"));
         if (status == RawRecordNormalizeStatus.NORMALIZED) {
             builder.money("currency", CURRENCY)
                     .moneyComponent("paidBalanceConsumption", paid.value())

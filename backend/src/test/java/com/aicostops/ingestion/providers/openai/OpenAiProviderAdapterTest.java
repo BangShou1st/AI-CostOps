@@ -25,7 +25,13 @@ class OpenAiProviderAdapterTest {
             "start_time,end_time,start_time_iso,end_time_iso";
 
     private final OpenAiProviderAdapter adapter =
-            new OpenAiProviderAdapter(tools.jackson.databind.json.JsonMapper.builder().build());
+            new OpenAiProviderAdapter(tools.jackson.databind.json.JsonMapper.builder().build(),
+                    new com.aicostops.ingestion.providers.common.ProviderParserProperties(
+                            64, 1_073_741_824L, 100.0d, 1_048_576L, 10_000, 256));
+    private final OpenAiProviderAdapter tinyLimitsAdapter =
+            new OpenAiProviderAdapter(tools.jackson.databind.json.JsonMapper.builder().build(),
+                    new com.aicostops.ingestion.providers.common.ProviderParserProperties(
+                            64, 1_073_741_824L, 100.0d, 1_048_576L, 3, 256));
 
     // ------------------------------------------------------------------
     // Part A: observed empty CSV export
@@ -165,6 +171,23 @@ class OpenAiProviderAdapterTest {
         var record = records.get(0);
         assertThat(record.usageStart()).isEqualTo(Instant.parse("2026-08-01T00:00:00Z"));
         assertThat(record.usageEnd()).isEqualTo(Instant.parse("2026-08-01T01:00:00Z"));
+    }
+
+    // ------------------------------------------------------------------
+    // hardening: normalized header lookup
+    // ------------------------------------------------------------------
+
+    @Test
+    void whitespaceVariantTimeHeadersStillProduceInstants() {
+        var records = parse(ImportSourceType.FILE_EXPORT,
+                csv("completions_usage_2026-08-01.csv",
+                        " start_time , end_time , start_time_iso , end_time_iso \n"
+                                + "1780000000,1780003600,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z\n"),
+                "completions_usage_2026-08-01.csv");
+
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).usageStart()).isEqualTo(Instant.ofEpochSecond(1780000000L));
+        assertThat(records.get(0).usageEnd()).isEqualTo(Instant.ofEpochSecond(1780003600L));
     }
 
     // ------------------------------------------------------------------
@@ -434,18 +457,16 @@ class OpenAiProviderAdapterTest {
     }
 
     @Test
-    void missingBucketTimeIsRowError() {
-        var records = parseRows(ImportSourceType.USAGE_API_JSON,
+    void missingBucketTimeIsIncompatibleAtInspection() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
                 json("""
                         {"object":"page","data":[{"object":"bucket","results":[
                           {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2}]}]}
                         """),
-                "usage.json");
+                "usage.json"));
 
-        assertThat(records).hasSize(1);
-        assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.ERROR);
-        assertThat(records.get(0).issues()).extracting(i -> i.issueCode())
-                .contains("INVALID_BUCKET_TIME");
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("MALFORMED_JSON");
     }
 
     @Test
@@ -462,13 +483,153 @@ class OpenAiProviderAdapterTest {
         }
         json.append("]}]}");
         var bytes = json.toString().getBytes(StandardCharsets.UTF_8);
+        var input = input(ImportSourceType.USAGE_API_JSON, bytes, "usage.json");
+        var inspection = adapter.inspect(input);
+        assertThat(inspection.compatible()).isTrue();
 
-        var records = parse(ImportSourceType.USAGE_API_JSON, bytes, "usage.json");
+        // True counting sink: neither production nor the test holds 10,000 records.
+        var count = new java.util.concurrent.atomic.AtomicInteger();
+        var first = new String[1];
+        var last = new String[1];
+        adapter.parse(input, inspection, record -> {
+            if (count.getAndIncrement() == 0) {
+                first[0] = record.locator();
+            }
+            last[0] = record.locator();
+        });
 
-        assertThat(records).hasSize(10_000);
-        assertThat(records.get(0).locator()).isEqualTo("data[0].results[0]");
-        assertThat(records.get(9_999).locator()).isEqualTo("data[0].results[9999]");
-        assertThat(records.get(9_999).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(count.get()).isEqualTo(10_000);
+        assertThat(first[0]).isEqualTo("data[0].results[0]");
+        assertThat(last[0]).isEqualTo("data[0].results[9999]");
+    }
+
+    // ------------------------------------------------------------------
+    // hardening: fail-closed page/bucket shape and property-order independence
+    // ------------------------------------------------------------------
+
+    @Test
+    void missingRootObjectMarkerIsIncompatible() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2}]}]}
+                        """),
+                "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("MALFORMED_JSON");
+    }
+
+    @Test
+    void bucketWithoutResultsIsIncompatible() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600}]}
+                        """),
+                "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("MALFORMED_JSON");
+    }
+
+    @Test
+    void emptyResultsBucketWithoutTimesIsIncompatible() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","results":[]}]}
+                        """),
+                "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("MALFORMED_JSON");
+    }
+
+    @Test
+    void malformedBucketTimeIsIncompatible() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":"not-a-number","end_time":1780003600,"results":[
+                          {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2}]}]}
+                        """),
+                "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("MALFORMED_JSON");
+    }
+
+    @Test
+    void resultsBeforeTimesParsesIdenticallyToTimesBeforeResults() {
+        var timesFirst = json("""
+                {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                  {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2}]}]}
+                """);
+        var resultsFirst = json("""
+                {"object":"page","data":[{"object":"bucket","results":[
+                  {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2}],
+                  "end_time":1780003600,"start_time":1780000000}]}
+                """);
+
+        var a = parse(ImportSourceType.USAGE_API_JSON, timesFirst, "usage.json").get(0);
+        var b = parse(ImportSourceType.USAGE_API_JSON, resultsFirst, "usage.json").get(0);
+
+        assertThat(a.normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(b.normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(b.usageStart()).isEqualTo(a.usageStart());
+        assertThat(b.usageEnd()).isEqualTo(a.usageEnd());
+        assertThat(b.normalizedPayload()).isEqualTo(a.normalizedPayload());
+    }
+
+    @Test
+    void tooManyBucketsIsRejectedByBound() {
+        var json = new StringBuilder();
+        json.append("{\"object\":\"page\",\"data\":[");
+        for (var i = 0; i < 4; i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            json.append("{\"object\":\"bucket\",\"start_time\":").append(1780000000L + i)
+                    .append(",\"end_time\":").append(1780003600L + i).append(",\"results\":[")
+                    .append("{\"object\":\"organization.usage.completions.result\",\"input_tokens\":100,")
+                    .append("\"output_tokens\":20,\"num_model_requests\":2}]}");
+        }
+        json.append("]}");
+        var input = input(ImportSourceType.USAGE_API_JSON,
+                json.toString().getBytes(StandardCharsets.UTF_8), "usage.json");
+
+        var result = tinyLimitsAdapter.inspect(input);
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("TOO_MANY_JSON_BUCKETS");
+    }
+
+    // ------------------------------------------------------------------
+    // hardening: bounded inspection issue collection
+    // ------------------------------------------------------------------
+
+    @Test
+    void tenThousandMalformedResultsKeepInspectionIssuesBounded() {
+        var json = new StringBuilder();
+        json.append("{\"object\":\"page\",\"data\":[{\"object\":\"bucket\",\"start_time\":1780000000,"
+                + "\"end_time\":1780003600,\"results\":[");
+        for (var i = 0; i < 10_000; i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            // Each result misses the required input_tokens (deduped schema ERROR) and
+            // carries a unique unknown field (capped by max-inspection-issues).
+            json.append("{\"object\":\"organization.usage.completions.result\",\"output_tokens\":20,"
+                    + "\"num_model_requests\":2,\"future_field_").append(i).append("\":1}");
+        }
+        json.append("]}]}");
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json.toString().getBytes(StandardCharsets.UTF_8), "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues().size()).isLessThanOrEqualTo(257);
+        assertThat(result.issues()).extracting(i -> i.issueCode())
+                .contains("INSPECTION_ISSUES_TRUNCATED");
+        assertThat(result.issues()).extracting(i -> i.issueCode())
+                .contains("MISSING_REQUIRED_FIELD");
     }
 
     @Test

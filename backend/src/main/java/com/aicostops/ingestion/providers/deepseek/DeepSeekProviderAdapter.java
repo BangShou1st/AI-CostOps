@@ -13,6 +13,7 @@ import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
 import com.aicostops.ingestion.providers.common.CsvSupport;
 import com.aicostops.ingestion.providers.common.HeaderNormalizer;
 import com.aicostops.ingestion.providers.common.NormalizedPayloadBuilder;
+import com.aicostops.ingestion.providers.common.ProviderFieldLookup;
 import com.aicostops.ingestion.providers.common.ProviderNumberParser;
 import com.aicostops.ingestion.providers.common.ProviderTimeParser;
 import com.aicostops.ingestion.providers.common.SafeZipReader;
@@ -192,7 +193,9 @@ public final class DeepSeekProviderAdapter implements ProviderAdapter {
         var raw = new LinkedHashMap<String, Object>();
         var hasApiKey = false;
         for (var entry : fields.entrySet()) {
-            if (entry.getKey().equals("api_key")) {
+            // Secret removal is decided on the normalized header so whitespace
+            // variants such as " api_key " cannot leak into the raw payload.
+            if (HeaderNormalizer.normalize(entry.getKey()).equals("api_key")) {
                 hasApiKey = true;
                 continue; // never persisted raw; only a fixed masked hint is emitted
             }
@@ -200,26 +203,29 @@ public final class DeepSeekProviderAdapter implements ProviderAdapter {
         }
         var issues = new ArrayList<ImportIssueDraft>();
         var status = RawRecordNormalizeStatus.NORMALIZED;
-        if (ProviderNumberParser.decimal(string(fields.get("amount"))).invalid()) {
+        if (ProviderNumberParser.decimal(
+                string(ProviderFieldLookup.get(fields, "amount"))).invalid()) {
             issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
                     record.locator(), "amount",
                     "amount must be a valid decimal when present"));
             status = RawRecordNormalizeStatus.ERROR;
         }
         var builder = new NormalizedPayloadBuilder(SCHEMA_VARIANT, "USAGE")
-                .dimension("model", fields.get("model"))
-                .dimension("providerUser", fields.get("user_id"))
-                .providerField("credentialLabel", fields.get("api_key_name"))
-                .providerField("type", fields.get("type"))
-                .providerField("price", fields.get("price"))
-                .providerField("amount", fields.get("amount"));
+                .dimension("model", ProviderFieldLookup.get(fields, "model"))
+                .dimension("providerUser", ProviderFieldLookup.get(fields, "user_id"))
+                .providerField("credentialLabel", ProviderFieldLookup.get(fields, "api_key_name"))
+                .providerField("type", ProviderFieldLookup.get(fields, "type"))
+                .providerField("price", ProviderFieldLookup.get(fields, "price"))
+                .providerField("amount", ProviderFieldLookup.get(fields, "amount"));
         if (hasApiKey) {
             builder.dimension("credentialHint", CREDENTIAL_HINT);
         }
         return new NormalizedProviderRecord(record.index(), record.locator(), null,
                 raw, builder.build(),
-                ProviderTimeParser.offsetInstant(string(fields.get("start_time_iso"))).orElse(null),
-                ProviderTimeParser.offsetInstant(string(fields.get("end_time_iso"))).orElse(null),
+                ProviderTimeParser.offsetInstant(
+                        string(ProviderFieldLookup.get(fields, "start_time_iso"))).orElse(null),
+                ProviderTimeParser.offsetInstant(
+                        string(ProviderFieldLookup.get(fields, "end_time_iso"))).orElse(null),
                 status, issues);
     }
 
@@ -227,8 +233,8 @@ public final class DeepSeekProviderAdapter implements ProviderAdapter {
         var fields = record.fields();
         var issues = new ArrayList<ImportIssueDraft>();
         var status = RawRecordNormalizeStatus.NORMALIZED;
-        var cost = ProviderNumberParser.decimal(string(fields.get("cost")));
-        var currency = string(fields.get("currency"));
+        var cost = ProviderNumberParser.decimal(string(ProviderFieldLookup.get(fields, "cost")));
+        var currency = string(ProviderFieldLookup.get(fields, "currency"));
         if (cost.missing() || cost.invalid() || currency == null || currency.isBlank()) {
             issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
                     record.locator(), "cost",
@@ -236,9 +242,9 @@ public final class DeepSeekProviderAdapter implements ProviderAdapter {
             status = RawRecordNormalizeStatus.ERROR;
         }
         var builder = new NormalizedPayloadBuilder(SCHEMA_VARIANT, "COST")
-                .dimension("model", fields.get("model"))
-                .dimension("providerUser", fields.get("user_id"))
-                .providerField("walletType", fields.get("wallet_type"));
+                .dimension("model", ProviderFieldLookup.get(fields, "model"))
+                .dimension("providerUser", ProviderFieldLookup.get(fields, "user_id"))
+                .providerField("walletType", ProviderFieldLookup.get(fields, "wallet_type"));
         if (status == RawRecordNormalizeStatus.NORMALIZED) {
             builder.money("currency", currency)
                     .money("reportedAmount", cost.value());

@@ -154,6 +154,30 @@ class MimoProviderAdapterTest {
     }
 
     @Test
+    void whitespaceVariantHeadersStillResolveValuesAndStripSecrets() throws Exception {
+        var header = new ArrayList<>(Arrays.asList(
+                "Date", "Model", " API   Key ", "Currency", "Consumed   Amount",
+                "Input Hit Amount", "Input Miss Amount", "Output Amount", "Total Tokens",
+                "Input Hit Tokens", "Input Miss Tokens", "Output Tokens",
+                "Total audio duration", "Request Count"));
+        var data = new ArrayList<>(Arrays.asList(
+                "2026-08-01", "mimo-example", "sk-SECRET-SENTINEL-DO-NOT-PERSIST", "CNY", "1.234",
+                "0.5", "0.4", "0.334", "1000", "400", "300", "300", "3600", "10"));
+        var bytes = fixture(sheet("Model usage detail", header, data));
+        var inspection = adapter.inspect(input(bytes));
+        assertThat(inspection.compatible()).isTrue();
+
+        var records = parse(bytes);
+        var record = records.get(0);
+        assertThat(record.normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(record.normalizedPayload().get("money"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .containsEntry("reportedAmount", new BigDecimal("1.234"));
+        assertThat(record.rawPayload().toString()).doesNotContain("SECRET-SENTINEL");
+        assertThat(record.rawPayload()).doesNotContainKey(" API   Key ");
+    }
+
+    @Test
     void duplicateNormalizedHeadersInModelSheetAreIncompatible() throws Exception {
         // "API Key" and " API   Key " collide after normalization; a row map must
         // never silently overwrite one column with the other.

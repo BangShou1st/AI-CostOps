@@ -192,6 +192,24 @@ class GlmProviderAdapterTest {
     }
 
     @Test
+    void whitespaceVariantHeadersStillResolveMoney() throws Exception {
+        var header = new ArrayList<>(Arrays.asList(
+                " 账期(月) ", " 目录总价 ", " 总消费金额 ", "信用支付金额", "赠金抵扣金额",
+                "应付金额", "已付款金额", "待付款金额", "结算状态"));
+        var data = new ArrayList<>(Arrays.asList(
+                "2026-08", "100.00", "90.00", "30.00", "10.00", "50.00", "50.00", "0.00", "已结清"));
+        var bytes = fixture(sheet("账单明细", header, data));
+        var inspection = adapter.inspect(input(bytes));
+        assertThat(inspection.compatible()).isTrue();
+
+        var records = parse(bytes);
+        var components = (java.util.Map<String, Object>)
+                ((java.util.Map<String, Object>) records.get(0).normalizedPayload().get("money")).get("components");
+        assertThat(components).containsEntry("consumptionAmount", new BigDecimal("90.00"))
+                .containsEntry("outstandingAmount", new BigDecimal("0.00"));
+    }
+
+    @Test
     void rawPayloadKeepsOriginalProviderColumns() throws Exception {
         var bytes = fixture(sheet("账单明细",
                 SUMMARY_HEADER,

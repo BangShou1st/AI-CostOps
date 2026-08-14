@@ -12,6 +12,7 @@ import com.aicostops.ingestion.domain.ImportSourceType;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
 import com.aicostops.ingestion.providers.common.HeaderNormalizer;
 import com.aicostops.ingestion.providers.common.NormalizedPayloadBuilder;
+import com.aicostops.ingestion.providers.common.ProviderFieldLookup;
 import com.aicostops.ingestion.providers.common.ProviderNumberParser;
 import com.aicostops.ingestion.providers.common.SchemaDescriptor;
 import com.aicostops.ingestion.providers.common.SchemaFingerprint;
@@ -206,7 +207,8 @@ public final class GlmProviderAdapter implements ProviderAdapter {
 
         var parsed = new BigDecimal[7];
         for (var i = 0; i < MONEY_HEADERS.size(); i++) {
-            var value = ProviderNumberParser.decimal(string(fields.get(MONEY_HEADERS.get(i))));
+            var value = ProviderNumberParser.decimal(
+                    string(ProviderFieldLookup.get(fields, MONEY_HEADERS.get(i))));
             if (value.missing() || value.invalid()) {
                 issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
                         record.locator(), MONEY_HEADERS.get(i),
@@ -218,8 +220,8 @@ public final class GlmProviderAdapter implements ProviderAdapter {
         }
 
         var builder = new NormalizedPayloadBuilder(SCHEMA_VARIANT, "BILLING_SUMMARY")
-                .providerField("billingMonth", fields.get("账期(月)"))
-                .providerField("settlementStatus", fields.get("结算状态"));
+                .providerField("billingMonth", ProviderFieldLookup.get(fields, "账期(月)"))
+                .providerField("settlementStatus", ProviderFieldLookup.get(fields, "结算状态"));
         if (status == RawRecordNormalizeStatus.NORMALIZED) {
             builder.moneyComponent("catalogAmount", parsed[0])
                     .moneyComponent("consumptionAmount", parsed[1])

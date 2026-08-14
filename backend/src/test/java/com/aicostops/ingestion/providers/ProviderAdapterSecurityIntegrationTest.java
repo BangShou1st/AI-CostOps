@@ -139,6 +139,34 @@ class ProviderAdapterSecurityIntegrationTest extends MinioContainerSupport {
     }
 
     @Test
+    void secretShapedValueUnderUnknownFieldNeverSurvivesPersistence() throws Exception {
+        // OpenAI faithfully retains unknown result fields; a secret-shaped value
+        // hidden under an innocent key must still fail closed at the redactor.
+        var usageJson = """
+                {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                  {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,
+                   "num_model_requests":2,"api_key_id":"keyid_fake","user_id":"user_fake",
+                   "model":"gpt-example","future_note":"sk-SECRET-SENTINEL-DO-NOT-PERSIST"}]}]}
+                """;
+        var attemptId = runPipeline("OPENAI", OpenAiProviderAdapter.PARSER_VERSION,
+                ImportSourceType.USAGE_API_JSON, "usage.json", "application/json",
+                usageJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        assertThat(attemptStatus(attemptId)).isEqualTo("SUCCEEDED");
+        assertNoSentinelInPersistedSurfaces(attemptId);
+        var raw = jdbc.queryForObject("""
+                SELECT raw_payload FROM raw_provider_record
+                WHERE import_attempt_id=? AND record_index=0
+                """, String.class, attemptId);
+        assertThat(raw).contains("[REDACTED]");
+        var credentialId = jdbc.queryForObject("""
+                SELECT JSON_UNQUOTE(JSON_EXTRACT(normalized_payload, '$.dimensions.credentialId'))
+                FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0
+                """, String.class, attemptId);
+        assertThat(credentialId).isEqualTo("keyid_fake");
+    }
+
+    @Test
     void sentinelAndOversizeInUnknownZipEntryLocatorNeverSurvivePersistence() throws Exception {
         var entries = new LinkedHashMap<String, String>();
         entries.put("amount-2026-08-01.csv",

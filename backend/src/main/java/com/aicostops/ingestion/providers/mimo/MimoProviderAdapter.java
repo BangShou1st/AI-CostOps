@@ -12,6 +12,7 @@ import com.aicostops.ingestion.domain.ImportSourceType;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
 import com.aicostops.ingestion.providers.common.HeaderNormalizer;
 import com.aicostops.ingestion.providers.common.NormalizedPayloadBuilder;
+import com.aicostops.ingestion.providers.common.ProviderFieldLookup;
 import com.aicostops.ingestion.providers.common.ProviderNumberParser;
 import com.aicostops.ingestion.providers.common.WorkbookRow;
 import com.aicostops.ingestion.providers.common.WorkbookSchema;
@@ -186,16 +187,25 @@ public final class MimoProviderAdapter implements ProviderAdapter {
         var issues = new ArrayList<ImportIssueDraft>();
         var status = RawRecordNormalizeStatus.NORMALIZED;
 
-        var consumed = ProviderNumberParser.decimal(string(fields.get("Consumed Amount")));
-        var currency = string(fields.get("Currency"));
-        var totalTokens = ProviderNumberParser.longValue(string(fields.get("Total Tokens")));
-        var inputHitTokens = ProviderNumberParser.longValue(string(fields.get("Input Hit Tokens")));
-        var inputMissTokens = ProviderNumberParser.longValue(string(fields.get("Input Miss Tokens")));
-        var outputTokens = ProviderNumberParser.longValue(string(fields.get("Output Tokens")));
-        var requestCount = ProviderNumberParser.longValue(string(fields.get("Request Count")));
-        var inputHitAmount = ProviderNumberParser.decimal(string(fields.get("Input Hit Amount")));
-        var inputMissAmount = ProviderNumberParser.decimal(string(fields.get("Input Miss Amount")));
-        var outputAmount = ProviderNumberParser.decimal(string(fields.get("Output Amount")));
+        var consumed = ProviderNumberParser.decimal(
+                string(ProviderFieldLookup.get(fields, "Consumed Amount")));
+        var currency = string(ProviderFieldLookup.get(fields, "Currency"));
+        var totalTokens = ProviderNumberParser.longValue(
+                string(ProviderFieldLookup.get(fields, "Total Tokens")));
+        var inputHitTokens = ProviderNumberParser.longValue(
+                string(ProviderFieldLookup.get(fields, "Input Hit Tokens")));
+        var inputMissTokens = ProviderNumberParser.longValue(
+                string(ProviderFieldLookup.get(fields, "Input Miss Tokens")));
+        var outputTokens = ProviderNumberParser.longValue(
+                string(ProviderFieldLookup.get(fields, "Output Tokens")));
+        var requestCount = ProviderNumberParser.longValue(
+                string(ProviderFieldLookup.get(fields, "Request Count")));
+        var inputHitAmount = ProviderNumberParser.decimal(
+                string(ProviderFieldLookup.get(fields, "Input Hit Amount")));
+        var inputMissAmount = ProviderNumberParser.decimal(
+                string(ProviderFieldLookup.get(fields, "Input Miss Amount")));
+        var outputAmount = ProviderNumberParser.decimal(
+                string(ProviderFieldLookup.get(fields, "Output Amount")));
         if (consumed.invalid() || currency == null || currency.isBlank()) {
             issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
                     record.locator(), "Consumed Amount",
@@ -217,10 +227,10 @@ public final class MimoProviderAdapter implements ProviderAdapter {
         }
 
         var builder = new NormalizedPayloadBuilder(SCHEMA_VARIANT, "USAGE")
-                .dimension("model", fields.get("Model"))
+                .dimension("model", ProviderFieldLookup.get(fields, "Model"))
                 .dimension("credentialHint", CREDENTIAL_HINT)
-                .providerField("date", fields.get("Date"))
-                .usage("totalAudioDurationRaw", fields.get("Total audio duration"));
+                .providerField("date", ProviderFieldLookup.get(fields, "Date"))
+                .usage("totalAudioDurationRaw", ProviderFieldLookup.get(fields, "Total audio duration"));
         if (status == RawRecordNormalizeStatus.NORMALIZED) {
             builder.usage("totalTokens", totalTokens.value())
                     .usage("inputHitTokens", inputHitTokens.value())
@@ -243,9 +253,11 @@ public final class MimoProviderAdapter implements ProviderAdapter {
         var issues = new ArrayList<ImportIssueDraft>();
         var status = RawRecordNormalizeStatus.NORMALIZED;
 
-        var consumed = ProviderNumberParser.decimal(string(fields.get("Consumed Amount")));
-        var currency = string(fields.get("Currency"));
-        var requestCount = ProviderNumberParser.longValue(string(fields.get("Request Count")));
+        var consumed = ProviderNumberParser.decimal(
+                string(ProviderFieldLookup.get(fields, "Consumed Amount")));
+        var currency = string(ProviderFieldLookup.get(fields, "Currency"));
+        var requestCount = ProviderNumberParser.longValue(
+                string(ProviderFieldLookup.get(fields, "Request Count")));
         if (consumed.invalid() || currency == null || currency.isBlank()) {
             issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
                     record.locator(), "Consumed Amount",
@@ -260,8 +272,8 @@ public final class MimoProviderAdapter implements ProviderAdapter {
 
         var builder = new NormalizedPayloadBuilder(SCHEMA_VARIANT, "PLUGIN_USAGE")
                 .dimension("credentialHint", CREDENTIAL_HINT)
-                .providerField("plugin", fields.get("Plugin"))
-                .providerField("date", fields.get("Date"));
+                .providerField("plugin", ProviderFieldLookup.get(fields, "Plugin"))
+                .providerField("date", ProviderFieldLookup.get(fields, "Date"));
         if (status == RawRecordNormalizeStatus.NORMALIZED) {
             builder.usage("requestCount", requestCount.value())
                     .money("currency", currency)
@@ -276,7 +288,10 @@ public final class MimoProviderAdapter implements ProviderAdapter {
     private static Map<String, Object> rawWithoutApiKey(Map<String, Object> fields) {
         var raw = new LinkedHashMap<String, Object>();
         for (var entry : fields.entrySet()) {
-            if (entry.getKey().equals(API_KEY_COLUMN)) {
+            // Secret removal is decided on the normalized header so variants such as
+            // " API   Key " cannot leak into the raw payload.
+            if (HeaderNormalizer.normalize(entry.getKey())
+                    .equals(HeaderNormalizer.normalize(API_KEY_COLUMN))) {
                 continue;
             }
             raw.put(entry.getKey(), entry.getValue());

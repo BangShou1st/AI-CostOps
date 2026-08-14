@@ -3,16 +3,19 @@ package com.aicostops.ingestion.providers.common;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * AI CostOps safety defaults for provider archive parsing. These are implementation
- * configuration, not provider facts: bounded expansion, entry count and compression
- * ratio defend against ZIP-bomb style archives before any provider row is parsed.
+ * AI CostOps safety defaults for provider archive/JSON parsing. These are
+ * implementation configuration, not provider facts: bounded expansion, entry count,
+ * compression ratio, JSON bucket count and inspection issue collection defend
+ * against oversized or pathological provider inputs before any row is parsed.
  */
 @ConfigurationProperties(prefix = "aicostops.ingestion.provider-parser")
 public record ProviderParserProperties(
         int maxArchiveEntries,
         long maxExpandedBytes,
         double maxCompressionRatio,
-        long compressionRatioCheckAfterBytes) {
+        long compressionRatioCheckAfterBytes,
+        int maxJsonBuckets,
+        int maxInspectionIssues) {
 
     public ProviderParserProperties {
         if (maxArchiveEntries <= 0) {
@@ -26,6 +29,12 @@ public record ProviderParserProperties(
         }
         if (compressionRatioCheckAfterBytes <= 0) {
             throw new IllegalArgumentException("aicostops.ingestion.provider-parser.compression-ratio-check-after-bytes must be positive");
+        }
+        if (maxJsonBuckets <= 0) {
+            throw new IllegalArgumentException("aicostops.ingestion.provider-parser.max-json-buckets must be positive");
+        }
+        if (maxInspectionIssues <= 0) {
+            throw new IllegalArgumentException("aicostops.ingestion.provider-parser.max-inspection-issues must be positive");
         }
     }
 }
