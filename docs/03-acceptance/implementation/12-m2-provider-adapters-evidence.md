@@ -114,6 +114,11 @@ git status --short      : clean
 > （whitespace/NFKC 变体 + secret 变体 header 移除）、`PayloadRedactor` value-level
 > secret-shaped redaction（unknown field 中隐藏的 sentinel 值 0 泄漏，credentialId
 > 保留）。
+>
+> final spot round 新增：`max-json-schema-fields=512`（cumulative unique result
+> field names 上限，超限 fail-closed `TOO_MANY_JSON_SCHEMA_FIELDS`，不生成截断
+> fingerprint）；bucket 上限在遍历中生效（超过 `max-json-buckets` 立即停止读取
+> 剩余 payload）；DeepSeek cost 行时间 header 统一走 normalized lookup。
 
 Provider-focused 明细（同一 fresh run 内）：
 

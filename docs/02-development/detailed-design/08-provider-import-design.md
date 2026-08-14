@@ -592,6 +592,7 @@ aicostops.ingestion.provider-parser
   compression-ratio-check-after-bytes: 1048576 (1 MiB)
   max-json-buckets: 10000
   max-inspection-issues: 256
+  max-json-schema-fields: 512
 ```
 
 Parser safety implementation limits（工程配置，非 Provider 事实）：
@@ -602,6 +603,12 @@ Parser safety implementation limits（工程配置，非 Provider 事实）：
   issue 按 (issueCode, fieldName) 去重，未知字段与 optional-missing 上报也受
   同一上限；截断后追加一次 `INSPECTION_ISSUES_TRUNCATED`（WARN），而
   compatibility 由独立的 `sawError` 状态决定，被截断的 ERROR 仍 fail-closed。
+- `max-json-schema-fields`：JSON 页面累计 unique result field names 上限；超过
+  即 fail-closed（`TOO_MANY_JSON_SCHEMA_FIELDS`，compatible=false），不再继续
+  累积字段，也不生成"被截断但仍 compatible"的 fingerprint。
+- bucket 上限在遍历中生效：每进入一个 bucket 即计数，超过
+  `max-json-buckets` 立即停止 inspection traversal（不再读取剩余 payload），
+  返回 `TOO_MANY_JSON_BUCKETS`。
 
 OpenAI JSON 解析为 bounded two-pass：Pass A 只收集每个 bucket 的 epoch 窗口并
 完成 page/bucket/result shape 校验（root `object=page`、bucket 必须同时具备
