@@ -3,12 +3,14 @@ package com.aicostops.evidence.application;
 import com.aicostops.evidence.domain.Evidence;
 import com.aicostops.evidence.domain.EvidenceStorageStatus;
 import com.aicostops.evidence.infrastructure.EvidenceStorageProperties;
+import com.aicostops.evidence.infrastructure.ObjectStorageException;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -72,7 +74,7 @@ public class EvidenceStorageService {
             return new StoredEvidence(reserved, true);
         }
 
-        var existing = storage.stat(objectKey);
+        var existing = statWithDependencyMapping(objectKey, reserved.id(), organizationId, now);
         if (existing.isPresent()) {
             var metadata = existing.get();
             if (Objects.equals(metadata.sha256(), staged.sha256())
@@ -84,6 +86,10 @@ public class EvidenceStorageService {
         } else {
             try {
                 storage.put(objectKey, staged.tempFile(), staged.sizeBytes(), staged.sha256());
+            } catch (ObjectStorageException outage) {
+                persistence.markFailedUnlessAvailable(
+                        reserved.id(), organizationId, "STORAGE_UPLOAD_FAILED", now);
+                throw dependencyUnavailable();
             } catch (RuntimeException failure) {
                 persistence.markFailedUnlessAvailable(
                         reserved.id(), organizationId, "STORAGE_UPLOAD_FAILED", now);
@@ -93,6 +99,24 @@ public class EvidenceStorageService {
         }
         var evidence = persistence.findByIdAndOrganization(reserved.id(), organizationId).orElseThrow();
         return new StoredEvidence(evidence, false);
+    }
+
+    /**
+     * A stat outage is a dependency problem, never "object missing". The Evidence row
+     * is left untouched (STAGING) so a later retry can still repair it.
+     */
+    private Optional<StoredObjectMetadata> statWithDependencyMapping(
+            String objectKey, long evidenceId, long organizationId, Instant now) {
+        try {
+            return storage.stat(objectKey);
+        } catch (ObjectStorageException outage) {
+            throw dependencyUnavailable();
+        }
+    }
+
+    private DomainException dependencyUnavailable() {
+        return new DomainException(HttpStatus.SERVICE_UNAVAILABLE, ProblemCode.DEPENDENCY_TEMPORARILY_UNAVAILABLE,
+                "Evidence storage unavailable", "The evidence object store is temporarily unavailable.");
     }
 
     /** Evidence row plus whether the identity already existed before this store. */
