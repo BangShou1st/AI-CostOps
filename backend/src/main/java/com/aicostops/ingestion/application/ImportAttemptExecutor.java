@@ -10,7 +10,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 
 /**
@@ -33,7 +33,8 @@ public class ImportAttemptExecutor {
     private final ObjectStoragePort storage;
     private final ImportWorkerProperties properties;
     private final Clock clock;
-    private final AtomicReference<ImportLeaseService.ImportLease> activeLease = new AtomicReference<>();
+    private final ConcurrentHashMap<Long, ImportLeaseService.ImportLease> activeLeases =
+            new ConcurrentHashMap<>();
 
     public ImportAttemptExecutor(
             ProviderAdapterRegistry registry,
@@ -57,19 +58,27 @@ public class ImportAttemptExecutor {
     }
 
     public void execute(ImportLeaseService.ImportLease lease) {
-        activeLease.set(lease);
+        activeLeases.put(lease.attemptId(), lease);
         try {
             executeInternal(lease);
         } finally {
-            activeLease.set(null);
+            // remove(key, value) never clears a newer execution that reused the id.
+            activeLeases.remove(lease.attemptId(), lease);
         }
     }
 
-    /** Renews the currently executing lease, if any. Failure is enforced by fenced writes. */
+    /**
+     * Renews every currently executing lease from a stable snapshot. A failure for
+     * one execution must not prevent the others from being renewed; lease loss is
+     * ultimately enforced by the fenced writes of the worker that lost it.
+     */
     public void heartbeatActiveExecutions() {
-        var lease = activeLease.get();
-        if (lease != null) {
-            leases.heartbeat(lease.attemptId(), lease.leaseOwner(), lease.leaseVersion());
+        for (var lease : List.copyOf(activeLeases.values())) {
+            try {
+                leases.heartbeat(lease.attemptId(), lease.leaseOwner(), lease.leaseVersion());
+            } catch (RuntimeException ignored) {
+                // One failing renewal must not block the remaining active leases.
+            }
         }
     }
 

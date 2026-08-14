@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -338,6 +340,84 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
                 Integer.class, lease.attemptId())).isZero();
     }
 
+    // ------------------------------------------------------------------
+    // Review fix: heartbeat must cover every concurrently active execution
+    // ------------------------------------------------------------------
+
+    @Test
+    void heartbeatRenewsAllConcurrentlyActiveExecutions() throws Exception {
+        TestExecutorAdapter.blockParse = true;
+        TestExecutorAdapter.enteredLatch = new CountDownLatch(2);
+        TestExecutorAdapter.releaseLatch = new CountDownLatch(1);
+        var firstBatch = insertBatchWithAttempt(storeEvidence("hb-1-content"));
+        var secondBatch = insertBatchWithAttempt(storeEvidence("hb-2-content"));
+        var firstLease = leases.claimNext("worker-hb-1").orElseThrow();
+        var secondLease = leases.claimNext("worker-hb-2").orElseThrow();
+
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var first = pool.submit(() -> executor.execute(firstLease));
+            var second = pool.submit(() -> executor.execute(secondLease));
+            assertThat(TestExecutorAdapter.enteredLatch.await(10, TimeUnit.SECONDS)).isTrue();
+
+            var beforeFirst = leaseUntil(firstLease.attemptId());
+            var beforeSecond = leaseUntil(secondLease.attemptId());
+
+            executor.heartbeatActiveExecutions();
+
+            assertThat(leaseUntil(firstLease.attemptId())).isAfter(beforeFirst);
+            assertThat(leaseUntil(secondLease.attemptId())).isAfter(beforeSecond);
+
+            TestExecutorAdapter.blockParse = false;
+            TestExecutorAdapter.releaseLatch.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(attemptStatus(firstLease.attemptId())).isEqualTo("SUCCEEDED");
+        assertThat(batchStatus(firstBatch)).isEqualTo("PARSED");
+        assertThat(batchStatus(secondBatch)).isEqualTo("PARSED");
+    }
+
+    @Test
+    void oneFinishedExecutionDoesNotClearAnotherActiveHeartbeatEligibility() throws Exception {
+        TestExecutorAdapter.blockParse = true;
+        TestExecutorAdapter.enteredLatch = new CountDownLatch(1);
+        TestExecutorAdapter.releaseLatch = new CountDownLatch(1);
+        var blockingBatch = insertBatchWithAttempt(storeEvidence("hb-blocked-content"));
+        var blockingLease = leases.claimNext("worker-hb-blocked").orElseThrow();
+
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(1);
+        try {
+            var blocking = pool.submit(() -> executor.execute(blockingLease));
+            assertThat(TestExecutorAdapter.enteredLatch.await(10, TimeUnit.SECONDS)).isTrue();
+
+            // A second execution starts and finishes while the first is still active.
+            TestExecutorAdapter.blockParse = false;
+            var finishedBatch = insertBatchWithAttempt(storeEvidence("hb-finished-content"));
+            var finishedLease = leases.claimNext("worker-hb-finished").orElseThrow();
+            executor.execute(finishedLease);
+            assertThat(attemptStatus(finishedLease.attemptId())).isEqualTo("SUCCEEDED");
+            assertThat(batchStatus(finishedBatch)).isEqualTo("PARSED");
+
+            var beforeBlocked = leaseUntil(blockingLease.attemptId());
+            executor.heartbeatActiveExecutions();
+            assertThat(leaseUntil(blockingLease.attemptId())).isAfter(beforeBlocked);
+
+            TestExecutorAdapter.releaseLatch.countDown();
+            blocking.get(10, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(attemptStatus(blockingLease.attemptId())).isEqualTo("SUCCEEDED");
+    }
+
+    private java.sql.Timestamp leaseUntil(long attemptId) {
+        return jdbc.queryForObject(
+                "SELECT lease_until FROM import_attempt WHERE id=?", java.sql.Timestamp.class, attemptId);
+    }
+
     private long storeEvidence(String content) {
         var stored = evidenceStorage.store(organizationId, memberId, "executor.csv", "text/csv",
                 new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8)));
@@ -436,6 +516,9 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         static volatile List<ImportIssueDraft> inspectionIssues = List.of();
         static volatile List<NormalizedProviderRecord> records = List.of();
         static volatile int failAfterRecords = -1;
+        static volatile boolean blockParse;
+        static volatile CountDownLatch enteredLatch = new CountDownLatch(0);
+        static volatile CountDownLatch releaseLatch = new CountDownLatch(0);
 
         static void reset() {
             compatible = true;
@@ -443,6 +526,9 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
             inspectionIssues = List.of();
             records = List.of();
             failAfterRecords = -1;
+            blockParse = false;
+            enteredLatch = new CountDownLatch(0);
+            releaseLatch = new CountDownLatch(0);
         }
 
         @Override
@@ -462,6 +548,14 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
 
         @Override
         public void parse(ProviderSource source, InspectionResult inspection, ProviderRecordSink sink) {
+            enteredLatch.countDown();
+            if (blockParse) {
+                try {
+                    releaseLatch.await(30, TimeUnit.SECONDS);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                }
+            }
             var emitted = 0;
             for (var record : records) {
                 sink.accept(record);
