@@ -92,12 +92,12 @@ git status --short
 ### 真实结果（2026-08-14 Task 14 fresh run + review-fix round）
 
 ```text
-focused provider suite : Tests run: 141, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-backend unit            : Tests run: 326, Failures: 0, Errors: 0, Skipped: 1 — BUILD SUCCESS
+focused provider suite : Tests run: 144, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+backend unit            : Tests run: 329, Failures: 0, Errors: 0, Skipped: 1 — BUILD SUCCESS
 backend integration     : Tests run: 226, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
 architecture            : Tests run: 5, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
 docker compose config   : exit 0
-docker build            : ai-costops-backend:m2-group2-hardening build SUCCESS
+docker build            : ai-costops-backend:m2-group2-final build SUCCESS
 git diff --check        : no output
 git status --short      : clean
 ```
