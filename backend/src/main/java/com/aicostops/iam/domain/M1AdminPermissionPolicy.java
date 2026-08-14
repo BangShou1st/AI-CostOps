@@ -19,7 +19,15 @@ public final class M1AdminPermissionPolicy {
             Map.entry("COST_CENTER_READ", Set.of(ScopeType.ORG, ScopeType.COST_CENTER)),
             Map.entry("COST_CENTER_MANAGE", Set.of(ScopeType.ORG, ScopeType.COST_CENTER)),
             Map.entry("PROVIDER_ACCOUNT_READ", Set.of(ScopeType.ORG)),
-            Map.entry("PROVIDER_ACCOUNT_MANAGE", Set.of(ScopeType.ORG)));
+            Map.entry("PROVIDER_ACCOUNT_MANAGE", Set.of(ScopeType.ORG)),
+            Map.entry("EVIDENCE_UPLOAD_OWN", Set.of(ScopeType.ORG)),
+            Map.entry("EVIDENCE_UPLOAD_PROVIDER", Set.of(ScopeType.ORG)),
+            Map.entry("EVIDENCE_READ", Set.of(ScopeType.ORG)),
+            Map.entry("EVIDENCE_DOWNLOAD", Set.of(ScopeType.ORG)),
+            Map.entry("IMPORT_READ", Set.of(ScopeType.ORG)),
+            Map.entry("IMPORT_RETRY", Set.of(ScopeType.ORG)),
+            Map.entry("IMPORT_CONFIRM", Set.of(ScopeType.ORG)),
+            Map.entry("IMPORT_CANCEL", Set.of(ScopeType.ORG)));
 
     private M1AdminPermissionPolicy() {
     }

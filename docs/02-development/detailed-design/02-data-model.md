@@ -275,29 +275,42 @@ V1 Post-billing 不要求保存 Provider API Secret。
 
 ## 3. Evidence / Ingestion 表
 
+> M2 Group 1 实际实现（V4 migration）。M2 结束于 `ImportBatch.PARSED / FAILED`；
+> canonical cost facts（`external_document` / `consumption_fact` / `pricing_fact` /
+> `charge_fact` / `attribution_hint`）属于 M3，本组不创建。
+
 ### `evidence`
 
-不可变文件身份：
+不可变文件身份 + 存储生命周期：
 
 ```text
 id
 org_id
-sha256
+sha256 CHAR(64)
 object_key
 original_filename
-media_type
+media_type NULL
 size_bytes
 uploaded_by_member_id
+storage_status        STAGING | AVAILABLE | FAILED
+storage_error_code    NULL
 created_at
+updated_at
 ```
 
 约束：
 
 ```text
-UQ(org_id,sha256)
+UQ(org_id, sha256)
+FK org_id -> organization
+FK uploaded_by_member_id -> organization_member
 ```
 
-同一字节文件重复上传复用 Evidence Identity。
+同一组织内同一字节文件重复上传复用 Evidence Identity；跨组织不做物理去重。
+`sha256` / `object_key` / `size_bytes` 在对象被接受后不可变。对象键为确定性
+`org/{orgId}/evidence/sha256/{sha-prefix}/{sha256}`，禁止文件名/email/token/secret 进入键。
+`AVAILABLE` 不允许被晚到的失败降级；`STAGING` 且对象已存在（大小 + 显式 SHA-256
+metadata 匹配）时可修复为 `AVAILABLE`。ETag 不是 Evidence checksum 契约。
 
 ### `import_batch`
 
@@ -305,14 +318,11 @@ UQ(org_id,sha256)
 id
 org_id
 evidence_id
-provider_account_id NULL
-expected_provider_code NULL
-detected_provider_code NULL
-source_type
-schema_fingerprint NULL
+provider_account_id        M2 必须指向当前组织 ACTIVE Provider Account
+expected_provider_code
+source_type                FILE_EXPORT | USAGE_API_JSON | COSTS_API_JSON
 parser_version
-status
-confirmed_attempt_id NULL
+status                     PENDING | PROCESSING | PARSED | FAILED | CANCELED
 period_start NULL
 period_end NULL
 created_by_member_id
@@ -323,38 +333,72 @@ updated_at
 约束：
 
 ```text
-UQ(evidence_id,parser_version,source_type)
+UQ(evidence_id, provider_account_id, source_type, parser_version)
+FK org_id -> organization
+FK evidence_id -> evidence
+FK provider_account_id -> provider_account
+FK created_by_member_id -> organization_member
 ```
 
-Parser 行为影响 Canonical 输出时必须升级 `parser_version`。
+Batch identity 是 Evidence + Provider Account + source type + parser version。
+复用同一 Batch 不隐式创建新 Attempt；重试/恢复显式创建新 Attempt。
+`PARSED` 有意不命名为 `READY_FOR_REVIEW`（后者是 M3 语义）。
+Provider code 在 Batch 上快照为 `expected_provider_code`，避免后续 Provider Account
+元数据变更改写历史导入上下文。
 
 ### `import_attempt`
 
-既是执行历史，也是 DB-backed Job：
+既是执行历史，也是 DB-backed Job（不可变 lineage）：
 
 ```text
 id
 import_batch_id
 attempt_no
-status
+status                 QUEUED | RUNNING | SUCCEEDED | FAILED | CANCELED
+trigger_type           INITIAL | LEASE_RECOVERY | MANUAL_RETRY
+predecessor_attempt_id NULL
 available_at
 lease_owner NULL
 lease_until NULL
+lease_version
+parser_version
+detected_provider_code NULL
+schema_fingerprint CHAR(64) NULL
 started_at NULL
 finished_at NULL
 error_code NULL
 error_summary NULL
 records_seen
 records_valid
-facts_created
+warning_count
+error_count
+created_at
 ```
 
-约束：
+约束与索引：
 
 ```text
-UQ(import_batch_id,attempt_no)
-IDX(status,available_at,lease_until)
+UQ(import_batch_id, attempt_no)
+IDX(status, available_at, id)                  idx_import_attempt_queue
+IDX(status, lease_until, id)                   idx_import_attempt_lease
+IDX(import_batch_id, status, id)               idx_import_attempt_batch_status
+FK import_batch_id -> import_batch
+FK predecessor_attempt_id -> import_attempt (self)
 ```
+
+租约语义：
+
+```text
+lease duration 默认 60s（DB 时钟 UTC_TIMESTAMP(6)）
+heartbeat 默认 20s
+自动恢复预算默认 3 个 LEASE_RECOVERY Attempt
+```
+
+claim 是短事务：`FOR UPDATE SKIP LOCKED` 选取 QUEUED Attempt → 置 RUNNING +
+lease + `lease_version+1` → Batch PROCESSING。每次 claim 递增 `lease_version`
+实现 fencing。expired RUNNING Attempt 被恢复为 FAILED(WORKER_LEASE_EXPIRED) 并
+创建 successor（LEASE_RECOVERY）；恢复预算耗尽后 Batch FAILED，等待人工重试。
+stale owner/version 不能 heartbeat、persist、finalize。
 
 ### `raw_provider_record`
 
@@ -362,36 +406,53 @@ IDX(status,available_at,lease_until)
 id
 import_attempt_id
 record_index
-record_locator
+record_locator         例如 cost.csv:row=12
 provider_record_key NULL
-raw_payload JSON
+raw_payload JSON       已脱敏，Evidence 对象才是权威原始字节
+normalized_payload JSON NULL
 usage_start NULL
 usage_end NULL
-normalize_status
+normalize_status       NORMALIZED | WARN | ERROR
 created_at
 ```
 
-`record_locator` 例如：
+约束：
 
 ```text
-Model usage detail!row=4
-cost.csv:row=12
-$.data[10]
+UQ(import_attempt_id, record_index)
+FK import_attempt_id -> import_attempt
+CHECK usage window（V6）：usage_start IS NULL OR usage_end IS NULL
+  OR usage_start <= usage_end
 ```
+
+持久化是有界批次（默认 500 条/事务），每个事务先锁并验证 Attempt 所有权
+`(attempt_id, lease_owner, lease_version, lease 未过期)`。失败 Attempt 的
+RawRecord/Issue 永久保留 lineage。
 
 ### `import_issue`
 
-记录可供人工审查的数据问题：
-
 ```text
-severity
+id
+import_attempt_id
+raw_provider_record_id NULL
+severity                WARN | ERROR
 issue_code
-field_name
+record_locator NULL
+field_name NULL
 message
-raw_value_masked
+raw_value_masked NULL
+created_at
 ```
 
-禁止把 Secret Copy 到 Issue。
+约束：
+
+```text
+FK import_attempt_id -> import_attempt
+FK raw_provider_record_id -> raw_provider_record
+```
+
+WARN 可继续且 Attempt 仍可 SUCCEEDED；存在 ERROR 则 Attempt FAILED、Batch FAILED。
+禁止把 Secret Copy 到 Issue（`raw_value_masked` 只允许掩码值）。
 
 ## 4. Canonical Cost 表
 

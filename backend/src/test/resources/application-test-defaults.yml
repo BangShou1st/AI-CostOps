@@ -2,6 +2,10 @@ aicostops:
   auth:
     # TEST ONLY. Production application.yml intentionally has no signing-key default.
     jwt-signing-secret: test-source-set-only-signing-secret-with-more-than-32-bytes
+  ingestion:
+    # Test default: workers stay off so ordinary integration tests are deterministic.
+    # Worker/coordinator tests explicitly opt in.
+    worker-enabled: false
 
 spring:
   datasource:
