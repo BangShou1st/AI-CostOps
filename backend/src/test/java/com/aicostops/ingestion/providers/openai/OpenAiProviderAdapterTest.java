@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class OpenAiProviderAdapterTest {
@@ -23,7 +24,8 @@ class OpenAiProviderAdapterTest {
     private static final String EMPTY_EXPORT_HEADER =
             "start_time,end_time,start_time_iso,end_time_iso";
 
-    private final OpenAiProviderAdapter adapter = new OpenAiProviderAdapter();
+    private final OpenAiProviderAdapter adapter =
+            new OpenAiProviderAdapter(tools.jackson.databind.json.JsonMapper.builder().build());
 
     // ------------------------------------------------------------------
     // Part A: observed empty CSV export
@@ -48,7 +50,8 @@ class OpenAiProviderAdapterTest {
                 "completions_usage_2026-08-01.csv"));
 
         assertThat(result.compatible()).isFalse();
-        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("WRONG_SOURCE_TYPE");
+        assertThat(result.issues()).extracting(i -> i.severity())
+                .containsOnly(ImportIssueSeverity.ERROR);
     }
 
     @Test
@@ -165,6 +168,170 @@ class OpenAiProviderAdapterTest {
     }
 
     // ------------------------------------------------------------------
+    // Part B/C: official Usage and Costs JSON
+    // ------------------------------------------------------------------
+
+    @Test
+    void usageJsonIsCompatibleUnderUsageApiJson() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                classpath("/provider-fixtures/openai/official-usage-completions.json"),
+                "usage.json"));
+
+        assertThat(result.compatible()).isTrue();
+        assertThat(result.schemaVariant()).isEqualTo("openai.organization-usage-completions-json.v1");
+        assertThat(result.schemaFingerprint()).hasSize(64);
+        assertThat(result.issues()).isEmpty();
+    }
+
+    @Test
+    void usageBytesAreRejectedUnderCostsApiJson() {
+        var result = adapter.inspect(input(ImportSourceType.COSTS_API_JSON,
+                classpath("/provider-fixtures/openai/official-usage-completions.json"),
+                "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.severity())
+                .contains(ImportIssueSeverity.ERROR);
+    }
+
+    @Test
+    void costsJsonIsCompatibleUnderCostsApiJson() {
+        var result = adapter.inspect(input(ImportSourceType.COSTS_API_JSON,
+                classpath("/provider-fixtures/openai/official-costs.json"),
+                "costs.json"));
+
+        assertThat(result.compatible()).isTrue();
+        assertThat(result.schemaVariant()).isEqualTo("openai.organization-costs-json.v1");
+        assertThat(result.issues()).isEmpty();
+    }
+
+    @Test
+    void costsBytesAreRejectedUnderUsageApiJson() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                classpath("/provider-fixtures/openai/official-costs.json"),
+                "costs.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.severity())
+                .contains(ImportIssueSeverity.ERROR);
+    }
+
+    @Test
+    void malformedJsonPageShapeIsIncompatible() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json("{\"data\": \"not-an-array\"}"),
+                "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("MALFORMED_JSON");
+    }
+
+    @Test
+    void unknownJsonResultFieldWarnsAndRawIsPreserved() {
+        var drifted = json("""
+                {"data":[{"start_time":1780000000,"end_time":1780003600,"results":[
+                  {"input_tokens":100,"output_tokens":20,"num_model_requests":2,
+                   "model":"gpt-example","future_metric":1}]}]}
+                """);
+        var inspection = adapter.inspect(input(ImportSourceType.USAGE_API_JSON, drifted, "usage.json"));
+
+        assertThat(inspection.compatible()).isTrue();
+        assertThat(inspection.issues()).extracting(i -> i.issueCode()).contains("UNKNOWN_FIELD");
+
+        var records = parse(ImportSourceType.USAGE_API_JSON, drifted, "usage.json");
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).rawPayload()).containsEntry("future_metric", 1L);
+    }
+
+    @Test
+    void missingRequiredUsageFieldIsIncompatible() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"data":[{"start_time":1780000000,"end_time":1780003600,"results":[
+                          {"output_tokens":20,"num_model_requests":2}]}]}
+                        """),
+                "usage.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("MISSING_REQUIRED_FIELD");
+    }
+
+    @Test
+    void usageTokensNormalizeAsSeparateMetersWithoutCachedAddition() {
+        var records = parse(ImportSourceType.USAGE_API_JSON,
+                classpath("/provider-fixtures/openai/official-usage-completions.json"),
+                "usage.json");
+
+        assertThat(records).hasSize(1);
+        var record = records.get(0);
+        assertThat(record.locator()).isEqualTo("data[0].results[0]");
+        assertThat(record.normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(record.usageStart()).isEqualTo(Instant.ofEpochSecond(1780000000L));
+        assertThat(record.usageEnd()).isEqualTo(Instant.ofEpochSecond(1780003600L));
+        assertThat(record.normalizedPayload()).containsEntry("recordKind", "USAGE")
+                .containsEntry("sourceSchema", "openai.organization-usage-completions-json.v1");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> usage = (Map<String, Object>) record.normalizedPayload().get("usage");
+        assertThat(usage).containsEntry("inputTokens", 100L)
+                .containsEntry("outputTokens", 20L)
+                .containsEntry("inputCachedTokens", 40L)
+                .containsEntry("inputAudioTokens", 0L)
+                .containsEntry("outputAudioTokens", 0L)
+                .containsEntry("numModelRequests", 2L);
+        assertThat(usage).doesNotContainKeys("inputTokensPlusCached", "summedTokens");
+        assertThat(record.normalizedPayload()).doesNotContainKeys("money");
+        assertThat(record.normalizedPayload().get("dimensions"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .containsEntry("model", "gpt-example")
+                .containsEntry("providerUser", "user_fake")
+                .containsEntry("providerProject", "proj_fake");
+        assertThat(record.normalizedPayload().get("providerFields"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .containsEntry("apiKeyId", "keyid_fake")
+                .containsEntry("batch", false)
+                .containsEntry("serviceTier", "default");
+    }
+
+    @Test
+    void costsNormalizeMoneyAndDimensionsWithoutStaleFields() {
+        var records = parse(ImportSourceType.COSTS_API_JSON,
+                classpath("/provider-fixtures/openai/official-costs.json"),
+                "costs.json");
+
+        assertThat(records).hasSize(1);
+        var record = records.get(0);
+        assertThat(record.locator()).isEqualTo("data[0].results[0]");
+        assertThat(record.normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(record.normalizedPayload()).containsEntry("recordKind", "COST")
+                .containsEntry("sourceSchema", "openai.organization-costs-json.v1");
+        assertThat(record.normalizedPayload().get("money"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .containsEntry("currency", "usd")
+                .containsEntry("reportedAmount", new java.math.BigDecimal("1.23"));
+        assertThat(record.normalizedPayload().get("dimensions"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .containsEntry("providerProject", "proj_fake");
+        assertThat(record.normalizedPayload().get("providerFields"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .containsEntry("lineItem", "example-line-item");
+        assertThat(record.normalizedPayload().toString())
+                .doesNotContain("api_key_id").doesNotContain("quantity");
+    }
+
+    @Test
+    void missingRequiredCostsAmountIsIncompatible() {
+        var result = adapter.inspect(input(ImportSourceType.COSTS_API_JSON,
+                json("""
+                        {"data":[{"start_time":1780000000,"end_time":1780003600,"results":[
+                          {"line_item":"example-line-item","project_id":"proj_fake"}]}]}
+                        """),
+                "costs.json"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("MISSING_REQUIRED_FIELD");
+    }
+
+    // ------------------------------------------------------------------
     // helpers
     // ------------------------------------------------------------------
 
@@ -184,6 +351,21 @@ class OpenAiProviderAdapterTest {
 
     private static byte[] csv(String ignored, String content) {
         return content.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] json(String content) {
+        return content.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] classpath(String path) {
+        try (var in = OpenAiProviderAdapterTest.class.getResourceAsStream(path)) {
+            if (in == null) {
+                throw new IllegalStateException("Missing fixture " + path);
+            }
+            return in.readAllBytes();
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("Failed to read fixture " + path, failure);
+        }
     }
 
     private record ByteArraySource(byte[] bytes) implements ProviderSource {

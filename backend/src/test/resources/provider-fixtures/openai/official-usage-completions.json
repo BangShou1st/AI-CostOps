@@ -1,0 +1,25 @@
+{
+  "object": "page",
+  "data": [
+    {
+      "start_time": 1780000000,
+      "end_time": 1780003600,
+      "results": [
+        {
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "input_cached_tokens": 40,
+          "input_audio_tokens": 0,
+          "output_audio_tokens": 0,
+          "num_model_requests": 2,
+          "project_id": "proj_fake",
+          "user_id": "user_fake",
+          "api_key_id": "keyid_fake",
+          "model": "gpt-example",
+          "batch": false,
+          "service_tier": "default"
+        }
+      ]
+    }
+  ]
+}
