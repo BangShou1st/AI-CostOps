@@ -27,6 +27,22 @@ public interface EvidenceMapper {
             @Param("organizationId") long organizationId,
             @Param("sha256") String sha256);
 
+    /**
+     * Current read (locking) used only to converge a concurrent duplicate-key race:
+     * consistent reads in REPEATABLE READ keep the old snapshot, so the winner's
+     * committed row would stay invisible inside the same transaction.
+     */
+    @Select("""
+            SELECT
+            """ + EVIDENCE_COLUMNS + """
+            FROM evidence e
+            WHERE e.org_id=#{organizationId} AND e.sha256=#{sha256}
+            FOR UPDATE
+            """)
+    Evidence findByOrganizationAndShaCurrent(
+            @Param("organizationId") long organizationId,
+            @Param("sha256") String sha256);
+
     @Select("""
             SELECT
             """ + EVIDENCE_COLUMNS + """

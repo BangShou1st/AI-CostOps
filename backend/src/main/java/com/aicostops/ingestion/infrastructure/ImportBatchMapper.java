@@ -32,6 +32,26 @@ public interface ImportBatchMapper {
             @Param("sourceType") String sourceType,
             @Param("parserVersion") String parserVersion);
 
+    /**
+     * Current read (locking) used only to converge a concurrent duplicate-key race;
+     * consistent reads in REPEATABLE READ keep the old snapshot.
+     */
+    @Select("""
+            SELECT
+            """ + IMPORT_BATCH_COLUMNS + """
+            FROM import_batch ib
+            WHERE ib.evidence_id=#{evidenceId}
+              AND ib.provider_account_id=#{providerAccountId}
+              AND ib.source_type=#{sourceType}
+              AND ib.parser_version=#{parserVersion}
+            FOR UPDATE
+            """)
+    ImportBatch findByIdentityForUpdate(
+            @Param("evidenceId") long evidenceId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("sourceType") String sourceType,
+            @Param("parserVersion") String parserVersion);
+
     @Select("""
             SELECT
             """ + IMPORT_BATCH_COLUMNS + """

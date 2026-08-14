@@ -14,6 +14,7 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.io.InputStream;
 import java.time.Clock;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -101,15 +102,21 @@ public class ProviderImportService {
         var existing = batchMapper.findByIdentity(
                 evidenceId, providerAccountId, sourceType.name(), parserVersion);
         if (existing != null) {
-            var latest = attemptMapper.findLatestByBatch(existing.id());
-            if (latest == null) {
-                throw new IllegalStateException("An existing ImportBatch must have at least one Attempt");
-            }
-            return new BatchOutcome(existing, latest, true);
+            return reuse(existing);
         }
         var now = clock.instant();
-        batchMapper.insert(organizationId, evidenceId, providerAccountId, expectedProviderCode,
-                sourceType.name(), parserVersion, createdByMemberId, now);
+        try {
+            batchMapper.insert(organizationId, evidenceId, providerAccountId, expectedProviderCode,
+                    sourceType.name(), parserVersion, createdByMemberId, now);
+        } catch (DuplicateKeyException concurrentIdentity) {
+            // Concurrent same-identity creation converges on the winner's Batch.
+            var winner = batchMapper.findByIdentityForUpdate(
+                    evidenceId, providerAccountId, sourceType.name(), parserVersion);
+            if (winner != null) {
+                return reuse(winner);
+            }
+            throw concurrentIdentity;
+        }
         var batchId = batchMapper.lastInsertId();
         attemptMapper.insertQueued(batchId, 1, "INITIAL", null, parserVersion, now, now);
         var batch = batchMapper.findByIdAndOrganization(batchId, organizationId);
@@ -118,6 +125,14 @@ public class ProviderImportService {
             throw new IllegalStateException("Created ImportBatch/Attempt must be readable");
         }
         return new BatchOutcome(batch, attempt, false);
+    }
+
+    private BatchOutcome reuse(ImportBatch existing) {
+        var latest = attemptMapper.findLatestByBatch(existing.id());
+        if (latest == null) {
+            throw new IllegalStateException("An existing ImportBatch must have at least one Attempt");
+        }
+        return new BatchOutcome(existing, latest, true);
     }
 
     public record ProviderImportResult(

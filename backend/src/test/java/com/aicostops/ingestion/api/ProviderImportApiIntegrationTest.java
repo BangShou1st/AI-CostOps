@@ -177,6 +177,30 @@ class ProviderImportApiIntegrationTest extends MinioAuthenticationContainersSupp
                 .andExpect(jsonPath("$.code").value("FORBIDDEN"));
     }
 
+    @Test
+    void concurrentSameIdentityUploadsConvergeOnOneBatchWithOneAttempt() throws Exception {
+        assign("IMPORT_CREATOR", "ORG", organizationId);
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var start = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.Callable<Long> upload = () -> {
+                start.await();
+                var body = mockMvc.perform(importRequest(activeProviderAccountId))
+                        .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+                return jsonNumbers(body).importBatchId;
+            };
+            var first = pool.submit(upload);
+            var second = pool.submit(upload);
+            start.countDown();
+
+            assertThat(first.get()).isEqualTo(second.get());
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_batch", Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_attempt", Integer.class)).isEqualTo(1);
+    }
+
     private org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder importRequest(
             long providerAccountId) {
         return multipart("/api/v1/provider-imports")

@@ -135,6 +135,18 @@ class EvidenceDownloadApiIntegrationTest extends MinioAuthenticationContainersSu
                 String.class, stagingEvidenceId, organizationId)).isEqualTo("STAGING");
     }
 
+    @Test
+    void unavailableObjectStoreMapsTo503WithoutLeakingObjectKey() throws Exception {
+        assign("EVIDENCE_READER", "ORG", organizationId);
+        jdbc.update("UPDATE evidence SET object_key='org/" + organizationId + "/evidence/ghost-key' WHERE id=?",
+                availableEvidenceId);
+
+        mockMvc.perform(get("/api/v1/evidence/{id}/download", availableEvidenceId)
+                        .header("Authorization", bearer()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("DEPENDENCY_TEMPORARILY_UNAVAILABLE"));
+    }
+
     private long insertEvidence(long orgId, String storageStatus, String sha256) {
         jdbc.update("""
                 INSERT INTO evidence(

@@ -42,7 +42,7 @@ public class EvidencePersistenceService {
             mapper.insertStaging(organizationId, sha256, objectKey, originalFilename,
                     mediaType, sizeBytes, uploadedByMemberId, now);
         } catch (DuplicateKeyException concurrentDuplicate) {
-            var winner = mapper.findByOrganizationAndSha(organizationId, sha256);
+            var winner = mapper.findByOrganizationAndShaCurrent(organizationId, sha256);
             if (winner != null) {
                 return winner;
             }

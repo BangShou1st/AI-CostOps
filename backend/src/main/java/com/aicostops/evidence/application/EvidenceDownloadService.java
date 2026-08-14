@@ -2,6 +2,7 @@ package com.aicostops.evidence.application;
 
 import com.aicostops.evidence.domain.Evidence;
 import com.aicostops.evidence.domain.EvidenceStorageStatus;
+import com.aicostops.evidence.infrastructure.ObjectStorageException;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -42,7 +43,12 @@ public class EvidenceDownloadService {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                     "Evidence is not available", "The evidence has not finished storing.");
         }
-        return new EvidenceDownload(evidence, storage.open(evidence.objectKey()));
+        try {
+            return new EvidenceDownload(evidence, storage.open(evidence.objectKey()));
+        } catch (ObjectStorageException exception) {
+            throw new DomainException(HttpStatus.SERVICE_UNAVAILABLE, ProblemCode.DEPENDENCY_TEMPORARILY_UNAVAILABLE,
+                    "Evidence storage unavailable", "The evidence object store is temporarily unavailable.");
+        }
     }
 
     public record EvidenceDownload(Evidence evidence, InputStream stream) {

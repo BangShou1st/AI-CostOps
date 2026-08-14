@@ -49,12 +49,12 @@ public class ImportWorkerCoordinator {
         if (!permits.tryAcquire()) {
             return;
         }
-        var claimed = leases.claimNext(workerId);
-        if (claimed.isEmpty()) {
-            permits.release();
-            return;
-        }
         try {
+            var claimed = leases.claimNext(workerId);
+            if (claimed.isEmpty()) {
+                permits.release();
+                return;
+            }
             final var lease = claimed.orElseThrow();
             taskExecutor.execute(() -> {
                 try {
