@@ -55,6 +55,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/teams/{id}/members").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/teams/{id}/members").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/teams/{id}/members/{memberId}").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/evidence/{id}/download").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }
