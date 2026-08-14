@@ -74,7 +74,9 @@ public class ImportRawPersistenceService {
                 var rawId = rawMapper.lastInsertId();
                 for (var issue : record.issues()) {
                     issueMapper.insert(lease.attemptId(), rawId, issue.severity().name(),
-                            issue.issueCode(), issue.recordLocator(), issue.fieldName(),
+                            issue.issueCode(),
+                            IssueSanitizer.sanitizeLocator(issue.recordLocator()),
+                            IssueSanitizer.sanitizeFieldName(issue.fieldName()),
                             IssueSanitizer.sanitizeMessage(issue.message()),
                             IssueSanitizer.sanitizeMasked(issue.rawValueMasked()), now);
                     issuesInserted++;
@@ -113,7 +115,9 @@ public class ImportRawPersistenceService {
             var errors = 0L;
             for (var issue : issues) {
                 issueMapper.insert(lease.attemptId(), null, issue.severity().name(),
-                        issue.issueCode(), issue.recordLocator(), issue.fieldName(),
+                        issue.issueCode(),
+                        IssueSanitizer.sanitizeLocator(issue.recordLocator()),
+                        IssueSanitizer.sanitizeFieldName(issue.fieldName()),
                         IssueSanitizer.sanitizeMessage(issue.message()),
                         IssueSanitizer.sanitizeMasked(issue.rawValueMasked()), now);
                 if (issue.severity().name().equals("ERROR")) {

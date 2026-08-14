@@ -9,6 +9,7 @@ import com.aicostops.ingestion.domain.ImportSourceType;
 import com.aicostops.ingestion.providers.deepseek.DeepSeekProviderAdapter;
 import com.aicostops.ingestion.providers.fixtures.ProviderFixtureFactory;
 import com.aicostops.ingestion.providers.mimo.MimoProviderAdapter;
+import com.aicostops.ingestion.providers.openai.OpenAiProviderAdapter;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MinioContainerSupport;
 import java.io.ByteArrayInputStream;
@@ -54,7 +55,7 @@ class ProviderAdapterSecurityIntegrationTest extends MinioContainerSupport {
         organizationId = insertOrganization("SecurityGate", "security-gate");
         var userId = insertUser("security-gate@example.com");
         memberId = insertMember(organizationId, userId);
-        for (var code : List.of("DEEPSEEK", "MIMO")) {
+        for (var code : List.of("DEEPSEEK", "MIMO", "OPENAI")) {
             jdbc.update("""
                     INSERT INTO provider_account(
                         org_id,provider_code,display_name,external_account_ref,status,metadata_json,created_at,updated_at)
@@ -135,6 +136,62 @@ class ProviderAdapterSecurityIntegrationTest extends MinioContainerSupport {
                 "SELECT COUNT(*) FROM import_issue WHERE import_attempt_id=?",
                 Integer.class, attemptId)).isGreaterThanOrEqualTo(1);
         assertNoSentinelInPersistedSurfaces(attemptId);
+    }
+
+    @Test
+    void sentinelAndOversizeInUnknownZipEntryLocatorNeverSurvivePersistence() throws Exception {
+        var entries = new LinkedHashMap<String, String>();
+        entries.put("amount-2026-08-01.csv",
+                "user_id,start_time_iso,end_time_iso,model,api_key_name,api_key,type,price,amount\n"
+                        + "user-1,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,deepseek-chat,default,"
+                        + "key-1,api_call,1,2\n");
+        entries.put("cost-2026-08-01.csv",
+                "user_id,start_time_iso,end_time_iso,model,wallet_type,cost,currency\n"
+                        + "user-1,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,deepseek-chat,main_wallet,1.25,CNY\n");
+        entries.put(SENTINEL + "-" + "x".repeat(520) + ".txt", "notes");
+        var attemptId = runPipeline("DEEPSEEK", DeepSeekProviderAdapter.PARSER_VERSION,
+                ImportSourceType.FILE_EXPORT, "deepseek-entry-locator.zip", "application/zip",
+                ProviderFixtureFactory.zip(entries));
+
+        // Unknown archive entry is a WARN: attempt succeeds, issue is persisted.
+        assertThat(attemptStatus(attemptId)).isEqualTo("SUCCEEDED");
+        var issues = jdbc.queryForList("""
+                SELECT record_locator, field_name, message, raw_value_masked
+                FROM import_issue WHERE import_attempt_id=?
+                """, attemptId);
+        assertThat(issues).isNotEmpty();
+        for (var row : issues) {
+            assertThat(String.valueOf(row.get("record_locator"))).doesNotContain(SENTINEL);
+            assertThat(String.valueOf(row.get("record_locator")).length()).isLessThanOrEqualTo(500);
+            assertThat(String.valueOf(row.get("field_name"))).doesNotContain(SENTINEL);
+            assertThat(String.valueOf(row.get("message"))).doesNotContain(SENTINEL);
+            assertThat(String.valueOf(row.get("raw_value_masked"))).doesNotContain(SENTINEL);
+        }
+    }
+
+    @Test
+    void sentinelAndOversizeInUnknownCsvHeaderFieldNameNeverSurvivePersistence() throws Exception {
+        var csv = "start_time,end_time,start_time_iso,end_time_iso,"
+                + SENTINEL + "-" + "y".repeat(220) + "\n"
+                + "1780000000,1780003600,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,1\n";
+        var attemptId = runPipeline("OPENAI", OpenAiProviderAdapter.PARSER_VERSION,
+                ImportSourceType.FILE_EXPORT, "completions_usage_2026-08-01.csv", "text/csv",
+                csv.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        // Unknown column is a WARN: attempt succeeds, issue is persisted.
+        assertThat(attemptStatus(attemptId)).isEqualTo("SUCCEEDED");
+        var issues = jdbc.queryForList("""
+                SELECT record_locator, field_name, message, raw_value_masked
+                FROM import_issue WHERE import_attempt_id=?
+                """, attemptId);
+        assertThat(issues).isNotEmpty();
+        for (var row : issues) {
+            assertThat(String.valueOf(row.get("record_locator"))).doesNotContain(SENTINEL);
+            assertThat(String.valueOf(row.get("field_name"))).doesNotContain(SENTINEL);
+            assertThat(String.valueOf(row.get("field_name")).length()).isLessThanOrEqualTo(200);
+            assertThat(String.valueOf(row.get("message"))).doesNotContain(SENTINEL);
+            assertThat(String.valueOf(row.get("raw_value_masked"))).doesNotContain(SENTINEL);
+        }
     }
 
     private long runPipeline(
