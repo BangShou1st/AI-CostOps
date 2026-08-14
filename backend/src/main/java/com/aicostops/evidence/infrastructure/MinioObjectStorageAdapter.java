@@ -30,6 +30,7 @@ public class MinioObjectStorageAdapter implements ObjectStoragePort {
     private final String bucket;
     private final boolean autoCreateBucket;
     private final AtomicBoolean bucketInitialized = new AtomicBoolean(false);
+    private final Object bucketInitMonitor = new Object();
 
     public MinioObjectStorageAdapter(MinioClient client, String bucket, boolean autoCreateBucket) {
         this.client = client;
@@ -83,21 +84,36 @@ public class MinioObjectStorageAdapter implements ObjectStoragePort {
         if (bucketInitialized.get()) {
             return;
         }
-        try {
-            var exists = client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
-            if (!exists) {
-                if (!autoCreateBucket) {
-                    throw new ObjectStorageException(
-                            "Evidence bucket '" + bucket + "' does not exist and auto-creation is disabled");
-                }
-                client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+        // Double-checked locking: probe + create must be atomic within this JVM so
+        // two first-time callers cannot both try to create the same bucket.
+        synchronized (bucketInitMonitor) {
+            if (bucketInitialized.get()) {
+                return;
             }
-            // Only memoize after a successful probe so a transient outage can be retried later.
-            bucketInitialized.set(true);
-        } catch (ObjectStorageException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new ObjectStorageException("Failed to initialize evidence bucket", exception);
+            try {
+                var exists = client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build());
+                if (!exists) {
+                    if (!autoCreateBucket) {
+                        throw new ObjectStorageException(
+                                "Evidence bucket '" + bucket + "' does not exist and auto-creation is disabled");
+                    }
+                    try {
+                        client.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
+                    } catch (ErrorResponseException alreadyExists) {
+                        // Another instance may have created the bucket between our probe
+                        // and create; that is success only if the bucket now exists.
+                        if (!client.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
+                            throw alreadyExists;
+                        }
+                    }
+                }
+                // Only memoize after a successful probe so a transient outage can be retried later.
+                bucketInitialized.set(true);
+            } catch (ObjectStorageException exception) {
+                throw exception;
+            } catch (Exception exception) {
+                throw new ObjectStorageException("Failed to initialize evidence bucket", exception);
+            }
         }
     }
 }
