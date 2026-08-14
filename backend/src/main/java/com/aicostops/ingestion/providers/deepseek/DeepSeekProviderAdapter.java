@@ -209,7 +209,7 @@ public final class DeepSeekProviderAdapter implements ProviderAdapter {
         var builder = new NormalizedPayloadBuilder(SCHEMA_VARIANT, "USAGE")
                 .dimension("model", fields.get("model"))
                 .dimension("providerUser", fields.get("user_id"))
-                .providerField("apiKeyName", fields.get("api_key_name"))
+                .providerField("credentialLabel", fields.get("api_key_name"))
                 .providerField("type", fields.get("type"))
                 .providerField("price", fields.get("price"))
                 .providerField("amount", fields.get("amount"));

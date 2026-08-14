@@ -23,23 +23,31 @@ Synthetic page in the current official OpenAI Organization Usage API shape
 `https://platform.openai.com/docs/api-reference/usage/audio_transcriptions_object`
 (Organization completions usage).
 
-Result fields are limited to the current evidence-backed set:
+Result fields cover the current completions contract: `object` type marker,
+`input_tokens` / `output_tokens` totals, the cached / cache-write / uncached and
+text / audio / image breakdown components, `num_model_requests`, and the
+`project_id` / `user_id` / `api_key_id` / `model` / `batch` / `service_tier`
+dimensions.
 
-`input_tokens`, `output_tokens`, `input_cached_tokens`, `input_audio_tokens`,
-`output_audio_tokens`, `num_model_requests`, `project_id`, `user_id`,
-`api_key_id`, `model`, `batch`, `service_tier`.
+Breakdown components are never added to the totals (`input_tokens` stays the
+provider aggregate; there is no `inputTokensPlusCached`).
 
 ### `openai/official-costs.json` — `OFFICIAL_SCHEMA_SYNTHETIC`
 
-Synthetic page in the current official OpenAI Organization Costs API shape.
+Synthetic page in the current official OpenAI Organization Costs API shape
+(verified 2026-08-14). The current official Costs result contract includes:
 
-The current official Costs contract (re-verified 2026-08-14) uses only:
+`amount` (`value` / `currency`), `api_key_id`, `line_item`, `project_id`,
+`quantity`, `object`.
 
-`amount.value`, `amount.currency`, `line_item`, `project_id`.
+- `amount.value` / `amount.currency` are the minimum required money semantics.
+- `line_item` / `project_id` / `api_key_id` / `quantity` are optional provider
+  dimensions that may be absent when the request does not group by them.
+- `api_key_id` is a provider identifier, not secret API key material.
+- `quantity` is preserved provider-native; Group 2 assigns no guessed unit.
 
-This fixture deliberately omits the stale assumptions found in older repository
-research (`api_key_id` and `quantity` were NOT listed as fields of the current
-`organization.costs.result` contract and are not used here).
+The fixture also carries the official `object` type markers
+(`page` / `bucket` / `organization.costs.result`).
 
 ## Test-generated fixtures
 

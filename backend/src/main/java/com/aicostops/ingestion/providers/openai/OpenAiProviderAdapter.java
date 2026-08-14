@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -45,14 +46,19 @@ import tools.jackson.databind.ObjectMapper;
  *       a populated CSV metric schema; unknown columns WARN without upgrading the
  *       contract.</li>
  *   <li>{@code openai.organization-usage-completions-json.v1} — official Usage API
- *       JSON under {@code USAGE_API_JSON}. Cached tokens are a breakdown of input
- *       tokens and are never added to form a fake total.</li>
+ *       JSON under {@code USAGE_API_JSON}. {@code input_tokens} / {@code output_tokens}
+ *       are provider totals; cached / cache-write / uncached / text / audio / image
+ *       values are breakdown components and are never added to form fake totals.</li>
  *   <li>{@code openai.organization-costs-json.v1} — official Costs API JSON under
- *       {@code COSTS_API_JSON}. Only the current official fields
- *       ({@code amount.value}, {@code amount.currency}, {@code line_item},
- *       {@code project_id}) are mapped; stale {@code api_key_id} / {@code quantity}
- *       assumptions are absent.</li>
+ *       {@code COSTS_API_JSON}. Minimum money semantics are {@code amount.value} +
+ *       {@code amount.currency}; {@code line_item} / {@code project_id} /
+ *       {@code api_key_id} / {@code quantity} are optional provider dimensions and
+ *       {@code quantity} is preserved provider-native without a guessed unit.</li>
  * </ul>
+ *
+ * <p>JSON parsing is bounded: inspection keeps only schema metadata (field-name set,
+ * type markers, validation flags, issues) and parse materializes exactly one result
+ * object at a time before normalizing and releasing it.
  */
 @Component
 public final class OpenAiProviderAdapter implements ProviderAdapter {
@@ -71,17 +77,32 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
     private static final Pattern USAGE_PREFIX = Pattern.compile("^completions_usage_.*\\.csv$", Pattern.CASE_INSENSITIVE);
     private static final Pattern COST_PREFIX = Pattern.compile("^cost_.*\\.csv$", Pattern.CASE_INSENSITIVE);
 
+    // Official object/type markers (verified 2026-08-14).
+    static final String ROOT_OBJECT = "page";
+    static final String BUCKET_OBJECT = "bucket";
+    static final String USAGE_RESULT_OBJECT = "organization.usage.completions.result";
+    static final String COSTS_RESULT_OBJECT = "organization.costs.result";
+
     private static final List<String> USAGE_RECOGNIZED_FIELDS = List.of(
-            "input_tokens", "output_tokens", "input_cached_tokens", "input_audio_tokens",
-            "output_audio_tokens", "num_model_requests", "project_id", "user_id",
-            "api_key_id", "model", "batch", "service_tier");
+            "object",
+            "input_tokens", "output_tokens",
+            "input_cached_tokens", "input_cache_write_tokens", "input_uncached_tokens",
+            "input_text_tokens", "input_audio_tokens", "input_image_tokens",
+            "input_cached_text_tokens", "input_cached_audio_tokens", "input_cached_image_tokens",
+            "output_text_tokens", "output_audio_tokens", "output_image_tokens",
+            "num_model_requests",
+            "project_id", "user_id", "api_key_id", "model", "batch", "service_tier");
     private static final List<String> USAGE_REQUIRED_FIELDS = List.of(
             "input_tokens", "output_tokens", "num_model_requests");
+    private static final List<String> USAGE_OPTIONAL_INTEGRALS = List.of(
+            "input_cached_tokens", "input_cache_write_tokens", "input_uncached_tokens",
+            "input_text_tokens", "input_audio_tokens", "input_image_tokens",
+            "input_cached_text_tokens", "input_cached_audio_tokens", "input_cached_image_tokens",
+            "output_text_tokens", "output_audio_tokens", "output_image_tokens");
 
     private static final List<String> COSTS_RECOGNIZED_FIELDS = List.of(
-            "amount", "line_item", "project_id");
-    private static final List<String> COSTS_REQUIRED_FIELDS = List.of(
-            "amount", "line_item", "project_id");
+            "object", "amount", "api_key_id", "line_item", "project_id", "quantity");
+    private static final List<String> COSTS_REQUIRED_FIELDS = List.of("amount");
 
     private final ObjectMapper objectMapper;
 
@@ -117,13 +138,19 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         try (var content = input.source().openStream()) {
             headers = CsvSupport.readHeader(content);
         } catch (IOException | CsvSupport.DuplicateCsvHeaderException failure) {
+            var code = failure instanceof CsvSupport.DuplicateCsvHeaderException
+                    ? "DUPLICATE_COLUMN" : "MALFORMED_CSV";
             return incompatible(OBSERVED_EMPTY_EXPORT,
-                    List.of(issue(ImportIssueSeverity.ERROR, "MALFORMED_CSV",
-                            input.originalFilename(), null, "Export is not a readable CSV")));
+                    List.of(issue(ImportIssueSeverity.ERROR, code,
+                            input.originalFilename(), null, "Export CSV header is invalid")));
         }
         var issues = new ArrayList<ImportIssueDraft>();
         var actualNormalized = HeaderNormalizer.normalizeAll(headers);
         var requiredNormalized = HeaderNormalizer.normalizeAll(REQUIRED_EXPORT_HEADERS);
+        for (var duplicate : HeaderNormalizer.duplicateNormalizedHeaders(headers)) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "DUPLICATE_COLUMN",
+                    "export.csv", duplicate, "Observed export contains duplicate normalized columns"));
+        }
         for (var i = 0; i < requiredNormalized.size(); i++) {
             if (!actualNormalized.contains(requiredNormalized.get(i))) {
                 issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_COLUMN",
@@ -210,108 +237,277 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
     }
 
     // ------------------------------------------------------------------
-    // Parts B/C: official Usage and Costs JSON
+    // Parts B/C: official Usage and Costs JSON (bounded streaming)
     // ------------------------------------------------------------------
 
     private InspectionResult inspectJsonPage(ProviderInput input, String variant, boolean usage) {
         var required = usage ? USAGE_REQUIRED_FIELDS : COSTS_REQUIRED_FIELDS;
         var recognized = usage ? USAGE_RECOGNIZED_FIELDS : COSTS_RECOGNIZED_FIELDS;
+        var expectedResultObject = usage ? USAGE_RESULT_OBJECT : COSTS_RESULT_OBJECT;
         var sourceType = usage ? ImportSourceType.USAGE_API_JSON : ImportSourceType.COSTS_API_JSON;
-        PageShape shape;
         try (var content = input.source().openStream()) {
-            shape = scanPage(content);
+            var accumulator = new PageAccumulator(usage, required, recognized, expectedResultObject);
+            scanPage(content, accumulator);
+            if (!accumulator.shapeValid) {
+                return incompatible(variant, List.of(issue(ImportIssueSeverity.ERROR, "MALFORMED_JSON",
+                        input.originalFilename(), null,
+                        "Payload does not match the official page/bucket/result shape")));
+            }
+            var roles = new LinkedHashMap<String, List<String>>();
+            roles.put("result", List.copyOf(accumulator.allKeys));
+            roles.put("object", List.of(ROOT_OBJECT, BUCKET_OBJECT, expectedResultObject));
+            var fingerprint = SchemaFingerprint.sha256(new SchemaDescriptor(
+                    PROVIDER_CODE, sourceType, variant, roles));
+            var compatible = accumulator.issues.stream()
+                    .noneMatch(i -> i.severity() == ImportIssueSeverity.ERROR);
+            return new InspectionResult(PROVIDER_CODE, variant, fingerprint, compatible, accumulator.issues);
         } catch (IOException | JacksonException failure) {
             return incompatible(variant, List.of(issue(ImportIssueSeverity.ERROR, "MALFORMED_JSON",
                     input.originalFilename(), null, "Payload is not a readable official API page")));
         }
-        if (shape == null) {
-            return incompatible(variant, List.of(issue(ImportIssueSeverity.ERROR, "MALFORMED_JSON",
-                    input.originalFilename(), null,
-                    "Payload does not match the official page/bucket/result shape")));
-        }
-        var issues = new ArrayList<ImportIssueDraft>();
-        for (var result : shape.results) {
-            var keys = result.keys();
-            for (var field : required) {
-                if (!keys.contains(field)) {
-                    issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_FIELD",
-                            result.locator, field, "Required result field '" + field + "' is missing"));
-                }
-            }
-            if (!usage) {
-                var amount = result.node.get("amount");
-                if (amount == null || !amount.isObject()
-                        || !amount.has("value") || !amount.has("currency")) {
-                    issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_FIELD",
-                            result.locator, "amount.value",
-                            "Required result field 'amount.value/amount.currency' is missing"));
-                }
-            }
-            for (var key : keys) {
-                if (!recognized.contains(key)) {
-                    issues.add(issue(ImportIssueSeverity.WARN, "UNKNOWN_FIELD",
-                            result.locator, key, "Unknown extra result field"));
-                }
-            }
-            for (var field : recognized) {
-                if (!required.contains(field) && !keys.contains(field)) {
-                    issues.add(issue(ImportIssueSeverity.WARN, "MISSING_OPTIONAL_FIELD",
-                            result.locator, field, "Recognized optional result field is missing"));
-                }
-            }
-        }
-        var fingerprint = SchemaFingerprint.sha256(new SchemaDescriptor(
-                PROVIDER_CODE, sourceType, variant, Map.of("result", List.copyOf(shape.allKeys))));
-        var compatible = issues.stream().noneMatch(i -> i.severity() == ImportIssueSeverity.ERROR);
-        return new InspectionResult(PROVIDER_CODE, variant, fingerprint, compatible, issues);
     }
 
-    private void parseJsonResults(
-            ProviderInput input, InspectionResult inspection, ProviderRecordSink sink, boolean usage) {
-        var index = new AtomicInteger();
-        try (var content = input.source().openStream()) {
-            var parser = objectMapper.createParser(content);
-            try {
-                if (parser.nextToken() != JsonToken.START_OBJECT) {
-                    throw new IllegalStateException("Official API page must be a JSON object");
-                }
-                while (parser.nextToken() != JsonToken.END_OBJECT) {
-                    if (!"data".equals(parser.currentName())) {
-                        parser.skipChildren();
-                        continue;
-                    }
+    /**
+     * Streaming page walk that keeps only schema metadata. Results are inspected and
+     * discarded immediately; no {@code JsonNode} of a result survives the walk.
+     */
+    private void scanPage(InputStream content, PageAccumulator accumulator) throws IOException {
+        try (var parser = objectMapper.createParser(content)) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                accumulator.shapeValid = false;
+                return;
+            }
+            var foundData = false;
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                var field = parser.currentName();
+                if ("data".equals(field)) {
+                    foundData = true;
                     if (parser.nextToken() != JsonToken.START_ARRAY) {
-                        throw new IllegalStateException("Official API page data must be an array");
+                        accumulator.shapeValid = false;
+                        return;
                     }
                     var bucketIndex = 0;
                     while (parser.nextToken() != JsonToken.END_ARRAY) {
-                        var bucket = (JsonNode) parser.readValueAsTree();
-                        if (!bucket.isObject()) {
-                            throw new IllegalStateException("Official API bucket must be an object");
+                        if (parser.currentToken() != JsonToken.START_OBJECT) {
+                            accumulator.shapeValid = false;
+                            return;
                         }
-                        var start = epochOf(bucket.get("start_time"));
-                        var end = epochOf(bucket.get("end_time"));
-                        var results = bucket.get("results");
-                        if (results == null || !results.isArray()) {
-                            throw new IllegalStateException("Official API bucket must contain a results array");
-                        }
-                        var resultIndex = 0;
-                        for (var result : results) {
-                            var fields = toMap(result);
-                            var record = new ParsedProviderRecord(index.getAndIncrement(),
-                                    "data[" + bucketIndex + "].results[" + resultIndex + "]", fields);
-                            sink.accept(normalizeJson(record, inspection, usage, start, end));
-                            resultIndex++;
-                        }
+                        scanBucket(parser, bucketIndex, accumulator);
                         bucketIndex++;
                     }
+                } else if ("object".equals(field)) {
+                    if (parser.nextToken() != JsonToken.VALUE_STRING
+                            || !ROOT_OBJECT.equals(parser.getText())) {
+                        accumulator.shapeValid = false;
+                        return;
+                    }
+                } else {
+                    parser.skipChildren();
                 }
-            } finally {
-                parser.close();
+            }
+            if (!foundData) {
+                accumulator.shapeValid = false;
+            }
+        }
+    }
+
+    private void scanBucket(JsonParser parser, int bucketIndex, PageAccumulator accumulator) throws IOException {
+        var bucketObjectSeen = false;
+        while (parser.nextToken() != JsonToken.END_OBJECT) {
+            var field = parser.currentName();
+            if ("object".equals(field)) {
+                if (parser.nextToken() != JsonToken.VALUE_STRING
+                        || !BUCKET_OBJECT.equals(parser.getText())) {
+                    accumulator.shapeValid = false;
+                    return;
+                }
+                bucketObjectSeen = true;
+            } else if ("results".equals(field)) {
+                if (parser.nextToken() != JsonToken.START_ARRAY) {
+                    accumulator.shapeValid = false;
+                    return;
+                }
+                var resultIndex = 0;
+                while (parser.nextToken() != JsonToken.END_ARRAY) {
+                    if (parser.currentToken() != JsonToken.START_OBJECT) {
+                        accumulator.shapeValid = false;
+                        return;
+                    }
+                    scanResult(parser, "data[" + bucketIndex + "].results[" + resultIndex + "]",
+                            accumulator);
+                    resultIndex++;
+                }
+            } else {
+                parser.skipChildren();
+            }
+        }
+        if (!bucketObjectSeen) {
+            accumulator.shapeValid = false;
+        }
+    }
+
+    private void scanResult(JsonParser parser, String locator, PageAccumulator accumulator) throws IOException {
+        var result = (JsonNode) parser.readValueAsTree();
+        if (!result.isObject()) {
+            accumulator.shapeValid = false;
+            return;
+        }
+        var keys = new TreeSet<String>();
+        result.propertyNames().forEach(keys::add);
+        accumulator.allKeys.addAll(keys);
+
+        var resultObject = result.path("object").asText("");
+        if (!accumulator.expectedResultObject.equals(resultObject)) {
+            accumulator.issues.add(issue(ImportIssueSeverity.ERROR, "MALFORMED_JSON",
+                    locator, "object",
+                    "Result object marker must be '" + accumulator.expectedResultObject + "'"));
+        }
+        for (var field : accumulator.required) {
+            var node = result.get(field);
+            if (node == null || node.isNull()) {
+                accumulator.issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_FIELD",
+                        locator, field, "Required result field '" + field + "' is missing or null"));
+            }
+        }
+        if (!accumulator.usage) {
+            var amount = result.get("amount");
+            if (amount == null || !amount.isObject()
+                    || amount.get("value") == null || amount.get("value").isNull()
+                    || !amount.get("value").isNumber()
+                    || amount.get("currency") == null || amount.get("currency").isNull()
+                    || !amount.get("currency").isTextual()
+                    || amount.get("currency").asText().isBlank()) {
+                accumulator.issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_FIELD",
+                        locator, "amount.value",
+                        "amount.value must be a number and amount.currency must be non-blank text"));
+            }
+        }
+        for (var key : keys) {
+            if (!accumulator.recognized.contains(key) && accumulator.reportedUnknownFields.add(key)) {
+                accumulator.issues.add(issue(ImportIssueSeverity.WARN, "UNKNOWN_FIELD",
+                        locator, key, "Unknown extra result field"));
+            }
+        }
+        for (var field : accumulator.recognized) {
+            if (!accumulator.required.contains(field) && !keys.contains(field)
+                    && accumulator.reportedOptionalMissing.add(field)) {
+                accumulator.issues.add(issue(ImportIssueSeverity.WARN, "MISSING_OPTIONAL_FIELD",
+                        locator, field, "Recognized optional result field is missing"));
+            }
+        }
+        // The result node is discarded here; only schema metadata accumulates.
+    }
+
+    /** Schema-only page state; never holds result values. */
+    private static final class PageAccumulator {
+        private final boolean usage;
+        private final List<String> required;
+        private final List<String> recognized;
+        private final String expectedResultObject;
+        private final Set<String> allKeys = new TreeSet<>();
+        private final List<ImportIssueDraft> issues = new ArrayList<>();
+        private final Set<String> reportedUnknownFields = new TreeSet<>();
+        private final Set<String> reportedOptionalMissing = new TreeSet<>();
+        private boolean shapeValid = true;
+
+        private PageAccumulator(
+                boolean usage, List<String> required, List<String> recognized, String expectedResultObject) {
+            this.usage = usage;
+            this.required = required;
+            this.recognized = recognized;
+            this.expectedResultObject = expectedResultObject;
+        }
+    }
+
+    @Override
+    public void parse(ProviderInput input, InspectionResult inspection, ProviderRecordSink sink) {
+        switch (inspection.schemaVariant()) {
+            case OBSERVED_EMPTY_EXPORT -> parseObservedCsv(input, inspection, sink);
+            case USAGE_JSON -> parseJsonResults(input, inspection, sink, true);
+            case COSTS_JSON -> parseJsonResults(input, inspection, sink, false);
+            default -> throw new IllegalStateException("Unsupported OpenAI schema variant");
+        }
+    }
+
+    /**
+     * Token-traversal parse: page -> data array -> one bucket -> results array ->
+     * one result at a time -> normalize -> sink. Exactly one result object exists in
+     * memory at any moment; no list of results or normalized rows is built.
+     */
+    private void parseJsonResults(
+            ProviderInput input, InspectionResult inspection, ProviderRecordSink sink, boolean usage) {
+        var index = new AtomicInteger();
+        try (var content = input.source().openStream();
+                var parser = objectMapper.createParser(content)) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                throw new IllegalStateException("Official API page must be a JSON object");
+            }
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                if (!"data".equals(parser.currentName())) {
+                    parser.skipChildren();
+                    continue;
+                }
+                if (parser.nextToken() != JsonToken.START_ARRAY) {
+                    throw new IllegalStateException("Official API page data must be an array");
+                }
+                var bucketIndex = 0;
+                while (parser.nextToken() != JsonToken.END_ARRAY) {
+                    Long bucketStart = null;
+                    Long bucketEnd = null;
+                    var sawStart = false;
+                    var sawEnd = false;
+                    while (parser.nextToken() != JsonToken.END_OBJECT) {
+                        var field = parser.currentName();
+                        if ("start_time".equals(field)) {
+                            sawStart = true;
+                            bucketStart = readEpochSeconds(parser);
+                        } else if ("end_time".equals(field)) {
+                            sawEnd = true;
+                            bucketEnd = readEpochSeconds(parser);
+                        } else if ("results".equals(field)) {
+                            if (parser.nextToken() != JsonToken.START_ARRAY) {
+                                throw new IllegalStateException("Official API bucket must contain a results array");
+                            }
+                            var resultIndex = 0;
+                            while (parser.nextToken() != JsonToken.END_ARRAY) {
+                                var result = (JsonNode) parser.readValueAsTree();
+                                var fields = toMap(result);
+                                var record = new ParsedProviderRecord(index.getAndIncrement(),
+                                        "data[" + bucketIndex + "].results[" + resultIndex + "]", fields);
+                                sink.accept(normalizeJson(record, inspection, usage,
+                                        epochInstant(sawStart, bucketStart), epochInstant(sawEnd, bucketEnd)));
+                                resultIndex++;
+                            }
+                        } else {
+                            parser.skipChildren();
+                        }
+                    }
+                    bucketIndex++;
+                }
             }
         } catch (IOException | JacksonException failure) {
             throw new IllegalStateException("OpenAI JSON parse failed (category)", failure);
         }
+    }
+
+    /** Reads a bucket epoch boundary; null means missing/null/malformed. */
+    private static Long readEpochSeconds(JsonParser parser) throws IOException {
+        var token = parser.nextToken();
+        if (token == JsonToken.VALUE_NUMBER_INT) {
+            return parser.getLongValue();
+        }
+        if (token == JsonToken.VALUE_STRING) {
+            try {
+                return Long.parseLong(parser.getText().trim());
+            } catch (NumberFormatException malformed) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static Instant epochInstant(boolean saw, Long epochSeconds) {
+        return saw && epochSeconds != null ? Instant.ofEpochSecond(epochSeconds) : null;
     }
 
     private NormalizedProviderRecord normalizeJson(
@@ -321,51 +517,89 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         var issues = new ArrayList<ImportIssueDraft>();
         var status = RawRecordNormalizeStatus.NORMALIZED;
         if (usage) {
-            var inputTokens = integral(fields.get("input_tokens"));
-            var outputTokens = integral(fields.get("output_tokens"));
-            var cached = integral(fields.get("input_cached_tokens"));
-            var audioIn = integral(fields.get("input_audio_tokens"));
-            var audioOut = integral(fields.get("output_audio_tokens"));
-            var requests = integral(fields.get("num_model_requests"));
-            if (inputTokens.invalid() || outputTokens.invalid() || requests.invalid()
-                    || cached.invalid() || audioIn.invalid() || audioOut.invalid()) {
-                issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_NUMBER",
-                        record.locator(), "input_tokens",
-                        "Token and request metrics must be integral numbers"));
+            return normalizeUsageResult(record, fields, issues, status, bucketStart, bucketEnd);
+        }
+        return normalizeCostsResult(record, fields, issues, status, bucketStart, bucketEnd);
+    }
+
+    private NormalizedProviderRecord normalizeUsageResult(
+            ParsedProviderRecord record, Map<String, Object> fields, List<ImportIssueDraft> issues,
+            RawRecordNormalizeStatus status, Instant bucketStart, Instant bucketEnd) {
+        var inputTokens = requiredIntegral(fields, "input_tokens");
+        var outputTokens = requiredIntegral(fields, "output_tokens");
+        var requests = requiredIntegral(fields, "num_model_requests");
+        if (inputTokens.invalid() || outputTokens.invalid() || requests.invalid()) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_NUMBER",
+                    record.locator(), "input_tokens",
+                    "input_tokens, output_tokens and num_model_requests must be present integral numbers"));
+            status = RawRecordNormalizeStatus.ERROR;
+        }
+        var optional = new LinkedHashMap<String, ProviderNumberParser.ParsedValue<Long>>();
+        for (var field : USAGE_OPTIONAL_INTEGRALS) {
+            var parsed = optionalIntegral(fields, field);
+            optional.put(field, parsed);
+            if (parsed.invalid()) {
+                issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_OPTIONAL_NUMBER",
+                        record.locator(), field,
+                        "Optional token breakdown '" + field + "' must be an integral number when present"));
                 status = RawRecordNormalizeStatus.ERROR;
             }
-            var builder = new NormalizedPayloadBuilder(USAGE_JSON, "USAGE")
-                    .dimension("model", string(fields.get("model")))
-                    .dimension("providerUser", string(fields.get("user_id")))
-                    .dimension("providerProject", string(fields.get("project_id")))
-                    .providerField("apiKeyId", string(fields.get("api_key_id")))
-                    .providerField("batch", fields.get("batch"))
-                    .providerField("serviceTier", string(fields.get("service_tier")));
-            if (status == RawRecordNormalizeStatus.NORMALIZED) {
-                builder.usage("inputTokens", inputTokens.value())
-                        .usage("outputTokens", outputTokens.value())
-                        .usage("inputCachedTokens", cached.value())
-                        .usage("inputAudioTokens", audioIn.value())
-                        .usage("outputAudioTokens", audioOut.value())
-                        .usage("numModelRequests", requests.value());
-            }
-            return new NormalizedProviderRecord(record.index(), record.locator(), null,
-                    new LinkedHashMap<>(fields), builder.build(), bucketStart, bucketEnd, status, issues);
         }
+        if (bucketStart == null || bucketEnd == null) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_BUCKET_TIME",
+                    record.locator(), "start_time",
+                    "Official API bucket must have integral start_time and end_time"));
+            status = RawRecordNormalizeStatus.ERROR;
+        }
+
+        var builder = new NormalizedPayloadBuilder(USAGE_JSON, "USAGE")
+                .dimension("model", string(fields.get("model")))
+                .dimension("providerUser", string(fields.get("user_id")))
+                .dimension("providerProject", string(fields.get("project_id")))
+                .dimension("credentialId", string(fields.get("api_key_id")))
+                .providerField("batch", fields.get("batch"))
+                .providerField("serviceTier", string(fields.get("service_tier")));
+        if (status == RawRecordNormalizeStatus.NORMALIZED) {
+            builder.usage("inputTokens", inputTokens.value())
+                    .usage("outputTokens", outputTokens.value())
+                    .usage("numModelRequests", requests.value());
+            for (var entry : optional.entrySet()) {
+                if (entry.getValue().valid()) {
+                    builder.usage(optionalKey(entry.getKey()), entry.getValue().value());
+                }
+            }
+        }
+        return new NormalizedProviderRecord(record.index(), record.locator(), null,
+                new LinkedHashMap<>(fields), builder.build(), bucketStart, bucketEnd, status, issues);
+    }
+
+    private NormalizedProviderRecord normalizeCostsResult(
+            ParsedProviderRecord record, Map<String, Object> fields, List<ImportIssueDraft> issues,
+            RawRecordNormalizeStatus status, Instant bucketStart, Instant bucketEnd) {
         var amountNode = fields.get("amount");
         var amount = amountNode instanceof Map<?, ?> map
                 ? castStringMap(map) : Map.<String, Object>of();
         var value = ProviderNumberParser.decimal(string(amount.get("value")));
         var currency = string(amount.get("currency"));
-        if (value.invalid() || currency == null || currency.isBlank()) {
+        if (amount.isEmpty() || value.missing() || value.invalid()
+                || currency == null || currency.isBlank()) {
             issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
                     record.locator(), "amount.value",
-                    "amount.value must be a valid decimal and amount.currency must not be blank"));
+                    "amount.value must be a present decimal and amount.currency must be non-blank"));
             status = RawRecordNormalizeStatus.ERROR;
         }
+        if (bucketStart == null || bucketEnd == null) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_BUCKET_TIME",
+                    record.locator(), "start_time",
+                    "Official API bucket must have integral start_time and end_time"));
+            status = RawRecordNormalizeStatus.ERROR;
+        }
+
         var builder = new NormalizedPayloadBuilder(COSTS_JSON, "COST")
                 .dimension("providerProject", string(fields.get("project_id")))
-                .providerField("lineItem", string(fields.get("line_item")));
+                .dimension("credentialId", string(fields.get("api_key_id")))
+                .providerField("lineItem", string(fields.get("line_item")))
+                .providerField("quantity", fields.get("quantity"));
         if (status == RawRecordNormalizeStatus.NORMALIZED) {
             builder.money("currency", currency).money("reportedAmount", value.value());
         }
@@ -373,72 +607,25 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
                 new LinkedHashMap<>(fields), builder.build(), bucketStart, bucketEnd, status, issues);
     }
 
-    private PageShape scanPage(InputStream content) throws IOException {
-        var parser = objectMapper.createParser(content);
-        try {
-            if (parser.nextToken() != JsonToken.START_OBJECT) {
-                return null;
-            }
-            var allKeys = new TreeSet<String>();
-            var results = new ArrayList<ResultRef>();
-            var foundData = false;
-            while (parser.nextToken() != JsonToken.END_OBJECT) {
-                if (!"data".equals(parser.currentName())) {
-                    parser.skipChildren();
-                    continue;
-                }
-                foundData = true;
-                if (parser.nextToken() != JsonToken.START_ARRAY) {
-                    return null;
-                }
-                var bucketIndex = 0;
-                while (parser.nextToken() != JsonToken.END_ARRAY) {
-                    if (parser.currentToken() != JsonToken.START_OBJECT) {
-                        return null;
-                    }
-                    var bucket = (JsonNode) parser.readValueAsTree();
-                    if (!bucket.isObject()) {
-                        return null;
-                    }
-                    var resultsNode = bucket.get("results");
-                    if (resultsNode == null || !resultsNode.isArray()) {
-                        return null;
-                    }
-                    var resultIndex = 0;
-                    for (var result : resultsNode) {
-                        if (!result.isObject()) {
-                            return null;
-                        }
-                        allKeys.addAll(result.propertyNames());
-                        results.add(new ResultRef("data[" + bucketIndex + "].results[" + resultIndex + "]",
-                                result));
-                        resultIndex++;
-                    }
-                    bucketIndex++;
-                }
-            }
-            if (!foundData) {
-                return null;
-            }
-            return new PageShape(results, List.copyOf(allKeys));
-        } finally {
-            parser.close();
+    private static ProviderNumberParser.ParsedValue<Long> requiredIntegral(
+            Map<String, Object> fields, String key) {
+        if (!fields.containsKey(key) || fields.get(key) == null) {
+            return new ProviderNumberParser.ParsedValue<>(null, true, false);
         }
+        return integral(fields.get(key));
     }
 
-    private record PageShape(List<ResultRef> results, List<String> allKeys) {
-    }
-
-    private record ResultRef(String locator, JsonNode node) {
-
-        Set<String> keys() {
-            return new TreeSet<>(node.propertyNames());
+    /** Missing key -> optional omission; present-but-null or malformed -> invalid. */
+    private static ProviderNumberParser.ParsedValue<Long> optionalIntegral(
+            Map<String, Object> fields, String key) {
+        if (!fields.containsKey(key)) {
+            return new ProviderNumberParser.ParsedValue<>(null, false, true);
         }
+        if (fields.get(key) == null) {
+            return new ProviderNumberParser.ParsedValue<>(null, true, false);
+        }
+        return integral(fields.get(key));
     }
-
-    // ------------------------------------------------------------------
-    // scalar conversion helpers
-    // ------------------------------------------------------------------
 
     private static ProviderNumberParser.ParsedValue<Long> integral(Object value) {
         if (value instanceof Long longValue) {
@@ -454,6 +641,15 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
             return new ProviderNumberParser.ParsedValue<>(null, false, true);
         }
         return ProviderNumberParser.longValue(String.valueOf(value));
+    }
+
+    private static String optionalKey(String snakeCase) {
+        var parts = snakeCase.split("_");
+        var builder = new StringBuilder(parts[0]);
+        for (var i = 1; i < parts.length; i++) {
+            builder.append(Character.toUpperCase(parts[i].charAt(0))).append(parts[i].substring(1));
+        }
+        return builder.toString();
     }
 
     private static Map<String, Object> toMap(JsonNode node) {
@@ -490,33 +686,12 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         return node.asText();
     }
 
-    private static Instant epochOf(JsonNode node) {
-        if (node == null || !node.isIntegralNumber()) {
-            return null;
-        }
-        return Instant.ofEpochSecond(node.longValue());
-    }
-
     private static Map<String, Object> castStringMap(Map<?, ?> source) {
         var target = new LinkedHashMap<String, Object>();
         for (var entry : source.entrySet()) {
             target.put(String.valueOf(entry.getKey()), entry.getValue());
         }
         return target;
-    }
-
-    // ------------------------------------------------------------------
-    // contract plumbing
-    // ------------------------------------------------------------------
-
-    @Override
-    public void parse(ProviderInput input, InspectionResult inspection, ProviderRecordSink sink) {
-        switch (inspection.schemaVariant()) {
-            case OBSERVED_EMPTY_EXPORT -> parseObservedCsv(input, inspection, sink);
-            case USAGE_JSON -> parseJsonResults(input, inspection, sink, true);
-            case COSTS_JSON -> parseJsonResults(input, inspection, sink, false);
-            default -> throw new IllegalStateException("Unsupported OpenAI schema variant");
-        }
     }
 
     @Override

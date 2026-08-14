@@ -149,6 +149,39 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
                 Integer.class, lease.attemptId())).isGreaterThanOrEqualTo(1);
     }
 
+    @Test
+    void openAiCredentialIdPersistsWhileRawApiKeyIdStaysRedacted() throws Exception {
+        var usageJson = """
+                {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                  {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,
+                   "num_model_requests":2,"api_key_id":"keyid_fake","user_id":"user_fake",
+                   "model":"gpt-example"}]}]}
+                """;
+        var fixture = new FixtureCase("OPENAI", OpenAiProviderAdapter.PARSER_VERSION,
+                ImportSourceType.USAGE_API_JSON, OpenAiProviderAdapter.USAGE_JSON,
+                1, "usage.json", "application/json",
+                usageJson.getBytes(StandardCharsets.UTF_8));
+        var evidenceId = storeEvidence(fixture);
+        var batchId = insertBatchWithAttempt(fixture);
+        var lease = leases.claimNext("pipeline-worker-credential-id").orElseThrow();
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("SUCCEEDED");
+        assertThat(batchStatus(batchId)).isEqualTo("PARSED");
+        var credentialId = jdbc.queryForObject("""
+                SELECT JSON_UNQUOTE(JSON_EXTRACT(normalized_payload, '$.dimensions.credentialId'))
+                FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0
+                """, String.class, lease.attemptId());
+        assertThat(credentialId).isEqualTo("keyid_fake");
+        // The generic redactor still fail-closes the raw api_key_id key.
+        var raw = jdbc.queryForObject("""
+                SELECT raw_payload FROM raw_provider_record
+                WHERE import_attempt_id=? AND record_index=0
+                """, String.class, lease.attemptId());
+        assertThat(raw).doesNotContain("keyid_fake").contains("[REDACTED]");
+    }
+
     // ------------------------------------------------------------------
     // fixtures
     // ------------------------------------------------------------------

@@ -229,8 +229,8 @@ class OpenAiProviderAdapterTest {
     @Test
     void unknownJsonResultFieldWarnsAndRawIsPreserved() {
         var drifted = json("""
-                {"data":[{"start_time":1780000000,"end_time":1780003600,"results":[
-                  {"input_tokens":100,"output_tokens":20,"num_model_requests":2,
+                {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                  {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2,
                    "model":"gpt-example","future_metric":1}]}]}
                 """);
         var inspection = adapter.inspect(input(ImportSourceType.USAGE_API_JSON, drifted, "usage.json"));
@@ -247,8 +247,8 @@ class OpenAiProviderAdapterTest {
     void missingRequiredUsageFieldIsIncompatible() {
         var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
                 json("""
-                        {"data":[{"start_time":1780000000,"end_time":1780003600,"results":[
-                          {"output_tokens":20,"num_model_requests":2}]}]}
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.usage.completions.result","output_tokens":20,"num_model_requests":2}]}]}
                         """),
                 "usage.json"));
 
@@ -275,8 +275,17 @@ class OpenAiProviderAdapterTest {
         assertThat(usage).containsEntry("inputTokens", 100L)
                 .containsEntry("outputTokens", 20L)
                 .containsEntry("inputCachedTokens", 40L)
+                .containsEntry("inputCacheWriteTokens", 5L)
+                .containsEntry("inputUncachedTokens", 55L)
+                .containsEntry("inputTextTokens", 90L)
                 .containsEntry("inputAudioTokens", 0L)
+                .containsEntry("inputImageTokens", 10L)
+                .containsEntry("inputCachedTextTokens", 35L)
+                .containsEntry("inputCachedAudioTokens", 0L)
+                .containsEntry("inputCachedImageTokens", 5L)
+                .containsEntry("outputTextTokens", 18L)
                 .containsEntry("outputAudioTokens", 0L)
+                .containsEntry("outputImageTokens", 2L)
                 .containsEntry("numModelRequests", 2L);
         assertThat(usage).doesNotContainKeys("inputTokensPlusCached", "summedTokens");
         assertThat(record.normalizedPayload()).doesNotContainKeys("money");
@@ -284,16 +293,17 @@ class OpenAiProviderAdapterTest {
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
                 .containsEntry("model", "gpt-example")
                 .containsEntry("providerUser", "user_fake")
-                .containsEntry("providerProject", "proj_fake");
+                .containsEntry("providerProject", "proj_fake")
+                .containsEntry("credentialId", "keyid_fake");
         assertThat(record.normalizedPayload().get("providerFields"))
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
-                .containsEntry("apiKeyId", "keyid_fake")
                 .containsEntry("batch", false)
                 .containsEntry("serviceTier", "default");
+        assertThat(record.normalizedPayload()).doesNotContainKey("apiKeyId");
     }
 
     @Test
-    void costsNormalizeMoneyAndDimensionsWithoutStaleFields() {
+    void costsNormalizeMoneyAndDimensionsWithCurrentContract() {
         var records = parse(ImportSourceType.COSTS_API_JSON,
                 classpath("/provider-fixtures/openai/official-costs.json"),
                 "costs.json");
@@ -310,20 +320,163 @@ class OpenAiProviderAdapterTest {
                 .containsEntry("reportedAmount", new java.math.BigDecimal("1.23"));
         assertThat(record.normalizedPayload().get("dimensions"))
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
-                .containsEntry("providerProject", "proj_fake");
+                .containsEntry("providerProject", "proj_fake")
+                .containsEntry("credentialId", "keyid_fake");
         assertThat(record.normalizedPayload().get("providerFields"))
                 .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
-                .containsEntry("lineItem", "example-line-item");
-        assertThat(record.normalizedPayload().toString())
-                .doesNotContain("api_key_id").doesNotContain("quantity");
+                .containsEntry("lineItem", "example-line-item")
+                .containsEntry("quantity", 1500L);
+        assertThat(record.normalizedPayload()).doesNotContainKey("apiKeyId");
+    }
+
+    @Test
+    void costsOptionalDimensionsMayBeAbsentWhenNotGrouped() {
+        var result = adapter.inspect(input(ImportSourceType.COSTS_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.costs.result","amount":{"value":0.5,"currency":"usd"}}]}]}
+                        """),
+                "costs.json"));
+
+        assertThat(result.compatible()).isTrue();
+        assertThat(result.issues()).extracting(i -> i.severity())
+                .containsOnly(ImportIssueSeverity.WARN);
+
+        var records = parse(ImportSourceType.COSTS_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.costs.result","amount":{"value":0.5,"currency":"usd"}}]}]}
+                        """),
+                "costs.json");
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(records.get(0).normalizedPayload().get("money"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .containsEntry("reportedAmount", new java.math.BigDecimal("0.5"));
+    }
+
+    @Test
+    void nullRequiredTokenIsRowError() {
+        var result = adapter.inspect(input(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.usage.completions.result","input_tokens":null,"output_tokens":20,"num_model_requests":2}]}]}
+                        """),
+                "usage.json"));
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode())
+                .contains("MISSING_REQUIRED_FIELD");
+
+        var records = parseRows(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.usage.completions.result","input_tokens":null,"output_tokens":20,"num_model_requests":2}]}]}
+                        """),
+                "usage.json");
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.ERROR);
+        assertThat(records.get(0).issues()).extracting(i -> i.issueCode())
+                .contains("INVALID_REQUIRED_NUMBER");
+    }
+
+    @Test
+    void floatingRequestCountIsRowError() {
+        var records = parseRows(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2.5}]}]}
+                        """),
+                "usage.json");
+
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.ERROR);
+        assertThat(records.get(0).issues()).extracting(i -> i.issueCode())
+                .contains("INVALID_REQUIRED_NUMBER");
+    }
+
+    @Test
+    void nullOptionalBreakdownIsRowErrorButMissingIsOmission() {
+        var nullBreakdown = parseRows(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2,"input_cached_tokens":null}]}]}
+                        """),
+                "usage.json");
+        assertThat(nullBreakdown.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.ERROR);
+        assertThat(nullBreakdown.get(0).issues()).extracting(i -> i.issueCode())
+                .contains("INVALID_OPTIONAL_NUMBER");
+
+        var missingBreakdown = parseRows(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2}]}]}
+                        """),
+                "usage.json");
+        assertThat(missingBreakdown.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(missingBreakdown.get(0).normalizedPayload().get("usage"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .doesNotContainKey("inputCachedTokens");
+    }
+
+    @Test
+    void nullAmountValueIsRowError() {
+        var records = parseRows(ImportSourceType.COSTS_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.costs.result","amount":{"value":null,"currency":"usd"}}]}]}
+                        """),
+                "costs.json");
+
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.ERROR);
+        assertThat(records.get(0).issues()).extracting(i -> i.issueCode())
+                .contains("INVALID_REQUIRED_MONEY");
+    }
+
+    @Test
+    void missingBucketTimeIsRowError() {
+        var records = parseRows(ImportSourceType.USAGE_API_JSON,
+                json("""
+                        {"object":"page","data":[{"object":"bucket","results":[
+                          {"object":"organization.usage.completions.result","input_tokens":100,"output_tokens":20,"num_model_requests":2}]}]}
+                        """),
+                "usage.json");
+
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.ERROR);
+        assertThat(records.get(0).issues()).extracting(i -> i.issueCode())
+                .contains("INVALID_BUCKET_TIME");
+    }
+
+    @Test
+    void manyResultsStreamThroughCountingSinkWithoutResultLists() {
+        var json = new StringBuilder();
+        json.append("{\"object\":\"page\",\"data\":[{\"object\":\"bucket\",\"start_time\":1780000000,"
+                + "\"end_time\":1780003600,\"results\":[");
+        for (var i = 0; i < 10_000; i++) {
+            if (i > 0) {
+                json.append(",");
+            }
+            json.append("{\"object\":\"organization.usage.completions.result\",\"input_tokens\":100,"
+                    + "\"output_tokens\":20,\"num_model_requests\":2,\"model\":\"gpt-example\"}");
+        }
+        json.append("]}]}");
+        var bytes = json.toString().getBytes(StandardCharsets.UTF_8);
+
+        var records = parse(ImportSourceType.USAGE_API_JSON, bytes, "usage.json");
+
+        assertThat(records).hasSize(10_000);
+        assertThat(records.get(0).locator()).isEqualTo("data[0].results[0]");
+        assertThat(records.get(9_999).locator()).isEqualTo("data[0].results[9999]");
+        assertThat(records.get(9_999).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
     }
 
     @Test
     void missingRequiredCostsAmountIsIncompatible() {
         var result = adapter.inspect(input(ImportSourceType.COSTS_API_JSON,
                 json("""
-                        {"data":[{"start_time":1780000000,"end_time":1780003600,"results":[
-                          {"line_item":"example-line-item","project_id":"proj_fake"}]}]}
+                        {"object":"page","data":[{"object":"bucket","start_time":1780000000,"end_time":1780003600,"results":[
+                          {"object":"organization.costs.result","line_item":"example-line-item","project_id":"proj_fake"}]}]}
                         """),
                 "costs.json"));
 
@@ -340,6 +493,16 @@ class OpenAiProviderAdapterTest {
         var input = input(type, bytes, filename);
         var inspection = adapter.inspect(input);
         assertThat(inspection.compatible()).as("fixture must inspect as compatible").isTrue();
+        var records = new ArrayList<NormalizedProviderRecord>();
+        adapter.parse(input, inspection, (ProviderRecordSink) records::add);
+        return records;
+    }
+
+    /** Row-level tests may bypass the compatible-inspection assertion. */
+    private List<NormalizedProviderRecord> parseRows(
+            ImportSourceType type, byte[] bytes, String filename) {
+        var input = input(type, bytes, filename);
+        var inspection = adapter.inspect(input);
         var records = new ArrayList<NormalizedProviderRecord>();
         adapter.parse(input, inspection, (ProviderRecordSink) records::add);
         return records;
