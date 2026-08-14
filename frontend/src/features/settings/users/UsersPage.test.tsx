@@ -138,6 +138,23 @@ describe('UsersPage', () => {
     })
   })
 
+  it('invitationDoesNotOfferProjectOwnerForOrgInvite', async () => {
+    mockedSettingsApi.listRoles.mockResolvedValue([
+      { id: 'r1', code: 'EMPLOYEE', name: 'Employee', permissions: [] },
+      { id: 'r2', code: 'PROJECT_OWNER', name: 'Project owner', permissions: [] },
+      { id: 'r3', code: 'SYSTEM_ADMIN', name: 'System administrator', permissions: [] },
+    ])
+    renderUsersPage(['USER_READ', 'USER_INVITE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: '邀请成员' }))
+    fireEvent.mouseDown(screen.getByRole('combobox'))
+
+    // The generic ORG invitation must never offer PROJECT_OWNER.
+    expect(await screen.findByText('员工（EMPLOYEE）')).toBeInTheDocument()
+    expect(await screen.findByText('系统管理员（SYSTEM_ADMIN）')).toBeInTheDocument()
+    expect(screen.queryByText('项目负责人（PROJECT_OWNER）')).not.toBeInTheDocument()
+  })
+
   it('userMutationInvalidatesQueries', async () => {
     mockedSettingsApi.updateUserStatus.mockResolvedValue({ ...user, status: 'DISABLED', securityVersion: '8' })
     renderUsersPage(['USER_READ', 'USER_MANAGE'])

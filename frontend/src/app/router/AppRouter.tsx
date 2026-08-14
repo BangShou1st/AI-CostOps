@@ -11,6 +11,7 @@ import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublicRoute } from './PublicRoute'
 import { PermissionRoute } from './PermissionRoute'
+import { SettingsRedirect } from './SettingsRedirect'
 
 export function AppRouter() {
   const auth = useAuth()
@@ -41,9 +42,9 @@ export function AppRouter() {
         <Route path="/settings/provider-accounts" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
           <Route index element={<ProviderAccountsPage />} />
         </Route>
-        <Route path="/settings" element={<Navigate to="/settings/users" replace />} />
+        <Route path="/settings" element={<SettingsRedirect />} />
       </Route>
-      <Route path="/app" element={<Navigate to="/settings/users" replace />} />
+      <Route path="/app" element={<SettingsRedirect />} />
     </Route>
     <Route path="*" element={<Navigate to={auth.status === 'authenticated' ? '/settings/users' : '/login'} replace />} />
   </Routes></BrowserRouter>

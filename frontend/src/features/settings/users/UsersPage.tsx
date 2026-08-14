@@ -99,7 +99,11 @@ function InviteMemberModal({ onClose, onError }: { onClose: () => void; onError:
     onError: (error) => onError(toProblemDetail(error)),
   })
 
-  const roleOptions = (rolesQuery.data ?? []).map((role: Role) => ({ value: role.code, label: roleLabel(role.code) }))
+  // PROJECT_OWNER is not valid as an ORG-scoped initial invitation Role
+  // (frozen RoleScopePolicy); never offer a guaranteed-failing option.
+  const roleOptions = (rolesQuery.data ?? [])
+    .filter((role: Role) => role.code !== 'PROJECT_OWNER')
+    .map((role: Role) => ({ value: role.code, label: roleLabel(role.code) }))
 
   return (
     <Modal
