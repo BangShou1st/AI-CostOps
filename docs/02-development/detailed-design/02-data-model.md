@@ -421,6 +421,8 @@ created_at
 ```text
 UQ(import_attempt_id, record_index)
 FK import_attempt_id -> import_attempt
+CHECK usage window（V6）：usage_start IS NULL OR usage_end IS NULL
+  OR usage_start <= usage_end
 ```
 
 持久化是有界批次（默认 500 条/事务），每个事务先锁并验证 Attempt 所有权
