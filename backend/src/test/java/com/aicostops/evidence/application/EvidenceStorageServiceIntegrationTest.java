@@ -1,12 +1,26 @@
 package com.aicostops.evidence.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.evidence.domain.Evidence;
 import com.aicostops.evidence.domain.EvidenceStorageStatus;
+import com.aicostops.evidence.infrastructure.EvidenceStorageProperties;
+import com.aicostops.shared.web.DomainException;
 import com.aicostops.testsupport.M2DatabaseCleaner;
-import com.aicostops.testsupport.MySqlContainerSupport;
+import com.aicostops.testsupport.MinioContainerSupport;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -14,18 +28,26 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @SpringBootTest
 @Tag("integration")
-class EvidenceStorageServiceIntegrationTest extends MySqlContainerSupport {
+class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
 
     private static final String SHA_256 = "a".repeat(64);
     private static final String OBJECT_KEY = "org/1/evidence/sha256/aa/" + SHA_256;
+    private static final byte[] CONTENT = "same provider bytes".getBytes(StandardCharsets.UTF_8);
 
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
     private EvidencePersistenceService persistence;
+    @Autowired
+    private ObjectStoragePort realStorage;
+    @Autowired
+    private EvidenceStorageProperties properties;
+    @Autowired
+    private Clock clock;
 
     private long organizationId;
     private long foreignOrganizationId;
@@ -47,6 +69,10 @@ class EvidenceStorageServiceIntegrationTest extends MySqlContainerSupport {
     void tearDown() {
         M2DatabaseCleaner.clean(jdbc);
     }
+
+    // ------------------------------------------------------------------
+    // Task 2: Evidence persistence identity
+    // ------------------------------------------------------------------
 
     @Test
     void sameOrganizationAndSha256ReusesTheSameEvidenceIdentity() {
@@ -106,6 +132,122 @@ class EvidenceStorageServiceIntegrationTest extends MySqlContainerSupport {
         assertThat(persistence.findByIdAndOrganization(local.id(), foreignOrganizationId)).isEmpty();
     }
 
+    // ------------------------------------------------------------------
+    // Task 4: streaming upload, dedup and storage recovery
+    // ------------------------------------------------------------------
+
+    @Test
+    void sameBytesInSameOrganizationReuseEvidenceAndSkipObjectRewrite() {
+        var recording = new RecordingObjectStoragePort(realStorage);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+
+        var first = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT));
+        var second = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT));
+
+        assertThat(second.id()).isEqualTo(first.id());
+        assertThat(second.storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
+        assertThat(recording.putKeys()).containsExactly(EvidenceStorageService.objectKey(organizationId, sha256Of(CONTENT)));
+        assertThat(evidenceCount()).isEqualTo(1);
+    }
+
+    @Test
+    void sameBytesInDifferentOrganizationsUseSeparateObjectNamespaces() {
+        var recording = new RecordingObjectStoragePort(realStorage);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+
+        var local = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT));
+        var foreign = service.store(foreignOrganizationId, foreignUploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT));
+
+        assertThat(foreign.id()).isNotEqualTo(local.id());
+        assertThat(recording.putKeys()).containsExactlyInAnyOrder(
+                EvidenceStorageService.objectKey(organizationId, sha256Of(CONTENT)),
+                EvidenceStorageService.objectKey(foreignOrganizationId, sha256Of(CONTENT)));
+    }
+
+    @Test
+    void objectStoragePutNeverRunsInsideADatabaseTransaction() {
+        var recording = new RecordingObjectStoragePort(realStorage);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+
+        service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT));
+
+        assertThat(recording.putTransactionStates()).containsOnly(false);
+    }
+
+    @Test
+    void stagingEvidenceWithExistingMatchingObjectRepairsToAvailableWithoutRewriting() throws Exception {
+        var sha256 = sha256Of(CONTENT);
+        var key = EvidenceStorageService.objectKey(organizationId, sha256);
+        var stagedObject = Files.createTempFile("repair-", ".bin");
+        Files.write(stagedObject, CONTENT);
+        try {
+            realStorage.put(key, stagedObject, CONTENT.length, sha256);
+        } finally {
+            Files.deleteIfExists(stagedObject);
+        }
+        var reserved = persistence.reserveOrReuse(
+                organizationId, sha256, key, "invoice.csv", "text/csv", CONTENT.length, uploaderMemberId, Instant.now());
+        assertThat(reserved.storageStatus()).isEqualTo(EvidenceStorageStatus.STAGING);
+
+        var recording = new RecordingObjectStoragePort(realStorage);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        var repaired = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT));
+
+        assertThat(repaired.storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
+        assertThat(recording.putKeys()).isEmpty();
+    }
+
+    @Test
+    void mismatchedObjectMetadataAtDeterministicKeyConflictsAndNeverOverwritesBytes() throws Exception {
+        var correctSha = sha256Of(CONTENT);
+        var key = EvidenceStorageService.objectKey(organizationId, correctSha);
+        var tamperedBytes = "tampered content".getBytes(StandardCharsets.UTF_8);
+        var tamperedSha = sha256Of(tamperedBytes);
+        var tamperedObject = Files.createTempFile("tampered-", ".bin");
+        Files.write(tamperedObject, tamperedBytes);
+        try {
+            realStorage.put(key, tamperedObject, tamperedBytes.length, tamperedSha);
+        } finally {
+            Files.deleteIfExists(tamperedObject);
+        }
+
+        var recording = new RecordingObjectStoragePort(realStorage);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        assertThatThrownBy(() -> service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT)))
+                .isInstanceOf(DomainException.class)
+                .satisfies(exception -> {
+                    var domainException = (DomainException) exception;
+                    assertThat(domainException.status().value()).isEqualTo(409);
+                    assertThat(domainException.code().name()).isEqualTo("STATE_CONFLICT");
+                });
+
+        var stat = realStorage.stat(key).orElseThrow();
+        assertThat(stat.sha256()).isEqualTo(tamperedSha);
+        assertThat(stat.sizeBytes()).isEqualTo(tamperedBytes.length);
+        assertThat(recording.putKeys()).isEmpty();
+    }
+
+    @Test
+    void storageFailureMarksEvidenceFailedButNeverDowngradesAvailable() {
+        var failingStorage = new FailingObjectStoragePort();
+        var service = new EvidenceStorageService(persistence, failingStorage, properties, clock);
+
+        assertThatThrownBy(() -> service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT)))
+                .isInstanceOf(RuntimeException.class);
+
+        var evidence = persistence.findByOrganizationAndSha(organizationId, sha256Of(CONTENT)).orElseThrow();
+        assertThat(evidence.storageStatus()).isEqualTo(EvidenceStorageStatus.FAILED);
+        assertThat(evidence.storageErrorCode()).isEqualTo("STORAGE_UPLOAD_FAILED");
+    }
+
     private Evidence findEvidence(long id) {
         return persistence.findByIdAndOrganization(id, organizationId).orElseThrow();
     }
@@ -137,5 +279,67 @@ class EvidenceStorageServiceIntegrationTest extends MySqlContainerSupport {
                 """, orgId, userId);
         return jdbc.queryForObject(
                 "SELECT id FROM organization_member WHERE org_id=? AND user_id=?", Long.class, orgId, userId);
+    }
+
+    private static String sha256Of(byte[] content) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content));
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static final class RecordingObjectStoragePort implements ObjectStoragePort {
+
+        private final ObjectStoragePort delegate;
+        private final List<String> putKeys = new ArrayList<>();
+        private final List<Boolean> putTransactionStates = new ArrayList<>();
+
+        private RecordingObjectStoragePort(ObjectStoragePort delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public void put(String objectKey, Path file, long sizeBytes, String sha256) {
+            putKeys.add(objectKey);
+            putTransactionStates.add(TransactionSynchronizationManager.isActualTransactionActive());
+            delegate.put(objectKey, file, sizeBytes, sha256);
+        }
+
+        @Override
+        public Optional<StoredObjectMetadata> stat(String objectKey) {
+            return delegate.stat(objectKey);
+        }
+
+        @Override
+        public InputStream open(String objectKey) {
+            return delegate.open(objectKey);
+        }
+
+        private List<String> putKeys() {
+            return putKeys;
+        }
+
+        private List<Boolean> putTransactionStates() {
+            return putTransactionStates;
+        }
+    }
+
+    private static final class FailingObjectStoragePort implements ObjectStoragePort {
+
+        @Override
+        public void put(String objectKey, Path file, long sizeBytes, String sha256) {
+            throw new IllegalStateException("simulated object storage outage");
+        }
+
+        @Override
+        public Optional<StoredObjectMetadata> stat(String objectKey) {
+            return Optional.empty();
+        }
+
+        @Override
+        public InputStream open(String objectKey) {
+            throw new IllegalStateException("simulated object storage outage");
+        }
     }
 }
