@@ -157,20 +157,22 @@ function UserActions({ user }: { user: User }) {
   if (!canManage && !canAssign) return null
 
   return (
-    <div className="settings-actions">
-      {canManage && (
-        <Button
-          size="small"
-          loading={statusMutation.isPending}
-          onClick={() => statusMutation.mutate(user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE')}
-        >
-          {user.status === 'ACTIVE' ? USER_STATUS_ACTIONS.disable : USER_STATUS_ACTIONS.enable}
-        </Button>
-      )}
-      {canAssign && <Button size="small" onClick={() => setDrawerOpen(true)}>分配角色</Button>}
-      {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon />}
-      {drawerOpen && <RoleAssignmentDrawer user={user} onClose={() => setDrawerOpen(false)} />}
-    </div>
+    <>
+      {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon style={{ marginBottom: 8 }} />}
+      <div className="settings-actions">
+        {canManage && (
+          <Button
+            size="small"
+            loading={statusMutation.isPending}
+            onClick={() => statusMutation.mutate(user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE')}
+          >
+            {user.status === 'ACTIVE' ? USER_STATUS_ACTIONS.disable : USER_STATUS_ACTIONS.enable}
+          </Button>
+        )}
+        {canAssign && <Button size="small" onClick={() => setDrawerOpen(true)}>分配角色</Button>}
+        {drawerOpen && <RoleAssignmentDrawer user={user} onClose={() => setDrawerOpen(false)} />}
+      </div>
+    </>
   )
 }
 

@@ -46,5 +46,5 @@ export function InvitationPage() {
 }
 export function AppPage() {
   const auth = useAuth(); if (!auth.user) return <Navigate to="/login" replace />
-  return <main className="app-shell"><p className="eyebrow">Authenticated workspace</p><h1>AI CostOps</h1><p>Signed in as {auth.user.displayName}</p><button onClick={() => void auth.logout()}>退出登录</button></main>
+  return <main className="app-shell"><p className="eyebrow">Authenticated workspace</p><h1>AI CostOps</h1><p>已登录：{auth.user.displayName}</p><button onClick={() => void auth.logout()}>退出登录</button></main>
 }

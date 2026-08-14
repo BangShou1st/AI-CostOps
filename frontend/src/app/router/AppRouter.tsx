@@ -46,6 +46,6 @@ export function AppRouter() {
       </Route>
       <Route path="/app" element={<SettingsRedirect />} />
     </Route>
-    <Route path="*" element={<Navigate to={auth.status === 'authenticated' ? '/settings/users' : '/login'} replace />} />
+    <Route path="*" element={<Navigate to={auth.status === 'authenticated' ? '/settings' : '/login'} replace />} />
   </Routes></BrowserRouter>
 }
