@@ -87,12 +87,46 @@ git status --short
 ### 结果占位（Task 14 填写）
 
 ```text
-focused provider suite : Tests run: TBD, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-backend unit            : Tests run: TBD, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-backend integration     : Tests run: TBD, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-architecture            : Tests run: TBD, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+focused provider suite : Tests run: 102, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+backend unit            : Tests run: 287, Failures: 0, Errors: 0, Skipped: 1 — BUILD SUCCESS
+backend integration     : Tests run: 222, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+architecture            : Tests run: 5, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
 docker compose config   : exit 0
 docker build            : SUCCESS
 git diff --check        : no output
 git status --short      : clean
+```
+
+### 真实结果（2026-08-14 Task 14 fresh run）
+
+```text
+focused provider suite : Tests run: 102, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+backend unit            : Tests run: 287, Failures: 0, Errors: 0, Skipped: 1 — BUILD SUCCESS
+backend integration     : Tests run: 222, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+architecture            : Tests run: 5, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+docker compose config   : exit 0（仅 .env 未设置变量的常规 warning）
+docker build            : ai-costops-backend:m2-group2 build SUCCESS
+git diff --check        : no output
+git status --short      : clean
+```
+
+Provider-focused 明细（同一 fresh run 内）：
+
+```text
+DeepSeekProviderAdapterTest          16
+MimoProviderAdapterTest              14
+KimiProviderAdapterTest               9
+GlmProviderAdapterTest                9
+OpenAiProviderAdapterTest            20
+XlsxStreamingReaderTest              11
+SafeZipReaderTest                     9
+CsvSupportTest                        8
+SchemaFingerprintTest                 6
+```
+
+Pipeline / security 集成回归：
+
+```text
+ProviderAdapterPipelineIntegrationTest  9（注册 1 + 7 fixture E2E + 1 SCHEMA_INCOMPATIBLE）
+ProviderAdapterSecurityIntegrationTest  3（DeepSeek/MiMo sentinel 零泄漏 + ERROR 路径）
 ```
