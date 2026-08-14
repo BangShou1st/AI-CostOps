@@ -138,6 +138,11 @@ public final class MimoProviderAdapter implements ProviderAdapter {
             List<ImportIssueDraft> issues) {
         var actual = HeaderNormalizer.normalizeAll(rawHeaders);
         var required = HeaderNormalizer.normalizeAll(requiredHeaders);
+        for (var duplicate : HeaderNormalizer.duplicateNormalizedHeaders(rawHeaders)) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "DUPLICATE_COLUMN",
+                    sheetName, duplicate,
+                    "Sheet " + sheetName + " contains duplicate normalized columns"));
+        }
         for (var i = 0; i < required.size(); i++) {
             if (!actual.contains(required.get(i))) {
                 issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_COLUMN",
@@ -188,10 +193,19 @@ public final class MimoProviderAdapter implements ProviderAdapter {
         var inputMissTokens = ProviderNumberParser.longValue(string(fields.get("Input Miss Tokens")));
         var outputTokens = ProviderNumberParser.longValue(string(fields.get("Output Tokens")));
         var requestCount = ProviderNumberParser.longValue(string(fields.get("Request Count")));
+        var inputHitAmount = ProviderNumberParser.decimal(string(fields.get("Input Hit Amount")));
+        var inputMissAmount = ProviderNumberParser.decimal(string(fields.get("Input Miss Amount")));
+        var outputAmount = ProviderNumberParser.decimal(string(fields.get("Output Amount")));
         if (consumed.invalid() || currency == null || currency.isBlank()) {
             issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
                     record.locator(), "Consumed Amount",
                     "Consumed Amount must be a valid decimal and Currency must not be blank"));
+            status = RawRecordNormalizeStatus.ERROR;
+        }
+        if (inputHitAmount.invalid() || inputMissAmount.invalid() || outputAmount.invalid()) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "INVALID_REQUIRED_MONEY",
+                    record.locator(), "Input Hit Amount",
+                    "Amount breakdown components must be valid decimals when present"));
             status = RawRecordNormalizeStatus.ERROR;
         }
         if (invalidLong(totalTokens) || invalidLong(inputHitTokens) || invalidLong(inputMissTokens)
@@ -215,9 +229,9 @@ public final class MimoProviderAdapter implements ProviderAdapter {
                     .usage("requestCount", requestCount.value())
                     .money("currency", currency)
                     .money("reportedAmount", consumed.value())
-                    .moneyComponent("inputHitAmount", decimalOf(fields.get("Input Hit Amount")))
-                    .moneyComponent("inputMissAmount", decimalOf(fields.get("Input Miss Amount")))
-                    .moneyComponent("outputAmount", decimalOf(fields.get("Output Amount")));
+                    .moneyComponent("inputHitAmount", inputHitAmount.value())
+                    .moneyComponent("inputMissAmount", inputMissAmount.value())
+                    .moneyComponent("outputAmount", outputAmount.value());
         }
 
         return new NormalizedProviderRecord(record.index(), record.locator(), null,
@@ -268,11 +282,6 @@ public final class MimoProviderAdapter implements ProviderAdapter {
             raw.put(entry.getKey(), entry.getValue());
         }
         return raw;
-    }
-
-    private static BigDecimal decimalOf(Object value) {
-        var parsed = ProviderNumberParser.decimal(string(value));
-        return parsed.valid() ? parsed.value() : null;
     }
 
     private static boolean invalidLong(ProviderNumberParser.ParsedValue<Long> parsed) {

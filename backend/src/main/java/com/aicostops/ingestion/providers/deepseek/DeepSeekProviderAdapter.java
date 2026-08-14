@@ -100,6 +100,10 @@ public final class DeepSeekProviderAdapter implements ProviderAdapter {
                 } catch (IOException failure) {
                     issues.add(issue(ImportIssueSeverity.ERROR, "MALFORMED_CSV",
                             entryName, null, "Logical role '" + role + "' is not a readable CSV"));
+                } catch (CsvSupport.DuplicateCsvHeaderException duplicate) {
+                    issues.add(issue(ImportIssueSeverity.ERROR, "DUPLICATE_COLUMN",
+                            role + ".csv", null,
+                            "Logical role '" + role + "' contains duplicate normalized columns"));
                 }
             });
         } catch (SafeZipReader.UnsafeArchiveException unsafe) {

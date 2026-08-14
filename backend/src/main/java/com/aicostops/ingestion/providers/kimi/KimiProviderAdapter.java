@@ -110,6 +110,11 @@ public final class KimiProviderAdapter implements ProviderAdapter {
             String sheetName, List<String> rawHeaders, List<ImportIssueDraft> issues) {
         var actual = HeaderNormalizer.normalizeAll(rawHeaders);
         var required = HeaderNormalizer.normalizeAll(REQUIRED_HEADERS);
+        for (var duplicate : HeaderNormalizer.duplicateNormalizedHeaders(rawHeaders)) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "DUPLICATE_COLUMN",
+                    sheetName, duplicate,
+                    "Sheet " + sheetName + " contains duplicate normalized columns"));
+        }
         for (var i = 0; i < required.size(); i++) {
             if (!actual.contains(required.get(i))) {
                 issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_COLUMN",

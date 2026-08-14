@@ -179,6 +179,22 @@ class DeepSeekProviderAdapterTest {
         assertThat(result.compatible()).isFalse();
     }
 
+    @Test
+    void duplicateNormalizedCsvHeadersAreDeterministicInspectionError() throws Exception {
+        // "model" and " model " collide after normalization; this must become a
+        // DUPLICATE_COLUMN inspection ERROR, never a worker EXECUTION_FAILED.
+        var zip = ProviderFixtureFactory.zip(Map.of(
+                "amount-1.csv", "user_id,model, model \n",
+                "cost-1.csv", COST_HEADER + "\n"));
+
+        var result = adapter.inspect(input(ImportSourceType.FILE_EXPORT, zip, "deepseek-export.zip"));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("DUPLICATE_COLUMN");
+        assertThat(result.issues()).extracting(i -> i.severity())
+                .containsOnly(ImportIssueSeverity.ERROR);
+    }
+
     // ------------------------------------------------------------------
     // parse and normalize
     // ------------------------------------------------------------------

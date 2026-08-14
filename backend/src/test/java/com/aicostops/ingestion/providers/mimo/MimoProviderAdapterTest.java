@@ -153,6 +153,22 @@ class MimoProviderAdapterTest {
         assertThat(result.issues()).extracting(i -> i.issueCode()).contains("WRONG_SOURCE_TYPE");
     }
 
+    @Test
+    void duplicateNormalizedHeadersInModelSheetAreIncompatible() throws Exception {
+        // "API Key" and " API   Key " collide after normalization; a row map must
+        // never silently overwrite one column with the other.
+        var header = new ArrayList<>(Arrays.asList("Date", "Model", "API Key", " API   Key "));
+        header.addAll(MODEL_HEADER.subList(3, MODEL_HEADER.size()));
+        var data = new ArrayList<>(Arrays.asList("2026-08-01", "mimo-example", "key-1", "key-dup"));
+        data.addAll(Arrays.asList("CNY", "1.0", "0.5", "0.4", "0.1", "100", "40", "30", "30", "60", "2"));
+        var bytes = fixture(sheet("Model usage detail", header, data));
+
+        var result = adapter.inspect(input(bytes));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("DUPLICATE_COLUMN");
+    }
+
     // ------------------------------------------------------------------
     // parse and normalize
     // ------------------------------------------------------------------
@@ -288,6 +304,36 @@ class MimoProviderAdapterTest {
         assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.ERROR);
         assertThat(records.get(0).issues()).extracting(i -> i.issueCode())
                 .contains("INVALID_REQUIRED_MONEY", "INVALID_REQUIRED_NUMBER");
+    }
+
+    @Test
+    void malformedAmountComponentsAreRowErrorsNotSilentOmission() throws Exception {
+        var bytes = fixture(modelSheet(
+                row("2026-08-01", "mimo-example", "key-1", "CNY", "1.0",
+                        "not-money", "0.4", "0.1", "100", "40", "30", "30", "60", "2")));
+
+        var records = parse(bytes);
+
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.ERROR);
+        assertThat(records.get(0).issues()).extracting(i -> i.issueCode())
+                .contains("INVALID_REQUIRED_MONEY");
+    }
+
+    @Test
+    void blankAmountComponentsAreOptionalOmission() throws Exception {
+        var bytes = fixture(modelSheet(
+                row("2026-08-01", "mimo-example", "key-1", "CNY", "1.0",
+                        null, null, null, "100", "40", "30", "30", "60", "2")));
+
+        var records = parse(bytes);
+
+        assertThat(records).hasSize(1);
+        assertThat(records.get(0).normalizeStatus()).isEqualTo(RawRecordNormalizeStatus.NORMALIZED);
+        assertThat(records.get(0).issues()).isEmpty();
+        assertThat(records.get(0).normalizedPayload().get("money"))
+                .asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.map(String.class, Object.class))
+                .doesNotContainKey("components");
     }
 
     // ------------------------------------------------------------------

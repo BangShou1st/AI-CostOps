@@ -92,6 +92,22 @@ class GlmProviderAdapterTest {
     }
 
     @Test
+    void duplicateFullyMatchingSheetsAreIncompatible() throws Exception {
+        var bytes = fixture(
+                sheet("账单明细",
+                        SUMMARY_HEADER,
+                        row("2026-08", "100.00", "90.00", "30.00", "10.00", "50.00", "50.00", "0.00", "已结清")),
+                sheet("账单汇总副本",
+                        SUMMARY_HEADER,
+                        row("2026-08", "100.00", "90.00", "30.00", "10.00", "50.00", "50.00", "0.00", "已结清")));
+
+        var result = adapter.inspect(input(bytes));
+
+        assertThat(result.compatible()).isFalse();
+        assertThat(result.issues()).extracting(i -> i.issueCode()).contains("DUPLICATE_LOGICAL_SHEET");
+    }
+
+    @Test
     void wrongSourceTypeIsIncompatible() throws Exception {
         var bytes = fixture(sheet("账单明细",
                 SUMMARY_HEADER,

@@ -84,7 +84,7 @@ public final class GlmProviderAdapter implements ProviderAdapter {
         }
 
         var requiredNormalized = HeaderNormalizer.normalizeAll(REQUIRED_HEADERS);
-        var summarySheet = findSummarySheet(schema);
+        var summarySheet = resolveSummarySheet(schema, requiredNormalized, issues);
         if (summarySheet.isEmpty()) {
             issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_SHEET",
                     input.originalFilename(), null,
@@ -110,9 +110,16 @@ public final class GlmProviderAdapter implements ProviderAdapter {
         return new InspectionResult(PROVIDER_CODE, SCHEMA_VARIANT, fingerprint, compatible, issues);
     }
 
-    private Optional<String> findSummarySheet(WorkbookSchema schema) {
-        var requiredNormalized = HeaderNormalizer.normalizeAll(REQUIRED_HEADERS);
-        String best = null;
+    /**
+     * Deterministically resolves the GLM logical summary sheet. When exactly one
+     * sheet fully matches the required header set it wins; multiple full matches are
+     * a DUPLICATE_LOGICAL_SHEET ERROR (never "first one wins"); otherwise the best
+     * partial candidate is kept so missing columns can be reported precisely.
+     */
+    private Optional<String> resolveSummarySheet(
+            WorkbookSchema schema, List<String> requiredNormalized, List<ImportIssueDraft> issues) {
+        var completeMatches = new ArrayList<String>();
+        String bestPartial = null;
         var bestScore = 0;
         for (var entry : schema.headersBySheet().entrySet()) {
             var normalized = HeaderNormalizer.normalizeAll(entry.getValue());
@@ -122,18 +129,34 @@ public final class GlmProviderAdapter implements ProviderAdapter {
                     score++;
                 }
             }
-            if (score > bestScore) {
-                best = entry.getKey();
+            if (score == requiredNormalized.size()) {
+                completeMatches.add(entry.getKey());
+            } else if (score > bestScore) {
+                bestPartial = entry.getKey();
                 bestScore = score;
             }
         }
-        return bestScore == 0 ? Optional.empty() : Optional.of(best);
+        if (completeMatches.size() == 1) {
+            return Optional.of(completeMatches.get(0));
+        }
+        if (completeMatches.size() > 1) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "DUPLICATE_LOGICAL_SHEET",
+                    "workbook", null,
+                    "Multiple sheets fully match the GLM billing summary schema"));
+            return Optional.empty();
+        }
+        return bestScore == 0 ? Optional.empty() : Optional.of(bestPartial);
     }
 
     private void validateHeaders(
             String sheetName, List<String> rawHeaders, List<String> requiredNormalized,
             List<ImportIssueDraft> issues) {
         var actualNormalized = HeaderNormalizer.normalizeAll(rawHeaders);
+        for (var duplicate : HeaderNormalizer.duplicateNormalizedHeaders(rawHeaders)) {
+            issues.add(issue(ImportIssueSeverity.ERROR, "DUPLICATE_COLUMN",
+                    sheetName, duplicate,
+                    "Sheet " + sheetName + " contains duplicate normalized columns"));
+        }
         for (var i = 0; i < requiredNormalized.size(); i++) {
             if (!actualNormalized.contains(requiredNormalized.get(i))) {
                 issues.add(issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_COLUMN",
@@ -158,7 +181,10 @@ public final class GlmProviderAdapter implements ProviderAdapter {
         } catch (IOException failure) {
             throw new IllegalStateException("GLM workbook parse failed (category)", failure);
         }
-        var summarySheet = findSummarySheet(schema)
+        // parse() only runs after a compatible inspection, which already resolved the
+        // unique logical sheet; re-resolving here must agree with that decision.
+        var requiredNormalized = HeaderNormalizer.normalizeAll(REQUIRED_HEADERS);
+        var summarySheet = resolveSummarySheet(schema, requiredNormalized, new ArrayList<>())
                 .orElseThrow(() -> new IllegalStateException("GLM summary sheet must exist after inspection"));
         var index = new AtomicInteger();
         try (var workbook = input.source().openStream()) {

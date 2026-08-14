@@ -130,6 +130,51 @@ class SafeZipReaderTest {
         assertThat(seen[0]).isEqualTo(noise.length);
     }
 
+    @Test
+    void expandedByteLimitFiresDuringReadNotAfterDrain() throws IOException {
+        var properties = new ProviderParserProperties(64, 1_024L, 100.0d, 1_048_576L);
+        var zip = zip(Map.of("big.csv", "A".repeat(64 * 1024)));
+        var read = new long[1];
+
+        assertThatThrownBy(() -> new SafeZipReader(properties).forEachEntry(
+                new ByteArrayInputStream(zip), (name, content) -> {
+                    var buffer = new byte[4096];
+                    int n;
+                    while ((n = content.read(buffer)) != -1) {
+                        read[0] += n;
+                    }
+                }))
+                .isInstanceOf(SafeZipReader.UnsafeArchiveException.class)
+                .extracting(e -> ((SafeZipReader.UnsafeArchiveException) e).reason())
+                .isEqualTo(SafeZipReader.UnsafeArchiveReason.EXPANSION_LIMIT);
+        // The limit (1 KiB) fires while the consumer is still reading; it must not
+        // consume the whole 64 KiB entry before the exception surfaces.
+        assertThat(read[0]).isLessThan(8 * 1024);
+    }
+
+    @Test
+    void ratioBombAfterIncompressiblePaddingIsStillRejected() throws IOException {
+        var properties = new ProviderParserProperties(64, 1_073_741_824L, 100.0d, 1_048_576L);
+        var random = new java.util.Random(42);
+        var padding = new byte[2 * 1_048_576];
+        random.nextBytes(padding);
+        var entries = new LinkedHashMap<String, byte[]>();
+        entries.put("padding.csv", padding);
+        entries.put("bomb.csv", "A".repeat(2 * 1_048_576).getBytes(StandardCharsets.UTF_8));
+        var zip = zipBytes(entries);
+
+        assertThatThrownBy(() -> new SafeZipReader(properties).forEachEntry(
+                new ByteArrayInputStream(zip), (name, content) -> {
+                    var buffer = new byte[8192];
+                    while (content.read(buffer) != -1) {
+                        // consume
+                    }
+                }))
+                .isInstanceOf(SafeZipReader.UnsafeArchiveException.class)
+                .extracting(e -> ((SafeZipReader.UnsafeArchiveException) e).reason())
+                .isEqualTo(SafeZipReader.UnsafeArchiveReason.EXPANSION_RATIO);
+    }
+
     private void assertRejected(byte[] zip, String entry) {
         assertThatThrownBy(() -> new SafeZipReader(properties)
                 .forEachEntry(new ByteArrayInputStream(zip), (name, content) -> { }))
