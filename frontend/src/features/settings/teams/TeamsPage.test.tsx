@@ -71,25 +71,25 @@ describe('TeamsPage', () => {
     mockedSettingsApi.listTeams.mockReturnValue(new Promise((resolve) => { resolveList = resolve }))
     renderTeamsPage(['TEAM_READ', 'TEAM_MANAGE'])
 
-    expect(screen.getByText(/loading teams/i)).toBeInTheDocument()
+    expect(screen.getByText(/正在加载团队/i)).toBeInTheDocument()
     resolveList!(pageOf([team]))
     expect(await screen.findByText('OPS')).toBeInTheDocument()
     expect(screen.getByText('Operations')).toBeInTheDocument()
-    expect(screen.getByText('disabled')).toBeInTheDocument()
+    expect(screen.getByText('已停用')).toBeInTheDocument()
 
     // Lifecycle edit keeps the code immutable.
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(await screen.findByLabelText(/code/i)).toHaveValue('OPS')
-    expect(screen.getByLabelText(/code/i)).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /编\s*辑/ }))
+    expect(await screen.findByLabelText(/编码/)).toHaveValue('OPS')
+    expect(screen.getByLabelText(/编码/)).toBeDisabled()
 
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Operations II' } })
-    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: 'Operations II' } })
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
     await waitFor(() => {
       expect(mockedSettingsApi.updateTeam).toHaveBeenCalledWith('2', { name: 'Operations II', status: 'DISABLED' })
     })
 
     // Membership drawer lists team members.
-    fireEvent.click(screen.getByRole('button', { name: /members/i }))
+    fireEvent.click(screen.getByRole('button', { name: /成\s*员/ }))
     expect(await screen.findByText('Beta')).toBeInTheDocument()
     expect(mockedSettingsApi.listTeamMembers).toHaveBeenCalledWith('2', 0, 50)
 
@@ -102,33 +102,33 @@ describe('TeamsPage', () => {
 
     mockedSettingsApi.listTeams.mockResolvedValue(pageOf([]))
     renderTeamsPage(['TEAM_READ'])
-    expect(await screen.findByText(/no teams/i)).toBeInTheDocument()
+    expect(await screen.findByText(/该组织暂无团队/i)).toBeInTheDocument()
   })
 
   it('teamActionsRequireManage', async () => {
     renderTeamsPage(['TEAM_READ'])
     await screen.findByText('OPS')
 
-    expect(screen.queryByRole('button', { name: 'Create team' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '创建团队' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /编\s*辑/ })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /members/i }))
+    fireEvent.click(screen.getByRole('button', { name: /成\s*员/ }))
     await screen.findByText('Beta')
-    expect(screen.queryByRole('button', { name: /add member/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '添加成员' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /移\s*除/ })).not.toBeInTheDocument()
   })
 
   it('teamMemberManageWorksWithoutUserRead', async () => {
     renderTeamsPage(['TEAM_READ', 'TEAM_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /成\s*员/ }))
     await screen.findByText('Beta')
 
     // Without USER_READ the /users candidate query must never fire.
     expect(mockedSettingsApi.listUsers).not.toHaveBeenCalled()
-    const input = screen.getByLabelText(/organization member id/i)
+    const input = screen.getByLabelText(/组织成员 ID/)
     fireEvent.change(input, { target: { value: '99' } })
-    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+    fireEvent.click(screen.getByRole('button', { name: '添加成员' }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.addTeamMember).toHaveBeenCalledTimes(1)
@@ -151,7 +151,7 @@ describe('TeamsPage', () => {
     )
 
     // Select mode with USER_READ: pick member A.
-    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /成\s*员/ }))
     await screen.findByText('Beta')
     fireEvent.mouseDown(screen.getByRole('combobox'))
     fireEvent.click(await screen.findByText('Beta (beta@example.com)'))
@@ -165,8 +165,8 @@ describe('TeamsPage', () => {
     // Manual mode: member B is typed and submitted; the stale Select target A
     // must never win.
     const usersCalls = mockedSettingsApi.listUsers.mock.calls.length
-    fireEvent.change(await screen.findByLabelText(/organization member id/i), { target: { value: '77' } })
-    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+    fireEvent.change(await screen.findByLabelText(/组织成员 ID/), { target: { value: '77' } })
+    fireEvent.click(screen.getByRole('button', { name: '添加成员' }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.addTeamMember).toHaveBeenCalledTimes(1)
@@ -178,10 +178,10 @@ describe('TeamsPage', () => {
   it('teamMembershipMutationInvalidatesMembers', async () => {
     mockedSettingsApi.removeTeamMember.mockResolvedValue(undefined)
     renderTeamsPage(['TEAM_READ', 'TEAM_MANAGE'])
-    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /成\s*员/ }))
     await screen.findByText('Beta')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    fireEvent.click(screen.getByRole('button', { name: /移\s*除/ }))
     await waitFor(() => {
       expect(mockedSettingsApi.removeTeamMember).toHaveBeenCalledTimes(1)
       expect(mockedSettingsApi.removeTeamMember).toHaveBeenCalledWith('2', 'm2')

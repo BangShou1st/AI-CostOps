@@ -45,15 +45,15 @@ describe('RolesPage', () => {
   it('rolesCatalogIsReadOnlyAndUnpaged', async () => {
     renderRolesPage()
 
-    expect(await screen.findByText('Employee')).toBeInTheDocument()
-    expect(screen.getByText('System administrator')).toBeInTheDocument()
+    expect(await screen.findByText('员工（EMPLOYEE）')).toBeInTheDocument()
+    expect(screen.getByText('系统管理员（SYSTEM_ADMIN）')).toBeInTheDocument()
     expect(screen.getByText('EMPLOYEE')).toBeInTheDocument()
     expect(mockedSettingsApi.listRoles).toHaveBeenCalledTimes(1)
     expect(mockedSettingsApi.listRoles).toHaveBeenCalledWith()
 
     // Scope applicability is presented read-only for the frozen role matrix.
-    expect(screen.getByText('ORG')).toBeInTheDocument()
-    expect(screen.getByText(/ORG, PROJECT, TEAM, COST_CENTER/)).toBeInTheDocument()
+    expect(screen.getByText('组织')).toBeInTheDocument()
+    expect(screen.getByText(/组织、项目、团队、成本中心/)).toBeInTheDocument()
 
     // Permission catalog renders as read-only data.
     expect(screen.getByText('View users')).toBeInTheDocument()
@@ -66,9 +66,9 @@ describe('RolesPage', () => {
     let resolveList: (value: typeof roles) => void
     mockedSettingsApi.listRoles.mockReturnValue(new Promise((resolve) => { resolveList = resolve }))
     renderRolesPage()
-    expect(screen.getByText(/loading roles/i)).toBeInTheDocument()
+    expect(screen.getByText(/正在加载角色/i)).toBeInTheDocument()
     resolveList!(roles)
-    expect(await screen.findByText('Employee')).toBeInTheDocument()
+    expect(await screen.findByText('员工（EMPLOYEE）')).toBeInTheDocument()
 
     mockedSettingsApi.listRoles.mockRejectedValue({
       isAxiosError: true,
@@ -80,6 +80,6 @@ describe('RolesPage', () => {
     mockedSettingsApi.listRoles.mockResolvedValue([])
     mockedSettingsApi.listPermissions.mockResolvedValue([])
     renderRolesPage()
-    expect(await screen.findByText(/no roles/i)).toBeInTheDocument()
+    expect(await screen.findByText(/尚未定义角色/i)).toBeInTheDocument()
   })
 })

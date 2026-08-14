@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Drawer, Input, InputNumber, Modal, Select, Table, Typography } from 'antd'
+import { Alert, Button, Drawer, Input, InputNumber, Modal, Select, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
 import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
@@ -9,6 +9,7 @@ import { settingsApi } from '../api/settingsApi'
 import { authMeKey, settingsKeys } from '../api/settingsKeys'
 import type { Role, ScopeType, User } from '../api/settingsTypes'
 import { hasPermission, ROLE_SCOPE_APPLICABILITY } from '../permissions'
+import { roleLabel, scopeLabel, statusLabel, USER_STATUS_ACTIONS } from '../presentation'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 
 function refreshUsersAndMe(queryClient: ReturnType<typeof useQueryClient>) {
@@ -32,12 +33,15 @@ export function UsersPage() {
   const canAssign = hasPermission(auth.user?.permissions, 'ROLE_ASSIGN')
 
   const columns: TableProps<User>['columns'] = [
-    { title: 'Name', dataIndex: 'displayName', key: 'displayName' },
-    { title: 'Email', dataIndex: 'email', key: 'email' },
-    { title: 'Status', dataIndex: 'status', key: 'status', render: (status: string) => status.toLowerCase() },
-    { title: 'Roles', key: 'roles', render: (_, row) => row.roleAssignments.map((assignment) => assignment.role.code).join(', ') || '—' },
+    { title: '姓名', dataIndex: 'displayName', key: 'displayName', width: 160 },
+    { title: '邮箱', dataIndex: 'email', key: 'email', width: 240 },
+    {
+      title: '状态', dataIndex: 'status', key: 'status', width: 110,
+      render: (status: string) => <Tag color={status === 'ACTIVE' ? 'green' : 'default'}>{statusLabel(status as User['status'])}</Tag>,
+    },
+    { title: '角色', key: 'roles', render: (_, row) => row.roleAssignments.map((assignment) => roleLabel(assignment.role.code)).join('、') || '—' },
     ...(canManage || canAssign
-      ? [{ title: 'Actions', key: 'actions', render: (_: unknown, row: User) => <UserActions user={row} /> }]
+      ? [{ title: '操作', key: 'actions', width: 200, render: (_: unknown, row: User) => <UserActions user={row} /> }]
       : []),
   ]
 
@@ -45,24 +49,25 @@ export function UsersPage() {
     <main className="settings-page">
       <div className="settings-toolbar">
         <div>
-          <h1>Users</h1>
-          <Typography.Text type="secondary">Manage organization members and their access.</Typography.Text>
+          <h1>用户管理</h1>
+          <Typography.Text type="secondary">管理组织成员及其访问权限。</Typography.Text>
         </div>
-        {canInvite && <Button type="primary" onClick={() => setInviteOpen(true)}>Invite member</Button>}
+        {canInvite && <Button type="primary" onClick={() => setInviteOpen(true)}>邀请成员</Button>}
       </div>
       {inviteProblem && (
         <Alert type="error" role="alert" message={inviteProblem.detail || inviteProblem.title} showIcon style={{ marginBottom: 16 }} />
       )}
-      {usersQuery.isLoading && <div role="status">Loading users…</div>}
+      {usersQuery.isLoading && <div role="status">正在加载用户…</div>}
       {usersQuery.isError && (
         <Alert type="error" role="alert" message={toProblemDetail(usersQuery.error).detail || toProblemDetail(usersQuery.error).title} showIcon />
       )}
-      {usersQuery.data && usersQuery.data.items.length === 0 && <div className="settings-empty">No users in this organization.</div>}
+      {usersQuery.data && usersQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无用户。</div>}
       {usersQuery.data && usersQuery.data.items.length > 0 && (
         <Table<User>
           rowKey="id"
           columns={columns}
           dataSource={usersQuery.data.items}
+          scroll={{ x: 800 }}
           pagination={{
             current: usersQuery.data.page + 1,
             pageSize: usersQuery.data.size,
@@ -94,34 +99,34 @@ function InviteMemberModal({ onClose, onError }: { onClose: () => void; onError:
     onError: (error) => onError(toProblemDetail(error)),
   })
 
-  const roleOptions = (rolesQuery.data ?? []).map((role: Role) => ({ value: role.code, label: `${role.code} — ${role.name}` }))
+  const roleOptions = (rolesQuery.data ?? []).map((role: Role) => ({ value: role.code, label: roleLabel(role.code) }))
 
   return (
     <Modal
       open
-      title="Invite member"
-      okText={inviteMutation.isPending ? 'Inviting…' : 'Send invitation'}
+      title="邀请成员"
+      okText={inviteMutation.isPending ? '正在邀请…' : '发送邀请'}
       okButtonProps={{ disabled: !email || !initialRoleCode || inviteMutation.isPending }}
       onOk={() => inviteMutation.mutate()}
       onCancel={onClose}
     >
       <div style={{ display: 'grid', gap: 12 }}>
         <label>
-          Email
+          邮箱
           <Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="member@example.com" />
         </label>
         <label>
-          Initial role
+          初始角色
           <Select
             value={initialRoleCode}
-            placeholder="Select role"
+            placeholder="选择角色"
             options={roleOptions}
             loading={rolesQuery.isLoading}
             onChange={setInitialRoleCode}
           />
         </label>
         <label>
-          Expires in hours (1–168)
+          有效期（小时，1–168）
           <InputNumber min={1} max={168} value={expiresInHours} onChange={setExpiresInHours} style={{ width: '100%' }} />
         </label>
       </div>
@@ -148,17 +153,17 @@ function UserActions({ user }: { user: User }) {
   if (!canManage && !canAssign) return null
 
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+    <div className="settings-actions">
       {canManage && (
         <Button
           size="small"
           loading={statusMutation.isPending}
           onClick={() => statusMutation.mutate(user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE')}
         >
-          {user.status === 'ACTIVE' ? 'Disable' : 'Enable'}
+          {user.status === 'ACTIVE' ? USER_STATUS_ACTIONS.disable : USER_STATUS_ACTIONS.enable}
         </Button>
       )}
-      {canAssign && <Button size="small" onClick={() => setDrawerOpen(true)}>Assign roles</Button>}
+      {canAssign && <Button size="small" onClick={() => setDrawerOpen(true)}>分配角色</Button>}
       {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon />}
       {drawerOpen && <RoleAssignmentDrawer user={user} onClose={() => setDrawerOpen(false)} />}
     </div>
@@ -180,27 +185,27 @@ function RoleAssignmentDrawer({ user, onClose }: { user: User; onClose: () => vo
   })
 
   return (
-    <Drawer open title={`Roles for ${user.displayName}`} onClose={onClose} width={460}>
+    <Drawer open title={`${user.displayName} 的角色`} onClose={onClose} width={460}>
       {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon style={{ marginBottom: 12 }} />}
       <Table<User['roleAssignments'][number]>
         rowKey="id"
         size="small"
         dataSource={user.roleAssignments}
         columns={[
-          { title: 'Role', dataIndex: ['role', 'code'], key: 'role' },
-          { title: 'Scope', key: 'scope', render: (_, assignment) => `${assignment.scopeType} ${assignment.scopeId}` },
+          { title: '角色', key: 'role', render: (_, assignment) => roleLabel(assignment.role.code) },
+          { title: '范围', key: 'scope', render: (_, assignment) => scopeLabel(assignment.scopeType, assignment.scopeId) },
           {
             title: '', key: 'revoke', width: 90,
             render: (_, assignment) => (
               <Button size="small" danger loading={revokeMutation.isPending} onClick={() => revokeMutation.mutate(assignment.id)}>
-                Revoke
+                撤销
               </Button>
             ),
           },
         ]}
         pagination={false}
       />
-      <Button type="primary" block style={{ marginTop: 12 }} onClick={() => setAssignOpen(true)}>Add assignment</Button>
+      <Button type="primary" block style={{ marginTop: 12 }} onClick={() => setAssignOpen(true)}>添加角色分配</Button>
       {assignOpen && <AssignRoleModal memberId={user.organizationMember.id} onClose={() => setAssignOpen(false)} onDone={refresh} />}
     </Drawer>
   )
@@ -227,8 +232,8 @@ function AssignRoleModal({ memberId, onClose, onDone }: { memberId: string; onCl
   return (
     <Modal
       open
-      title="Add role assignment"
-      okText={createMutation.isPending ? 'Assigning…' : 'Assign'}
+      title="添加角色分配"
+      okText={createMutation.isPending ? '正在分配…' : '分配'}
       okButtonProps={{ disabled: !roleId || !scopeType || !scopeId || createMutation.isPending }}
       onOk={() => createMutation.mutate()}
       onCancel={onClose}
@@ -236,27 +241,27 @@ function AssignRoleModal({ memberId, onClose, onDone }: { memberId: string; onCl
       <div style={{ display: 'grid', gap: 12 }}>
         {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon />}
         <label>
-          Role
+          角色
           <Select
             value={roleId}
-            placeholder="Select role"
-            options={(rolesQuery.data ?? []).map((role: Role) => ({ value: role.id, label: `${role.code} — ${role.name}` }))}
+            placeholder="选择角色"
+            options={(rolesQuery.data ?? []).map((role: Role) => ({ value: role.id, label: roleLabel(role.code) }))}
             loading={rolesQuery.isLoading}
             onChange={(value) => { setRoleId(value); setScopeType(undefined) }}
           />
         </label>
         <label>
-          Scope type
+          范围类型
           <Select
             value={scopeType}
-            placeholder="Select scope"
+            placeholder="选择范围"
             options={validScopes.map((scope) => ({ value: scope, label: scope }))}
             onChange={setScopeType}
           />
         </label>
         <label>
-          Scope ID
-          <Input value={scopeId} onChange={(event) => setScopeId(event.target.value)} placeholder="Organization, project, team or cost-center ID" />
+          范围 ID
+          <Input value={scopeId} onChange={(event) => setScopeId(event.target.value)} placeholder="组织、项目、团队或成本中心 ID" />
         </label>
       </div>
     </Modal>

@@ -71,14 +71,14 @@ describe('ProjectsPage', () => {
     mockedSettingsApi.listProjects.mockReturnValue(new Promise((resolve) => { resolveList = resolve }))
     renderProjectsPage(['PROJECT_READ', 'PROJECT_MANAGE', 'PROJECT_MEMBER_MANAGE'])
 
-    expect(screen.getByText(/loading projects/i)).toBeInTheDocument()
+    expect(screen.getByText(/正在加载项目/i)).toBeInTheDocument()
     resolveList!(pageOf([project]))
     expect(await screen.findByText('CORE')).toBeInTheDocument()
     expect(screen.getByText('Core Platform')).toBeInTheDocument()
-    expect(screen.getByText('active')).toBeInTheDocument()
+    expect(screen.getByText('启用')).toBeInTheDocument()
 
     // Membership drawer lists project members.
-    fireEvent.click(screen.getByRole('button', { name: /members/i }))
+    fireEvent.click(screen.getByRole('button', { name: /成\s*员/ }))
     expect(await screen.findByText('Alpha')).toBeInTheDocument()
     expect(mockedSettingsApi.listProjectMembers).toHaveBeenCalledTimes(1)
     expect(mockedSettingsApi.listProjectMembers).toHaveBeenCalledWith('1', 0, 50)
@@ -92,33 +92,33 @@ describe('ProjectsPage', () => {
 
     mockedSettingsApi.listProjects.mockResolvedValue(pageOf([]))
     renderProjectsPage(['PROJECT_READ'])
-    expect(await screen.findByText(/no projects/i)).toBeInTheDocument()
+    expect(await screen.findByText(/该组织暂无项目/i)).toBeInTheDocument()
   })
 
   it('projectActionsRequireManage', async () => {
     renderProjectsPage(['PROJECT_READ'])
     await screen.findByText('CORE')
 
-    expect(screen.queryByRole('button', { name: 'Create project' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '创建项目' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /编\s*辑/ })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /members/i }))
+    fireEvent.click(screen.getByRole('button', { name: /成\s*员/ }))
     await screen.findByText('Alpha')
-    expect(screen.queryByRole('button', { name: /add member/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '添加成员' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /移\s*除/ })).not.toBeInTheDocument()
   })
 
   it('projectMemberManageWorksWithoutUserRead', async () => {
     renderProjectsPage(['PROJECT_READ', 'PROJECT_MEMBER_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /成\s*员/ }))
     await screen.findByText('Alpha')
 
     // Without USER_READ the /users candidate query must never fire.
     expect(mockedSettingsApi.listUsers).not.toHaveBeenCalled()
-    const input = screen.getByLabelText(/organization member id/i)
+    const input = screen.getByLabelText(/组织成员 ID/)
     fireEvent.change(input, { target: { value: '42' } })
-    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+    fireEvent.click(screen.getByRole('button', { name: '添加成员' }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.addProjectMember).toHaveBeenCalledTimes(1)
@@ -141,7 +141,7 @@ describe('ProjectsPage', () => {
     )
 
     // Select mode with USER_READ: pick member A.
-    fireEvent.click(await screen.findByRole('button', { name: /members/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /成\s*员/ }))
     await screen.findByText('Alpha')
     fireEvent.mouseDown(screen.getByRole('combobox'))
     fireEvent.click(await screen.findByText('Alpha (alpha@example.com)'))
@@ -155,8 +155,8 @@ describe('ProjectsPage', () => {
     // Manual mode: member B is typed and submitted; the stale Select target A
     // must never win.
     const usersCalls = mockedSettingsApi.listUsers.mock.calls.length
-    fireEvent.change(await screen.findByLabelText(/organization member id/i), { target: { value: '42' } })
-    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+    fireEvent.change(await screen.findByLabelText(/组织成员 ID/), { target: { value: '42' } })
+    fireEvent.click(screen.getByRole('button', { name: '添加成员' }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.addProjectMember).toHaveBeenCalledTimes(1)
@@ -169,11 +169,11 @@ describe('ProjectsPage', () => {
     mockedSettingsApi.createProject.mockResolvedValue({ ...project, id: '9' })
     renderProjectsPage(['PROJECT_READ', 'PROJECT_MANAGE', 'PROJECT_MEMBER_MANAGE', 'USER_READ'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Create project' }))
-    const codeInput = await screen.findByLabelText(/code/i)
+    fireEvent.click(await screen.findByRole('button', { name: '创建项目' }))
+    const codeInput = await screen.findByLabelText(/编码/)
     fireEvent.change(codeInput, { target: { value: 'PAY' } })
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Payments' } })
-    fireEvent.click(screen.getByRole('button', { name: /create$/i }))
+    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: 'Payments' } })
+    fireEvent.click(screen.getByRole('button', { name: /创\s*建$/ }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.createProject).toHaveBeenCalledTimes(1)
@@ -182,11 +182,11 @@ describe('ProjectsPage', () => {
     })
 
     mockedSettingsApi.addProjectMember.mockResolvedValue(member)
-    fireEvent.click(screen.getByRole('button', { name: /members/i }))
+    fireEvent.click(screen.getByRole('button', { name: /成\s*员/ }))
     await screen.findByText('Alpha')
     fireEvent.mouseDown(screen.getByRole('combobox'))
     fireEvent.click(await screen.findByText('Alpha (alpha@example.com)'))
-    fireEvent.click(screen.getByRole('button', { name: /add member/i }))
+    fireEvent.click(screen.getByRole('button', { name: '添加成员' }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.addProjectMember).toHaveBeenCalledTimes(1)

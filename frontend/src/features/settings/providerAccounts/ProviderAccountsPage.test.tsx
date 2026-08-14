@@ -61,12 +61,12 @@ describe('ProviderAccountsPage', () => {
     mockedSettingsApi.listProviderAccounts.mockReturnValue(new Promise((resolve) => { resolveList = resolve }))
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
 
-    expect(screen.getByText(/loading provider accounts/i)).toBeInTheDocument()
+    expect(screen.getByText(/正在加载云账号/i)).toBeInTheDocument()
     resolveList!(pageOf([account]))
     expect(await screen.findByText('AWS')).toBeInTheDocument()
     expect(screen.getByText('Production AWS')).toBeInTheDocument()
     expect(screen.getByText('arn:aws:123')).toBeInTheDocument()
-    expect(screen.getByText('active')).toBeInTheDocument()
+    expect(screen.getByText('启用')).toBeInTheDocument()
 
     mockedSettingsApi.listProviderAccounts.mockRejectedValue({
       isAxiosError: true,
@@ -77,18 +77,18 @@ describe('ProviderAccountsPage', () => {
 
     mockedSettingsApi.listProviderAccounts.mockResolvedValue(pageOf([]))
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ'])
-    expect(await screen.findByText(/no provider accounts/i)).toBeInTheDocument()
+    expect(await screen.findByText(/该组织暂无云账号/i)).toBeInTheDocument()
   })
 
   it('providerFieldsMatchSchema', async () => {
     mockedSettingsApi.createProviderAccount.mockResolvedValue({ ...account, id: '9' })
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Create provider account' }))
-    fireEvent.change(await screen.findByLabelText(/provider code/i), { target: { value: 'GCP' } })
-    fireEvent.change(screen.getByLabelText(/display name/i), { target: { value: 'GCP Billing' } })
-    fireEvent.change(screen.getByLabelText(/external account ref/i), { target: { value: 'billing-001' } })
-    fireEvent.click(screen.getByRole('button', { name: /create$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: '创建云账号' }))
+    fireEvent.change(await screen.findByLabelText(/服务商编码/), { target: { value: 'GCP' } })
+    fireEvent.change(screen.getByLabelText(/显示名称/), { target: { value: 'GCP Billing' } })
+    fireEvent.change(screen.getByLabelText(/外部账号引用/), { target: { value: 'billing-001' } })
+    fireEvent.click(screen.getByRole('button', { name: /创\s*建$/ }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.createProviderAccount).toHaveBeenCalledTimes(1)
@@ -98,36 +98,36 @@ describe('ProviderAccountsPage', () => {
     })
 
     // The edit form keeps providerCode immutable.
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(await screen.findByLabelText(/provider code/i)).toHaveValue('AWS')
-    expect(screen.getByLabelText(/provider code/i)).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /编\s*辑/ }))
+    expect(await screen.findByLabelText(/服务商编码/)).toHaveValue('AWS')
+    expect(screen.getByLabelText(/服务商编码/)).toBeDisabled()
   })
 
   it('providerMetadataRejectsSecretKeysClientSide', async () => {
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Create provider account' }))
-    fireEvent.change(await screen.findByLabelText(/provider code/i), { target: { value: 'AZURE' } })
-    fireEvent.change(screen.getByLabelText(/display name/i), { target: { value: 'Azure Prod' } })
+    fireEvent.click(await screen.findByRole('button', { name: '创建云账号' }))
+    fireEvent.change(await screen.findByLabelText(/服务商编码/), { target: { value: 'AZURE' } })
+    fireEvent.change(screen.getByLabelText(/显示名称/), { target: { value: 'Azure Prod' } })
 
-    const metadataTextarea = screen.getByLabelText(/metadata json/i)
+    const metadataTextarea = screen.getByLabelText(/元数据 JSON/)
     fireEvent.change(metadataTextarea, { target: { value: '{ "access_token": "s3cr3t" }' } })
-    expect(screen.getByText(/metadata keys may not contain password, token, secret or apikey/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /create$/i })).toBeDisabled()
+    expect(screen.getByText(/元数据键名不得包含 password、token、secret 或 apikey 片段/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /创\s*建$/ })).toBeDisabled()
 
     // The key is normalized (lowercase, non-alphanumeric removed) like the
     // backend: api_key becomes apikey and is rejected too.
     fireEvent.change(metadataTextarea, { target: { value: '{ "api_key": "s3cr3t" }' } })
-    expect(screen.getByText(/metadata keys may not contain password, token, secret or apikey/i)).toBeInTheDocument()
+    expect(screen.getByText(/元数据键名不得包含 password、token、secret 或 apikey 片段/)).toBeInTheDocument()
 
     // Arrays are recursed like the backend's object recursion.
     fireEvent.change(metadataTextarea, { target: { value: '{ "regions": [{ "access_token": "x" }] }' } })
-    expect(screen.getByText(/metadata keys may not contain password, token, secret or apikey/i)).toBeInTheDocument()
+    expect(screen.getByText(/元数据键名不得包含 password、token、secret 或 apikey 片段/)).toBeInTheDocument()
 
     fireEvent.change(metadataTextarea, { target: { value: '{ "region": "s3cr3t" }' } })
-    expect(screen.queryByText(/metadata keys may not contain password, token, secret or apikey/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/元数据键名不得包含 password、token、secret 或 apikey 片段/)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /create$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /创\s*建$/ }))
     await waitFor(() => {
       expect(mockedSettingsApi.createProviderAccount).toHaveBeenCalledWith({
         providerCode: 'AZURE', displayName: 'Azure Prod', metadata: { region: 's3cr3t' },
@@ -138,27 +138,27 @@ describe('ProviderAccountsPage', () => {
   it('metadataRejectsInvalidJsonAndNonObject', async () => {
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Create provider account' }))
-    fireEvent.change(await screen.findByLabelText(/provider code/i), { target: { value: 'AZURE' } })
-    fireEvent.change(screen.getByLabelText(/display name/i), { target: { value: 'Azure Prod' } })
+    fireEvent.click(await screen.findByRole('button', { name: '创建云账号' }))
+    fireEvent.change(await screen.findByLabelText(/服务商编码/), { target: { value: 'AZURE' } })
+    fireEvent.change(screen.getByLabelText(/显示名称/), { target: { value: 'Azure Prod' } })
 
-    const metadataTextarea = screen.getByLabelText(/metadata json/i)
+    const metadataTextarea = screen.getByLabelText(/元数据 JSON/)
     fireEvent.change(metadataTextarea, { target: { value: '{ nope' } })
-    expect(screen.getByText(/must be valid JSON/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /create$/i })).toBeDisabled()
+    expect(screen.getByText(/必须是有效的 JSON/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /创\s*建$/ })).toBeDisabled()
 
     fireEvent.change(metadataTextarea, { target: { value: '[1, 2]' } })
-    expect(screen.getByText(/must be a JSON object/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /create$/i })).toBeDisabled()
+    expect(screen.getByText(/必须是 JSON 对象/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /创\s*建$/ })).toBeDisabled()
   })
 
   it('metadataOmittedFromUpdateWhenUnchanged', async () => {
     mockedSettingsApi.listProviderAccounts.mockResolvedValue(pageOf([typedAccount]))
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
-    fireEvent.change(await screen.findByLabelText(/display name/i), { target: { value: 'Renamed AWS' } })
-    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /编\s*辑/ }))
+    fireEvent.change(await screen.findByLabelText(/显示名称/), { target: { value: 'Renamed AWS' } })
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledTimes(1)
@@ -172,11 +172,11 @@ describe('ProviderAccountsPage', () => {
     mockedSettingsApi.listProviderAccounts.mockResolvedValue(pageOf([typedAccount]))
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
-    fireEvent.change(await screen.findByLabelText(/metadata json/i), {
+    fireEvent.click(await screen.findByRole('button', { name: /编\s*辑/ }))
+    fireEvent.change(await screen.findByLabelText(/元数据 JSON/), {
       target: { value: JSON.stringify({ enabled: false, retries: 5, nested: { env: 'staging' }, regions: ['sg', 'us', 'jp'] }, null, 2) },
     })
-    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledWith('7', expect.objectContaining({
@@ -188,9 +188,9 @@ describe('ProviderAccountsPage', () => {
   it('externalAccountRefCanBeClearedOnEdit', async () => {
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
-    fireEvent.change(await screen.findByLabelText(/external account ref/i), { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /编\s*辑/ }))
+    fireEvent.change(await screen.findByLabelText(/外部账号引用/), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.updateProviderAccount).toHaveBeenCalledTimes(1)
@@ -204,10 +204,10 @@ describe('ProviderAccountsPage', () => {
     mockedSettingsApi.createProviderAccount.mockResolvedValue({ ...account, id: '9' })
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Create provider account' }))
-    fireEvent.change(await screen.findByLabelText(/provider code/i), { target: { value: 'GCP' } })
-    fireEvent.change(screen.getByLabelText(/display name/i), { target: { value: 'GCP Billing' } })
-    fireEvent.click(screen.getByRole('button', { name: /create$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: '创建云账号' }))
+    fireEvent.change(await screen.findByLabelText(/服务商编码/), { target: { value: 'GCP' } })
+    fireEvent.change(screen.getByLabelText(/显示名称/), { target: { value: 'GCP Billing' } })
+    fireEvent.click(screen.getByRole('button', { name: /创\s*建$/ }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.listProviderAccounts).toHaveBeenCalledTimes(2)

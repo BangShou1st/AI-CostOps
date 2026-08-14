@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Drawer, Input, Select, Table } from 'antd'
+import { Alert, Button, Drawer, Input, Select, Table, Tag } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
 import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
@@ -9,6 +9,7 @@ import { settingsApi } from '../api/settingsApi'
 import { authMeKey, settingsKeys } from '../api/settingsKeys'
 import type { MasterDataRecord, OrganizationMemberRecord, User } from '../api/settingsTypes'
 import { hasPermission } from '../permissions'
+import { statusLabel } from '../presentation'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 
 export function ProjectMembersDrawer({ project, onClose }: { project: MasterDataRecord; onClose: () => void }) {
@@ -60,13 +61,13 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
   })
 
   const columns: TableProps<OrganizationMemberRecord>['columns'] = [
-    { title: 'Name', dataIndex: 'displayName', key: 'displayName' },
-    { title: 'Email', dataIndex: 'email', key: 'email' },
-    { title: 'Status', dataIndex: 'status', key: 'status', render: (status: string) => status.toLowerCase() },
+    { title: '姓名', dataIndex: 'displayName', key: 'displayName', width: 150 },
+    { title: '邮箱', dataIndex: 'email', key: 'email', width: 220 },
+    { title: '状态', dataIndex: 'status', key: 'status', width: 110, render: (status: string) => <Tag color={status === 'ACTIVE' ? 'green' : 'default'}>{statusLabel(status as OrganizationMemberRecord['status'])}</Tag> },
     {
       title: '', key: 'remove', width: 100,
       render: (_, member) => canWriteMembers ? (
-        <Button size="small" danger loading={removeMutation.isPending} onClick={() => removeMutation.mutate(member.id)}>Remove</Button>
+        <Button size="small" danger loading={removeMutation.isPending} onClick={() => removeMutation.mutate(member.id)}>移除</Button>
       ) : null,
     },
   ]
@@ -77,19 +78,20 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
   }))
 
   return (
-    <Drawer open title={`Members of ${project.name}`} onClose={onClose} width={520}>
+    <Drawer open title={`${project.name} 的成员`} onClose={onClose} width={520}>
       {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon style={{ marginBottom: 12 }} />}
-      {membersQuery.isLoading && <div role="status">Loading members…</div>}
+      {membersQuery.isLoading && <div role="status">正在加载成员…</div>}
       {membersQuery.isError && (
         <Alert type="error" role="alert" message={toProblemDetail(membersQuery.error).detail || toProblemDetail(membersQuery.error).title} showIcon />
       )}
-      {membersQuery.data && membersQuery.data.items.length === 0 && <div className="settings-empty">No members in this project.</div>}
+      {membersQuery.data && membersQuery.data.items.length === 0 && <div className="settings-empty">该项目暂无成员。</div>}
       {membersQuery.data && membersQuery.data.items.length > 0 && (
         <Table<OrganizationMemberRecord>
           rowKey="id"
           size="small"
           columns={columns}
           dataSource={membersQuery.data.items}
+          scroll={{ x: 560 }}
           pagination={{
             current: membersQuery.data.page + 1,
             pageSize: membersQuery.data.size,
@@ -102,8 +104,8 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           {canLoadUsers ? (
             <Select
-              aria-label="Organization member"
-              placeholder="Select organization member"
+              aria-label="组织成员"
+              placeholder="选择组织成员"
               style={{ flex: 1 }}
               value={selectedMemberId}
               options={memberOptions}
@@ -112,8 +114,8 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
             />
           ) : (
             <Input
-              aria-label="Organization member ID"
-              placeholder="Organization member ID"
+              aria-label="组织成员 ID"
+              placeholder="组织成员 ID"
               value={manualMemberId}
               onChange={(event) => setManualMemberId(event.target.value)}
             />
@@ -129,7 +131,7 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
               if (target) addMutation.mutate(target)
             }}
           >
-            Add member
+            添加成员
           </Button>
         </div>
       )}

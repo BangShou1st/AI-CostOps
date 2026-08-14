@@ -53,18 +53,18 @@ describe('CostCentersPage', () => {
     mockedSettingsApi.listCostCenters.mockReturnValue(new Promise((resolve) => { resolveList = resolve }))
     renderCostCentersPage(['COST_CENTER_READ', 'COST_CENTER_MANAGE'])
 
-    expect(screen.getByText(/loading cost centers/i)).toBeInTheDocument()
+    expect(screen.getByText(/正在加载成本中心/i)).toBeInTheDocument()
     resolveList!(pageOf([costCenter]))
     expect(await screen.findByText('PLATFORM')).toBeInTheDocument()
     expect(screen.getByText('Platform Engineering')).toBeInTheDocument()
-    expect(screen.getByText('archived')).toBeInTheDocument()
+    expect(screen.getByText('已归档')).toBeInTheDocument()
 
     // Edit keeps the code immutable and preserves the current status.
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(await screen.findByLabelText(/code/i)).toHaveValue('PLATFORM')
-    expect(screen.getByLabelText(/code/i)).toBeDisabled()
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Platform Eng' } })
-    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    fireEvent.click(screen.getByRole('button', { name: '编 辑' }))
+    expect(await screen.findByLabelText(/编码/)).toHaveValue('PLATFORM')
+    expect(screen.getByLabelText(/编码/)).toBeDisabled()
+    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: 'Platform Eng' } })
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
     await waitFor(() => {
       expect(mockedSettingsApi.updateCostCenter).toHaveBeenCalledWith('5', { name: 'Platform Eng', status: 'ARCHIVED' })
     })
@@ -78,25 +78,25 @@ describe('CostCentersPage', () => {
 
     mockedSettingsApi.listCostCenters.mockResolvedValue(pageOf([]))
     renderCostCentersPage(['COST_CENTER_READ'])
-    expect(await screen.findByText(/no cost centers/i)).toBeInTheDocument()
+    expect(await screen.findByText(/该组织暂无成本中心/i)).toBeInTheDocument()
   })
 
   it('costCenterActionsRequireManage', async () => {
     renderCostCentersPage(['COST_CENTER_READ'])
     await screen.findByText('PLATFORM')
 
-    expect(screen.queryByRole('button', { name: 'Create cost center' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '创建成本中心' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '编 辑' })).not.toBeInTheDocument()
   })
 
   it('costCenterMutationInvalidatesQueries', async () => {
     mockedSettingsApi.createCostCenter.mockResolvedValue({ ...costCenter, id: '9' })
     renderCostCentersPage(['COST_CENTER_READ', 'COST_CENTER_MANAGE'])
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Create cost center' }))
-    fireEvent.change(await screen.findByLabelText(/code/i), { target: { value: 'MKT' } })
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Marketing' } })
-    fireEvent.click(screen.getByRole('button', { name: /create$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: '创建成本中心' }))
+    fireEvent.change(await screen.findByLabelText(/编码/), { target: { value: 'MKT' } })
+    fireEvent.change(screen.getByLabelText(/名称/), { target: { value: 'Marketing' } })
+    fireEvent.click(screen.getByRole('button', { name: /创\s*建$/ }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.createCostCenter).toHaveBeenCalledTimes(1)

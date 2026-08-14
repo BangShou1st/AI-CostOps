@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Input, Modal, Select, Table, Typography } from 'antd'
+import { Alert, Button, Input, Modal, Select, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
 import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
@@ -9,6 +9,7 @@ import { settingsApi } from '../api/settingsApi'
 import { settingsKeys } from '../api/settingsKeys'
 import type { MasterDataStatus, ProviderAccount } from '../api/settingsTypes'
 import { hasPermission } from '../permissions'
+import { statusLabel } from '../presentation'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { MASTER_DATA_STATUS_OPTIONS } from '../shared/LifecycleEditorModal'
 
@@ -101,14 +102,17 @@ export function ProviderAccountsPage() {
   })
 
   const columns: TableProps<ProviderAccount>['columns'] = [
-    { title: 'Provider', dataIndex: 'providerCode', key: 'providerCode' },
-    { title: 'Display name', dataIndex: 'displayName', key: 'displayName' },
-    { title: 'External account ref', dataIndex: 'externalAccountRef', key: 'externalAccountRef', render: (value: string | null) => value ?? '—' },
-    { title: 'Status', dataIndex: 'status', key: 'status', render: (status: string) => status.toLowerCase() },
+    { title: '云服务商', dataIndex: 'providerCode', key: 'providerCode', width: 140 },
+    { title: '显示名称', dataIndex: 'displayName', key: 'displayName' },
+    { title: '外部账号引用', dataIndex: 'externalAccountRef', key: 'externalAccountRef', render: (value: string | null) => value ?? '—' },
     {
-      title: 'Actions', key: 'actions',
+      title: '状态', dataIndex: 'status', key: 'status', width: 110,
+      render: (status: string) => <Tag color={status === 'ACTIVE' ? 'green' : status === 'ARCHIVED' ? 'orange' : 'default'}>{statusLabel(status as MasterDataStatus)}</Tag>,
+    },
+    {
+      title: '操作', key: 'actions', width: 100,
       render: (_, record) => canManage ? (
-        <Button size="small" onClick={() => { setProblem(null); setEditor({ mode: 'edit', record }) }}>Edit</Button>
+        <Button size="small" onClick={() => { setProblem(null); setEditor({ mode: 'edit', record }) }}>编辑</Button>
       ) : null,
     },
   ]
@@ -117,21 +121,22 @@ export function ProviderAccountsPage() {
     <main className="settings-page">
       <div className="settings-toolbar">
         <div>
-          <h1>Provider accounts</h1>
-          <Typography.Text type="secondary">Manage cloud provider accounts for the organization.</Typography.Text>
+          <h1>云账号</h1>
+          <Typography.Text type="secondary">管理组织的云服务商账号。</Typography.Text>
         </div>
-        {canManage && <Button type="primary" onClick={() => { setProblem(null); setEditor({ mode: 'create' }) }}>Create provider account</Button>}
+        {canManage && <Button type="primary" onClick={() => { setProblem(null); setEditor({ mode: 'create' }) }}>创建云账号</Button>}
       </div>
-      {listQuery.isLoading && <div role="status">Loading provider accounts…</div>}
+      {listQuery.isLoading && <div role="status">正在加载云账号…</div>}
       {listQuery.isError && (
         <Alert type="error" role="alert" message={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
       )}
-      {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">No provider accounts in this organization.</div>}
+      {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无云账号。</div>}
       {listQuery.data && listQuery.data.items.length > 0 && (
         <Table<ProviderAccount>
           rowKey="id"
           columns={columns}
           dataSource={listQuery.data.items}
+          scroll={{ x: 780 }}
           pagination={{
             current: listQuery.data.page + 1,
             pageSize: listQuery.data.size,
@@ -142,7 +147,7 @@ export function ProviderAccountsPage() {
       )}
       {editor && (
         <ProviderAccountEditorModal
-          title={editor.mode === 'edit' ? `Edit provider account ${editor.record.providerCode}` : 'Create provider account'}
+          title={editor.mode === 'edit' ? `编辑云账号 ${editor.record.providerCode}` : '创建云账号'}
           submitting={saveMutation.isPending}
           error={problem}
           initial={editor.mode === 'edit' ? editor.record : undefined}
@@ -188,13 +193,13 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
     try {
       parsed = JSON.parse(text)
     } catch {
-      setMetadataProblem('Provider account metadata must be valid JSON.')
+      setMetadataProblem('云账号元数据必须是有效的 JSON。')
       return
     }
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      setMetadataProblem('Provider account metadata must be a JSON object.')
+      setMetadataProblem('云账号元数据必须是 JSON 对象。')
     } else if (containsSecretMetadataKey(parsed)) {
-      setMetadataProblem('Metadata keys may not contain password, token, secret or apikey fragments.')
+      setMetadataProblem('元数据键名不得包含 password、token、secret 或 apikey 片段。')
     } else {
       setMetadataProblem(null)
     }
@@ -217,7 +222,7 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
     <Modal
       open
       title={title}
-      okText={submitting ? 'Saving…' : editing ? 'Save' : 'Create'}
+      okText={submitting ? '正在保存…' : editing ? '保存' : '创建'}
       okButtonProps={{ disabled: !providerCode.trim() || !displayName.trim() || submitting || metadataProblem !== null }}
       onOk={submit}
       onCancel={onCancel}
@@ -225,28 +230,28 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
       <div style={{ display: 'grid', gap: 12 }}>
         {error && <Alert type="error" role="alert" message={error.detail || error.title} showIcon />}
         <label>
-          Provider code
-          <Input aria-label="Provider code" value={providerCode} disabled={editing} onChange={(event) => setProviderCode(event.target.value)} placeholder="AWS, GCP, AZURE, …" />
+          服务商编码
+          <Input aria-label="服务商编码" value={providerCode} disabled={editing} onChange={(event) => setProviderCode(event.target.value)} placeholder="AWS、GCP、AZURE 等" />
         </label>
         <label>
-          Display name
-          <Input aria-label="Display name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Production AWS" />
+          显示名称
+          <Input aria-label="显示名称" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="生产 AWS" />
         </label>
         <label>
-          External account ref
-          <Input aria-label="External account ref" value={externalAccountRef} onChange={(event) => setExternalAccountRef(event.target.value)} placeholder="Optional provider account reference" />
+          外部账号引用
+          <Input aria-label="外部账号引用" value={externalAccountRef} onChange={(event) => setExternalAccountRef(event.target.value)} placeholder="可选的云服务商账号引用" />
         </label>
         {editing && (
           <label>
-            Status
-            <Select aria-label="Status" value={status} options={[...MASTER_DATA_STATUS_OPTIONS]} onChange={setStatus} />
+            状态
+            <Select aria-label="状态" value={status} options={[...MASTER_DATA_STATUS_OPTIONS]} onChange={setStatus} />
           </label>
         )}
 
         <div>
-          <Typography.Text strong>Metadata</Typography.Text>
+          <Typography.Text strong>元数据</Typography.Text>
           <Input.TextArea
-            aria-label="Metadata JSON"
+            aria-label="元数据 JSON"
             rows={6}
             value={metadataText}
             onChange={(event) => changeMetadata(event.target.value)}

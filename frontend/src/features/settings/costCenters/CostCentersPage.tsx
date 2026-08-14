@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Table, Typography } from 'antd'
+import { Alert, Button, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
 import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
@@ -9,6 +9,7 @@ import { settingsApi } from '../api/settingsApi'
 import { settingsKeys } from '../api/settingsKeys'
 import type { MasterDataRecord } from '../api/settingsTypes'
 import { hasPermission } from '../permissions'
+import { statusLabel } from '../presentation'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { LifecycleEditorModal, type LifecycleFormValues } from '../shared/LifecycleEditorModal'
 
@@ -43,14 +44,17 @@ export function CostCentersPage() {
   })
 
   const columns: TableProps<MasterDataRecord>['columns'] = [
-    { title: 'Code', dataIndex: 'code', key: 'code' },
-    { title: 'Name', dataIndex: 'name', key: 'name' },
-    { title: 'Status', dataIndex: 'status', key: 'status', render: (status: string) => status.toLowerCase() },
-    { title: 'Updated', dataIndex: 'updatedAt', key: 'updatedAt', render: (value: string) => new Date(value).toLocaleDateString() },
+    { title: '编码', dataIndex: 'code', key: 'code', width: 180 },
+    { title: '名称', dataIndex: 'name', key: 'name' },
     {
-      title: 'Actions', key: 'actions',
+      title: '状态', dataIndex: 'status', key: 'status', width: 110,
+      render: (status: string) => <Tag color={status === 'ACTIVE' ? 'green' : status === 'ARCHIVED' ? 'orange' : 'default'}>{statusLabel(status as MasterDataRecord['status'])}</Tag>,
+    },
+    { title: '更新时间', dataIndex: 'updatedAt', key: 'updatedAt', width: 130, render: (value: string) => new Date(value).toLocaleDateString() },
+    {
+      title: '操作', key: 'actions', width: 120,
       render: (_, record) => canManage ? (
-        <Button size="small" onClick={() => { setProblem(null); setEditor({ mode: 'edit', record }) }}>Edit</Button>
+        <Button size="small" onClick={() => { setProblem(null); setEditor({ mode: 'edit', record }) }}>编辑</Button>
       ) : null,
     },
   ]
@@ -59,21 +63,22 @@ export function CostCentersPage() {
     <main className="settings-page">
       <div className="settings-toolbar">
         <div>
-          <h1>Cost centers</h1>
-          <Typography.Text type="secondary">Manage cost centers for the organization.</Typography.Text>
+          <h1>成本中心</h1>
+          <Typography.Text type="secondary">管理组织的成本中心。</Typography.Text>
         </div>
-        {canManage && <Button type="primary" onClick={() => { setProblem(null); setEditor({ mode: 'create' }) }}>Create cost center</Button>}
+        {canManage && <Button type="primary" onClick={() => { setProblem(null); setEditor({ mode: 'create' }) }}>创建成本中心</Button>}
       </div>
-      {listQuery.isLoading && <div role="status">Loading cost centers…</div>}
+      {listQuery.isLoading && <div role="status">正在加载成本中心…</div>}
       {listQuery.isError && (
         <Alert type="error" role="alert" message={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
       )}
-      {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">No cost centers in this organization.</div>}
+      {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无成本中心。</div>}
       {listQuery.data && listQuery.data.items.length > 0 && (
         <Table<MasterDataRecord>
           rowKey="id"
           columns={columns}
           dataSource={listQuery.data.items}
+          scroll={{ x: 760 }}
           pagination={{
             current: listQuery.data.page + 1,
             pageSize: listQuery.data.size,
@@ -84,7 +89,7 @@ export function CostCentersPage() {
       )}
       {editor && (
         <LifecycleEditorModal
-          title={editor.mode === 'edit' ? `Edit cost center ${editor.record.code}` : 'Create cost center'}
+          title={editor.mode === 'edit' ? `编辑成本中心 ${editor.record.code}` : '创建成本中心'}
           submitting={saveMutation.isPending}
           error={problem}
           initial={editor.mode === 'edit' ? { code: editor.record.code, name: editor.record.name, status: editor.record.status } : undefined}

@@ -2,6 +2,7 @@ import { Alert, Input, Modal, Select } from 'antd'
 import { useState } from 'react'
 import type { ProblemDetail } from '../../../api/problem'
 import type { MasterDataStatus } from '../api/settingsTypes'
+import { statusLabel } from '../presentation'
 
 export interface LifecycleFormValues {
   code: string
@@ -10,9 +11,9 @@ export interface LifecycleFormValues {
 }
 
 export const MASTER_DATA_STATUS_OPTIONS: readonly { value: MasterDataStatus; label: string }[] = [
-  { value: 'ACTIVE', label: 'ACTIVE' },
-  { value: 'DISABLED', label: 'DISABLED' },
-  { value: 'ARCHIVED', label: 'ARCHIVED' },
+  { value: 'ACTIVE', label: statusLabel('ACTIVE') },
+  { value: 'DISABLED', label: statusLabel('DISABLED') },
+  { value: 'ARCHIVED', label: statusLabel('ARCHIVED') },
 ]
 
 export function LifecycleEditorModal({ title, submitting, error, initial, onCancel, onSave }: {
@@ -32,7 +33,7 @@ export function LifecycleEditorModal({ title, submitting, error, initial, onCanc
     <Modal
       open
       title={title}
-      okText={submitting ? 'Saving…' : editing ? 'Save' : 'Create'}
+      okText={submitting ? '正在保存…' : editing ? '保存' : '创建'}
       okButtonProps={{ disabled: !code.trim() || !name.trim() || submitting }}
       onOk={() => onSave({ code: code.trim(), name: name.trim(), status })}
       onCancel={onCancel}
@@ -40,17 +41,17 @@ export function LifecycleEditorModal({ title, submitting, error, initial, onCanc
       <div style={{ display: 'grid', gap: 12 }}>
         {error && <Alert type="error" role="alert" message={error.detail || error.title} showIcon />}
         <label>
-          Code
-          <Input aria-label="Code" value={code} disabled={editing} onChange={(event) => setCode(event.target.value)} placeholder="Unique code within the organization" />
+          编码
+          <Input aria-label="编码" value={code} disabled={editing} onChange={(event) => setCode(event.target.value)} placeholder="组织内唯一编码" />
         </label>
         <label>
-          Name
-          <Input aria-label="Name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Display name" />
+          名称
+          <Input aria-label="名称" value={name} onChange={(event) => setName(event.target.value)} placeholder="显示名称" />
         </label>
         {editing && (
           <label>
-            Status
-            <Select aria-label="Status" value={status} options={[...MASTER_DATA_STATUS_OPTIONS]} onChange={setStatus} />
+            状态
+            <Select aria-label="状态" value={status} options={[...MASTER_DATA_STATUS_OPTIONS]} onChange={setStatus} />
           </label>
         )}
       </div>

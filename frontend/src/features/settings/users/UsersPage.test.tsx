@@ -67,11 +67,11 @@ describe('UsersPage', () => {
     mockedSettingsApi.listUsers.mockReturnValue(new Promise((resolve) => { resolveList = resolve }))
     renderUsersPage(['USER_READ'])
 
-    expect(screen.getByText(/loading users/i)).toBeInTheDocument()
+    expect(screen.getByText(/正在加载用户/i)).toBeInTheDocument()
     resolveList!(pageOf([user]))
     expect(await screen.findByText('Alpha')).toBeInTheDocument()
     expect(screen.getByText('alpha@example.com')).toBeInTheDocument()
-    expect(screen.getByText('EMPLOYEE')).toBeInTheDocument()
+    expect(screen.getByText('员工（EMPLOYEE）')).toBeInTheDocument()
 
     mockedSettingsApi.listUsers.mockRejectedValue({
       isAxiosError: true,
@@ -82,40 +82,40 @@ describe('UsersPage', () => {
 
     mockedSettingsApi.listUsers.mockResolvedValue(pageOf([]))
     renderUsersPage(['USER_READ'])
-    expect(await screen.findByText(/no users/i)).toBeInTheDocument()
+    expect(await screen.findByText(/该组织暂无用户/i)).toBeInTheDocument()
   })
 
   it('userActionsRespectIndependentPermissions', async () => {
     renderUsersPage(['USER_READ'])
     await screen.findByText('Alpha')
-    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Invite member' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /roles/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '停 用' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '邀请成员' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /分配角色/i })).not.toBeInTheDocument()
   })
 
   it('shows manage action only with USER_MANAGE', async () => {
     renderUsersPage(['USER_READ', 'USER_MANAGE'])
-    expect(await screen.findByRole('button', { name: 'Disable' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Invite member' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '停 用' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '邀请成员' })).not.toBeInTheDocument()
   })
 
   it('shows invite action only with USER_INVITE', async () => {
     renderUsersPage(['USER_READ', 'USER_INVITE'])
-    expect(await screen.findByRole('button', { name: 'Invite member' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '邀请成员' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '停 用' })).not.toBeInTheDocument()
   })
 
   it('shows assign action only with ROLE_ASSIGN', async () => {
     mockedSettingsApi.listRoles.mockResolvedValue([{ id: 'r1', code: 'EMPLOYEE', name: 'Employee', permissions: [] }])
     renderUsersPage(['USER_READ', 'ROLE_ASSIGN'])
-    expect(await screen.findByRole('button', { name: /assign roles/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Disable' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /分配角色/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '停 用' })).not.toBeInTheDocument()
   })
 
   it('userStatusSendsExpectedVersion', async () => {
     mockedSettingsApi.updateUserStatus.mockResolvedValue({ ...user, status: 'DISABLED', securityVersion: '8' })
     renderUsersPage(['USER_READ', 'USER_MANAGE'])
-    fireEvent.click(await screen.findByRole('button', { name: 'Disable' }))
+    fireEvent.click(await screen.findByRole('button', { name: '停 用' }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.updateUserStatus).toHaveBeenCalledTimes(1)
@@ -129,7 +129,7 @@ describe('UsersPage', () => {
       response: { data: { title: 'Conflict', status: 409, detail: 'The user was changed by another actor.', code: 'STATE_CONFLICT', traceId: 't2' } },
     })
     renderUsersPage(['USER_READ', 'USER_MANAGE'])
-    fireEvent.click(await screen.findByRole('button', { name: 'Disable' }))
+    fireEvent.click(await screen.findByRole('button', { name: '停 用' }))
 
     expect(await screen.findByText('The user was changed by another actor.')).toBeInTheDocument()
     await waitFor(() => {
@@ -141,7 +141,7 @@ describe('UsersPage', () => {
   it('userMutationInvalidatesQueries', async () => {
     mockedSettingsApi.updateUserStatus.mockResolvedValue({ ...user, status: 'DISABLED', securityVersion: '8' })
     renderUsersPage(['USER_READ', 'USER_MANAGE'])
-    fireEvent.click(await screen.findByRole('button', { name: 'Disable' }))
+    fireEvent.click(await screen.findByRole('button', { name: '停 用' }))
 
     await waitFor(() => {
       expect(mockedSettingsApi.listUsers).toHaveBeenCalledTimes(2)
