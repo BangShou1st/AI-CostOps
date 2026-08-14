@@ -47,9 +47,15 @@ button:disabled { opacity: .55; cursor: wait; }
    Application shell
    Desktop: viewport-bound collapsible sidebar; mobile: top bar + Drawer.
    ========================= */
-.app-shell {
+/* Ant Design Layout defaults to flex-direction: column; the desktop shell
+   must be an explicit horizontal split so the sidebar is a fixed left rail
+   and main fills the remaining width. Raised specificity (.ant-layout +
+   own class) wins over the antd default regardless of style injection order. */
+.ant-layout.settings-shell {
   min-height: 100dvh;
+  width: 100%;
   display: flex;
+  flex-direction: row;
   align-items: stretch;
 }
 
@@ -57,7 +63,10 @@ button:disabled { opacity: .55; cursor: wait; }
   position: sticky;
   top: 0;
   height: 100dvh;
-  flex: 0 0 240px;
+  flex: 0 0 auto;
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -65,7 +74,11 @@ button:disabled { opacity: .55; cursor: wait; }
   color: #c3cfe2;
   transition: width .18s ease;
 }
-.app-shell-collapsed .settings-sider { flex-basis: 72px; }
+.settings-shell-collapsed .settings-sider {
+  width: 72px;
+  min-width: 72px;
+  max-width: 72px;
+}
 
 .settings-brand {
   flex-shrink: 0;
@@ -181,15 +194,19 @@ button:disabled { opacity: .55; cursor: wait; }
 .settings-drawer-body .settings-menu-drawer { flex: 1; }
 .settings-drawer-body .settings-identity { margin-top: 0; border-top: 1px solid #e5eaf3; }
 
-/* Main content: full width, comfortable desktop density */
+/* Main content: full width, comfortable desktop density. The antd
+   Layout.Content default (flex: auto) is fine; min-width: 0 is what keeps
+   the content from overflowing the flex container. */
 .settings-content {
-  flex: 1;
-  min-width: 0;
   width: 100%;
   max-width: 1440px;
   margin: 0 auto;
   padding: 24px;
   box-sizing: border-box;
+}
+.ant-layout-content.settings-content {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .settings-content h1 { font-size: 1.75rem; letter-spacing: -0.02em; margin-bottom: 4px; }
 

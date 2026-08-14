@@ -90,7 +90,7 @@ describe('AuthenticatedLayout desktop sidebar', () => {
     // The nav keeps every entry; the rail collapses to icons only (jsdom
     // cannot assert rendered pixels, so the collapsed class is the contract).
     expect(screen.getAllByRole('menuitem')).toHaveLength(NAV_LABELS.length)
-    expect(document.querySelector('.app-shell-collapsed')).not.toBeNull()
+    expect(document.querySelector('.settings-shell-collapsed')).not.toBeNull()
     expect(document.querySelector('.ant-menu-inline-collapsed')).not.toBeNull()
   })
 
@@ -122,7 +122,7 @@ describe('AuthenticatedLayout desktop sidebar', () => {
     renderLayout(ALL_PERMISSIONS)
 
     expect(screen.getByRole('button', { name: '收起侧边栏' })).toBeInTheDocument()
-    expect(document.querySelector('.app-shell-collapsed')).toBeNull()
+    expect(document.querySelector('.settings-shell-collapsed')).toBeNull()
   })
 
   it('userFooterRemainsStructuralFooter', () => {
@@ -133,6 +133,34 @@ describe('AuthenticatedLayout desktop sidebar', () => {
     // The footer is a direct child of the sidebar, not of the scroll area.
     expect(identity?.parentElement?.className).toContain('settings-sider')
   })
+
+  it('desktopShellIsHorizontalSplitContract', () => {
+    renderLayout(ALL_PERMISSIONS)
+
+    // The desktop root carries the horizontal-shell contract class; the
+    // sidebar and the main content remain siblings inside it.
+    const root = document.querySelector('.ant-layout.settings-shell')
+    expect(root).not.toBeNull()
+    const sider = document.querySelector('.settings-sider')
+    const content = document.querySelector('.settings-content')
+    expect(sider).not.toBeNull()
+    expect(content).not.toBeNull()
+    expect(sider?.parentElement).toBe(root)
+    expect(content?.parentElement).toBe(root)
+    expect(document.querySelector('.settings-shell-mobile')).toBeNull()
+  })
+
+  it('collapsedClassOnlyTogglesSidebarState', () => {
+    renderLayout(ALL_PERMISSIONS)
+
+    fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }))
+
+    // The collapse class sits on the shell root; the sidebar keeps its own
+    // classes and main keeps its Layout.Content classes untouched.
+    expect(document.querySelector('.ant-layout.settings-shell.settings-shell-collapsed')).not.toBeNull()
+    expect(document.querySelector('.settings-sider')).not.toBeNull()
+    expect(document.querySelector('.settings-content')?.className).toContain('ant-layout-content')
+  })
 })
 
 describe('AuthenticatedLayout mobile navigation', () => {
@@ -141,6 +169,9 @@ describe('AuthenticatedLayout mobile navigation', () => {
     renderLayout(ALL_PERMISSIONS)
 
     expect(document.querySelector('.settings-sider')).toBeNull()
+    // The mobile path keeps its own shell root and is unaffected by the
+    // desktop horizontal-split contract.
+    expect(document.querySelector('.app-shell-mobile')).not.toBeNull()
     expect(screen.getByRole('button', { name: '菜单' })).toBeInTheDocument()
     expect(screen.getByText('AI CostOps')).toBeInTheDocument()
   })

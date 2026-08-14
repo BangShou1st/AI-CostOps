@@ -122,7 +122,7 @@ export function AuthenticatedLayout() {
   }
 
   return (
-    <Layout className={`app-shell${collapsed ? ' app-shell-collapsed' : ''}`}>
+    <Layout className={`settings-shell${collapsed ? ' settings-shell-collapsed' : ''}`}>
       <aside className="settings-sider">
         <div className="settings-brand">
           {collapsed
