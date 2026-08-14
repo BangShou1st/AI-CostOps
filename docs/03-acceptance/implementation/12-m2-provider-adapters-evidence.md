@@ -84,19 +84,6 @@ git diff --check
 git status --short
 ```
 
-### 结果占位（Task 14 填写）
-
-```text
-focused provider suite : Tests run: 102, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-backend unit            : Tests run: 287, Failures: 0, Errors: 0, Skipped: 1 — BUILD SUCCESS
-backend integration     : Tests run: 222, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-architecture            : Tests run: 5, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
-docker compose config   : exit 0
-docker build            : SUCCESS
-git diff --check        : no output
-git status --short      : clean
-```
-
 ### 真实结果（2026-08-14 Task 14 fresh run）
 
 ```text
