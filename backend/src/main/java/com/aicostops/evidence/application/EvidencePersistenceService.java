@@ -25,7 +25,7 @@ public class EvidencePersistenceService {
     }
 
     @Transactional
-    public Evidence reserveOrReuse(
+    public Reservation reserveOrReuse(
             long organizationId,
             String sha256,
             String objectKey,
@@ -36,7 +36,7 @@ public class EvidencePersistenceService {
             Instant now) {
         var existing = mapper.findByOrganizationAndSha(organizationId, sha256);
         if (existing != null) {
-            return existing;
+            return new Reservation(existing, true);
         }
         try {
             mapper.insertStaging(organizationId, sha256, objectKey, originalFilename,
@@ -44,7 +44,7 @@ public class EvidencePersistenceService {
         } catch (DuplicateKeyException concurrentDuplicate) {
             var winner = mapper.findByOrganizationAndShaCurrent(organizationId, sha256);
             if (winner != null) {
-                return winner;
+                return new Reservation(winner, true);
             }
             throw concurrentDuplicate;
         }
@@ -52,7 +52,14 @@ public class EvidencePersistenceService {
         if (inserted == null) {
             throw new IllegalStateException("Reserved Evidence must be readable in its organization");
         }
-        return inserted;
+        return new Reservation(inserted, false);
+    }
+
+    /**
+     * Evidence row plus whether the identity already existed before this reservation.
+     * Storage status must never be used to guess identity reuse.
+     */
+    public record Reservation(Evidence evidence, boolean reusedExistingIdentity) {
     }
 
     @Transactional

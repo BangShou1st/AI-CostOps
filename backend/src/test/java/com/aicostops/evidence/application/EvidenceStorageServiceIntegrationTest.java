@@ -81,7 +81,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         var second = persistence.reserveOrReuse(
                 organizationId, SHA_256, OBJECT_KEY, "invoice.csv", "text/csv", 128L, uploaderMemberId, Instant.now());
 
-        assertThat(second.id()).isEqualTo(first.id());
+        assertThat(second.evidence().id()).isEqualTo(first.evidence().id());
         assertThat(evidenceCount()).isEqualTo(1);
     }
 
@@ -92,8 +92,8 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         var foreign = persistence.reserveOrReuse(
                 foreignOrganizationId, SHA_256, OBJECT_KEY, "invoice.csv", "text/csv", 128L, foreignUploaderMemberId, Instant.now());
 
-        assertThat(foreign.id()).isNotEqualTo(local.id());
-        assertThat(foreign.organizationId()).isEqualTo(foreignOrganizationId);
+        assertThat(foreign.evidence().id()).isNotEqualTo(local.evidence().id());
+        assertThat(foreign.evidence().organizationId()).isEqualTo(foreignOrganizationId);
         assertThat(evidenceCount()).isEqualTo(2);
     }
 
@@ -102,11 +102,11 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         var evidence = persistence.reserveOrReuse(
                 organizationId, SHA_256, OBJECT_KEY, "invoice.csv", "text/csv", 128L, uploaderMemberId, Instant.now());
 
-        persistence.markAvailable(evidence.id(), organizationId, Instant.now());
-        persistence.markFailedUnlessAvailable(evidence.id(), organizationId, "STORAGE_UPLOAD_FAILED", Instant.now());
+        persistence.markAvailable(evidence.evidence().id(), organizationId, Instant.now());
+        persistence.markFailedUnlessAvailable(evidence.evidence().id(), organizationId, "STORAGE_UPLOAD_FAILED", Instant.now());
 
-        assertThat(findEvidence(evidence.id()).storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
-        assertThat(findEvidence(evidence.id()).storageErrorCode()).isNull();
+        assertThat(findEvidence(evidence.evidence().id()).storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
+        assertThat(findEvidence(evidence.evidence().id()).storageErrorCode()).isNull();
     }
 
     @Test
@@ -114,11 +114,11 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         var evidence = persistence.reserveOrReuse(
                 organizationId, SHA_256, OBJECT_KEY, "invoice.csv", "text/csv", 128L, uploaderMemberId, Instant.now());
 
-        persistence.markFailedUnlessAvailable(evidence.id(), organizationId, "STORAGE_UPLOAD_FAILED", Instant.now());
-        assertThat(findEvidence(evidence.id()).storageStatus()).isEqualTo(EvidenceStorageStatus.FAILED);
+        persistence.markFailedUnlessAvailable(evidence.evidence().id(), organizationId, "STORAGE_UPLOAD_FAILED", Instant.now());
+        assertThat(findEvidence(evidence.evidence().id()).storageStatus()).isEqualTo(EvidenceStorageStatus.FAILED);
 
-        persistence.markAvailable(evidence.id(), organizationId, Instant.now());
-        var repaired = findEvidence(evidence.id());
+        persistence.markAvailable(evidence.evidence().id(), organizationId, Instant.now());
+        var repaired = findEvidence(evidence.evidence().id());
         assertThat(repaired.storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
         assertThat(repaired.storageErrorCode()).isNull();
     }
@@ -128,8 +128,8 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         var local = persistence.reserveOrReuse(
                 organizationId, SHA_256, OBJECT_KEY, "invoice.csv", "text/csv", 128L, uploaderMemberId, Instant.now());
 
-        assertThat(persistence.findByIdAndOrganization(local.id(), organizationId)).isPresent();
-        assertThat(persistence.findByIdAndOrganization(local.id(), foreignOrganizationId)).isEmpty();
+        assertThat(persistence.findByIdAndOrganization(local.evidence().id(), organizationId)).isPresent();
+        assertThat(persistence.findByIdAndOrganization(local.evidence().id(), foreignOrganizationId)).isEmpty();
     }
 
     // ------------------------------------------------------------------
@@ -148,6 +148,8 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
 
         assertThat(second.evidence().id()).isEqualTo(first.evidence().id());
         assertThat(second.evidence().storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
+        assertThat(second.duplicate()).isTrue();
+        assertThat(first.duplicate()).isFalse();
         assertThat(recording.putKeys()).containsExactly(EvidenceStorageService.objectKey(organizationId, sha256Of(CONTENT)));
         assertThat(evidenceCount()).isEqualTo(1);
     }
@@ -192,7 +194,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         }
         var reserved = persistence.reserveOrReuse(
                 organizationId, sha256, key, "invoice.csv", "text/csv", CONTENT.length, uploaderMemberId, Instant.now());
-        assertThat(reserved.storageStatus()).isEqualTo(EvidenceStorageStatus.STAGING);
+        assertThat(reserved.evidence().storageStatus()).isEqualTo(EvidenceStorageStatus.STAGING);
 
         var recording = new RecordingObjectStoragePort(realStorage);
         var service = new EvidenceStorageService(persistence, recording, properties, clock);
@@ -200,6 +202,26 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
                 new ByteArrayInputStream(CONTENT));
 
         assertThat(repaired.evidence().storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
+        assertThat(repaired.duplicate()).isTrue();
+        assertThat(recording.putKeys()).isEmpty();
+    }
+
+    @Test
+    void failedEvidenceRepairReportsReusedIdentity() {
+        var first = new EvidenceStorageService(persistence, realStorage, properties, clock)
+                .store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                        new ByteArrayInputStream(CONTENT));
+        persistence.markFailedUnlessAvailable(first.evidence().id(), organizationId,
+                "STORAGE_UPLOAD_FAILED", Instant.now());
+
+        var recording = new RecordingObjectStoragePort(realStorage);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        var repaired = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
+                new ByteArrayInputStream(CONTENT));
+
+        assertThat(repaired.evidence().id()).isEqualTo(first.evidence().id());
+        assertThat(repaired.evidence().storageStatus()).isEqualTo(EvidenceStorageStatus.AVAILABLE);
+        assertThat(repaired.duplicate()).isTrue();
         assertThat(recording.putKeys()).isEmpty();
     }
 

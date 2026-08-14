@@ -183,17 +183,23 @@ class ProviderImportApiIntegrationTest extends MinioAuthenticationContainersSupp
         var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
         try {
             var start = new java.util.concurrent.CountDownLatch(1);
-            java.util.concurrent.Callable<Long> upload = () -> {
+            java.util.concurrent.Callable<Ids> upload = () -> {
                 start.await();
                 var body = mockMvc.perform(importRequest(activeProviderAccountId))
                         .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-                return jsonNumbers(body).importBatchId;
+                return new Ids(jsonNumbers(body).evidenceId, jsonNumbers(body).importBatchId,
+                        jsonNumbers(body).latestAttemptId, extractBoolean(body, "duplicateEvidence"));
             };
             var first = pool.submit(upload);
             var second = pool.submit(upload);
             start.countDown();
 
-            assertThat(first.get()).isEqualTo(second.get());
+            var winner = first.get();
+            var loser = second.get();
+            assertThat(winner.importBatchId).isEqualTo(loser.importBatchId);
+            // Exactly one of the concurrent creators sees the reused identity.
+            assertThat(java.util.Set.of(winner.duplicateEvidence, loser.duplicateEvidence))
+                    .containsExactlyInAnyOrder(false, true);
         } finally {
             pool.shutdownNow();
         }
@@ -214,7 +220,18 @@ class ProviderImportApiIntegrationTest extends MinioAuthenticationContainersSupp
         var evidenceId = extractLong(body, "evidenceId");
         var importBatchId = extractLong(body, "importBatchId");
         var latestAttemptId = extractLong(body, "latestAttemptId");
-        return new Ids(evidenceId, importBatchId, latestAttemptId);
+        var duplicateEvidence = extractBoolean(body, "duplicateEvidence");
+        return new Ids(evidenceId, importBatchId, latestAttemptId, duplicateEvidence);
+    }
+
+    private static boolean extractBoolean(String body, String field) {
+        var marker = "\"" + field + "\":";
+        var start = body.indexOf(marker) + marker.length();
+        var end = body.indexOf(',', start);
+        if (end < 0) {
+            end = body.indexOf('}', start);
+        }
+        return Boolean.parseBoolean(body.substring(start, end).trim());
     }
 
     private static long extractLong(String body, String field) {
@@ -227,7 +244,7 @@ class ProviderImportApiIntegrationTest extends MinioAuthenticationContainersSupp
         return Long.parseLong(body.substring(start, end).trim());
     }
 
-    private record Ids(long evidenceId, long importBatchId, long latestAttemptId) {
+    private record Ids(long evidenceId, long importBatchId, long latestAttemptId, boolean duplicateEvidence) {
     }
 
     private void deleteCustomRoles() {

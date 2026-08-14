@@ -67,11 +67,12 @@ public class EvidenceStorageService {
             StagedEvidence staged) {
         var objectKey = objectKey(organizationId, staged.sha256());
         var now = clock.instant();
-        var reserved = persistence.reserveOrReuse(
+        var reservation = persistence.reserveOrReuse(
                 organizationId, staged.sha256(), objectKey, originalFilename, mediaType,
                 staged.sizeBytes(), uploadedByMemberId, now);
+        var reserved = reservation.evidence();
         if (reserved.storageStatus() == EvidenceStorageStatus.AVAILABLE) {
-            return new StoredEvidence(reserved, true);
+            return new StoredEvidence(reserved, reservation.reusedExistingIdentity());
         }
 
         var existing = statWithDependencyMapping(objectKey, reserved.id(), organizationId, now);
@@ -98,7 +99,7 @@ public class EvidenceStorageService {
             persistence.markAvailable(reserved.id(), organizationId, now);
         }
         var evidence = persistence.findByIdAndOrganization(reserved.id(), organizationId).orElseThrow();
-        return new StoredEvidence(evidence, false);
+        return new StoredEvidence(evidence, reservation.reusedExistingIdentity());
     }
 
     /**
