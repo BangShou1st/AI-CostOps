@@ -447,7 +447,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         adapter.inspectionIssues = List.of(new ImportIssueDraft(
                 ImportIssueSeverity.ERROR, "SECRET_LEAK", "row=1", "credentials",
                 "password=supersecret123 token=abc123 api_key=sk-live Authorization: Bearer eyJraw",
-                "sk-raw-secret-value"));
+                "raw-secret-value"));
         var batchId = insertBatchWithAttempt(storeEvidence("secret-issue-content"));
         var lease = leases.claimNext("executor-worker").orElseThrow();
 
@@ -464,7 +464,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
                     .doesNotContain("supersecret123", "abc123", "sk-live", "eyJraw")
                     .contains("[REDACTED]");
             assertThat(String.valueOf(row.get("raw_value_masked")))
-                    .doesNotContain("sk-raw-secret-value")
+                    .doesNotContain("raw-secret-value")
                     .isEqualTo("[REDACTED]");
         }
     }
