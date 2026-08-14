@@ -16,7 +16,7 @@ Finance user
 → upload provider evidence
 → persist/reuse immutable Evidence identity
 → persist/reuse ImportBatch identity
-→ enqueue ImportAttempt
+→ enqueue ImportAttempt for a newly created Batch
 → claim work through MySQL
 → inspect provider schema
 → parse and provider-normalize records
@@ -127,36 +127,43 @@ store/recover object in MinIO/S3
 Evidence AVAILABLE
         │
         ▼
+resolve expected ProviderAdapter + parserVersion
+        │
+        ▼
 create/reuse ImportBatch
         │
-        ▼
-create Initial ImportAttempt QUEUED
+        ├── existing Batch → return existing state; no implicit re-execution
         │
-        ▼
-short MySQL claim transaction
-        │
-        ▼
-ImportAttempt RUNNING + lease
-        │
-        ▼
-ProviderAdapter.inspect()
-        │
-        ▼
-schema fingerprint / provider detection
-        │
-        ▼
-ProviderAdapter.parse() as stream
-        │
-        ▼
-provider-side normalize()
-        │
-        ▼
-bounded persistence transactions
-RawProviderRecord + ImportIssue
-        │
-        ├── ERROR exists → Attempt FAILED / Batch FAILED
-        │
-        └── no ERROR     → Attempt SUCCEEDED / Batch PARSED
+        └── new Batch
+              │
+              ▼
+        create Initial ImportAttempt QUEUED
+              │
+              ▼
+        short MySQL claim transaction
+              │
+              ▼
+        ImportAttempt RUNNING + lease
+              │
+              ▼
+        ProviderAdapter.inspect()
+              │
+              ▼
+        schema fingerprint / provider detection
+              │
+              ▼
+        ProviderAdapter.parse() as stream
+              │
+              ▼
+        provider-side normalize()
+              │
+              ▼
+        bounded, fenced persistence transactions
+        RawProviderRecord + ImportIssue
+              │
+              ├── ERROR exists → Attempt FAILED / Batch FAILED
+              │
+              └── no ERROR     → Attempt SUCCEEDED / Batch PARSED
 ```
 
 ## 4. Evidence Identity and Storage
@@ -222,9 +229,12 @@ HTTP stream
 → commit
 → object-storage operation without DB transaction
 → short DB finalize transaction
+→ delete local temporary file in success/failure cleanup
 ```
 
 A complete file must never be loaded into JVM heap with `readAllBytes()` or an equivalent whole-file API.
+
+Temporary files must be deleted in deterministic cleanup paths. Process-level stale temp cleanup may be added only if implementation evidence shows that normal `finally` cleanup is insufficient.
 
 ### 4.4 Upload size limit
 
@@ -252,13 +262,15 @@ Do not place original filename, user email, provider account reference, API key,
 
 Object storage and MySQL are not treated as one distributed transaction.
 
-If an Evidence row is `STAGING` and the deterministic object already exists with matching expected size/checksum metadata, a later request may repair the row to `AVAILABLE`.
+If an Evidence row is `STAGING` and the deterministic object already exists with matching expected size and explicit SHA-256 object metadata, a later request may repair the row to `AVAILABLE`.
+
+Do not use S3/MinIO ETag as the authoritative SHA-256 check because multipart/object-storage ETag semantics are not the Evidence checksum contract.
 
 If the object does not exist, the upload may be retried to the same deterministic key.
 
 If storage fails, the Evidence row becomes `FAILED` with a bounded non-secret error code/summary. The original provider file contents or credentials must not be copied into logs or database error fields.
 
-Concurrent duplicate uploads converge on the same `(org_id, sha256)` Evidence identity. Duplicate-key races are an expected idempotency path, not an exceptional data-loss condition.
+Concurrent duplicate uploads converge on the same `(org_id, sha256)` Evidence identity. Duplicate-key races are an expected idempotency path, not an exceptional data-loss condition. Concurrent writes to the same deterministic object key are safe only because they are required to represent the same verified SHA-256 bytes.
 
 ## 5. Provider Account Context and ImportBatch Identity
 
@@ -268,7 +280,15 @@ For M2 provider imports, `provider_account_id` is required and must refer to an 
 
 The Provider Account supplies the expected provider identity. Its provider code is snapshotted into the batch as `expected_provider_code` so later provider-account metadata changes cannot rewrite historical import context.
 
-### 5.2 ImportBatch identity
+### 5.2 Adapter/parser resolution precedes Batch creation
+
+The expected provider code selects an explicitly registered ProviderAdapter. The adapter supplies the `parserVersion` used in Batch identity.
+
+If no adapter is registered for the expected provider code, provider import creation fails explicitly rather than creating a Batch with an unknown parser contract.
+
+Group 1 may exercise this path with synthetic test adapters; production provider adapters arrive in Group 2.
+
+### 5.3 ImportBatch identity
 
 A batch means one stable interpretation context for one Evidence object.
 
@@ -291,7 +311,22 @@ This refines the earlier baseline that did not include `provider_account_id`.
 
 Rationale: the same bytes may have been associated with the wrong Provider Account previously. Re-associating the evidence with a different Provider Account must be representable without duplicating Evidence bytes.
 
-### 5.3 ImportBatch schema direction
+A parser version is immutable for a Batch. If provider parsing behavior changes in a way that requires a new `parserVersion`, processing the same Evidence under that new parser creates/reuses a **different ImportBatch**. Existing Batch/Attempt history is never rewritten to a new parser version.
+
+### 5.4 Reusing an existing Batch is not a retry
+
+If an upload resolves to an existing Batch with the same identity, creation returns that existing Batch and its latest Attempt state. It does **not** create a new Attempt merely because the user uploaded the same file again.
+
+Execution retry is represented explicitly by a new ImportAttempt. Manual retry is implemented in AIC-030.
+
+This keeps:
+
+```text
+same upload request / same interpretation context = idempotent lookup
+retry execution                            = explicit new Attempt
+```
+
+### 5.5 ImportBatch schema direction
 
 ```text
 import_batch
@@ -319,7 +354,7 @@ FK created_by_member_id -> organization_member
 
 Cross-organization consistency between the batch, Evidence, Provider Account, and member is enforced by application-level organization-scoped queries in addition to foreign keys.
 
-### 5.4 Batch state
+### 5.6 Batch state
 
 M2 batch state:
 
@@ -333,7 +368,7 @@ CANCELED
 
 Meaning:
 
-- `PENDING`: at least one queued execution exists or recovery has queued a new execution.
+- `PENDING`: one queued execution exists or recovery has queued a new execution.
 - `PROCESSING`: a valid worker lease owns the current execution.
 - `PARSED`: provider parsing and intermediate normalization completed without ERROR issues.
 - `FAILED`: the latest execution ended in a non-recovering failure or automatic recovery budget was exhausted.
@@ -355,7 +390,23 @@ Batch #10
 └─ Attempt #2 SUCCEEDED
 ```
 
-### 6.2 Attempt schema direction
+### 6.2 At most one active Attempt per Batch
+
+A Batch may never have two simultaneously active executions.
+
+At any point there is at most one Attempt in:
+
+```text
+QUEUED
+or
+RUNNING
+```
+
+MySQL has no convenient partial unique constraint for these status values, so Attempt creation/recovery/manual retry must serialize on the `import_batch` row with a short row-locking transaction. The transaction verifies there is no existing QUEUED/RUNNING Attempt before assigning the next `attempt_no` and inserting the new Attempt.
+
+This rule is covered by integration tests, including concurrent creation/recovery paths.
+
+### 6.3 Attempt schema direction
 
 ```text
 import_attempt
@@ -391,7 +442,7 @@ FK predecessor_attempt_id -> import_attempt
 
 `parser_version` is copied onto each Attempt even though it is part of batch identity, because execution lineage must remain self-describing.
 
-### 6.3 Attempt states
+### 6.4 Attempt states
 
 ```text
 QUEUED
@@ -471,7 +522,15 @@ lease not expired
 
 If the conditional write affects zero rows, the worker has lost ownership and must stop persisting/finalizing that execution.
 
-### 7.4 Lease and heartbeat defaults
+### 7.4 Raw-record persistence is fenced too
+
+Lease fencing applies not only to final status writes but also to every bounded RawProviderRecord/ImportIssue persistence transaction.
+
+Each bounded persistence transaction must first lock/validate the owning Attempt using the expected owner/version and non-expired lease, then insert the records/issues and update counters in that same short transaction.
+
+Recovery also locks the Attempt row before expiring it. Therefore an old worker cannot insert new raw rows after a recovery worker has invalidated its lease.
+
+### 7.5 Lease and heartbeat defaults
 
 Initial configurable defaults:
 
@@ -484,14 +543,15 @@ These are conservative operational defaults, not performance conclusions.
 
 Heartbeat renewal must itself be a short transaction.
 
-### 7.5 Crash recovery creates a new Attempt
+### 7.6 Crash recovery creates a new Attempt
 
 A stale `RUNNING` Attempt is never reclaimed in place.
 
-Recovery transaction:
+Recovery itself uses a short locking transaction and conceptually performs:
 
 ```text
 expired RUNNING Attempt
+→ lock/verify expiry
 → mark old Attempt FAILED
    error_code = WORKER_LEASE_EXPIRED
 → create next Attempt QUEUED
@@ -500,11 +560,11 @@ expired RUNNING Attempt
 → Batch PENDING
 ```
 
-Automatic lease recovery is bounded to a configurable maximum, initially 3 recovery Attempts for the same batch. Once exhausted, the Batch remains `FAILED` for later manual retry.
+Automatic lease recovery is bounded to a configurable maximum, initially 3 `LEASE_RECOVERY` Attempts for the same batch. Once exhausted, the Batch remains `FAILED` for later manual retry.
 
 This prevents infinite retry loops for permanent bugs.
 
-### 7.6 Retry classification
+### 7.7 Retry classification
 
 Automatic recovery is appropriate for execution loss such as worker crash or transient infrastructure interruption.
 
@@ -518,6 +578,8 @@ provider/data ERROR
 ```
 
 These end the Attempt and Batch as `FAILED` so a user can review the issue or retry after input/parser changes.
+
+Manual retry in AIC-030 reruns the same Batch/parser contract and therefore creates a new Attempt. A parser-version change is not a manual retry of the old Batch; it creates/reuses the Batch identity for the new parser version.
 
 ## 8. RawProviderRecord Persistence
 
@@ -564,7 +626,7 @@ Initial configurable persistence batch size:
 500 records
 ```
 
-Each persistence batch uses its own short DB transaction.
+Each persistence batch uses its own short, lease-fenced DB transaction.
 
 If a later batch fails, already-persisted rows remain attached to the failed Attempt for review. A retry gets a new Attempt and therefore cannot accidentally overwrite or mix rows from the previous execution.
 
@@ -606,7 +668,7 @@ ERROR
 Semantics:
 
 - WARN: processing can continue and the Attempt may still succeed.
-- ERROR: the Attempt cannot finish as successful `PARSED` input.
+- ERROR: the Attempt cannot finish as successful provider parsing input.
 
 An Attempt with only WARN issues may end `SUCCEEDED` and the Batch `PARSED`.
 
@@ -798,8 +860,10 @@ The use case:
 ```text
 store/reuse Evidence
 → validate Provider Account
+→ resolve registered adapter/parserVersion
 → create/reuse ImportBatch
-→ ensure initial QUEUED ImportAttempt exists
+→ if Batch is new, create Initial QUEUED ImportAttempt
+→ if Batch already exists, return it without implicit retry
 ```
 
 Response identifies the durable resources and whether idempotent reuse occurred, for example:
@@ -807,7 +871,7 @@ Response identifies the durable resources and whether idempotent reuse occurred,
 ```text
 evidenceId
 importBatchId
-attemptId
+latestAttemptId
 batchStatus
 duplicateEvidence
 duplicateBatch
@@ -857,10 +921,11 @@ The following operations are short, independent transactions:
 ```text
 Evidence reservation/finalization
 ImportBatch + initial Attempt creation
+Attempt creation/recovery serialized on Batch row
 worker claim
 lease heartbeat
 lease-expiry recovery
-bounded RawProviderRecord/ImportIssue persistence
+bounded lease-fenced RawProviderRecord/ImportIssue persistence
 attempt success/failure finalization
 batch status finalization
 ```
@@ -912,6 +977,7 @@ FK/unique constraints
 Evidence duplicate race
 ImportBatch uniqueness
 Attempt uniqueness
+at-most-one active Attempt per Batch
 queue index presence/usage as appropriate
 FOR UPDATE SKIP LOCKED behavior
 dual-worker claim
@@ -930,9 +996,11 @@ Cover:
 same SHA reuses Evidence
 concurrent same-SHA upload converges
 upload size limit
+temporary-file cleanup
 MinIO unavailable
 STAGING object recovery
 object exists / DB finalize interrupted
+ETag is not treated as SHA-256 truth
 unauthorized download
 cross-org download
 object-storage operation occurs outside long DB transaction
@@ -949,9 +1017,11 @@ one queued Attempt claimed once
 second worker skips locked row
 lease uses DB time
 heartbeat renews owned lease
+stale lease_version cannot persist rows
 stale lease_version cannot finalize
 expired lease marks old Attempt FAILED
 recovery creates new Attempt
+recovery cannot create a second active Attempt
 recovery limit prevents infinite loop
 schema/data failure does not auto-loop
 partial failed-attempt raw records remain
@@ -965,6 +1035,8 @@ Before Group 2 provider adapters exist, cover the framework with small synthetic
 explicit adapter selection
 duplicate registry rejection
 unsupported provider
+parserVersion participates in Batch identity
+new parserVersion creates different Batch identity
 unknown schema
 stable schema fingerprint
 WARN-only import succeeds
@@ -996,7 +1068,7 @@ parser version retained in lineage
 
 1. **Reject same SHA** — rejected because upload should be naturally idempotent.
 2. **Always create new Evidence** — rejected because byte identity and storage would be duplicated.
-3. **Reuse Evidence and reuse matching Batch context** — approved.
+3. **Reuse Evidence and reuse matching Batch context without implicit retry** — approved.
 
 ## 19. Explicit Non-goals for Group 1
 
@@ -1034,9 +1106,12 @@ AIC-021 through AIC-024 are complete when:
 - Evidence identity, storage status, ImportBatch identity, Attempt history, RawRecord, and Issue constraints are covered by integration tests.
 - S3-compatible Evidence storage works through `ObjectStoragePort` with a MinIO adapter and streaming behavior.
 - Duplicate evidence and interrupted-storage failure paths are recoverable.
-- Provider import creation produces/reuses the correct Evidence/Batch and enqueues an initial Attempt.
+- Provider import creation produces/reuses the correct Evidence/Batch; only a newly created Batch gets an initial Attempt.
+- Re-uploading an existing Batch identity does not implicitly retry execution.
+- Parser-version changes create/reuse a different Batch identity rather than rewriting old history.
+- A Batch never has more than one QUEUED/RUNNING Attempt.
 - DB-backed workers can claim concurrently through tested MySQL locking semantics without duplicate ownership.
-- Lease fencing and crash recovery preserve execution history.
+- Lease fencing protects both raw-record writes and finalization, and crash recovery preserves execution history.
 - ProviderAdapter registry, schema inspection, fingerprinting, streaming parse orchestration, and ERROR/WARN semantics are testable before provider-specific adapters arrive.
 - M2 produces no canonical cost facts and stops at `PARSED`.
 - Existing M1 authorization/privacy semantics remain intact.
