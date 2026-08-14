@@ -305,12 +305,11 @@ service_tier
 
 ### 官方 Costs API
 
-可按：
+当前官方契约（2026-08-14 复核）支持按：
 
 ```text
 project_id
 line_item
-api_key_id
 ```
 
 分组，并返回：
@@ -318,15 +317,20 @@ api_key_id
 ```text
 amount.value
 amount.currency
-quantity
+line_item
+project_id
 ```
 
 映射：
 
 - `amount` → ChargeFact/provider-reported cost；
 - `line_item` → provider charge line；
-- `quantity` → pricing/charge quantity（仅在官方语义明确时映射）；
-- project/key → Attribution Hint。
+- `project_id` → Attribution Hint。
+
+> 注：更早的研究文本曾提及 Costs 结果/分组包含 `api_key_id` 与 `quantity`。
+> 当前官方契约（2026-08-14 复核）未列出这些字段；M2 Group 2 的
+> `openai.organization-costs-json.v1` 仅使用 `amount.value`、`amount.currency`、
+> `line_item`、`project_id`，不包含过时的 `api_key_id` / `quantity` 假设。
 
 ---
 
@@ -484,3 +488,33 @@ parser_version
 ```
 
 以支持后续重放和迁移。
+
+---
+
+## 12. M2 Group 2 落地矩阵与 Fixture 出处（2026-08-14）
+
+Provider Adapters（#33–#37）实现的 schema 矩阵与解析器版本：
+
+| Provider | Variant | Parser Version | Source Type |
+|---|---|---|---|
+| DeepSeek | `deepseek.usage-zip.v1` | `deepseek-provider-import-v1` | FILE_EXPORT |
+| MiMo | `mimo.usage-workbook.v1` | `mimo-provider-import-v1` | FILE_EXPORT |
+| Kimi | `kimi.billing-summary-workbook.v1` | `kimi-provider-import-v1` | FILE_EXPORT |
+| GLM | `glm.monthly-billing-summary-workbook.v1` | `glm-provider-import-v1` | FILE_EXPORT |
+| OpenAI | `openai.observed-empty-export.v1` | `openai-provider-import-v1` | FILE_EXPORT |
+| OpenAI | `openai.organization-usage-completions-json.v1` | `openai-provider-import-v1` | USAGE_API_JSON |
+| OpenAI | `openai.organization-costs-json.v1` | `openai-provider-import-v1` | COSTS_API_JSON |
+
+Fixture 证据类别（详细清单见
+`backend/src/test/resources/provider-fixtures/README.md`）：
+
+```text
+REAL_SCHEMA_SANITIZED      DeepSeek ZIP、MiMo workbook、Kimi 账单汇总、
+                           GLM 月度汇总、OpenAI 空 CSV 导出（结构真实，值全脱敏）
+OFFICIAL_SCHEMA_SYNTHETIC  OpenAI Usage completions JSON、Costs JSON
+                           （基于 2026-08-14 复核的官方 API 契约）
+SCHEMA_DRIFT_SYNTHETIC     各 Provider 的未知列/sheet/entry、缺失必需列、
+                           错误 sourceType、ZIP 安全违规等测试 fixture
+```
+
+合成行绝不代表真实账户导出；真实原始文件不进入仓库。

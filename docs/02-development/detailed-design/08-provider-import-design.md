@@ -470,3 +470,121 @@ Batch Size 通过 Benchmark 决定。
 ```
 
 只有实测后才写 Throughput。
+
+---
+
+## 16. M2 Group 2 已实现契约（2026-08-14）
+
+以下为 Provider Adapters（#33–#37）实际落地的契约，与上方历史设计文本共存；
+M3 Canonical Facts 尚未实现。
+
+### 16.1 Adapter 最终接口
+
+```text
+ProviderInput(ProviderSource source, ImportSourceType sourceType,
+              String originalFilename, String mediaType)
+
+ProviderAdapter
+  providerCode()
+  parserVersion()
+  inspect(ProviderInput)                       -> InspectionResult
+  parse(ProviderInput, InspectionResult, ProviderRecordSink)
+  normalize(ParsedProviderRecord, InspectionResult) -> NormalizedProviderRecord
+
+InspectionResult(detectedProviderCode, schemaVariant, schemaFingerprint,
+                 compatible, issues)
+```
+
+- `ImportSourceType` 严格执行：文件导出必须 `FILE_EXPORT`，OpenAI Usage JSON 必须
+  `USAGE_API_JSON`，OpenAI Costs JSON 必须 `COSTS_API_JSON`；sourceType 错误即
+  schema incompatible / ERROR。
+- `schemaVariant` 只通过 `InspectionResult` 到达 normalize，不允许伪造 raw field
+  偷渡。
+- 一个 Provider 一个注册 Adapter（`@Component`）：`DeepSeekProviderAdapter`、
+  `MimoProviderAdapter`、`KimiProviderAdapter`、`GlmProviderAdapter`、
+  `OpenAiProviderAdapter`。
+- 本轮不新增 `import_attempt.schema_variant` migration；追踪保持
+  `parser_version` + `schema_fingerprint` + `normalized_payload.sourceSchema`。
+
+### 16.2 支持的 Schema 矩阵
+
+| Provider | Variant | Parser Version | Source Type |
+|---|---|---|---|
+| DeepSeek | `deepseek.usage-zip.v1` | `deepseek-provider-import-v1` | FILE_EXPORT |
+| MiMo | `mimo.usage-workbook.v1` | `mimo-provider-import-v1` | FILE_EXPORT |
+| Kimi | `kimi.billing-summary-workbook.v1` | `kimi-provider-import-v1` | FILE_EXPORT |
+| GLM | `glm.monthly-billing-summary-workbook.v1` | `glm-provider-import-v1` | FILE_EXPORT |
+| OpenAI | `openai.observed-empty-export.v1` | `openai-provider-import-v1` | FILE_EXPORT |
+| OpenAI | `openai.organization-usage-completions-json.v1` | `openai-provider-import-v1` | USAGE_API_JSON |
+| OpenAI | `openai.organization-costs-json.v1` | `openai-provider-import-v1` | COSTS_API_JSON |
+
+OpenAI 的 observed CSV 变体故意命名为 empty-export：只支持真实观察到的
+`start_time,end_time,start_time_iso,end_time_iso` 四列空 bucket 导出，不声称支持
+任何未观察过的 populated CSV metric schema。
+
+### 16.3 中间 Normalization 契约（M2 intermediate）
+
+```text
+{
+  "sourceSchema": "<schemaVariant>",
+  "recordKind":   "USAGE | COST | BILLING_SUMMARY | PLUGIN_USAGE
+                   | EMPTY_USAGE_BUCKET | EMPTY_COST_BUCKET",
+  "dimensions":   { model, providerUser, providerOrganization,
+                    providerProject, credentialHint },
+  "usage":        { ... evidence-backed metrics ... },
+  "money":        { currency, reportedAmount, components: { ... } },
+  "providerFields": { ... provider-native 语义 ... }
+}
+```
+
+- 空 section 一律 omit，不填猜测的 0。
+- `recordKind` 是中间契约字符串，不创建数据库 enum。
+- 禁止推断：DeepSeek `amount*price=cost`、Kimi paid+promotional 合计、
+  Kimi promotional=FOCUS Credit、GLM settlement formula、MiMo
+  Total/Components 相加、OpenAI `input_tokens + input_cached_tokens`。
+
+### 16.4 Validation / Drift 行为
+
+WARN（兼容漂移，Attempt 仍可 PARSED）：
+
+```text
+unknown extra column / sheet / archive entry
+empty recognized optional sheet（EMPTY_OPTIONAL_SHEET，仅 MiMo Plugin sheet）
+unknown provider enum / JSON field
+missing optional dimension / recognized optional JSON field
+```
+
+ERROR（schema incompatible 或行级 ERROR）：
+
+```text
+missing required column / sheet / archive role
+wrong ImportSourceType
+malformed archive / workbook / JSON / CSV
+unsafe ZIP（path traversal / entry count / expansion / ratio / nested archive）
+invalid required monetary / numeric structure
+```
+
+### 16.5 文件安全默认值（工程配置，非 Provider 事实）
+
+```text
+aicostops.ingestion.provider-parser
+  max-archive-entries: 64
+  max-expanded-bytes:  1073741824 (1 GiB)
+  max-compression-ratio: 100.0
+  compression-ratio-check-after-bytes: 1048576 (1 MiB)
+```
+
+ZIP 使用 Commons Compress 流式统计，不落盘；XLSX 使用 POI SAX/event 读取，
+禁止 `new XSSFWorkbook(inputStream)`，不放松 POI ZipSecureFile 默认 ZIP-bomb 防御。
+
+### 16.6 Fixture 分类
+
+实际使用的证据类别（见 `backend/src/test/resources/provider-fixtures/README.md`）：
+
+```text
+REAL_SCHEMA_SANITIZED      真实观察结构 + 全量脱敏/合成值
+OFFICIAL_SCHEMA_SYNTHETIC  官方文档/API 契约形状 + 合成值
+SCHEMA_DRIFT_SYNTHETIC     故意漂移，用于证明 WARN/ERROR 策略
+```
+
+真实原始账户文件不进入仓库。
