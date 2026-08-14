@@ -19,13 +19,14 @@ export interface SettingsNavEntry {
   readPermission: string
 }
 
+/** Presentation labels are Simplified Chinese; permission codes stay English. */
 export const SETTINGS_NAV: readonly SettingsNavEntry[] = [
-  { path: '/settings/users', label: 'Users', readPermission: 'USER_READ' },
-  { path: '/settings/roles', label: 'Roles', readPermission: 'ROLE_READ' },
-  { path: '/settings/projects', label: 'Projects', readPermission: 'PROJECT_READ' },
-  { path: '/settings/teams', label: 'Teams', readPermission: 'TEAM_READ' },
-  { path: '/settings/cost-centers', label: 'Cost centers', readPermission: 'COST_CENTER_READ' },
-  { path: '/settings/provider-accounts', label: 'Provider accounts', readPermission: 'PROVIDER_ACCOUNT_READ' },
+  { path: '/settings/users', label: '用户管理', readPermission: 'USER_READ' },
+  { path: '/settings/roles', label: '角色与权限', readPermission: 'ROLE_READ' },
+  { path: '/settings/projects', label: '项目管理', readPermission: 'PROJECT_READ' },
+  { path: '/settings/teams', label: '团队管理', readPermission: 'TEAM_READ' },
+  { path: '/settings/cost-centers', label: '成本中心', readPermission: 'COST_CENTER_READ' },
+  { path: '/settings/provider-accounts', label: '云账号', readPermission: 'PROVIDER_ACCOUNT_READ' },
 ]
 
 export function visibleSettingsNav(permissions: readonly string[] | undefined): readonly SettingsNavEntry[] {

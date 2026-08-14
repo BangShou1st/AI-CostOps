@@ -36,7 +36,7 @@ export function AuthSessionProvider({ children }: PropsWithChildren) {
       void queryClient.cancelQueries()
       queryClient.clear()
       setState({ status: 'anonymous', user: null })
-      message.warning('Your permissions changed or your session expired. Please sign in again.')
+      message.warning('您的权限已变更或会话已过期，请重新登录。')
     })
   }, [queryClient])
 

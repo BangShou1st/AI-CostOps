@@ -14,7 +14,7 @@ import { PermissionRoute } from './PermissionRoute'
 
 export function AppRouter() {
   const auth = useAuth()
-  if (auth.status === 'loading') return <main className="auth-page" role="status">Restoring your session…</main>
+  if (auth.status === 'loading') return <main className="auth-page" role="status">正在恢复会话…</main>
   return <BrowserRouter><Routes>
     <Route element={<PublicRoute />}>
       <Route path="/login" element={<LoginPage />} /><Route path="/register" element={<RegisterPage />} />

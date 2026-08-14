@@ -35,9 +35,9 @@ describe('PermissionRoute', () => {
     renderPermissionRoute([])
 
     expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
-    expect(screen.getByText(/do not have permission/i)).toBeInTheDocument()
+    expect(screen.getByText(/没有查看此页面的权限/i)).toBeInTheDocument()
     // No redirect to sign in and no anonymous redirect target.
-    expect(screen.queryByRole('heading', { name: 'Sign in' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '登录' })).not.toBeInTheDocument()
   })
 
   it('unauthorizedRouteDoesNotMountChild', () => {
