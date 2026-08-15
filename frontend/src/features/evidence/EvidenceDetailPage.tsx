@@ -1,7 +1,7 @@
 import { Button, Descriptions, Table } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { apiClient } from '../auth/authApi'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
@@ -12,9 +12,11 @@ import type { ImportSummary } from '../imports/api/importTypes'
 
 const IMPORTS_PAGE_SIZE = 50
 
-export function EvidenceDetailPage({ evidenceId }: { evidenceId: string }) {
+export function EvidenceDetailPage({ evidenceId: propEvidenceId }: { evidenceId?: string } = {}) {
   const auth = useAuth()
   const navigate = useNavigate()
+  const { id } = useParams()
+  const evidenceId = propEvidenceId ?? id ?? ''
   const [importsPage, setImportsPage] = useState(0)
 
   const canDownload = hasPermission(auth.user?.permissions, 'EVIDENCE_DOWNLOAD')
