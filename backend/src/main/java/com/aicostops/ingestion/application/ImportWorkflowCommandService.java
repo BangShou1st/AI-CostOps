@@ -111,7 +111,7 @@ public class ImportWorkflowCommandService {
             audit.importRetried(context.organizationId(), context.userId(), importId,
                     latest.id(), newAttemptId, batch.status().name());
 
-            var detail = currentDetail(importId);
+            var detail = currentDetail(context.organizationId(), importId);
             idempotency.finalize(decision.id(), 200, responseSerializer.importDetailJson(detail));
             return detail;
         }));
@@ -169,7 +169,7 @@ public class ImportWorkflowCommandService {
             audit.importCanceled(context.organizationId(), context.userId(), importId,
                     latest.id(), latest.status().name(), batch.status().name());
 
-            var detail = currentDetail(importId);
+            var detail = currentDetail(context.organizationId(), importId);
             idempotency.finalize(decision.id(), 200, responseSerializer.importDetailJson(detail));
             return detail;
         }));
@@ -206,8 +206,8 @@ public class ImportWorkflowCommandService {
         }
     }
 
-    private ImportSummary currentDetail(long importId) {
-        var row = queryMapper.findImportById(importId);
+    private ImportSummary currentDetail(long organizationId, long importId) {
+        var row = queryMapper.findImportByIdAndOrganization(importId, organizationId);
         if (row == null) {
             throw new IllegalStateException("A just-mutated ImportBatch must be readable");
         }

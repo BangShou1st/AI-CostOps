@@ -147,16 +147,16 @@ public class ImportWorkflowQueryService {
         var context = authorizedContext(user);
         orgScopedImport(context.organizationId(), importId);
         requireAttemptOfBatch(attemptId, importId);
-        if (queryMapper.countRecordOfAttempt(recordId, attemptId) == 0) {
+        var record = queryMapper.findRawRecordByIdAndAttempt(recordId, attemptId);
+        if (record == null) {
             throw notFound("Raw record not found",
                     "The raw record is not available for this import attempt.");
         }
-        var record = queryMapper.findRawRecordById(recordId);
         return new RawRecordDetail(
                 record.id(),
                 record.recordIndex(),
-                record.recordLocator(),
-                record.providerRecordKey(),
+                safeLocator(record.recordLocator()),
+                safeRecordKey(record.providerRecordKey()),
                 record.normalizeStatus(),
                 record.usageStart(),
                 record.usageEnd(),
@@ -172,8 +172,8 @@ public class ImportWorkflowQueryService {
     }
 
     private ImportReviewRow orgScopedImport(long organizationId, long importId) {
-        var row = queryMapper.findImportById(importId);
-        if (row == null || row.organizationId() != organizationId) {
+        var row = queryMapper.findImportByIdAndOrganization(importId, organizationId);
+        if (row == null) {
             throw notFound("Import not found",
                     "The import is not available in the current organization.");
         }
@@ -223,7 +223,7 @@ public class ImportWorkflowQueryService {
 
     private RawRecordSummary toRawRecordSummary(RawRecordReviewRow row) {
         return new RawRecordSummary(
-                row.id(), row.recordIndex(), row.recordLocator(), row.providerRecordKey(),
+                row.id(), row.recordIndex(), safeLocator(row.recordLocator()), safeRecordKey(row.providerRecordKey()),
                 normalizeStatusOf(row.normalizeStatus()), row.usageStart(), row.usageEnd(),
                 keySummary(row.rawKeyCount(), row.rawKeysPreview()),
                 keySummary(row.normalizedKeyCount(), row.normalizedKeysPreview()),
@@ -260,6 +260,19 @@ public class ImportWorkflowQueryService {
         } catch (Exception exception) {
             throw new IllegalStateException("Stored raw payload is not valid JSON", exception);
         }
+    }
+
+    /**
+     * Defense-in-depth at the read boundary: metadata persisted before the
+     * persistence-time sanitization existed (or bypassing it) is redacted again
+     * here. Sanitization is idempotent, so already-safe values pass through.
+     */
+    private static String safeLocator(String locator) {
+        return IssueSanitizer.sanitizeLocator(locator);
+    }
+
+    private static String safeRecordKey(String providerRecordKey) {
+        return IssueSanitizer.sanitizeRecordKey(providerRecordKey);
     }
 
     private static ImportBatchStatus statusOf(String status) {

@@ -51,6 +51,14 @@ public final class IssueSanitizer {
         return truncate(SecretShapes.redact(recordLocator), MAX_LOCATOR_LENGTH);
     }
 
+    /** Sanitizes a provider record key; same secret-shaped redaction + column bound. */
+    public static String sanitizeRecordKey(String providerRecordKey) {
+        if (providerRecordKey == null) {
+            return null;
+        }
+        return truncate(SecretShapes.redact(providerRecordKey), MAX_LOCATOR_LENGTH);
+    }
+
     public static String sanitizeFieldName(String fieldName) {
         if (fieldName == null) {
             return null;

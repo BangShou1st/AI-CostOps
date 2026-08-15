@@ -147,6 +147,84 @@ class ImportWorkflowSecurityIntegrationTest extends AuthenticationContainersSupp
     }
 
     @Test
+    void rawListAndDetailNeverExposeSecretShapedLocatorOrRecordKeyEvenWhenPersisted() throws Exception {
+        // Directly persisted user-controlled metadata (as Group 2 adapters could
+        // produce): the read boundary must redact it as defense in depth.
+        jdbc.update("""
+                INSERT INTO raw_provider_record(
+                    import_attempt_id,record_index,record_locator,provider_record_key,
+                    raw_payload,normalized_payload,usage_start,usage_end,normalize_status,created_at)
+                VALUES (?,0,?,?,CAST(? AS JSON),NULL,NULL,NULL,'NORMALIZED',UTC_TIMESTAMP(6))
+                """, attemptId, SECRET_SENTINEL + ":row=1", "credentialId=keyid_fake&" + SECRET_SENTINEL,
+                "{\"model\":\"x\"}");
+        var recordId = jdbc.queryForObject(
+                "SELECT id FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0",
+                Long.class, attemptId);
+
+        var listBody = mockMvc.perform(get("/api/v1/imports/{id}/attempts/{aid}/raw-records",
+                        batchId, attemptId).header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].recordLocator").value("[REDACTED]:row=1"))
+                .andExpect(jsonPath("$.items[0].providerRecordKey").value("credentialId=keyid_fake&[REDACTED]"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(listBody).doesNotContain(SECRET_SENTINEL);
+
+        var detailBody = mockMvc.perform(get("/api/v1/imports/{id}/attempts/{aid}/raw-records/{rid}",
+                        batchId, attemptId, recordId).header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recordLocator").value("[REDACTED]:row=1"))
+                .andExpect(jsonPath("$.providerRecordKey").value("credentialId=keyid_fake&[REDACTED]"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(detailBody).doesNotContain(SECRET_SENTINEL);
+    }
+
+    @Test
+    void crossOrganizationLineageIsNeverExposedThroughImportReads() throws Exception {
+        // Anomalous row: the Batch belongs to the current org but its Evidence
+        // lineage points into a foreign org (FKs only check id existence). The
+        // org-consistent join must hide the Batch entirely instead of displaying
+        // foreign lineage inside an authorized read.
+        var sha = String.format("%064d", 900001L);
+        jdbc.update("""
+                INSERT INTO evidence(
+                    org_id,sha256,object_key,original_filename,media_type,size_bytes,
+                    uploaded_by_member_id,storage_status,storage_error_code,created_at,updated_at)
+                VALUES (?,?,'obj','foreign-lineage.csv','text/csv',1,?,'AVAILABLE',NULL,
+                    UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, foreignOrganizationId, sha, actorMemberId);
+        var foreignEvidenceId = jdbc.queryForObject(
+                "SELECT id FROM evidence WHERE org_id=? AND sha256=?", Long.class, foreignOrganizationId, sha);
+        jdbc.update("""
+                INSERT INTO import_batch(
+                    org_id,evidence_id,provider_account_id,expected_provider_code,source_type,
+                    parser_version,status,period_start,period_end,created_by_member_id,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,'PENDING',NULL,NULL,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, organizationId, foreignEvidenceId, accountId, "TEST_PROVIDER", "FILE_EXPORT",
+                "test-parser-v1", actorMemberId);
+        var anomalousBatchId = jdbc.queryForObject(
+                "SELECT id FROM import_batch WHERE evidence_id=?", Long.class, foreignEvidenceId);
+        jdbc.update("""
+                INSERT INTO import_attempt(
+                    import_batch_id,attempt_no,status,trigger_type,predecessor_attempt_id,
+                    available_at,lease_owner,lease_until,lease_version,parser_version,
+                    detected_provider_code,schema_fingerprint,started_at,finished_at,error_code,error_summary,
+                    records_seen,records_valid,warning_count,error_count,created_at)
+                VALUES (?,1,'QUEUED','INITIAL',NULL,UTC_TIMESTAMP(6),NULL,NULL,0,'test-parser-v1',
+                    NULL,NULL,NULL,NULL,NULL,NULL,0,0,0,0,UTC_TIMESTAMP(6))
+                """, anomalousBatchId);
+
+        mockMvc.perform(get("/api/v1/imports").header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(Long.toString(batchId)));
+
+        mockMvc.perform(get("/api/v1/imports/{importId}", anomalousBatchId)
+                        .header("Authorization", bearer()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_FOUND"));
+    }
+
+    @Test
     void boundedReadsReturnOnlyRequestedPageSizeWithCorrectTotals() throws Exception {
         for (var i = 1; i <= 60; i++) {
             jdbc.update("""

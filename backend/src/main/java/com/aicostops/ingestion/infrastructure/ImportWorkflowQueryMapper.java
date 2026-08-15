@@ -47,8 +47,8 @@ public interface ImportWorkflowQueryMapper {
              ia.warning_count AS latest_warning_count,ia.error_count AS latest_error_count,
              ia.error_code AS latest_error_code,ia.error_summary AS latest_error_summary
             FROM import_batch ib
-            JOIN evidence e ON e.id = ib.evidence_id
-            JOIN provider_account pa ON pa.id = ib.provider_account_id
+            JOIN evidence e ON e.id = ib.evidence_id AND e.org_id = ib.org_id
+            JOIN provider_account pa ON pa.id = ib.provider_account_id AND pa.org_id = ib.org_id
             """ + LATEST_ATTEMPT_JOIN + """
             WHERE ib.org_id=#{organizationId}
               AND (#{status} IS NULL OR ib.status=#{status})
@@ -66,6 +66,8 @@ public interface ImportWorkflowQueryMapper {
     @Select("""
             SELECT COUNT(*)
             FROM import_batch ib
+            JOIN evidence e ON e.id = ib.evidence_id AND e.org_id = ib.org_id
+            JOIN provider_account pa ON pa.id = ib.provider_account_id AND pa.org_id = ib.org_id
             WHERE ib.org_id=#{organizationId}
               AND (#{status} IS NULL OR ib.status=#{status})
               AND (#{providerAccountId} IS NULL OR ib.provider_account_id=#{providerAccountId})
@@ -90,12 +92,14 @@ public interface ImportWorkflowQueryMapper {
              ia.warning_count AS latest_warning_count,ia.error_count AS latest_error_count,
              ia.error_code AS latest_error_code,ia.error_summary AS latest_error_summary
             FROM import_batch ib
-            JOIN evidence e ON e.id = ib.evidence_id
-            JOIN provider_account pa ON pa.id = ib.provider_account_id
+            JOIN evidence e ON e.id = ib.evidence_id AND e.org_id = ib.org_id
+            JOIN provider_account pa ON pa.id = ib.provider_account_id AND pa.org_id = ib.org_id
             """ + LATEST_ATTEMPT_JOIN + """
-            WHERE ib.id=#{batchId}
+            WHERE ib.id=#{batchId} AND ib.org_id=#{organizationId}
             """)
-    ImportReviewRow findImportById(@Param("batchId") long batchId);
+    ImportReviewRow findImportByIdAndOrganization(
+            @Param("batchId") long batchId,
+            @Param("organizationId") long organizationId);
 
     @Select("""
             SELECT
@@ -112,8 +116,8 @@ public interface ImportWorkflowQueryMapper {
              ia.warning_count AS latest_warning_count,ia.error_count AS latest_error_count,
              ia.error_code AS latest_error_code,ia.error_summary AS latest_error_summary
             FROM import_batch ib
-            JOIN evidence e ON e.id = ib.evidence_id
-            JOIN provider_account pa ON pa.id = ib.provider_account_id
+            JOIN evidence e ON e.id = ib.evidence_id AND e.org_id = ib.org_id
+            JOIN provider_account pa ON pa.id = ib.provider_account_id AND pa.org_id = ib.org_id
             """ + LATEST_ATTEMPT_JOIN + """
             WHERE ib.evidence_id=#{evidenceId}
               AND ib.org_id=#{organizationId}
@@ -220,9 +224,11 @@ public interface ImportWorkflowQueryMapper {
             SELECT id,import_attempt_id,record_index,record_locator,provider_record_key,
                    raw_payload,normalized_payload,usage_start,usage_end,normalize_status,created_at
             FROM raw_provider_record
-            WHERE id=#{recordId}
+            WHERE id=#{recordId} AND import_attempt_id=#{attemptId}
             """)
-    com.aicostops.ingestion.domain.RawProviderRecord findRawRecordById(@Param("recordId") long recordId);
+    com.aicostops.ingestion.domain.RawProviderRecord findRawRecordByIdAndAttempt(
+            @Param("recordId") long recordId,
+            @Param("attemptId") long attemptId);
 
     @Select("""
             SELECT COUNT(*)
@@ -232,15 +238,6 @@ public interface ImportWorkflowQueryMapper {
     int countAttemptOfBatch(
             @Param("attemptId") long attemptId,
             @Param("batchId") long batchId);
-
-    @Select("""
-            SELECT COUNT(*)
-            FROM raw_provider_record r
-            WHERE r.id=#{recordId} AND r.import_attempt_id=#{attemptId}
-            """)
-    int countRecordOfAttempt(
-            @Param("recordId") long recordId,
-            @Param("attemptId") long attemptId);
 
     /** Wide flat projection of one ImportBatch plus its latest Attempt review data. */
     record ImportReviewRow(
