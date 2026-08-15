@@ -400,6 +400,31 @@ lease + `lease_version+1` → Batch PROCESSING。每次 claim 递增 `lease_vers
 创建 successor（LEASE_RECOVERY）；恢复预算耗尽后 Batch FAILED，等待人工重试。
 stale owner/version 不能 heartbeat、persist、finalize。
 
+#### M2 Group 3：手动重试与取消（2026-08-15）
+
+- 手动 Retry 仅对 `FAILED` 或 `CANCELED` 的 Batch 合法：在同一个事务里创建
+  `MANUAL_RETRY` successor Attempt（`attempt_no = latest + 1`、
+  `predecessor_attempt_id = latest`、`QUEUED`、`lease_owner/until NULL`、
+  `lease_version 0`、`parser_version` 沿用 Batch 冻结版本），Batch 回到 `PENDING`。
+  旧 Attempt / RawRecord / Issue 永不删除或改写（不可变 lineage）。
+- `CANCELED` Batch 可手动重试的原因：Batch identity 唯一（Evidence + Provider
+  Account + source type + parser version），复用同一 Batch 保留 lineage，避免为
+  已取消 Batch 发明第二个身份。
+- Cancel 仅对 `PENDING + QUEUED` 或 `PROCESSING + RUNNING` 合法：Attempt 置
+  `CANCELED` + `finished_at`，清除 `lease_owner/lease_until`，保留
+  `started_at`、计数器、检测字段与 `lease_version`；Batch 同事务置 `CANCELED`。
+  取消不中断 worker 线程，依靠现有 lease/fencing 使 stale worker 的后续写入失败。
+- M2 Group 3 未引入任何新表/业务列/状态值；`V7__m2_import_workflow_review_indexes.sql`
+  仅为 Evidence / Import / RawRecord / Issue 增加 review 读索引。
+- 读取租户边界在 SQL 层强制执行：Import detail/列表查找都带
+  `ib.org_id = ?`，Evidence / Provider Account lineage join 附加
+  `e.org_id = ib.org_id` / `pa.org_id = ib.org_id`，跨组织 lineage 的异常行
+  不可见；Raw detail 用 `recordId + attemptId` scoped read。
+- `raw_provider_record.record_locator` / `provider_record_key` 是
+  adapter 可控元数据（例如 GLM 任意 worksheet 名生成的 locator）：持久化边界
+  与读取边界都跑 `SecretShapes` redaction（`[REDACTED]`）并截断到
+  VARCHAR(500)，safe provider identity（如 `keyid_fake`）保持不变。
+
 ### `raw_provider_record`
 
 ```text

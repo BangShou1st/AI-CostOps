@@ -135,6 +135,17 @@ IMPORT_CONFIRM
 IMPORT_CANCEL
 ```
 
+M2 Group 3 行为约定（2026-08-15）：
+
+- Provider Import 工作流是组织级（ORG）作用域；M2 不为 Import 发明
+  Project/Team/Cost-Center scope（ImportBatch 对这些维度没有真实归属关系）。
+- 请求顺序：认证 → 所需权限（缺失即 403，先于任何资源查找）→ 当前组织内查找
+  （有权限但跨组织/不可见 → privacy-preserving 404）。
+- Evidence 关联 Imports 子查询需要 `IMPORT_READ`；Evidence 原始字节下载始终
+  需要 `EVIDENCE_DOWNLOAD`。
+- 前端权限只是 UX 门控；后端授权始终权威。上传按钮与 provider-account 目录
+  需要 `EVIDENCE_UPLOAD_PROVIDER` + `PROVIDER_ACCOUNT_READ` 同时具备。
+
 ### Cost / Attribution
 
 ```text

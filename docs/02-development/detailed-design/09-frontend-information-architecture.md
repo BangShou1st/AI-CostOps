@@ -165,16 +165,34 @@ Download
 /imports/:id
 ```
 
-Tab：
+M2 Tab（Group 3 实现，2026-08-15）：
 
 ```text
 Overview
 Attempts
 Issues
 Raw Records
-Normalized Facts
-Allocation Proposal
 ```
+
+M2 不渲染 M3 占位 Tab（Normalized Facts / Allocation Proposal 等）。
+
+权限门控：`/evidence/**` 需要 `EVIDENCE_READ`，`/imports/**` 需要 `IMPORT_READ`；
+`PermissionRoute` 在 child page mount 之前拦截，未授权直达路由显示 403 且子页面
+（及其查询）不挂载。Evidence 详情页的关联 Imports 子查询仅在 `IMPORT_READ` 时
+启动；Import 详情页的 Evidence 元数据在 `IMPORT_READ` 下可见，原始文件下载仍
+需要 `EVIDENCE_DOWNLOAD`。
+
+应用落地（M2 Group 3 fix round，2026-08-15）：`/app` 与已认证 wildcard 使用
+business-aware `ApplicationLanding`——`EVIDENCE_READ` → `/evidence`，否则
+`IMPORT_READ` → `/imports`，否则第一条可读 settings 路由，全部缺失才渲染
+authenticated 403。`/settings` 保持 M1 `SettingsRedirect` 语义。
+
+Import detail 缓存生命周期（fix round）：仅 `GET /imports/{id}` 轮询；当
+`PENDING/PROCESSING` 真实转为终态时 invalidate Attempt/Issue/RawRecord 全部
+分页前缀、关联 Evidence imports（按 `detail.evidence.id`）与 Import list。
+Retry/Cancel 成功后先把后端返回的 `ImportSummary` 写入 detail 缓存
+（Retry→PENDING 立即恢复轮询、Cancel→CANCELED 立即停止），再做依赖失效；
+409 只刷新状态，绝不自动重发 mutation。
 
 ### Cost / Allocation
 
@@ -325,13 +343,15 @@ USD 20
 
 ## 9. Import Progress
 
-V1 用 Polling：
+V1 用 Polling（M2 Group 3 固定契约）：
 
 ```text
-GET /imports/{id}
+GET /api/v1/imports/{id}
 ```
 
-Processing 时每 2-5 秒 Poll，Terminal State 停止。
+`PENDING` / `PROCESSING` 每 3 秒 Poll 一次；`PARSED` / `FAILED` / `CANCELED`
+立即停止。只有轻量 Import detail 轮询，Issues / Raw Records 大表不轮询。
+路由卸载 / logout 时随 query teardown 停止轮询。
 
 不为了进度引入 WebSocket/SSE。
 

@@ -53,7 +53,8 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
 
     @Test
     void oneQueuedAttemptIsClaimedExactlyOnceByTwoWorkers() {
-        var batchId = insertBatchWithQueuedAttempt("a".repeat(64), 1);
+        var attemptId = insertBatchWithQueuedAttempt("a".repeat(64), 1);
+        var batchId = batchOf(attemptId);
 
         var first = leases.claimNext("worker-a");
         var second = leases.claimNext("worker-b");
@@ -67,8 +68,8 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
 
     @Test
     void twoQueuedAttemptsAreClaimedByTwoWorkersWithoutBlockingEachOther() throws Exception {
-        var firstBatch = insertBatchWithQueuedAttempt("a".repeat(64), 1);
-        var secondBatch = insertBatchWithQueuedAttempt("b".repeat(64), 1);
+        var firstBatch = batchOf(insertBatchWithQueuedAttempt("a".repeat(64), 1));
+        var secondBatch = batchOf(insertBatchWithQueuedAttempt("b".repeat(64), 1));
 
         var pool = Executors.newFixedThreadPool(2);
         try {
@@ -115,7 +116,7 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
 
     @Test
     void claimHonorsTheAvailabilityTime() {
-        var batchId = insertBatchWithQueuedAttempt("e".repeat(64), 1);
+        var batchId = batchOf(insertBatchWithQueuedAttempt("e".repeat(64), 1));
         jdbc.update("""
                 UPDATE import_attempt SET available_at=DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 1 HOUR)
                 WHERE import_batch_id=?
@@ -167,7 +168,7 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
 
     @Test
     void expiredLeaseFailsOldAttemptAndQueuesRecoverySuccessorWithLineage() {
-        var batchId = insertBatchWithQueuedAttempt("h".repeat(64), 1);
+        var batchId = batchOf(insertBatchWithQueuedAttempt("h".repeat(64), 1));
         var oldAttemptId = runAttemptWithExpiredLease(batchId, 1);
 
         var recovery = leases.recoverExpiredLease().orElseThrow();
@@ -187,7 +188,7 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
 
     @Test
     void rawRowsOfFailedAttemptRemainAfterRecovery() {
-        var batchId = insertBatchWithQueuedAttempt("i".repeat(64), 1);
+        var batchId = batchOf(insertBatchWithQueuedAttempt("i".repeat(64), 1));
         var oldAttemptId = runAttemptWithExpiredLease(batchId, 1);
         jdbc.update("""
                 INSERT INTO raw_provider_record(
@@ -205,7 +206,7 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
 
     @Test
     void recoveryBudgetExhaustionFailsBatchWithoutSuccessor() {
-        var batchId = insertBatchWithQueuedAttempt("j".repeat(64), 1);
+        var batchId = batchOf(insertBatchWithQueuedAttempt("j".repeat(64), 1));
         var oldAttemptId = runAttemptWithExpiredLease(batchId, 1);
         // Three earlier LEASE_RECOVERY attempts already consumed the whole budget.
         jdbc.update("""
@@ -236,7 +237,7 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
 
     @Test
     void nonexpiredRunningAttemptIsNotRecovered() {
-        var batchId = insertBatchWithQueuedAttempt("k".repeat(64), 1);
+        var batchId = batchOf(insertBatchWithQueuedAttempt("k".repeat(64), 1));
         var attemptId = jdbc.queryForObject(
                 "SELECT id FROM import_attempt WHERE import_batch_id=?", Long.class, batchId);
         jdbc.update("""
@@ -257,7 +258,7 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
 
     @Test
     void concurrentRecoveryWorkersCreateExactlyOneSuccessor() throws Exception {
-        var batchId = insertBatchWithQueuedAttempt("l".repeat(64), 1);
+        var batchId = batchOf(insertBatchWithQueuedAttempt("l".repeat(64), 1));
         runAttemptWithExpiredLease(batchId, 1);
 
         var pool = Executors.newFixedThreadPool(2);
@@ -281,6 +282,11 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
                 Integer.class, batchId)).isEqualTo(1);
     }
 
+    private long batchOf(long attemptId) {
+        return jdbc.queryForObject(
+                "SELECT import_batch_id FROM import_attempt WHERE id=?", Long.class, attemptId);
+    }
+
     private long runAttemptWithExpiredLease(long batchId, int attemptNo) {
         var attemptId = jdbc.queryForObject(
                 "SELECT id FROM import_attempt WHERE import_batch_id=? AND attempt_no=?",
@@ -297,6 +303,7 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
         return attemptId;
     }
 
+    /** Inserts one batch with one QUEUED attempt; returns the attempt id. */
     private long insertBatchWithQueuedAttempt(String sha256, int attemptNo) {
         jdbc.update("""
                 INSERT INTO evidence(
@@ -329,7 +336,9 @@ class ImportLeaseServiceIntegrationTest extends MySqlContainerSupport {
                 VALUES (?,?,'QUEUED','INITIAL',NULL,UTC_TIMESTAMP(6),NULL,NULL,0,'test-parser-v1',
                     NULL,NULL,NULL,NULL,NULL,NULL,0,0,0,0,UTC_TIMESTAMP(6))
                 """, batchId, attemptNo);
-        return batchId;
+        return jdbc.queryForObject("""
+                SELECT id FROM import_attempt WHERE import_batch_id=?
+                """, Long.class, batchId);
     }
 
     private String statusOf(long attemptId) {

@@ -623,6 +623,11 @@ headers 已被 inspection fail-closed，lookup 遇歧义直接失败而非 first
 `PayloadRedactor` 在 key-based 规则之上增加 value-level fail-closed：所有 String
 scalar 经过 `SecretShapes`（Bearer、key=value、`sk-`/`ghp_`/`AKIA` 形状）替换为
 `[REDACTED]`；`credentialId`/`credentialLabel` 等普通 provider identity 不受影响。
+payload object-key 同属 secret-safe review boundary：key 自身含 secret material
+（`sk-...`、`Bearer ...`、`api_key=sk-...`）时替换为 deterministic 且
+collision-safe 的 SHA-256 占位符 `[REDACTED_KEY:<hex>]`，普通 schema key 名称
+（`model`/`usage`/`api_key`/`token`）原样保留；该规则在持久化边界与读取边界
+（Raw Record Detail 与 List key 摘要）一致生效，legacy 行也按同一规则 sanitize。
 
 ZIP 使用 Commons Compress 流式统计，不落盘；XLSX 使用 POI SAX/event 读取，
 禁止 `new XSSFWorkbook(inputStream)`，不放松 POI ZipSecureFile 默认 ZIP-bomb 防御。
@@ -638,3 +643,19 @@ SCHEMA_DRIFT_SYNTHETIC     故意漂移，用于证明 WARN/ERROR 策略
 ```
 
 真实原始账户文件不进入仓库。
+
+### 16.7 M2 Group 3 上传与导入工作流契约（2026-08-15）
+
+- 前端复用 `POST /api/v1/provider-imports`：字段 `file` / `providerAccountId` /
+  `sourceType`（multipart）。上传 UI 的 provider/source-type UX 映射是显式白名单
+  （DEEPSEEK/MIMO/KIMI/GLM → FILE_EXPORT；OPENAI → FILE_EXPORT/USAGE_API_JSON/
+  COSTS_API_JSON），未知 provider code 显示"不支持上传"而非猜测；后端 adapter
+  registry/inspection 仍权威。
+- 创建响应 ID（`evidenceId` / `importBatchId` / `latestAttemptId`）序列化为十进制
+  字符串；应用层保持 `long`。`duplicateEvidence` / `duplicateBatch` 明确返回，
+  前端不把重复上传呈现为新 Batch。
+- 上传按钮与 provider-account 目录需要 `EVIDENCE_UPLOAD_PROVIDER` +
+  `PROVIDER_ACCOUNT_READ`；Import 列表在缺 `PROVIDER_ACCOUNT_READ` 时仍可用，
+  但 provider-account 过滤选项查询不挂载。
+- M2 Group 3 不实现 Import Confirm / READY_FOR_REVIEW / Normalized Facts UI /
+  Allocation Proposal / Ledger / WebSocket / SSE / provider 实时 API 轮询 / 凭据存储。

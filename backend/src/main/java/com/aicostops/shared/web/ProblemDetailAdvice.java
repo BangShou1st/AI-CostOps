@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 
 @RestControllerAdvice
 public class ProblemDetailAdvice {
@@ -50,6 +51,13 @@ public class ProblemDetailAdvice {
             HttpServletRequest request) {
         return problem(HttpStatus.BAD_REQUEST, ProblemCode.REQUEST_MALFORMED,
                 "Malformed request", "A request parameter has an invalid value.", request);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<ProblemDetail> handleMissingHeader(MissingRequestHeaderException exception,
+            HttpServletRequest request) {
+        return problem(HttpStatus.BAD_REQUEST, ProblemCode.REQUEST_MALFORMED,
+                "Malformed request", "A required request header is missing.", request);
     }
 
     private ResponseEntity<ProblemDetail> problem(HttpStatus status, ProblemCode code, String title,

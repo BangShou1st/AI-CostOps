@@ -36,7 +36,7 @@ public class ProviderImportController {
         try (var content = file.getInputStream()) {
             var result = imports.create(authenticatedUser, file.getOriginalFilename(), file.getContentType(),
                     content, providerAccountId, sourceType);
-            return new ProviderImportResponse(
+            return ProviderImportResponse.of(
                     result.evidenceId(), result.importBatchId(), result.latestAttemptId(),
                     result.batchStatus(), result.duplicateEvidence(), result.duplicateBatch());
         } catch (IOException exception) {

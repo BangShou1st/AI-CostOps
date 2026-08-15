@@ -68,8 +68,13 @@ public class ImportRawPersistenceService {
                 var rawPayload = serialize(PayloadRedactor.redact(record.rawPayload()));
                 var normalizedPayload = record.normalizedPayload() == null
                         ? null : serialize(PayloadRedactor.redact(record.normalizedPayload()));
-                rawMapper.insert(lease.attemptId(), record.index(), record.locator(),
-                        record.providerRecordKey(), rawPayload, normalizedPayload,
+                // User-controlled metadata (adapter-derived locators/keys such as
+                // GLM worksheet names) passes the same secret-shaped redaction as
+                // payloads, bounded to the VARCHAR(500) column limits.
+                rawMapper.insert(lease.attemptId(), record.index(),
+                        IssueSanitizer.sanitizeLocator(record.locator()),
+                        IssueSanitizer.sanitizeRecordKey(record.providerRecordKey()),
+                        rawPayload, normalizedPayload,
                         record.usageStart(), record.usageEnd(), record.normalizeStatus().name(), now);
                 var rawId = rawMapper.lastInsertId();
                 for (var issue : record.issues()) {

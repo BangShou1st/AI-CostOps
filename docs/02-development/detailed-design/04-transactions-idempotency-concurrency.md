@@ -71,14 +71,56 @@ lease_until
 ## 4. Retry
 
 ```text
-Lock ImportBatch
-→ Require FAILED
-→ Insert attempt_no + 1
-→ QUEUED
+Require IMPORT_RETRY
+Idempotency-Key: required nonblank (1..200 chars)
+Lock latest ImportAttempt (FOR UPDATE)
+→ Lock ImportBatch (FOR UPDATE)
+→ Require Batch FAILED | CANCELED（且无活跃 QUEUED/RUNNING Attempt）
+→ Insert attempt_no + 1, trigger MANUAL_RETRY, predecessor = latest, QUEUED
+→ Batch → PENDING
+→ Audit IMPORT_RETRIED（同事务）
 → Commit
 ```
 
-不删旧 Attempt / RawRecord / Issue。
+不删旧 Attempt / RawRecord / Issue。锁顺序固定为 `ImportAttempt → ImportBatch`，
+与 worker claim/recovery/finalization 一致，不允许反向。
+
+## 4.1 Cancel
+
+```text
+Require IMPORT_CANCEL
+Idempotency-Key: required nonblank (1..200 chars)
+Lock latest ImportAttempt (FOR UPDATE)
+→ Lock ImportBatch (FOR UPDATE)
+→ 仅允许 (PENDING, QUEUED) 或 (PROCESSING, RUNNING)
+→ Attempt → CANCELED, finished_at=now, lease_owner/until=NULL（保留 started_at/
+  计数器/检测字段/lease_version）
+→ Batch → CANCELED
+→ Audit IMPORT_CANCELED（同事务）
+→ Commit
+```
+
+Cancel 是协作式的：不中断 Java worker 线程。取消提交后，stale worker 的
+lease renew / fenced persistence / finalization 全部命中零行，Batch 保持
+CANCELED，永不产生 `Attempt=CANCELED + Batch=PARSED` 之类拆分结果。
+
+## 4.2 命令幂等与审计
+
+Retry / Cancel 都要求 `Idempotency-Key`：
+
+- `api_idempotency.idempotency_key` 存 64 字符小写十六进制
+  `SHA-256(exact UTF-8 key)` 指纹（表 collation 大小写不敏感，不能直接存原 key；
+  `ABC` 与 `abc` 是不同 key）。
+- `request_hash` 独立覆盖 operation + org/actor + ImportBatch id + `{}` body。
+- 新 key → provisional 行（`response_status=0`）→ 命令 → 同事务 finalize 为 200 +
+  response JSON；回滚则无残留。
+- 同 key + 同 hash → 重放已存 200 响应，不重复状态迁移/审计。
+- 同 key + 不同 hash → 409 `STATE_CONFLICT`。
+- 并发同 key 收敛：`FOR UPDATE` 当前读 winner 的已提交行。
+- 并发不同 key 同 Batch 可能触发 MySQL gap-lock/insert-intention 死锁，命令事务
+  做有界重试（3 次）后重读 winner 状态，产生正确 409。
+- 每个提交的命令恰好写一条 secret-free audit event（`IMPORT_RETRIED` /
+  `IMPORT_CANCELED`，subject_type `IMPORT_BATCH`，metadata 仅 id/status）。
 
 ## 5. Import Confirm
 

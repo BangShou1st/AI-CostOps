@@ -106,7 +106,9 @@ class ProviderImportApiIntegrationTest extends MinioAuthenticationContainersSupp
                 .andExpect(jsonPath("$.batchStatus").value("PENDING"))
                 .andExpect(jsonPath("$.duplicateEvidence").value(false))
                 .andExpect(jsonPath("$.duplicateBatch").value(false))
-                .andExpect(jsonPath("$.latestAttemptId").isNumber());
+                .andExpect(jsonPath("$.latestAttemptId").isString())
+                .andExpect(jsonPath("$.evidenceId").isString())
+                .andExpect(jsonPath("$.importBatchId").isString());
 
         var result = mockMvc.perform(importRequest(activeProviderAccountId)).andReturn();
         // Verify durable rows directly instead of parsing the body twice.
@@ -321,12 +323,9 @@ class ProviderImportApiIntegrationTest extends MinioAuthenticationContainersSupp
     }
 
     private static long extractLong(String body, String field) {
-        var marker = "\"" + field + "\":";
+        var marker = "\"" + field + "\":\"";
         var start = body.indexOf(marker) + marker.length();
-        var end = body.indexOf(',', start);
-        if (end < 0) {
-            end = body.indexOf('}', start);
-        }
+        var end = body.indexOf('"', start);
         return Long.parseLong(body.substring(start, end).trim());
     }
 

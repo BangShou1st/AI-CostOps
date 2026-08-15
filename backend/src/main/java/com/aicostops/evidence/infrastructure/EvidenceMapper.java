@@ -2,6 +2,7 @@ package com.aicostops.evidence.infrastructure;
 
 import com.aicostops.evidence.domain.Evidence;
 import java.time.Instant;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -52,6 +53,26 @@ public interface EvidenceMapper {
     Evidence findByIdAndOrganization(
             @Param("evidenceId") long evidenceId,
             @Param("organizationId") long organizationId);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM evidence e
+            WHERE e.org_id=#{organizationId}
+            """)
+    long countByOrganization(@Param("organizationId") long organizationId);
+
+    @Select("""
+            SELECT
+            """ + EVIDENCE_COLUMNS + """
+            FROM evidence e
+            WHERE e.org_id=#{organizationId}
+            ORDER BY e.created_at DESC, e.id DESC
+            LIMIT #{size} OFFSET #{offset}
+            """)
+    List<Evidence> pageByOrganization(
+            @Param("organizationId") long organizationId,
+            @Param("offset") long offset,
+            @Param("size") int size);
 
     @Insert("""
             INSERT INTO evidence(
