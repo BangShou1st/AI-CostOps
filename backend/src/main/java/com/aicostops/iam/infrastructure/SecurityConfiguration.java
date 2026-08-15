@@ -58,6 +58,13 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/evidence", "/api/v1/evidence/{evidenceId}")
                         .authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/evidence/{id}/download").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/evidence/{evidenceId}/imports").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/imports", "/api/v1/imports/{importId}",
+                                "/api/v1/imports/{importId}/attempts",
+                                "/api/v1/imports/{importId}/attempts/{attemptId}/issues",
+                                "/api/v1/imports/{importId}/attempts/{attemptId}/raw-records",
+                                "/api/v1/imports/{importId}/attempts/{attemptId}/raw-records/{recordId}")
+                        .authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/provider-imports").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
