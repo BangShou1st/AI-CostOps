@@ -60,6 +60,10 @@ uploads/
 tmp/
 temp/
 
+# Local development mailboxes contain usable reset/invitation tokens.
+# Matches both the repo-root and backend working directory locations.
+.local-dev/
+
 # =========================
 # IDE
 # =========================

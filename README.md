@@ -87,7 +87,9 @@ Copy-Item .env.example .env
 三个终端分别启动：
 
 ```powershell
-# Terminal 1 — Docker 基础设施（不构建任何镜像，不触碰 volume，可重复执行）
+# Terminal 1 — Docker 基础设施
+# （会先安全停止 Full Integration 的 backend/frontend 容器，
+#   再启动 mysql/redis/minio；不构建任何镜像，不触碰 volume，可重复执行）
 .\scripts\dev\start-infra.ps1
 
 # Terminal 2 — Spring Boot 后端（本机 http://localhost:8081）

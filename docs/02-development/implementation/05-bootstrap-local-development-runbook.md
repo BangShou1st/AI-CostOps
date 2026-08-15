@@ -42,8 +42,13 @@ Terminal 1 — Docker 基础设施（幂等、不构建镜像、不删 volume）
 
 ```powershell
 .\scripts\dev\start-infra.ps1
-# 等价于：docker compose -f compose.yaml -f compose.dev.yaml up -d mysql redis minio
+# 等价于：docker compose -f compose.yaml -f compose.dev.yaml stop backend frontend
+#         docker compose -f compose.yaml -f compose.dev.yaml up -d mysql redis minio
 ```
+
+`start-infra.ps1` 同时负责从 Full Integration 切回 Daily Mode：若 backend /
+frontend 容器仍处于运行状态，脚本会先安全 `stop` 它们（只停止，不 `rm`、不删
+volume），再启动基础设施。一次执行后 Docker 中应只剩 mysql / redis / minio。
 
 Terminal 2 — Spring Boot 后端（本机）：
 

@@ -50,7 +50,7 @@ public class DevInvitationMailbox implements InvitationDelivery {
                     + TokenDigest.sha256(normalizedEmail).substring(0, 16) + "-"
                     + UUID.randomUUID() + ".txt";
             var content = "email=" + normalizedEmail + System.lineSeparator()
-                    + "acceptLink=" + invitePageUrl + "?token=" + invitationToken + System.lineSeparator();
+                    + "acceptLink=" + invitePageUrl + "/" + invitationToken + System.lineSeparator();
             var message = mailbox.resolve(filename);
             createOwnerOnly(message, false);
             Files.writeString(message, content, StandardCharsets.UTF_8,
