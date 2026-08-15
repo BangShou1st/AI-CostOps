@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom'
 import { toProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
+import { AttemptReview } from './AttemptReview'
 import { importKeys } from './api/importKeys'
 import { importsApi } from './api/importsApi'
 import type { ImportSummary } from './api/importTypes'
@@ -80,7 +81,7 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
 
   const tabs = [
     { key: 'overview', label: '概览', children: <Overview data={data} /> },
-    // Attempts / Issues / Raw Records review lands with the review UI task.
+    { key: 'attempts', label: '尝试', children: <AttemptReview importId={importId} /> },
   ]
 
   return (

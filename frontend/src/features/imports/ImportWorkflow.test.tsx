@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthSessionProvider'
 import type { PageResponse } from '../../api/pagination'
 import { importsApi } from './api/importsApi'
 import { settingsApi } from '../settings/api/settingsApi'
-import type { ImportSummary } from './api/importTypes'
+import type { AttemptSummary, ImportSummary, IssueSummary, RawRecordDetail, RawRecordSummary } from './api/importTypes'
 import { ImportDetailPage } from './ImportDetailPage'
 import { ImportListPage } from './ImportListPage'
 
@@ -99,12 +99,20 @@ function renderPage(permissions: string[], page: 'list' | 'detail') {
 const pageOf = <T,>(items: T[], total = items.length): PageResponse<T> =>
   ({ items, page: 0, size: 50, totalElements: total, totalPages: 1 })
 
+const attempt = (id: string, attemptNo: number, status: string): AttemptSummary => ({
+  id, attemptNo, status: status as AttemptSummary['status'], triggerType: 'INITIAL',
+  predecessorAttemptId: null, parserVersion: 'test-parser-v1', detectedProviderCode: null,
+  schemaFingerprint: null, startedAt: null, finishedAt: '2026-08-01T00:00:00Z',
+  createdAt: '2026-08-01T00:00:00Z', recordsSeen: 0, recordsValid: 0, warningCount: 0,
+  errorCount: 0, errorCode: null, errorSummary: null,
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   navigateMock.mockReset()
   mockedImportsApi.listImports.mockResolvedValue(pageOf([importSummary]))
   mockedImportsApi.getImport.mockResolvedValue(importSummary)
-  mockedImportsApi.listAttempts.mockResolvedValue(pageOf([]))
+  mockedImportsApi.listAttempts.mockResolvedValue(pageOf([attempt('3', 3, 'QUEUED'), attempt('2', 2, 'SUCCEEDED'), attempt('1', 1, 'FAILED')]))
   mockedImportsApi.listIssues.mockResolvedValue(pageOf([]))
   mockedImportsApi.listRawRecords.mockResolvedValue(pageOf([]))
   mockedSettingsApi.listProviderAccounts.mockResolvedValue(pageOf([]))
@@ -187,7 +195,7 @@ describe('ImportDetailPage', () => {
   })
 
   it('retry success restarts polling and invalidates caches', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-retry-1')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-retry-1' as ReturnType<typeof crypto.randomUUID>)
     mockedImportsApi.retry.mockResolvedValue({ ...importSummary, status: 'PENDING', retryable: false })
 
     renderPage(['IMPORT_READ', 'IMPORT_RETRY'], 'detail')
@@ -204,7 +212,7 @@ describe('ImportDetailPage', () => {
   })
 
   it('cancel success stops polling', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-cancel-1')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-cancel-1' as ReturnType<typeof crypto.randomUUID>)
     const processing: ImportSummary = { ...importSummary, status: 'PROCESSING', retryable: false, cancelable: true }
     mockedImportsApi.getImport.mockResolvedValue(processing)
     mockedImportsApi.cancel.mockResolvedValue({ ...processing, status: 'CANCELED', cancelable: false, retryable: true })
@@ -222,7 +230,7 @@ describe('ImportDetailPage', () => {
   })
 
   it('409 conflict shows state-changed error and never auto-replays the mutation', async () => {
-    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-conflict-1')
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-conflict-1' as ReturnType<typeof crypto.randomUUID>)
     mockedImportsApi.retry.mockRejectedValue({
       isAxiosError: true,
       response: { data: {
@@ -293,5 +301,82 @@ describe('ImportDetailPage', () => {
       await vi.advanceTimersByTimeAsync(9000)
     })
     expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ImportDetailPage attempt review', () => {
+  it('selects the latest attempt by default and switches issues/raw lineage on selection', async () => {
+    const issue1: IssueSummary = { id: '11', rawProviderRecordId: null, severity: 'WARN', issueCode: 'FIELD_EMPTY', recordLocator: 'row=1', fieldName: 'model', message: 'empty', rawValueMasked: 'sk-x', createdAt: '2026-08-01T00:00:00Z' }
+    const issue2: IssueSummary = { id: '12', rawProviderRecordId: null, severity: 'ERROR', issueCode: 'UNKNOWN_FIELD', recordLocator: 'row=2', fieldName: 'cost', message: 'unknown', rawValueMasked: null, createdAt: '2026-08-01T00:00:00Z' }
+    mockedImportsApi.listIssues
+      .mockResolvedValueOnce(pageOf([issue1]))
+      .mockResolvedValueOnce(pageOf([issue2]))
+
+    renderPage(['IMPORT_READ'], 'detail')
+    await screen.findByText('invoice.csv')
+    fireEvent.click(screen.getByRole('tab', { name: /尝\s*试/ }))
+
+    // Latest attempt (3) selected by default -> issues of attempt 3 requested.
+    await waitFor(() => {
+      expect(mockedImportsApi.listIssues).toHaveBeenCalledWith('123', '3', expect.objectContaining({ page: 0 }))
+    })
+
+    // Switch to the historical attempt 1; its issues are requested instead.
+    fireEvent.click(screen.getAllByText('1')[0])
+    await waitFor(() => {
+      expect(mockedImportsApi.listIssues).toHaveBeenCalledWith('123', '1', expect.objectContaining({ page: 0 }))
+    })
+  })
+
+  it('raw record list never contains payload values and drawer lazy-loads exactly once', async () => {
+    const raw: RawRecordSummary = {
+      id: '21', recordIndex: 0, recordLocator: 'cost.csv:row=1', providerRecordKey: 'k',
+      normalizeStatus: 'NORMALIZED', usageStart: null, usageEnd: null,
+      rawPayloadKeys: { keyCount: 3, keys: ['model', 'future_note', 'api_key'], keysTruncated: false },
+      normalizedPayloadKeys: { keyCount: 0, keys: [], keysTruncated: false },
+      createdAt: '2026-08-01T00:00:00Z',
+    }
+    mockedImportsApi.listRawRecords.mockResolvedValue(pageOf([raw]))
+    mockedImportsApi.getRawRecord.mockResolvedValue({
+      ...raw,
+      rawPayload: { model: 'x', future_note: 'safe', api_key: '[REDACTED]' },
+      normalizedPayload: null,
+    } satisfies RawRecordDetail)
+
+    renderPage(['IMPORT_READ'], 'detail')
+    await screen.findByText('invoice.csv')
+    fireEvent.click(screen.getByRole('tab', { name: /尝\s*试/ }))
+
+    await waitFor(() => {
+      expect(mockedImportsApi.listRawRecords).toHaveBeenCalledWith('123', '3', expect.objectContaining({ page: 0 }))
+    })
+    // List rows show key summaries, never payload values.
+    expect(screen.queryByText(/"safe"/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('cost.csv:row=1'))
+    await waitFor(() => {
+      expect(mockedImportsApi.getRawRecord).toHaveBeenCalledTimes(1)
+      expect(mockedImportsApi.getRawRecord).toHaveBeenCalledWith('123', '3', '21')
+    })
+    // Drawer renders escaped JSON text (no injected HTML).
+    expect(await screen.findByText(/"api_key": "\[REDACTED\]"/)).toBeInTheDocument()
+    expect(document.querySelector('.raw-payload')?.innerHTML).not.toContain('<img')
+  })
+
+  it('issue filters reset page and request server filters', async () => {
+    renderPage(['IMPORT_READ'], 'detail')
+    await screen.findByText('invoice.csv')
+    fireEvent.click(screen.getByRole('tab', { name: /尝\s*试/ }))
+    await waitFor(() => {
+      expect(mockedImportsApi.listIssues).toHaveBeenCalledWith('123', '3', expect.objectContaining({ page: 0 }))
+    })
+
+    fireEvent.mouseDown(screen.getByLabelText(/严重级别/))
+    const errorOptions = await screen.findAllByText('ERROR')
+    fireEvent.click(errorOptions[errorOptions.length - 1])
+
+    await waitFor(() => {
+      expect(mockedImportsApi.listIssues).toHaveBeenCalledWith('123', '3', expect.objectContaining({ severity: 'ERROR', page: 0 }))
+    })
   })
 })
