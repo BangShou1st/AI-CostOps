@@ -32,34 +32,62 @@ Copy-Item .env.example .env
 
 `.env` 只保存本地配置并保持 ignored。
 
-## 3. 推荐日常开发模式
+## 3. 推荐日常开发模式 — Daily Development Mode
 
-基础设施：
+日常开发时 Docker 只运行基础设施（MySQL / Redis / MinIO），Backend 与 Frontend 直接在 Windows 本机运行，全程不执行任何 `docker build`。
 
-```bash
-docker compose -f compose.yaml -f compose.dev.yaml up -d mysql redis minio
+前置条件：仓库根目录存在 `.env`（首次执行 `Copy-Item .env.example .env`）。
+
+Terminal 1 — Docker 基础设施（幂等、不构建镜像、不删 volume）：
+
+```powershell
+.\scripts\dev\start-infra.ps1
+# 等价于：docker compose -f compose.yaml -f compose.dev.yaml up -d mysql redis minio
 ```
 
-后端：
+Terminal 2 — Spring Boot 后端（本机）：
 
-```bash
+```powershell
 cd backend
-./mvnw spring-boot:run
+.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
-Windows PowerShell 使用 `.\mvnw.cmd spring-boot:run`。
+必须带 `local` profile（`backend/src/main/resources/application-local.yml`）：它把 MySQL / Redis / MinIO 指向 compose.dev.yaml 暴露的 localhost 端口（3307 / 6379 / 9000），并提供本地 JWT 密钥与开发开关（允许公开注册、非 secure refresh cookie）。默认监听 `http://localhost:8081`。
 
-前端：
+IDE 用户：Run Configuration 设置 `active profiles = local` 即可，不需要手工复制十几个环境变量；`application-local.yml` 的每个值都支持同名环境变量覆盖（规则与 `application.yml` 一致）。
 
-```bash
+Terminal 3 — Vite 前端（本机，HMR）：
+
+```powershell
 cd frontend
-npm ci
+npm ci        # 首次或依赖变更时
 npm run dev
 ```
 
-这样既有 IDE/HMR，又保持 MySQL/Redis/MinIO 环境一致。
+Vite dev server 监听 `http://localhost:5173`，并把 `/api/v1` 代理到本机 Backend（默认 `http://localhost:8081`，可用环境变量 `BACKEND_PORT` 覆盖）。浏览器视角保持同源，没有额外 CORS hack，登录 / refresh cookie / 权限流程与容器模式一致。
 
-## 4. 完整集成模式
+默认端口一览（来自 `.env.example` 与 compose.dev.yaml）：
+
+```text
+Frontend dev server   http://localhost:5173   （Vite，本机，HMR）
+Backend               http://localhost:8081   （Spring Boot，本机，BACKEND_PORT）
+MySQL                 localhost:3307          （Docker）
+Redis                 localhost:6379          （Docker）
+MinIO API / Console   localhost:9000 / 9001   （Docker）
+```
+
+停止 / 查看状态：
+
+```powershell
+.\scripts\dev\stop-infra.ps1    # 只 stop mysql/redis/minio，保留所有 volume
+.\scripts\dev\status.ps1
+```
+
+脚本不 build、不 prune、不删 volume，可重复执行。
+
+## 4. 完整集成模式 — Full Integration Mode
+
+仅用于需要完整容器环境的场合：PR 前完整 smoke test、Dockerfile 验证、CI、部署路径验证。
 
 ```bash
 docker compose up -d --build
@@ -86,6 +114,8 @@ MySQL     compose.dev.yaml 映射到 localhost:3307
 Redis     compose.dev.yaml 映射到 localhost:6379
 MinIO     compose.dev.yaml 映射到 localhost:9000 / 9001
 ```
+
+注意：`docker compose up -d --build` 会真实构建 backend / frontend 两张镜像并产生 BuildKit cache，不是日常开发方式；日常开发请使用第 3 节的 Daily Development Mode。
 
 ## 5. 自动测试数据库
 
@@ -256,3 +286,36 @@ Redis 8.8.1
 ```
 
 真实执行证据见 `docs/03-acceptance/implementation/08-m0-foundation-evidence.md`。
+
+## 16. 可选维护（非日常流程）
+
+以下操作都不是日常开发的一部分；Daily Development 模式不产生 backend / frontend
+构建缓存，正常不需要执行。
+
+偶尔需要回收磁盘时：
+
+```powershell
+docker builder prune -f
+```
+
+注意区分两种资源：
+
+```text
+RAM  ：运行中的 WSL / Docker / Java / Node 进程占用，删镜像不影响 RAM。
+Disk ：Docker images / layers / BuildKit cache / WSL 虚拟磁盘占用。
+```
+
+删除镜像或清理 cache 后，Docker Desktop（WSL2 后端）的虚拟磁盘文件
+（Settings → Resources → Advanced → Disk image location）不会自动收缩，
+需要手动压缩才能把空间还给 Windows：
+
+```powershell
+# 1. 退出 Docker Desktop，然后
+wsl --shutdown
+# 2. 管理员 PowerShell，路径替换为 Docker Desktop 设置中的实际 vhdx 路径
+Optimize-VHD -Path "<DockerData>\wsl\disk\docker_data.vhdx" -Mode Full
+# 若系统没有 Hyper-V 模块，可用 diskpart：select vdisk file=... / attach vdisk readonly / compact vdisk
+```
+
+严禁把 `docker system prune -a`、`docker volume prune`、`docker compose down -v`
+当作日常流程；业务数据 volume 不得自动删除。
