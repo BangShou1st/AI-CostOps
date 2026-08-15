@@ -1,5 +1,7 @@
 package com.aicostops.ingestion.application;
 
+import com.aicostops.cost.application.CanonicalCostWritePort;
+import com.aicostops.cost.application.CanonicalizationInput;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
 import com.aicostops.ingestion.infrastructure.ImportAttemptMapper;
 import com.aicostops.ingestion.infrastructure.ImportIssueMapper;
@@ -20,6 +22,12 @@ import tools.jackson.databind.ObjectMapper;
  * ownership {@code (attemptId, workerId, leaseVersion, unexpired lease)} inside the
  * transaction, then inserts the bounded record batch and updates Attempt counters.
  * A stale worker gets zero inserts and is told it lost the lease.
+ *
+ * <p>Canonical facts for each record are written through {@link CanonicalCostWritePort}
+ * in the same transaction (after the raw row exists, before counters), so a
+ * canonicalization failure rolls the whole bounded batch back. Records with
+ * {@code normalize_status='ERROR'} or a null normalized payload never reach the
+ * canonical writer.
  */
 @Service
 public class ImportRawPersistenceService {
@@ -27,6 +35,7 @@ public class ImportRawPersistenceService {
     private final ImportAttemptMapper attemptMapper;
     private final RawProviderRecordMapper rawMapper;
     private final ImportIssueMapper issueMapper;
+    private final CanonicalCostWritePort canonicalCostWritePort;
     private final ImportWorkerProperties properties;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -36,6 +45,7 @@ public class ImportRawPersistenceService {
             ImportAttemptMapper attemptMapper,
             RawProviderRecordMapper rawMapper,
             ImportIssueMapper issueMapper,
+            CanonicalCostWritePort canonicalCostWritePort,
             ImportWorkerProperties properties,
             ObjectMapper objectMapper,
             Clock clock,
@@ -43,13 +53,15 @@ public class ImportRawPersistenceService {
         this.attemptMapper = attemptMapper;
         this.rawMapper = rawMapper;
         this.issueMapper = issueMapper;
+        this.canonicalCostWritePort = canonicalCostWritePort;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
-    public PersistResult persist(ImportLeaseService.ImportLease lease, List<NormalizedProviderRecord> records) {
+    public PersistResult persist(ImportLeaseService.ImportLease lease, List<NormalizedProviderRecord> records,
+            long orgId, String providerCode) {
         if (records.isEmpty()) {
             return new PersistResult(0, 0, false);
         }
@@ -66,8 +78,11 @@ public class ImportRawPersistenceService {
             var issuesInserted = 0L;
             for (var record : records) {
                 var rawPayload = serialize(PayloadRedactor.redact(record.rawPayload()));
+                // The sanitized normalized JSON is produced exactly once and is the
+                // single source for both the persisted normalized_payload and the
+                // canonicalization input (invariant: one sanitized normalized JSON).
                 var normalizedPayload = record.normalizedPayload() == null
-                        ? null : serialize(PayloadRedactor.redact(record.normalizedPayload()));
+                        ? null : serialize(PayloadRedactor.redactNormalizedPayload(record.normalizedPayload()));
                 // User-controlled metadata (adapter-derived locators/keys such as
                 // GLM worksheet names) passes the same secret-shaped redaction as
                 // payloads, bounded to the VARCHAR(500) column limits.
@@ -93,6 +108,17 @@ public class ImportRawPersistenceService {
                 }
                 if (record.normalizeStatus() == RawRecordNormalizeStatus.NORMALIZED) {
                     valid++;
+                }
+                // Canonicalization consumes the same sanitized JSON inside the same
+                // bounded transaction; ERROR/null records write nothing. The
+                // whitelisted mapping and the masked-credential guard keep secrets
+                // out of canonical tables.
+                if (record.normalizeStatus() != RawRecordNormalizeStatus.ERROR
+                        && record.normalizedPayload() != null) {
+                    canonicalCostWritePort.write(new CanonicalizationInput(
+                            orgId, providerCode, lease.attemptId(), rawId,
+                            record.index(), record.locator(), normalizedPayload,
+                            record.usageStart(), record.usageEnd()));
                 }
             }
             attemptMapper.incrementCounters(lease.attemptId(), records.size(), valid, warnings, errors);

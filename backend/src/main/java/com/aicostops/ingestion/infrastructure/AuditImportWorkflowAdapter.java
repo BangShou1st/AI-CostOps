@@ -41,4 +41,13 @@ public class AuditImportWorkflowAdapter implements ImportWorkflowAuditPort {
                         "previousAttemptStatus", previousAttemptStatus,
                         "previousBatchStatus", previousBatchStatus));
     }
+
+    @Override
+    public void importConfirmed(long orgId, long actorUserId, long batchId,
+            long attemptId, String previousBatchStatus) {
+        auditService.append("IMPORT_CONFIRMED", orgId, actorUserId, SUBJECT_TYPE_IMPORT_BATCH, batchId,
+                Map.of(
+                        "attemptId", attemptId,
+                        "previousBatchStatus", previousBatchStatus));
+    }
 }

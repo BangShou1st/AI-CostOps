@@ -70,7 +70,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         var lease = claimedLease("batch-500");
         var records = records(0, 500, RawRecordNormalizeStatus.NORMALIZED, List.of());
 
-        var result = persistence.persist(lease, records);
+        var result = persistence.persist(lease, records, organizationId, "TEST_PROVIDER");
 
         assertThat(result.leaseLost()).isFalse();
         assertThat(result.recordsPersisted()).isEqualTo(500);
@@ -86,8 +86,8 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         var lease = claimedLease("batch-501");
         var records = records(0, 501, RawRecordNormalizeStatus.NORMALIZED, List.of());
 
-        var first = persistence.persist(lease, records.subList(0, 500));
-        var second = persistence.persist(lease, records.subList(500, 501));
+        var first = persistence.persist(lease, records.subList(0, 500), organizationId, "TEST_PROVIDER");
+        var second = persistence.persist(lease, records.subList(500, 501), organizationId, "TEST_PROVIDER");
 
         assertThat(first.recordsPersisted()).isEqualTo(500);
         assertThat(second.recordsPersisted()).isEqualTo(1);
@@ -103,7 +103,8 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
                 UPDATE import_attempt SET lease_owner='usurper', lease_version=lease_version+10 WHERE id=?
                 """, lease.attemptId());
 
-        var result = persistence.persist(lease, records(0, 10, RawRecordNormalizeStatus.NORMALIZED, List.of()));
+        var result = persistence.persist(lease, records(0, 10, RawRecordNormalizeStatus.NORMALIZED, List.of()),
+                organizationId, "TEST_PROVIDER");
 
         assertThat(result.leaseLost()).isTrue();
         assertThat(result.recordsPersisted()).isZero();
@@ -117,7 +118,8 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
     @Test
     void partialRowsSurviveLaterAttemptFailure() {
         var lease = claimedLease("batch-partial");
-        persistence.persist(lease, records(0, 3, RawRecordNormalizeStatus.NORMALIZED, List.of()));
+        persistence.persist(lease, records(0, 3, RawRecordNormalizeStatus.NORMALIZED, List.of()),
+                organizationId, "TEST_PROVIDER");
         jdbc.update("""
                 UPDATE import_attempt SET status='FAILED', finished_at=UTC_TIMESTAMP(6),
                     error_code='PARSE_ERROR' WHERE id=?
@@ -138,7 +140,8 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
                 "password_hash", "{bcrypt}abc",
                 "refresh_token", "tok-123",
                 "nested", Map.of("client.secret", "s3cr3t", "safe", "keep-me"));
-        var result = persistence.persist(lease, List.of(record(0, RawRecordNormalizeStatus.NORMALIZED, List.of(), sensitive)));
+        var result = persistence.persist(lease, List.of(record(0, RawRecordNormalizeStatus.NORMALIZED, List.of(), sensitive)),
+                organizationId, "TEST_PROVIDER");
 
         assertThat(result.recordsPersisted()).isEqualTo(1);
         var stored = jdbc.queryForObject("""
@@ -160,10 +163,13 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
                 "api_key", "live-key-value");
         var normalized = Map.<String, Object>of(
                 "api_key=sk-SECRET-SENTINEL-DO-NOT-RETURN", "anything",
-                "usage", 12.5);
+                "usage", 12.5,
+                "sourceSchema", "openai.observed-empty-export.v1",
+                "recordKind", "EMPTY_USAGE_BUCKET");
         var result = persistence.persist(lease, List.of(
                 new NormalizedProviderRecord(0, "cost.csv:row=1", "record-0",
-                        raw, normalized, null, null, RawRecordNormalizeStatus.NORMALIZED, List.of())));
+                        raw, normalized, null, null, RawRecordNormalizeStatus.NORMALIZED, List.of())),
+                organizationId, "TEST_PROVIDER");
 
         assertThat(result.recordsPersisted()).isEqualTo(1);
         var rawStored = jdbc.queryForObject("""
@@ -196,7 +202,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
                 issue(ImportIssueSeverity.ERROR, "MISSING_REQUIRED_COLUMN", "row=3"),
                 issue(ImportIssueSeverity.WARN, "UNKNOWN_COLUMN", "row=3")), Map.of()));
 
-        var result = persistence.persist(lease, records);
+        var result = persistence.persist(lease, records, organizationId, "TEST_PROVIDER");
 
         assertThat(result.recordsPersisted()).isEqualTo(3);
         assertThat(result.issuesPersisted()).isEqualTo(3);
@@ -247,13 +253,18 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         return leases.claimNext("executor-worker").orElseThrow();
     }
 
+    /** Zero-fact whitelisted payload so canonicalization writes nothing for generic executor tests. */
+    private static final Map<String, Object> EMPTY_EXPORT_PAYLOAD = Map.of(
+            "sourceSchema", "openai.observed-empty-export.v1",
+            "recordKind", "EMPTY_USAGE_BUCKET");
+
     private static List<NormalizedProviderRecord> records(
             int startIndex, int count, RawRecordNormalizeStatus status, List<ImportIssueDraft> issues) {
         var records = new ArrayList<NormalizedProviderRecord>(count);
         for (int i = 0; i < count; i++) {
             var index = startIndex + i;
             records.add(new NormalizedProviderRecord(index, "cost.csv:row=" + (index + 1),
-                    "record-" + index, Map.of("row", index), Map.of("normalized", index),
+                    "record-" + index, Map.of("row", index), EMPTY_EXPORT_PAYLOAD,
                     null, null, status, issues));
         }
         return records;
@@ -262,7 +273,19 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
     private static NormalizedProviderRecord record(
             int index, RawRecordNormalizeStatus status, List<ImportIssueDraft> issues, Map<String, Object> raw) {
         return new NormalizedProviderRecord(index, "cost.csv:row=" + (index + 1), "record-" + index,
-                raw, Map.of(), null, null, status, issues);
+                raw, EMPTY_EXPORT_PAYLOAD, null, null, status, issues);
+    }
+
+    private static NormalizedProviderRecord recordWithPayload(
+            int index, RawRecordNormalizeStatus status, List<ImportIssueDraft> issues,
+            Map<String, Object> raw, Map<String, Object> normalized) {
+        return new NormalizedProviderRecord(index, "cost.csv:row=" + (index + 1), "record-" + index,
+                raw, normalized, null, null, status, issues);
+    }
+
+    private long countOf(String table) {
+        var count = jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+        return count == null ? 0 : count;
     }
 
     private static ImportIssueDraft issue(ImportIssueSeverity severity, String code, String locator) {
@@ -287,11 +310,33 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
 
         var counters = attemptCounters(lease.attemptId());
         assertThat(attemptStatus(lease.attemptId())).isEqualTo("SUCCEEDED");
-        assertThat(batchStatus(batchId)).isEqualTo("PARSED");
+        assertThat(batchStatus(batchId)).isEqualTo("READY_FOR_REVIEW");
         assertThat(counters.recordsSeen).isEqualTo(2L);
         assertThat(counters.recordsValid).isEqualTo(1L);
         assertThat(counters.warningCount).isEqualTo(1L);
         assertThat(counters.errorCount).isZero();
+    }
+
+    @Test
+    void normalizedRecordsProduceCanonicalFactsAndReviewReadyBatch() {
+        adapter.records = List.of(recordWithPayload(0, RawRecordNormalizeStatus.NORMALIZED, List.of(),
+                Map.of("row", 0), Map.of(
+                        "sourceSchema", "openai.organization-costs-json.v1",
+                        "recordKind", "COST",
+                        "dimensions", Map.of("providerProject", "proj_y", "credentialId", "key_123"),
+                        "money", Map.of("currency", "USD", "reportedAmount", new java.math.BigDecimal("12.34")))));
+        var evidenceId = storeEvidence("canonical-count-content");
+        var batchId = insertBatchWithAttempt(evidenceId);
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("SUCCEEDED");
+        assertThat(batchStatus(batchId)).isEqualTo("READY_FOR_REVIEW");
+        assertThat(countOf("charge_fact")).isEqualTo(1);
+        assertThat(countOf("attribution_hint")).isEqualTo(2);
+        assertThat(countOf("consumption_fact")).isZero();
+        assertThat(countOf("external_document")).isZero();
     }
 
     @Test
@@ -418,22 +463,22 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         adapter.records = List.of(record(0, RawRecordNormalizeStatus.NORMALIZED, List.of(), Map.of("row", 0)));
         var batchId = insertBatchWithAttempt(storeEvidence("atomic-finalize-content"));
         var lease = leases.claimNext("executor-worker").orElseThrow();
-        // A temporary CHECK forbids the PARSED transition so the Batch finalization
-        // statement fails inside the finalization transaction.
+        // A temporary CHECK forbids the READY_FOR_REVIEW transition so the Batch
+        // finalization statement fails inside the finalization transaction.
         jdbc.update("""
                 ALTER TABLE import_batch
-                ADD CONSTRAINT chk_test_fail_parsed CHECK (status <> 'PARSED')
+                ADD CONSTRAINT chk_test_fail_ready CHECK (status <> 'READY_FOR_REVIEW')
                 """);
         try {
             assertThatThrownBy(() -> executor.execute(lease))
                     .isInstanceOf(RuntimeException.class)
-                    .hasMessageContaining("chk_test_fail_parsed");
+                    .hasMessageContaining("chk_test_fail_ready");
 
             // The finalization transaction rolled back: no SUCCEEDED + PROCESSING split.
             assertThat(attemptStatus(lease.attemptId())).isEqualTo("RUNNING");
             assertThat(batchStatus(batchId)).isEqualTo("PROCESSING");
         } finally {
-            jdbc.update("ALTER TABLE import_batch DROP CHECK chk_test_fail_parsed");
+            jdbc.update("ALTER TABLE import_batch DROP CHECK chk_test_fail_ready");
         }
     }
 
@@ -469,8 +514,8 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
             pool.shutdownNow();
         }
         assertThat(attemptStatus(firstLease.attemptId())).isEqualTo("SUCCEEDED");
-        assertThat(batchStatus(firstBatch)).isEqualTo("PARSED");
-        assertThat(batchStatus(secondBatch)).isEqualTo("PARSED");
+        assertThat(batchStatus(firstBatch)).isEqualTo("READY_FOR_REVIEW");
+        assertThat(batchStatus(secondBatch)).isEqualTo("READY_FOR_REVIEW");
     }
 
     @Test
@@ -492,7 +537,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
             var finishedLease = leases.claimNext("worker-hb-finished").orElseThrow();
             executor.execute(finishedLease);
             assertThat(attemptStatus(finishedLease.attemptId())).isEqualTo("SUCCEEDED");
-            assertThat(batchStatus(finishedBatch)).isEqualTo("PARSED");
+            assertThat(batchStatus(finishedBatch)).isEqualTo("READY_FOR_REVIEW");
 
             var beforeBlocked = leaseUntil(blockingLease.attemptId());
             executor.heartbeatActiveExecutions();
@@ -718,7 +763,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         @Override
         public NormalizedProviderRecord normalize(ParsedProviderRecord record, InspectionResult inspection) {
             return new NormalizedProviderRecord(record.index(), record.locator(), null,
-                    Map.of(), Map.of(), null, null, RawRecordNormalizeStatus.NORMALIZED, List.of());
+                    Map.of(), EMPTY_EXPORT_PAYLOAD, null, null, RawRecordNormalizeStatus.NORMALIZED, List.of());
         }
     }
 }

@@ -275,9 +275,10 @@ V1 Post-billing 不要求保存 Provider API Secret。
 
 ## 3. Evidence / Ingestion 表
 
-> M2 Group 1 实际实现（V4 migration）。M2 结束于 `ImportBatch.PARSED / FAILED`；
-> canonical cost facts（`external_document` / `consumption_fact` / `pricing_fact` /
-> `charge_fact` / `attribution_hint`）属于 M3，本组不创建。
+> M2 Group 1 实际实现（V4 migration）+ M3 Group 1 扩展（V8 migration）。
+> M3 将 canonical cost facts（`external_document` / `consumption_fact` /
+> `pricing_fact` / `charge_fact` / `attribution_hint`）建表，并把 normal success
+> path 的 Batch 终态推进到 `READY_FOR_REVIEW` → `CONFIRMED`。
 
 ### `evidence`
 
@@ -322,9 +323,10 @@ provider_account_id        M2 必须指向当前组织 ACTIVE Provider Account
 expected_provider_code
 source_type                FILE_EXPORT | USAGE_API_JSON | COSTS_API_JSON
 parser_version
-status                     PENDING | PROCESSING | PARSED | FAILED | CANCELED
+status                     PENDING | PROCESSING | PARSED | READY_FOR_REVIEW | CONFIRMED | FAILED | CANCELED
 period_start NULL
 period_end NULL
+confirmed_attempt_id NULL   M3：confirm 时指向被确认的 ImportAttempt
 created_by_member_id
 created_at
 updated_at
@@ -342,7 +344,9 @@ FK created_by_member_id -> organization_member
 
 Batch identity 是 Evidence + Provider Account + source type + parser version。
 复用同一 Batch 不隐式创建新 Attempt；重试/恢复显式创建新 Attempt。
-`PARSED` 有意不命名为 `READY_FOR_REVIEW`（后者是 M3 语义）。
+`PARSED` 是 M2 历史遗留值；M3 normal success path 由同一 finalization
+transaction 原子产生 `SUCCEEDED` Attempt + `READY_FOR_REVIEW` Batch，
+`CONFIRMED`（含 `confirmed_attempt_id`）是终态且不可 cancel/retry。
 Provider code 在 Batch 上快照为 `expected_provider_code`，避免后续 Provider Account
 元数据变更改写历史导入上下文。
 
@@ -480,6 +484,13 @@ WARN 可继续且 Attempt 仍可 SUCCEEDED；存在 ERROR 则 Attempt FAILED、B
 禁止把 Secret Copy 到 Issue（`raw_value_masked` 只允许掩码值）。
 
 ## 4. Canonical Cost 表
+
+> 本 PR 实施契约（V8 migration）：五表共用
+> `id / org_id / raw_record_id / fact_index / created_at` +
+> `UQ(raw_record_id, fact_index)` + `CHECK (fact_index >= 0)` +
+> FK org/raw + `idx_<t>_org_created`。金额列 DECIMAL(20,8)、用量 DECIMAL(30,8)、
+> currency CHAR(3)；Java 侧 BigDecimal 全程，禁止 float/double 权威金额，
+> 禁止依赖 MySQL silent rounding（精确表示 guard，见 08-provider-import-design）。
 
 ### `external_document`
 

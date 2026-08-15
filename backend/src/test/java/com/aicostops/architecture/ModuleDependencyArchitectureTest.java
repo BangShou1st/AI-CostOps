@@ -73,6 +73,7 @@ class ModuleDependencyArchitectureTest {
                 .that().resideInAPackage("com.aicostops.ingestion.application..")
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
                         "com.aicostops.ingestion..",
+                        "com.aicostops.cost.application..",
                         "com.aicostops.evidence..",
                         "com.aicostops.organization..",
                         "com.aicostops.iam..",
@@ -84,6 +85,77 @@ class ModuleDependencyArchitectureTest {
                         "com.fasterxml.jackson..");
 
         allowedIngestionDependencies.check(productionClasses);
+    }
+
+    @Test
+    void costMustNotDependOnIngestion() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule costRule = classes()
+                .that().resideInAPackage("com.aicostops.cost..")
+                .should().onlyDependOnClassesThat().resideOutsideOfPackages("com.aicostops.ingestion..");
+
+        costRule.check(productionClasses);
+    }
+
+    @Test
+    void costDomainStaysFrameworkFree() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule costDomainRule = classes()
+                .that().resideInAPackage("com.aicostops.cost.domain..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.cost.domain..",
+                        "com.aicostops.shared..",
+                        "java..");
+
+        costDomainRule.check(productionClasses);
+    }
+
+    @Test
+    void costApplicationDependsOnlyOnDomainSharedAndJson() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule costApplicationRule = classes()
+                .that().resideInAPackage("com.aicostops.cost.application..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.cost.application..",
+                        "com.aicostops.cost.domain..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        costApplicationRule.check(productionClasses);
+    }
+
+    @Test
+    void costInfrastructureDependsOnlyOnApplicationFrameworkAndMybatis() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule costInfrastructureRule = classes()
+                .that().resideInAPackage("com.aicostops.cost.infrastructure..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.cost..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "org.apache.ibatis..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        costInfrastructureRule.check(productionClasses);
     }
 
     @Test

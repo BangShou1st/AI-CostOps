@@ -46,6 +46,14 @@ public class ImportWorkflowController {
         return ImportResponse.from(commands.cancel(authenticatedUser, importId, idempotencyKey));
     }
 
+    @PostMapping("/{importId}/confirm")
+    public ImportResponse confirm(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long importId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        return ImportResponse.from(commands.confirm(authenticatedUser, importId, idempotencyKey));
+    }
+
     @GetMapping
     public PageResponse<ImportResponse> list(
             @AuthenticationPrincipal AuthenticatedUser authenticatedUser,

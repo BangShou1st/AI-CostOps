@@ -14,7 +14,7 @@ public interface ImportBatchMapper {
     String IMPORT_BATCH_COLUMNS = """
             ib.id,ib.org_id,ib.evidence_id,ib.provider_account_id,ib.expected_provider_code,
             ib.source_type,ib.parser_version,ib.status,ib.period_start,ib.period_end,
-            ib.created_by_member_id,ib.created_at,ib.updated_at
+            ib.created_by_member_id,ib.created_at,ib.updated_at,ib.confirmed_attempt_id
             """;
 
     @Select("""
@@ -108,5 +108,15 @@ public interface ImportBatchMapper {
     int updateStatus(
             @Param("batchId") long batchId,
             @Param("status") String status,
+            @Param("now") Instant now);
+
+    @Update("""
+            UPDATE import_batch ib
+            SET ib.status='CONFIRMED', ib.confirmed_attempt_id=#{attemptId}, ib.updated_at=#{now}
+            WHERE ib.id=#{batchId} AND ib.status='READY_FOR_REVIEW' AND ib.confirmed_attempt_id IS NULL
+            """)
+    int markConfirmed(
+            @Param("batchId") long batchId,
+            @Param("attemptId") long attemptId,
             @Param("now") Instant now);
 }

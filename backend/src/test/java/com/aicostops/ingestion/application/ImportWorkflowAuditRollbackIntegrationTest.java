@@ -45,6 +45,12 @@ class ImportWorkflowAuditRollbackIntegrationTest extends AuthenticationContainer
                         long attemptId, String previousAttemptStatus, String previousBatchStatus) {
                     throw new IllegalStateException("test audit failure");
                 }
+
+                @Override
+                public void importConfirmed(long orgId, long actorUserId, long batchId,
+                        long attemptId, String previousBatchStatus) {
+                    throw new IllegalStateException("test audit failure");
+                }
             };
         }
     }
@@ -64,6 +70,8 @@ class ImportWorkflowAuditRollbackIntegrationTest extends AuthenticationContainer
     private long failedAttemptId;
     private long pendingBatchId;
     private long queuedAttemptId;
+    private long readyBatchId;
+    private long readyAttemptId;
 
     @BeforeEach
     void setUp() {
@@ -74,7 +82,7 @@ class ImportWorkflowAuditRollbackIntegrationTest extends AuthenticationContainer
         organizationId = insertOrganization("Audit Rollback", "audit-rollback");
         actorUserId = insertUser("audit-rollback@example.com");
         actorMemberId = insertMember(organizationId, actorUserId);
-        createPermissionRole("WORKFLOW", List.of("IMPORT_RETRY", "IMPORT_CANCEL"));
+        createPermissionRole("WORKFLOW", List.of("IMPORT_RETRY", "IMPORT_CANCEL", "IMPORT_CONFIRM"));
         assign("WORKFLOW", "ORG", organizationId);
 
         accountId = insertProviderAccount(organizationId, "TEST_PROVIDER", "Primary");
@@ -82,6 +90,8 @@ class ImportWorkflowAuditRollbackIntegrationTest extends AuthenticationContainer
         failedAttemptId = insertAttempt(failedBatchId, 1, "FAILED", "INITIAL", null);
         pendingBatchId = insertBatch(organizationId, "PENDING");
         queuedAttemptId = insertAttempt(pendingBatchId, 1, "QUEUED", "INITIAL", null);
+        readyBatchId = insertBatch(organizationId, "READY_FOR_REVIEW");
+        readyAttemptId = insertAttempt(readyBatchId, 1, "SUCCEEDED", "INITIAL", null);
     }
 
     @AfterEach
@@ -129,6 +139,26 @@ class ImportWorkflowAuditRollbackIntegrationTest extends AuthenticationContainer
         // Batch remains PENDING.
         assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
                 String.class, pendingBatchId)).isEqualTo("PENDING");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM api_idempotency", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event", Integer.class)).isZero();
+    }
+
+    @Test
+    void confirmAuditFailureRollsBackMutationAndIdempotencyAtomically() {
+        assertThatThrownBy(() -> commands.confirm(user(), readyBatchId, "idem-audit-fail"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("test audit failure");
+
+        // The confirm mutation rolled back: batch stays review-ready, no confirmed attempt.
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, readyBatchId)).isEqualTo("READY_FOR_REVIEW");
+        assertThat(jdbc.queryForObject(
+                "SELECT confirmed_attempt_id FROM import_batch WHERE id=?",
+                Long.class, readyBatchId)).isNull();
+        // The attempt stays SUCCEEDED (nothing touched it).
+        assertThat(jdbc.queryForObject("SELECT status FROM import_attempt WHERE id=?",
+                String.class, readyAttemptId)).isEqualTo("SUCCEEDED");
+        // No idempotency row (provisional or final) and no audit event committed.
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM api_idempotency", Integer.class)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event", Integer.class)).isZero();
     }

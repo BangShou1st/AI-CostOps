@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: AI CostOps M1 API
+  title: AI CostOps API
   version: 1.0.0
-  description: Authentication, organization administration, and explicit-scope authorization contracts delivered in M1.
+  description: Authentication, organization administration, explicit-scope authorization, evidence/import workflow, and the M3 canonical cost foundation API.
 servers:
   - url: /api/v1
 security:
@@ -24,6 +24,11 @@ components:
       name: status
       in: query
       schema: { $ref: '#/components/schemas/MasterDataStatus' }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 200 }
   responses:
     Problem:
       description: RFC 9457-style request, authentication, authorization, visibility, state, or dependency error.
@@ -290,6 +295,147 @@ components:
         updatedAt: { type: string, format: date-time }
     PageResponseProviderAccount:
       allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ProviderAccount' } } } }]
+    ImportStatus: { type: string, enum: [PENDING, PROCESSING, PARSED, READY_FOR_REVIEW, CONFIRMED, FAILED, CANCELED] }
+    AttemptStatus: { type: string, enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELED] }
+    AttemptTrigger: { type: string, enum: [INITIAL, MANUAL_RETRY, LEASE_RECOVERY] }
+    SourceType: { type: string, enum: [FILE_EXPORT, USAGE_API_JSON, COSTS_API_JSON] }
+    NormalizeStatus: { type: string, enum: [NORMALIZED, WARN, ERROR] }
+    StorageStatus: { type: string, enum: [STAGING, AVAILABLE, FAILED] }
+    EvidenceRef:
+      type: object
+      required: [id, originalFilename]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        originalFilename: { type: string }
+    ProviderAccountRef:
+      type: object
+      required: [id, displayName]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        displayName: { type: string }
+    AttemptResponse:
+      type: object
+      required: [id, attemptNo, status, triggerType, parserVersion, recordsSeen, recordsValid, warningCount, errorCount, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        attemptNo: { type: integer }
+        status: { $ref: '#/components/schemas/AttemptStatus' }
+        triggerType: { $ref: '#/components/schemas/AttemptTrigger' }
+        predecessorAttemptId: { anyOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        parserVersion: { type: string }
+        detectedProviderCode: { type: [string, 'null'] }
+        schemaFingerprint: { type: [string, 'null'] }
+        startedAt: { type: [string, 'null'], format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        recordsSeen: { type: integer, format: int64 }
+        recordsValid: { type: integer, format: int64 }
+        warningCount: { type: integer, format: int64 }
+        errorCount: { type: integer, format: int64 }
+        errorCode: { type: [string, 'null'] }
+        errorSummary: { type: [string, 'null'] }
+    ImportResponse:
+      type: object
+      required: [id, evidence, providerAccount, expectedProviderCode, sourceType, parserVersion, status, createdByMemberId, createdAt, updatedAt, retryable, cancelable]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        evidence: { $ref: '#/components/schemas/EvidenceRef' }
+        providerAccount: { $ref: '#/components/schemas/ProviderAccountRef' }
+        expectedProviderCode: { type: string }
+        sourceType: { $ref: '#/components/schemas/SourceType' }
+        parserVersion: { type: string }
+        status: { $ref: '#/components/schemas/ImportStatus' }
+        periodStart: { type: [string, 'null'], format: date-time }
+        periodEnd: { type: [string, 'null'], format: date-time }
+        latestAttempt: { anyOf: [{ $ref: '#/components/schemas/AttemptResponse' }, { type: 'null' }] }
+        createdByMemberId: { $ref: '#/components/schemas/Id' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        confirmedAttemptId: { anyOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        retryable: { type: boolean }
+        cancelable: { type: boolean }
+    IssueResponse:
+      type: object
+      required: [id, severity, issueCode, recordLocator, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        rawProviderRecordId: { anyOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        severity: { type: string, enum: [WARN, ERROR] }
+        issueCode: { type: string }
+        recordLocator: { type: [string, 'null'] }
+        fieldName: { type: [string, 'null'] }
+        message: { type: string }
+        rawValueMasked: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    KeySummaryResponse:
+      type: object
+      required: [keyCount, keys, keysTruncated]
+      properties:
+        keyCount: { type: integer }
+        keys: { type: array, items: { type: string } }
+        keysTruncated: { type: boolean }
+    RawRecordSummaryResponse:
+      type: object
+      required: [id, recordIndex, recordLocator, normalizeStatus, rawPayloadKeys, normalizedPayloadKeys, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        recordIndex: { type: integer, format: int64 }
+        recordLocator: { type: string }
+        providerRecordKey: { type: [string, 'null'] }
+        normalizeStatus: { $ref: '#/components/schemas/NormalizeStatus' }
+        usageStart: { type: [string, 'null'], format: date-time }
+        usageEnd: { type: [string, 'null'], format: date-time }
+        rawPayloadKeys: { $ref: '#/components/schemas/KeySummaryResponse' }
+        normalizedPayloadKeys: { $ref: '#/components/schemas/KeySummaryResponse' }
+        createdAt: { type: string, format: date-time }
+    RawRecordDetailResponse:
+      type: object
+      required: [id, recordIndex, recordLocator, normalizeStatus, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        recordIndex: { type: integer, format: int64 }
+        recordLocator: { type: string }
+        providerRecordKey: { type: [string, 'null'] }
+        normalizeStatus: { $ref: '#/components/schemas/NormalizeStatus' }
+        usageStart: { type: [string, 'null'], format: date-time }
+        usageEnd: { type: [string, 'null'], format: date-time }
+        rawPayload: { type: [object, 'null'], additionalProperties: true }
+        normalizedPayload: { type: [object, 'null'], additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    EvidenceResponse:
+      type: object
+      required: [id, originalFilename, mediaType, sizeBytes, sha256, storageStatus, uploadedByMemberId, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        originalFilename: { type: string }
+        mediaType: { type: [string, 'null'] }
+        sizeBytes: { type: integer, format: int64 }
+        sha256: { type: string }
+        storageStatus: { $ref: '#/components/schemas/StorageStatus' }
+        storageErrorCode: { type: [string, 'null'] }
+        uploadedByMemberId: { $ref: '#/components/schemas/Id' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProviderImportResponse:
+      type: object
+      required: [evidenceId, importBatchId, latestAttemptId, batchStatus, duplicateEvidence, duplicateBatch]
+      properties:
+        evidenceId: { $ref: '#/components/schemas/Id' }
+        importBatchId: { $ref: '#/components/schemas/Id' }
+        latestAttemptId: { $ref: '#/components/schemas/Id' }
+        batchStatus: { $ref: '#/components/schemas/ImportStatus' }
+        duplicateEvidence: { type: boolean }
+        duplicateBatch: { type: boolean }
+    PageResponseImport:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ImportResponse' } } } }]
+    PageResponseAttempt:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/AttemptResponse' } } } }]
+    PageResponseIssue:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/IssueResponse' } } } }]
+    PageResponseRawRecordSummary:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/RawRecordSummaryResponse' } } } }]
+    PageResponseEvidence:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/EvidenceResponse' } } } }]
 
 paths:
   /auth/login:
@@ -422,3 +568,55 @@ paths:
     patch:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateProviderAccountRequest' } } } }
       responses: { '200': { description: Provider account updated, content: { application/json: { schema: { $ref: '#/components/schemas/ProviderAccount' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /evidence:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses: { '200': { description: Paged evidence, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseEvidence' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /evidence/{evidenceId}:
+    get:
+      responses: { '200': { description: Evidence detail, content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /evidence/{id}/download:
+    get:
+      responses: { '200': { description: Evidence content stream, content: { application/octet-stream: {} } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /evidence/{evidenceId}/imports:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses: { '200': { description: Paged imports for one evidence, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseImport' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /provider-imports:
+    post:
+      requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, required: [file, providerAccountId, sourceType], properties: { file: { type: string, format: binary }, providerAccountId: { type: integer, format: int64 }, sourceType: { $ref: '#/components/schemas/SourceType' } } } } } }
+      responses: { '201': { description: Import created (possibly deduplicated), content: { application/json: { schema: { $ref: '#/components/schemas/ProviderImportResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' }, '503': { $ref: '#/components/responses/Problem' } }
+  /imports:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: status, in: query, schema: { $ref: '#/components/schemas/ImportStatus' } }, { name: providerAccountId, in: query, schema: { type: integer, format: int64 } }]
+      responses: { '200': { description: Paged imports, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseImport' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /imports/{importId}:
+    get:
+      responses: { '200': { description: Import detail, content: { application/json: { schema: { $ref: '#/components/schemas/ImportResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /imports/{importId}/confirm:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Import detail after confirm, content: { application/json: { schema: { $ref: '#/components/schemas/ImportResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /imports/{importId}/retry:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Import detail after manual retry, content: { application/json: { schema: { $ref: '#/components/schemas/ImportResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /imports/{importId}/cancel:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Import detail after cancel, content: { application/json: { schema: { $ref: '#/components/schemas/ImportResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /imports/{importId}/attempts:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses: { '200': { description: Paged attempts, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseAttempt' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /imports/{importId}/attempts/{attemptId}/issues:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: severity, in: query, schema: { type: string, enum: [WARN, ERROR] } }, { name: issueCode, in: query, schema: { type: string } }]
+      responses: { '200': { description: Paged issues, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseIssue' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /imports/{importId}/attempts/{attemptId}/raw-records:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: normalizeStatus, in: query, schema: { $ref: '#/components/schemas/NormalizeStatus' } }]
+      responses: { '200': { description: Paged raw records with key summaries, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseRawRecordSummary' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /imports/{importId}/attempts/{attemptId}/raw-records/{recordId}:
+    get:
+      responses: { '200': { description: Raw record detail with redacted payloads, content: { application/json: { schema: { $ref: '#/components/schemas/RawRecordDetailResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }

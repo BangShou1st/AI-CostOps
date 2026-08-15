@@ -157,6 +157,21 @@ ALLOCATION_CONFIRM
 ALLOCATION_RULE_MANAGE
 ```
 
+M3 Group 1 作用域基线（policy 映射，seed 不变）：
+
+```text
+COST_READ              ORG | PROJECT | COST_CENTER
+DUPLICATE_REVIEW       ORG | PROJECT | COST_CENTER
+ALLOCATION_READ        ORG | PROJECT | COST_CENTER
+ALLOCATION_EDIT        ORG | PROJECT | COST_CENTER
+ALLOCATION_CONFIRM     ORG | PROJECT | COST_CENTER
+ALLOCATION_RULE_MANAGE ORG
+```
+
+SYSTEM_ADMIN seed 不含 finance 权限 → 不自动获得；`/auth/me` 投影随 policy
+自动包含 ORG 级 finance grant。Confirm（`IMPORT_CONFIRM`）沿用 M2 的
+ORG 级策略，零 seed 改动。
+
 ### Expense
 
 ```text

@@ -12,25 +12,28 @@ Current State Check
 ## 1. ImportBatch
 
 ```text
-UPLOADED
-→ PROCESSING
-→ READY_FOR_REVIEW
-→ CONFIRMED
-
-PROCESSING
-→ FAILED
-→ Retry → PROCESSING
-
-READY_FOR_REVIEW / FAILED
-→ CANCELED
+PENDING ─claim─▶ PROCESSING ─finalization 单事务─▶ READY_FOR_REVIEW ─confirm─▶ CONFIRMED（终态）
+   │               │
+   │               ├─▶ FAILED（worker 异常/ERROR 耗尽/SCHEMA_INCOMPATIBLE）
+   │               └─▶ CANCELED（仅 PROCESSING+RUNNING）
+   └──────（仅 PENDING+QUEUED 可 cancel）
+FAILED / CANCELED ─retry─▶ PENDING（新 MANUAL_RETRY attempt）
 ```
 
 规则：
 
-- Failed Attempt / RawRecord 保留；
-- Retry 创建 `attempt_no + 1`；
+- Cancel 仅 `(PENDING,QUEUED)` 或 `(PROCESSING,RUNNING)`；**READY_FOR_REVIEW 不可
+  cancel/retry**，唯一出口 CONFIRMED。
+- `CONFIRMED` 是终态：不可 cancel/retry；重复 confirm 同一 attempt（任意新 key）
+  → 幂等成功（无第二条 audit）。
+- `PARSED` 仅历史遗留值（M2 数据），不可 confirm。
+- 成功态措辞：**M3 normal success path 由同一 finalization transaction 原子
+  产生 `SUCCEEDED` Attempt + `READY_FOR_REVIEW` Batch**——不存在
+  `SUCCEEDED ⇔ READY_FOR_REVIEW` 等号，兼容历史 M2 `SUCCEEDED + PARSED` 数据。
+- Failed Attempt / RawRecord 保留；Retry 创建 `attempt_no + 1`；
 - `CONFIRMED` 固定 `confirmed_attempt_id`；
 - Parser 行为变化后不能原地重跑，使用新 Parser Version / ImportBatch。
+- **Import Confirm ≠ Ledger Posting。**
 
 ## 2. ImportAttempt
 

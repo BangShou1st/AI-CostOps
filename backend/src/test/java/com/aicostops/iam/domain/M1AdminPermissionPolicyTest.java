@@ -33,6 +33,16 @@ class M1AdminPermissionPolicyTest {
                 Arguments.of("COST_CENTER_READ", Set.of(ScopeType.ORG, ScopeType.COST_CENTER)),
                 Arguments.of("COST_CENTER_MANAGE", Set.of(ScopeType.ORG, ScopeType.COST_CENTER)),
                 Arguments.of("PROVIDER_ACCOUNT_READ", Set.of(ScopeType.ORG)),
-                Arguments.of("PROVIDER_ACCOUNT_MANAGE", Set.of(ScopeType.ORG)));
+                Arguments.of("PROVIDER_ACCOUNT_MANAGE", Set.of(ScopeType.ORG)),
+                Arguments.of("IMPORT_READ", Set.of(ScopeType.ORG)),
+                Arguments.of("IMPORT_RETRY", Set.of(ScopeType.ORG)),
+                Arguments.of("IMPORT_CONFIRM", Set.of(ScopeType.ORG)),
+                Arguments.of("IMPORT_CANCEL", Set.of(ScopeType.ORG)),
+                Arguments.of("COST_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
+                Arguments.of("DUPLICATE_REVIEW", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
+                Arguments.of("ALLOCATION_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
+                Arguments.of("ALLOCATION_EDIT", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
+                Arguments.of("ALLOCATION_CONFIRM", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
+                Arguments.of("ALLOCATION_RULE_MANAGE", Set.of(ScopeType.ORG)));
     }
 }

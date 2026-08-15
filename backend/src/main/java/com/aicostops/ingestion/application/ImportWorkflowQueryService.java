@@ -202,7 +202,7 @@ public class ImportWorkflowQueryService {
                 row.providerAccountId(), row.providerDisplayName(),
                 row.expectedProviderCode(), sourceTypeOf(row.sourceType()), row.parserVersion(),
                 statusOf(row.status()), row.periodStart(), row.periodEnd(), latest,
-                row.createdByMemberId(), row.createdAt(), row.updatedAt());
+                row.createdByMemberId(), row.createdAt(), row.updatedAt(), row.confirmedAttemptId());
     }
 
     private static AttemptSummary toAttemptSummary(com.aicostops.ingestion.domain.ImportAttempt attempt) {

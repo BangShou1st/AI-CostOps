@@ -34,6 +34,7 @@ public final class ImportWorkflowReadModels {
             long createdByMemberId,
             Instant createdAt,
             Instant updatedAt,
+            Long confirmedAttemptId,
             boolean retryable,
             boolean cancelable) {
 
@@ -52,7 +53,8 @@ public final class ImportWorkflowReadModels {
                 AttemptSummary latestAttempt,
                 long createdByMemberId,
                 Instant createdAt,
-                Instant updatedAt) {
+                Instant updatedAt,
+                Long confirmedAttemptId) {
             return new ImportSummary(
                     id,
                     new EvidenceRef(evidenceId, evidenceOriginalFilename),
@@ -67,6 +69,7 @@ public final class ImportWorkflowReadModels {
                     createdByMemberId,
                     createdAt,
                     updatedAt,
+                    confirmedAttemptId,
                     status == ImportBatchStatus.FAILED || status == ImportBatchStatus.CANCELED,
                     (status == ImportBatchStatus.PENDING && latestAttempt != null
                             && latestAttempt.status() == ImportAttemptStatus.QUEUED)

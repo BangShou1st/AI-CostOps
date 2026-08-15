@@ -100,10 +100,15 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
         executor.execute(lease);
 
         assertThat(attemptStatus(lease.attemptId())).isEqualTo("SUCCEEDED");
-        assertThat(batchStatus(batchId)).isEqualTo("PARSED");
+        assertThat(batchStatus(batchId)).isEqualTo("READY_FOR_REVIEW");
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM raw_provider_record WHERE import_attempt_id=?",
                 Integer.class, lease.attemptId())).isEqualTo(fixture.expectedRecords);
+        assertThat(countOf("external_document")).isEqualTo(fixture.expectedDocuments);
+        assertThat(countOf("consumption_fact")).isEqualTo(fixture.expectedConsumptions);
+        assertThat(countOf("charge_fact")).isEqualTo(fixture.expectedCharges);
+        assertThat(countOf("attribution_hint")).isEqualTo(fixture.expectedHints);
+        assertThat(countOf("pricing_fact")).isZero();
         var attempt = jdbc.queryForMap("""
                 SELECT detected_provider_code,schema_fingerprint,parser_version,records_seen
                 FROM import_attempt WHERE id=?
@@ -132,7 +137,7 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
         var content = ProviderFixtureFactory.zip(entries);
         var fixture = new FixtureCase("DEEPSEEK", DeepSeekProviderAdapter.PARSER_VERSION,
                 ImportSourceType.FILE_EXPORT, DeepSeekProviderAdapter.SCHEMA_VARIANT,
-                0, "deepseek-incomplete.zip", "application/zip", content);
+                0, 0, 0, 0, 0, "deepseek-incomplete.zip", "application/zip", content);
         var evidenceId = storeEvidence(fixture);
         var batchId = insertBatchWithAttempt(fixture);
         var lease = leases.claimNext("pipeline-worker-incompatible").orElseThrow();
@@ -159,7 +164,7 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
                 """;
         var fixture = new FixtureCase("OPENAI", OpenAiProviderAdapter.PARSER_VERSION,
                 ImportSourceType.USAGE_API_JSON, OpenAiProviderAdapter.USAGE_JSON,
-                1, "usage.json", "application/json",
+                1, 0, 15, 0, 3, "usage.json", "application/json",
                 usageJson.getBytes(StandardCharsets.UTF_8));
         var evidenceId = storeEvidence(fixture);
         var batchId = insertBatchWithAttempt(fixture);
@@ -168,7 +173,7 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
         executor.execute(lease);
 
         assertThat(attemptStatus(lease.attemptId())).isEqualTo("SUCCEEDED");
-        assertThat(batchStatus(batchId)).isEqualTo("PARSED");
+        assertThat(batchStatus(batchId)).isEqualTo("READY_FOR_REVIEW");
         var credentialId = jdbc.queryForObject("""
                 SELECT JSON_UNQUOTE(JSON_EXTRACT(normalized_payload, '$.dimensions.credentialId'))
                 FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0
@@ -192,6 +197,10 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
             ImportSourceType sourceType,
             String expectedVariant,
             int expectedRecords,
+            int expectedDocuments,
+            int expectedConsumptions,
+            int expectedCharges,
+            int expectedHints,
             String filename,
             String mediaType,
             byte[] content) {
@@ -219,7 +228,7 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
                         + "user-1,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,deepseek-chat,main_wallet,1.25,CNY\n");
         return new FixtureCase("DEEPSEEK", DeepSeekProviderAdapter.PARSER_VERSION,
                 ImportSourceType.FILE_EXPORT, DeepSeekProviderAdapter.SCHEMA_VARIANT,
-                2, "deepseek-2026-08.zip", "application/zip", zipOrThrow(entries));
+                2, 0, 0, 1, 3, "deepseek-2026-08.zip", "application/zip", zipOrThrow(entries));
     }
 
     private static FixtureCase mimoFixture() {
@@ -235,7 +244,7 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
                 Arrays.asList("Date", "Plugin", "API Key", "Currency", "Consumed Amount", "Request Count")));
         return new FixtureCase("MIMO", MimoProviderAdapter.PARSER_VERSION,
                 ImportSourceType.FILE_EXPORT, MimoProviderAdapter.SCHEMA_VARIANT,
-                1, "mimo-usage.xlsx",
+                1, 0, 5, 1, 0, "mimo-usage.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsxOrThrow(rows));
     }
 
@@ -247,7 +256,7 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
                         "user-1", "org-1", "某客户主体", "88.50", "11.50")));
         return new FixtureCase("KIMI", KimiProviderAdapter.PARSER_VERSION,
                 ImportSourceType.FILE_EXPORT, KimiProviderAdapter.SCHEMA_VARIANT,
-                1, "kimi-billing.xlsx",
+                1, 1, 0, 0, 1, "kimi-billing.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsxOrThrow(rows));
     }
 
@@ -260,14 +269,14 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
                         "50.00", "50.00", "0.00", "已结清")));
         return new FixtureCase("GLM", GlmProviderAdapter.PARSER_VERSION,
                 ImportSourceType.FILE_EXPORT, GlmProviderAdapter.SCHEMA_VARIANT,
-                1, "glm-monthly.xlsx",
+                1, 1, 0, 0, 0, "glm-monthly.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xlsxOrThrow(rows));
     }
 
     private static FixtureCase openAiObservedCsvFixture() {
         return new FixtureCase("OPENAI", OpenAiProviderAdapter.PARSER_VERSION,
                 ImportSourceType.FILE_EXPORT, OpenAiProviderAdapter.OBSERVED_EMPTY_EXPORT,
-                1, "completions_usage_2026-08-01.csv", "text/csv",
+                1, 0, 0, 0, 0, "completions_usage_2026-08-01.csv", "text/csv",
                 ("start_time,end_time,start_time_iso,end_time_iso\n"
                         + "1780000000,1780003600,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z\n")
                         .getBytes(StandardCharsets.UTF_8));
@@ -276,14 +285,14 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
     private static FixtureCase openAiUsageJsonFixture() {
         return new FixtureCase("OPENAI", OpenAiProviderAdapter.PARSER_VERSION,
                 ImportSourceType.USAGE_API_JSON, OpenAiProviderAdapter.USAGE_JSON,
-                1, "usage.json", "application/json",
+                1, 0, 15, 0, 3, "usage.json", "application/json",
                 classpath("/provider-fixtures/openai/official-usage-completions.json"));
     }
 
     private static FixtureCase openAiCostsJsonFixture() {
         return new FixtureCase("OPENAI", OpenAiProviderAdapter.PARSER_VERSION,
                 ImportSourceType.COSTS_API_JSON, OpenAiProviderAdapter.COSTS_JSON,
-                1, "costs.json", "application/json",
+                1, 0, 0, 1, 2, "costs.json", "application/json",
                 classpath("/provider-fixtures/openai/official-costs.json"));
     }
 
@@ -350,6 +359,11 @@ class ProviderAdapterPipelineIntegrationTest extends MinioContainerSupport {
                     NULL,NULL,NULL,NULL,NULL,NULL,0,0,0,0,UTC_TIMESTAMP(6))
                 """, batchId, fixture.parserVersion);
         return batchId;
+    }
+
+    private long countOf(String table) {
+        var count = jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+        return count == null ? 0 : count;
     }
 
     private String attemptStatus(long attemptId) {

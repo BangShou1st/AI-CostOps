@@ -97,6 +97,26 @@ class M1OpenApiContractTest {
         assertThat(operationStatuses()).containsExactlyInAnyOrderEntriesOf(APPROVED_OPERATIONS);
     }
 
+    @Test
+    void importCommandsDeclareIdempotencyKeyHeaderParameter() {
+        var idempotentCommands = Set.of(
+                "POST /imports/{importId}/retry",
+                "POST /imports/{importId}/cancel",
+                "POST /imports/{importId}/confirm");
+        for (var operation : idempotentCommands) {
+            assertThat(parameterRefs(operation))
+                    .as(operation)
+                    .contains("#/components/parameters/IdempotencyKey");
+        }
+        var parameter = map(map(map(document, "components"), "parameters"), "IdempotencyKey");
+        assertThat(parameter).containsEntry("name", "Idempotency-Key")
+                .containsEntry("in", "header")
+                .containsEntry("required", true);
+        var schema = map(parameter, "schema");
+        assertThat(schema.get("maxLength")).isEqualTo(200);
+        assertThat(schema.get("minLength")).isEqualTo(1);
+    }
+
     private static void assertStringSchema(String name) {
         assertThat(schema(name).get("type")).isEqualTo("string");
         assertThat(schema(name).get("pattern")).isEqualTo("^[0-9]+$");
@@ -191,6 +211,20 @@ class M1OpenApiContractTest {
         addMaster(operations, "/cost-centers/{id}");
         addCollection(operations, "/provider-accounts", true);
         addMaster(operations, "/provider-accounts/{id}");
+        add(operations, "GET /evidence", "200", "400", "401", "403");
+        add(operations, "GET /evidence/{evidenceId}", "200", "400", "401", "403", "404");
+        add(operations, "GET /evidence/{id}/download", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /evidence/{evidenceId}/imports", "200", "400", "401", "403", "404");
+        add(operations, "POST /provider-imports", "201", "400", "401", "403", "404", "409", "503");
+        add(operations, "GET /imports", "200", "400", "401", "403");
+        add(operations, "GET /imports/{importId}", "200", "400", "401", "403", "404");
+        add(operations, "POST /imports/{importId}/retry", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /imports/{importId}/cancel", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /imports/{importId}/confirm", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /imports/{importId}/attempts", "200", "400", "401", "403", "404");
+        add(operations, "GET /imports/{importId}/attempts/{attemptId}/issues", "200", "400", "401", "403", "404");
+        add(operations, "GET /imports/{importId}/attempts/{attemptId}/raw-records", "200", "400", "401", "403", "404");
+        add(operations, "GET /imports/{importId}/attempts/{attemptId}/raw-records/{recordId}", "200", "400", "401", "403", "404");
         return Map.copyOf(operations);
     }
 
