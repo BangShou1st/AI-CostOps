@@ -85,7 +85,7 @@ export interface RawRecordDetail {
   normalizeStatus: RawRecordNormalizeStatus | null
   usageStart: string | null
   usageEnd: string | null
-  rawPayload: unknown
+  rawPayload: unknown | null
   normalizedPayload: unknown | null
   createdAt: string
 }
