@@ -3,6 +3,10 @@ package com.aicostops.ingestion.application;
 /**
  * Streaming provider adapter contract. Adapters never touch MySQL or canonical cost
  * types; ingestion owns persistence and transaction behavior.
+ *
+ * <p>{@code schemaVariant} is routed from {@link InspectionResult} into
+ * {@link #normalize} explicitly; adapters must not smuggle variant or record-kind
+ * routing through fake raw provider fields.
  */
 public interface ProviderAdapter {
 
@@ -10,9 +14,9 @@ public interface ProviderAdapter {
 
     String parserVersion();
 
-    InspectionResult inspect(ProviderSource source);
+    InspectionResult inspect(ProviderInput input);
 
-    void parse(ProviderSource source, InspectionResult inspection, ProviderRecordSink sink);
+    void parse(ProviderInput input, InspectionResult inspection, ProviderRecordSink sink);
 
-    NormalizedProviderRecord normalize(ParsedProviderRecord record);
+    NormalizedProviderRecord normalize(ParsedProviderRecord record, InspectionResult inspection);
 }

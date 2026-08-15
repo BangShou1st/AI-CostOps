@@ -1,0 +1,142 @@
+# 12. M2 Group 2 — Provider Adapters Acceptance Evidence
+
+> Date: 2026-08-14
+> Branch: `feat/m2-provider-adapters`
+> Baseline: `main@9cb12f8`
+> Issues: #33 (AIC-025), #34 (AIC-026), #35 (AIC-027), #36 (AIC-028), #37 (AIC-029)
+> 验证命令与计数必须在最后一次 fresh verification 后填写；本文不包含猜测值。
+
+## 1. Issue 映射
+
+| Issue | AIC | Provider | 交付物 |
+|---|---|---|---|
+| #33 | AIC-025 | DeepSeek | `deepseek.usage-zip.v1` adapter + sanitized fixtures |
+| #34 | AIC-026 | MiMo | `mimo.usage-workbook.v1` adapter + fixtures |
+| #35 | AIC-027 | Kimi | `kimi.billing-summary-workbook.v1` adapter + fixtures |
+| #36 | AIC-028 | GLM | `glm.monthly-billing-summary-workbook.v1` adapter + fixtures |
+| #37 | AIC-029 | OpenAI | observed CSV + official Usage/Costs JSON adapters + fixtures |
+
+## 2. 交付边界
+
+本轮交付：
+
+```text
+Evidence
+→ Inspect（schemaVariant + schemaFingerprint + issues）
+→ Parse（streaming，bounded）
+→ Provider-side intermediate normalization
+→ RawProviderRecord / ImportIssue 持久化（redacted、lease-fenced、bounded）
+→ PARSED / FAILED
+```
+
+明确不在本轮：
+
+```text
+M3 Canonical Cost（external_document / consumption_fact / pricing_fact /
+charge_fact / attribution_hint）
+live provider API client
+import_attempt.schema_variant migration
+GLM detailed-expense workbook
+populated OpenAI CSV metric 契约
+```
+
+## 3. 关键不变量（均有回归测试）
+
+- 五个 Provider Code 精确：`DEEPSEEK` / `MIMO` / `KIMI` / `GLM` / `OPENAI`；
+  一个 Provider 一个注册 Adapter。
+- `ImportSourceType` 是契约：`FILE_EXPORT` / `USAGE_API_JSON` / `COSTS_API_JSON`
+  错配即 schema incompatible。
+- Schema Fingerprint = canonical descriptor 的 SHA-256；业务值、行顺序、列顺序、
+  sheet 顺序、ZIP entry 顺序、日期型文件名不进入 fingerprint；未知列进入
+  fingerprint 且 WARN。
+- 禁止推断：DeepSeek `amount*price=cost`；Kimi paid+promotional 合计 /
+  FOCUS Credit；GLM settlement formula；MiMo Total/Components 相加；OpenAI
+  `input_tokens + input_cached_tokens`。
+- DeepSeek/MiMo 的 API-key 值在 adapter 层即剔除，仅保留固定 masked
+  `credentialHint`；PayloadRedactor / IssueSanitizer 未被弱化。
+- ZIP streaming（Commons Compress 统计）不落盘；XLSX 用 POI SAX 事件读取，
+  禁止 `new XSSFWorkbook(inputStream)`，POI 默认 ZIP-bomb 防御未放松。
+- OpenAI Costs 使用当前官方字段（2026-08-14 复核）：`amount.value` /
+  `amount.currency` 为最低 required money 语义，`api_key_id` / `line_item` /
+  `project_id` / `quantity` / `object` 为当前契约字段；`api_key_id` 是 provider
+  identity（normalized `dimensions.credentialId`），`quantity` 保留
+  provider-native 不猜 unit。
+- OpenAI JSON 解析 bounded（inspection 只保留 schema metadata；parse 逐 result
+  物化后立即释放），并验证官方 `object` type markers。
+
+## 4. Parser 依赖（冻结版本）
+
+```text
+Apache Commons CSV 1.14.1
+Apache Commons Compress 1.28.0
+Apache POI 5.5.1
+```
+
+## 5. 验证命令与真实结果
+
+> 以下计数由最后一次 fresh verification（Task 14）实际运行后填写。
+
+```powershell
+# backend
+.\mvnw.cmd -B "-Dtest=*ProviderAdapterTest,*StreamingReaderTest,SafeZipReaderTest,CsvSupportTest,SchemaFingerprintTest" test
+.\mvnw.cmd -B "-DexcludedGroups=architecture,integration" test
+.\mvnw.cmd -B "-Dgroups=integration" verify
+.\mvnw.cmd -B "-Dgroups=architecture" test
+# repository root
+docker compose config --quiet
+docker build --tag ai-costops-backend:m2-group2 backend
+git diff --check
+git status --short
+```
+
+### 真实结果（2026-08-14 Task 14 fresh run + review-fix round）
+
+```text
+focused provider suite : Tests run: 144, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+backend unit            : Tests run: 329, Failures: 0, Errors: 0, Skipped: 1 — BUILD SUCCESS
+backend integration     : Tests run: 226, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+architecture            : Tests run: 5, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+docker compose config   : exit 0
+docker build            : ai-costops-backend:m2-group2-final build SUCCESS
+git diff --check        : no output
+git status --short      : clean
+```
+
+> review-fix round 在 Task 14 计数之上新增：duplicate-header、GLM duplicate
+> logical sheet、MiMo malformed components、ZIP in-flight limits、locator/fieldName
+> fail-closed、OpenAI 当前官方契约（object markers / credentialId / quantity /
+> required number/null validation / bounded streaming 10k results）等回归。
+>
+> hardening round 在 review-fix 之上新增：page/bucket shape fail-closed（root
+> object / bucket times / results 必须存在）、JSON property-order 无关的 two-pass
+> parse、`max-json-buckets` / `max-inspection-issues` 安全上限、10k malformed
+> results 的 bounded inspection 回归、`ProviderFieldLookup` normalized header 解析
+> （whitespace/NFKC 变体 + secret 变体 header 移除）、`PayloadRedactor` value-level
+> secret-shaped redaction（unknown field 中隐藏的 sentinel 值 0 泄漏，credentialId
+> 保留）。
+>
+> final spot round 新增：`max-json-schema-fields=512`（cumulative unique result
+> field names 上限，超限 fail-closed `TOO_MANY_JSON_SCHEMA_FIELDS`，不生成截断
+> fingerprint）；bucket 上限在遍历中生效（超过 `max-json-buckets` 立即停止读取
+> 剩余 payload）；DeepSeek cost 行时间 header 统一走 normalized lookup。
+
+Provider-focused 明细（同一 fresh run 内）：
+
+```text
+DeepSeekProviderAdapterTest          16
+MimoProviderAdapterTest              14
+KimiProviderAdapterTest               9
+GlmProviderAdapterTest                9
+OpenAiProviderAdapterTest            20
+XlsxStreamingReaderTest              11
+SafeZipReaderTest                     9
+CsvSupportTest                        8
+SchemaFingerprintTest                 6
+```
+
+Pipeline / security 集成回归：
+
+```text
+ProviderAdapterPipelineIntegrationTest  9（注册 1 + 7 fixture E2E + 1 SCHEMA_INCOMPATIBLE）
+ProviderAdapterSecurityIntegrationTest  3（DeepSeek/MiMo sentinel 零泄漏 + ERROR 路径）
+```

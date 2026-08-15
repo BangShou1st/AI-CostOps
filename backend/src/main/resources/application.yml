@@ -62,6 +62,14 @@ aicostops:
     heartbeat-interval: ${AICOSTOPS_IMPORT_HEARTBEAT_INTERVAL:20s}
     max-lease-recoveries: ${AICOSTOPS_IMPORT_MAX_LEASE_RECOVERIES:3}
     persistence-batch-size: ${AICOSTOPS_IMPORT_PERSISTENCE_BATCH_SIZE:500}
+    provider-parser:
+      max-archive-entries: ${AICOSTOPS_PROVIDER_PARSER_MAX_ARCHIVE_ENTRIES:64}
+      max-expanded-bytes: ${AICOSTOPS_PROVIDER_PARSER_MAX_EXPANDED_BYTES:1073741824}
+      max-compression-ratio: ${AICOSTOPS_PROVIDER_PARSER_MAX_COMPRESSION_RATIO:100.0}
+      compression-ratio-check-after-bytes: ${AICOSTOPS_PROVIDER_PARSER_RATIO_CHECK_AFTER_BYTES:1048576}
+      max-json-buckets: ${AICOSTOPS_PROVIDER_PARSER_MAX_JSON_BUCKETS:10000}
+      max-inspection-issues: ${AICOSTOPS_PROVIDER_PARSER_MAX_INSPECTION_ISSUES:256}
+      max-json-schema-fields: ${AICOSTOPS_PROVIDER_PARSER_MAX_JSON_SCHEMA_FIELDS:512}
   iam:
     context-cache-ttl: ${AICOSTOPS_IAM_CONTEXT_CACHE_TTL:60s}
     invitation-default-lifetime: ${AICOSTOPS_IAM_INVITATION_DEFAULT_LIFETIME:72h}

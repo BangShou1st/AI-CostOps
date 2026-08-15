@@ -13,6 +13,7 @@ import com.aicostops.ingestion.application.InspectionResult;
 import com.aicostops.ingestion.application.NormalizedProviderRecord;
 import com.aicostops.ingestion.application.ParsedProviderRecord;
 import com.aicostops.ingestion.application.ProviderAdapter;
+import com.aicostops.ingestion.application.ProviderInput;
 import com.aicostops.ingestion.application.ProviderRecordSink;
 import com.aicostops.ingestion.application.ProviderSource;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
@@ -205,16 +206,16 @@ class ProviderImportStorageOutageApiIntegrationTest extends AuthenticationContai
                 }
 
                 @Override
-                public InspectionResult inspect(ProviderSource source) {
-                    return new InspectionResult("TEST_PROVIDER", "fingerprint", true, List.of());
+                public InspectionResult inspect(ProviderInput input) {
+                    return new InspectionResult("TEST_PROVIDER", "test.file.v1", "fingerprint", true, List.of());
                 }
 
                 @Override
-                public void parse(ProviderSource source, InspectionResult inspection, ProviderRecordSink sink) {
+                public void parse(ProviderInput input, InspectionResult inspection, ProviderRecordSink sink) {
                 }
 
                 @Override
-                public NormalizedProviderRecord normalize(ParsedProviderRecord record) {
+                public NormalizedProviderRecord normalize(ParsedProviderRecord record, InspectionResult inspection) {
                     return new NormalizedProviderRecord(record.index(), record.locator(), null,
                             Map.of(), Map.of(), null, null, RawRecordNormalizeStatus.NORMALIZED, List.of());
                 }

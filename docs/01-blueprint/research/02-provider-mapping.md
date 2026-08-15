@@ -305,7 +305,7 @@ service_tier
 
 ### 官方 Costs API
 
-可按：
+当前官方契约（2026-08-14 复核）group_by 支持：
 
 ```text
 project_id
@@ -313,20 +313,29 @@ line_item
 api_key_id
 ```
 
-分组，并返回：
+Costs result 当前支持：
 
 ```text
 amount.value
 amount.currency
+api_key_id
+line_item
+project_id
 quantity
+object
 ```
+
+其中 `line_item` / `project_id` / `api_key_id` 等维度字段可能根据
+group_by / 返回形态为 optional / null。
 
 映射：
 
 - `amount` → ChargeFact/provider-reported cost；
 - `line_item` → provider charge line；
-- `quantity` → pricing/charge quantity（仅在官方语义明确时映射）；
-- project/key → Attribution Hint。
+- `quantity` → provider-native quantity，不猜通用 unit（不做 M3 PricingFact）；
+- `api_key_id` → provider identity（`dimensions.credentialId`），不是 secret
+  API key value；
+- `project_id` → Attribution Hint。
 
 ---
 
@@ -484,3 +493,33 @@ parser_version
 ```
 
 以支持后续重放和迁移。
+
+---
+
+## 12. M2 Group 2 落地矩阵与 Fixture 出处（2026-08-14）
+
+Provider Adapters（#33–#37）实现的 schema 矩阵与解析器版本：
+
+| Provider | Variant | Parser Version | Source Type |
+|---|---|---|---|
+| DeepSeek | `deepseek.usage-zip.v1` | `deepseek-provider-import-v1` | FILE_EXPORT |
+| MiMo | `mimo.usage-workbook.v1` | `mimo-provider-import-v1` | FILE_EXPORT |
+| Kimi | `kimi.billing-summary-workbook.v1` | `kimi-provider-import-v1` | FILE_EXPORT |
+| GLM | `glm.monthly-billing-summary-workbook.v1` | `glm-provider-import-v1` | FILE_EXPORT |
+| OpenAI | `openai.observed-empty-export.v1` | `openai-provider-import-v1` | FILE_EXPORT |
+| OpenAI | `openai.organization-usage-completions-json.v1` | `openai-provider-import-v1` | USAGE_API_JSON |
+| OpenAI | `openai.organization-costs-json.v1` | `openai-provider-import-v1` | COSTS_API_JSON |
+
+Fixture 证据类别（详细清单见
+`backend/src/test/resources/provider-fixtures/README.md`）：
+
+```text
+REAL_SCHEMA_SANITIZED      DeepSeek ZIP、MiMo workbook、Kimi 账单汇总、
+                           GLM 月度汇总、OpenAI 空 CSV 导出（结构真实，值全脱敏）
+OFFICIAL_SCHEMA_SYNTHETIC  OpenAI Usage completions JSON、Costs JSON
+                           （基于 2026-08-14 复核的官方 API 契约）
+SCHEMA_DRIFT_SYNTHETIC     各 Provider 的未知列/sheet/entry、缺失必需列、
+                           错误 sourceType、ZIP 安全违规等测试 fixture
+```
+
+合成行绝不代表真实账户导出；真实原始文件不进入仓库。

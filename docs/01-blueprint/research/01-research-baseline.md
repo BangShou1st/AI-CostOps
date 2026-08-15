@@ -279,7 +279,10 @@ end_time_iso
 - API Usage Dashboard 区分 `Activity data` 和 `Cost data`；
 - Activity 可以按 API capability 过滤，并可按 Project / User / API Key / Model 等维度分组；
 - Organization Usage API 的 completions 结果可包含 input/output/cached tokens、request count、project/user/api-key/model/service tier 等；
-- Organization Costs API 独立返回 monetary amount，并可按 project / line item / api key 分组。
+- Organization Costs API 独立返回 monetary amount；当前官方契约（2026-08-14 复核）的
+  Costs result 字段为 `amount`、`api_key_id`、`line_item`、`project_id`、
+  `quantity`、`object`，group_by 支持 `project_id` / `line_item` / `api_key_id`；
+  其中 `api_key_id` 是 provider identifier，不是 secret API key value。
 
 因此当前本地 CSV 只能证明：
 

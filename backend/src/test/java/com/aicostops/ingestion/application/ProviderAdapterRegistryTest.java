@@ -65,16 +65,16 @@ class ProviderAdapterRegistryTest {
         }
 
         @Override
-        public InspectionResult inspect(ProviderSource source) {
-            return new InspectionResult(providerCode, "fingerprint", true, List.of());
+        public InspectionResult inspect(ProviderInput input) {
+            return new InspectionResult(providerCode, "test.file.v1", "fingerprint", true, List.of());
         }
 
         @Override
-        public void parse(ProviderSource source, InspectionResult inspection, ProviderRecordSink sink) {
+        public void parse(ProviderInput input, InspectionResult inspection, ProviderRecordSink sink) {
         }
 
         @Override
-        public NormalizedProviderRecord normalize(ParsedProviderRecord record) {
+        public NormalizedProviderRecord normalize(ParsedProviderRecord record, InspectionResult inspection) {
             return new NormalizedProviderRecord(record.index(), record.locator(), null,
                     Map.of(), Map.of(), null, null, RawRecordNormalizeStatus.NORMALIZED, List.of());
         }
