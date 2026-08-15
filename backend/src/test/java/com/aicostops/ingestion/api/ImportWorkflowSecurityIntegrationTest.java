@@ -108,6 +108,8 @@ class ImportWorkflowSecurityIntegrationTest extends AuthenticationContainersSupp
         jdbc.update("DELETE FROM role_assignment WHERE org_member_id=?", actorMemberId);
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
 
+        // Foreign ids prove authorization runs before any resource lookup: a
+        // lookup-first implementation would return 404 instead of 403 here.
         for (var url : List.of(
                 "/api/v1/imports",
                 "/api/v1/imports/{id}",
@@ -115,7 +117,8 @@ class ImportWorkflowSecurityIntegrationTest extends AuthenticationContainersSupp
                 "/api/v1/imports/{id}/attempts/{aid}/issues",
                 "/api/v1/imports/{id}/attempts/{aid}/raw-records",
                 "/api/v1/imports/{id}/attempts/{aid}/raw-records/{rid}")) {
-            mockMvc.perform(get(url, batchId, attemptId, attemptId).header("Authorization", bearer()))
+            mockMvc.perform(get(url, foreignBatchId, foreignAttemptId, foreignAttemptId)
+                            .header("Authorization", bearer()))
                     .andExpect(status().isForbidden())
                     .andExpect(jsonPath("$.code").value("FORBIDDEN"));
         }
