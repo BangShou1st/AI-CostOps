@@ -55,6 +55,8 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/teams/{id}/members").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/teams/{id}/members").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/teams/{id}/members/{memberId}").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/evidence", "/api/v1/evidence/{evidenceId}")
+                        .authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/evidence/{id}/download").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/provider-imports").authenticated()
                         .anyRequest().denyAll())
