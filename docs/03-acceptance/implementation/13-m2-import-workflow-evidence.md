@@ -92,9 +92,39 @@ Raw payload 以转义 JSON 文本渲染（无 dangerouslySetInnerHTML）。
 M3 tabs/actions 不渲染。
 ```
 
-## 7. 验证记录
+## 7. 验证记录（2026-08-15 fresh verification）
 
-（Task 17 fresh verification 后填写实际命令与计数。）
+```text
+Backend unit (excludedGroups=architecture,integration):
+  .\mvnw.cmd -B "-DexcludedGroups=architecture,integration" test
+  Tests run: 329, Failures: 0, Errors: 0, Skipped: 1
+  BUILD SUCCESS
+
+Backend integration:
+  .\mvnw.cmd -B "-Dgroups=integration" verify
+  Tests run: 299, Failures: 0, Errors: 0, Skipped: 0
+  BUILD SUCCESS
+
+Backend architecture:
+  .\mvnw.cmd -B "-Dgroups=architecture" test
+  Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+  BUILD SUCCESS
+
+Frontend:
+  npm ci
+  npm test -- --run           22 test files, 127 tests passed
+  npm run lint                 exit 0
+  npm run build                success
+
+Container/repo:
+  docker compose config --quiet            exit 0
+  docker build --tag ai-costops-backend:m2-group3 backend   success
+  git diff --check                         no output
+```
+
+验证中发现并修复的既有缺陷：`ImportLeaseServiceIntegrationTest.insertBatchWithQueuedAttempt`
+返回值在 batchId/attemptId 语义间混用，此前依赖两表 auto_increment 同步而侥幸通过；
+本分支暴露后已修复（commit 7b17233），全套 299 integration 通过。
 
 ## 8. 交付确认
 
