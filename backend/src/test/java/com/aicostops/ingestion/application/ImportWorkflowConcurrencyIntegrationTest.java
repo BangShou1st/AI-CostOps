@@ -121,6 +121,88 @@ class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersS
     }
 
     @Test
+    void cancelFirstFencesWorkerFinalizationDeterministically() {
+        grantActiveLease("worker-1", 1);
+        var lease = new ImportLease(attemptId, batchId, "worker-1", 1);
+
+        // Cancel commits first, deterministically.
+        var detail = commands.cancel(user(), batchId, "idem-cancel-first");
+        assertThat(detail.status().name()).isEqualTo("CANCELED");
+
+        // The stale worker's fenced finalization affects zero rows.
+        assertThat(finalization.completeSuccess(lease)).isFalse();
+        assertThat(finalization.completeFailure(lease, "ERR", "summary")).isFalse();
+        assertThat(jdbc.queryForObject("SELECT status FROM import_attempt WHERE id=?",
+                String.class, attemptId)).isEqualTo("CANCELED");
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, batchId)).isEqualTo("CANCELED");
+    }
+
+    @Test
+    void cancelFirstFencesRawPersistenceDeterministically() {
+        grantActiveLease("worker-1", 1);
+        var lease = new ImportLease(attemptId, batchId, "worker-1", 1);
+        var record = new NormalizedProviderRecord(
+                0, "cost.csv:row=1", "row-key-1",
+                Map.of("model", "x"), Map.of("model", "x"),
+                Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-08-02T00:00:00Z"),
+                RawRecordNormalizeStatus.NORMALIZED, List.of());
+
+        commands.cancel(user(), batchId, "idem-cancel-first");
+
+        var result = persistence.persist(lease, List.of(record));
+        assertThat(result.leaseLost()).isTrue();
+        assertThat(result.recordsPersisted()).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM raw_provider_record WHERE import_attempt_id=?",
+                Integer.class, attemptId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, batchId)).isEqualTo("CANCELED");
+    }
+
+    @Test
+    void cancelFirstBlocksStaleClaimAndLeaseRecoveryDeterministically() {
+        // Cancel a PENDING + QUEUED batch first; nothing may re-acquire it.
+        var freshBatchId = insertBatch(organizationId, "PENDING");
+        insertAttempt(freshBatchId, 1, "QUEUED", "INITIAL", null);
+        commands.cancel(user(), freshBatchId, "idem-cancel-first");
+
+        assertThat(leases.claimNext("worker-stale")).isEmpty();
+        assertThat(leases.recoverExpiredLease()).isEmpty();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM import_attempt WHERE import_batch_id=?",
+                String.class, freshBatchId)).isEqualTo("CANCELED");
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, freshBatchId)).isEqualTo("CANCELED");
+    }
+
+    @Test
+    void persistenceBoundaryRedactsSecretShapedLocatorAndRecordKey() {
+        grantActiveLease("worker-1", 1);
+        var lease = new ImportLease(attemptId, batchId, "worker-1", 1);
+        var record = new NormalizedProviderRecord(
+                0, "sk-SECRET-SENTINEL-DO-NOT-RETURN:row=1", "credentialId=keyid_fake&sk-SECRET-SENTINEL",
+                Map.of("model", "x"), Map.of("model", "x"),
+                Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-08-02T00:00:00Z"),
+                RawRecordNormalizeStatus.NORMALIZED, List.of());
+
+        var result = persistence.persist(lease, List.of(record));
+        assertThat(result.leaseLost()).isFalse();
+        assertThat(result.recordsPersisted()).isEqualTo(1);
+
+        var locator = jdbc.queryForObject(
+                "SELECT record_locator FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0",
+                String.class, attemptId);
+        var recordKey = jdbc.queryForObject(
+                "SELECT provider_record_key FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0",
+                String.class, attemptId);
+        assertThat(locator).isEqualTo("[REDACTED]:row=1");
+        assertThat(recordKey).isEqualTo("credentialId=keyid_fake&[REDACTED]");
+        assertThat(locator).doesNotContain("sk-SECRET-SENTINEL");
+        assertThat(recordKey).doesNotContain("sk-SECRET-SENTINEL");
+    }
+
+    @Test
     void cancelVersusWorkerClaimOnlyProducesSerializableOutcomes() throws Exception {
         // A fresh PENDING + QUEUED batch for the claim race.
         var claimBatchId = insertBatch(organizationId, "PENDING");
