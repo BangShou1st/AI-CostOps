@@ -11,6 +11,7 @@ const mockedUseAuth = vi.mocked(useAuth)
 
 const ALL_PERMISSIONS = ['USER_READ', 'ROLE_READ', 'PROJECT_READ', 'TEAM_READ', 'COST_CENTER_READ', 'PROVIDER_ACCOUNT_READ']
 const NAV_LABELS = ['用户管理', '角色与权限', '项目管理', '团队管理', '成本中心', '云账号']
+const BUSINESS_LABELS = ['证据', '导入']
 
 function renderLayout(permissions: string[]) {
   mockedUseAuth.mockReturnValue({
@@ -39,6 +40,26 @@ beforeEach(() => {
 })
 
 describe('AuthenticatedLayout desktop sidebar', () => {
+  it('businessNavAppearsOnlyWithCorrespondingReadPermission', () => {
+    renderLayout(['USER_READ'])
+
+    expect(screen.queryByRole('menuitem', { name: '证据' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '导入' })).not.toBeInTheDocument()
+
+    renderLayout(['EVIDENCE_READ', 'USER_READ'])
+
+    expect(screen.getByRole('menuitem', { name: '证据' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '导入' })).not.toBeInTheDocument()
+  })
+
+  it('businessNavShowsBothEntriesWithBothReadPermissions', () => {
+    renderLayout(['EVIDENCE_READ', 'IMPORT_READ', ...ALL_PERMISSIONS])
+
+    for (const label of [...BUSINESS_LABELS, ...NAV_LABELS]) {
+      expect(screen.getByRole('menuitem', { name: label })).toBeInTheDocument()
+    }
+  })
+
   it('hidesNavigationWithoutReadPermission', () => {
     renderLayout(['USER_READ'])
 

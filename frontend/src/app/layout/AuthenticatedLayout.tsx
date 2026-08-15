@@ -1,7 +1,9 @@
 import {
   AccountBookOutlined,
   CloudOutlined,
+  FileTextOutlined,
   FolderOutlined,
+  ImportOutlined,
   LeftOutlined,
   LogoutOutlined,
   MenuOutlined,
@@ -15,6 +17,7 @@ import { useState, type ReactNode } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { visibleSettingsNav } from '../../features/settings/permissions'
+import { visibleBusinessNav } from './appNavigation'
 import { SETTINGS_COPY } from '../../features/settings/presentation'
 import { useMediaQuery } from './useMediaQuery'
 
@@ -22,6 +25,8 @@ const SIDEBAR_COLLAPSED_KEY = 'aicostops:settings-sidebar-collapsed'
 const DESKTOP_QUERY = '(min-width: 1024px)'
 
 const NAV_ICONS: Record<string, ReactNode> = {
+  '/evidence': <FileTextOutlined />,
+  '/imports': <ImportOutlined />,
   '/settings/users': <UserOutlined />,
   '/settings/roles': <SafetyOutlined />,
   '/settings/projects': <FolderOutlined />,
@@ -55,16 +60,28 @@ export function AuthenticatedLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   if (!auth.user) return null
 
-  const entries = visibleSettingsNav(auth.user.permissions)
+  const businessEntries = visibleBusinessNav(auth.user.permissions)
+  const settingsEntries = visibleSettingsNav(auth.user.permissions)
+  const entries = [...businessEntries, ...settingsEntries]
   const selectedKey = entries.find((entry) => location.pathname.startsWith(entry.path))?.path
   const currentLabel = entries.find((entry) => entry.path === selectedKey)?.label ?? ''
 
-  const menuItems = entries.map((entry) => ({
-    key: entry.path,
-    // Icon decorations must not pollute the accessible name of the item.
-    icon: <span aria-hidden="true">{NAV_ICONS[entry.path]}</span>,
-    label: entry.label,
-  }))
+  const menuItems = [
+    ...businessEntries.map((entry) => ({
+      key: entry.path,
+      icon: <span aria-hidden="true">{NAV_ICONS[entry.path]}</span>,
+      label: entry.label,
+    })),
+    ...(businessEntries.length > 0 && settingsEntries.length > 0
+      ? [{ type: 'divider' as const, key: 'nav-divider' }]
+      : []),
+    ...settingsEntries.map((entry) => ({
+      key: entry.path,
+      // Icon decorations must not pollute the accessible name of the item.
+      icon: <span aria-hidden="true">{NAV_ICONS[entry.path]}</span>,
+      label: entry.label,
+    })),
+  ]
 
   const selectRoute = (path: string) => {
     setDrawerOpen(false)

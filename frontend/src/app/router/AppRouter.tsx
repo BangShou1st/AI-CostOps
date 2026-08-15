@@ -1,6 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { ForgotPasswordPage, InvitationPage, LoginPage, RegisterPage, ResetPasswordPage } from '../../features/auth/AuthPages'
+import { EvidenceDetailPage } from '../../features/evidence/EvidenceDetailPage'
+import { EvidenceListPage } from '../../features/evidence/EvidenceListPage'
+import { ImportDetailPage } from '../../features/imports/ImportDetailPage'
+import { ImportListPage } from '../../features/imports/ImportListPage'
 import { RolesPage } from '../../features/settings/roles/RolesPage'
 import { ProjectsPage } from '../../features/settings/projects/ProjectsPage'
 import { TeamsPage } from '../../features/settings/teams/TeamsPage'
@@ -24,6 +28,14 @@ export function AppRouter() {
     </Route>
     <Route element={<ProtectedRoute isAuthenticated={auth.status === 'authenticated'} />}>
       <Route element={<AuthenticatedLayout />}>
+        <Route path="/evidence" element={<PermissionRoute permission="EVIDENCE_READ" />}>
+          <Route index element={<EvidenceListPage />} />
+          <Route path=":id" element={<EvidenceDetailPage />} />
+        </Route>
+        <Route path="/imports" element={<PermissionRoute permission="IMPORT_READ" />}>
+          <Route index element={<ImportListPage />} />
+          <Route path=":id" element={<ImportDetailPage />} />
+        </Route>
         <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
           <Route index element={<UsersPage />} />
         </Route>
