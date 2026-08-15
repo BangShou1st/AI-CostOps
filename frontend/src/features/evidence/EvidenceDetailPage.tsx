@@ -1,4 +1,4 @@
-import { Button, Descriptions, Table } from 'antd'
+import { Alert, Button, Descriptions, Table, message } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -25,6 +25,7 @@ export function EvidenceDetailPage({ evidenceId: propEvidenceId }: { evidenceId?
   const detail = useQuery({
     queryKey: evidenceKeys.detail(evidenceId),
     queryFn: () => evidenceApi.getEvidence(evidenceId),
+    enabled: evidenceId.length > 0,
   })
 
   // The associated-imports child query must never start without IMPORT_READ.
@@ -35,18 +36,29 @@ export function EvidenceDetailPage({ evidenceId: propEvidenceId }: { evidenceId?
   })
 
   const handleDownload = async () => {
-    const response = await apiClient.get(`/evidence/${encodeURIComponent(evidenceId)}/download`, {
-      responseType: 'blob',
-    })
-    const url = URL.createObjectURL(response.data as Blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = detail.data?.originalFilename ?? 'evidence.bin'
-    anchor.click()
-    URL.revokeObjectURL(url)
+    try {
+      const response = await apiClient.get(`/evidence/${encodeURIComponent(evidenceId)}/download`, {
+        responseType: 'blob',
+      })
+      const url = URL.createObjectURL(response.data as Blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = detail.data?.originalFilename ?? 'evidence.bin'
+      anchor.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      message.error('下载失败，请稍后重试。')
+    }
   }
 
   const evidence = detail.data
+  if (detail.isError) {
+    return (
+      <div className="evidence-page">
+        <Alert type="error" showIcon title="加载失败" description="证据详情暂时不可用。" />
+      </div>
+    )
+  }
   if (detail.isLoading || !evidence) {
     return <div className="evidence-page" role="status">正在加载证据…</div>
   }

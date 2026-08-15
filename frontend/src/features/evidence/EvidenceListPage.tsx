@@ -1,4 +1,4 @@
-import { Button, Table, message } from 'antd'
+import { Alert, Button, Table, message } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -41,6 +41,9 @@ export function EvidenceListPage() {
           <Button type="primary" onClick={() => setUploadOpen(true)}>上传 Provider 账单</Button>
         )}
       </header>
+      {list.isError && (
+        <Alert type="error" showIcon title="加载失败" description="证据列表暂时不可用。" />
+      )}
       <Table<EvidenceSummary>
         rowKey="id"
         loading={list.isLoading}

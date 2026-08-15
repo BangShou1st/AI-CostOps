@@ -70,8 +70,13 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
 
   const submit = async () => {
     if (!file) return
-    const { providerAccountId, sourceType } = await form.validateFields()
-    upload.mutate({ providerAccountId, sourceType, file })
+    try {
+      const { providerAccountId, sourceType } = await form.validateFields()
+      if (!providerAccountId || !sourceType) return
+      upload.mutate({ providerAccountId, sourceType, file })
+    } catch {
+      // Field-level validation errors are rendered inline by the Form items.
+    }
   }
 
   return (
@@ -82,6 +87,7 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
       onOk={() => void submit()}
       okText="上传"
       cancelText="取消"
+      confirmLoading={upload.isPending}
       okButtonProps={{ disabled: !file || unsupported }}
     >
       <Form form={form} layout="vertical" disabled={upload.isPending}>

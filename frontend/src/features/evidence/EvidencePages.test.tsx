@@ -8,6 +8,7 @@ import { importsApi } from '../imports/api/importsApi'
 import { settingsApi } from '../settings/api/settingsApi'
 import { EvidenceDetailPage } from './EvidenceDetailPage'
 import { EvidenceListPage } from './EvidenceListPage'
+import type { ImportSummary } from '../imports/api/importTypes'
 
 vi.mock('../auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('./api/evidenceApi', () => ({
@@ -60,7 +61,7 @@ const evidence = {
   createdAt: '2026-08-01T00:00:00Z',
   updatedAt: '2026-08-01T00:00:00Z',
 }
-const importSummary = {
+const importSummary: ImportSummary = {
   id: '77',
   evidence: { id: '9007199254740993', originalFilename: 'invoice.csv' },
   providerAccount: { id: '5', displayName: 'Primary' },
@@ -70,7 +71,7 @@ const importSummary = {
   status: 'PENDING',
   periodStart: null,
   periodEnd: null,
-  latestAttempt: { id: '3', attemptNo: 1, status: 'QUEUED' },
+  latestAttempt: null,
   createdByMemberId: '9',
   createdAt: '2026-08-01T00:00:00Z',
   updatedAt: '2026-08-01T00:00:00Z',

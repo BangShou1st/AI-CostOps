@@ -113,7 +113,8 @@ class ImportWorkflowCommandApiIntegrationTest extends AuthenticationContainersSu
     void missingOrBlankOrOverLengthKeyFailsWithoutAnyMutation() throws Exception {
         mockMvc.perform(post("/api/v1/imports/{importId}/retry", failedBatchId)
                         .header("Authorization", bearer()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("REQUEST_MALFORMED"));
 
         mockMvc.perform(post("/api/v1/imports/{importId}/retry", failedBatchId)
                         .header("Authorization", bearer())
