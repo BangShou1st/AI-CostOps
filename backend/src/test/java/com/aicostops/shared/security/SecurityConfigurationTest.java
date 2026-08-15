@@ -124,11 +124,13 @@ class SecurityConfigurationTest {
     }
 
     @Test
-    void m2RoutesRemainDenied() throws Exception {
+    void m3AndUnimplementedRoutesRemainDenied() throws Exception {
         var bearer = bearer();
 
+        // M2 Group 3 implemented /api/v1/evidence and /api/v1/imports; the
+        // canonical-cost families remain unimplemented and must stay denyAll.
         for (var routeFamily : List.of(
-                "/api/v1/evidence", "/api/v1/costs/charges", "/api/v1/budgets", "/api/v1/ledger")) {
+                "/api/v1/costs/charges", "/api/v1/budgets", "/api/v1/ledger")) {
             for (var path : List.of(routeFamily, routeFamily + "/123")) {
                 for (var method : List.of(
                         HttpMethod.GET, HttpMethod.POST, HttpMethod.PATCH, HttpMethod.PUT, HttpMethod.DELETE)) {
