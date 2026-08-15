@@ -1,6 +1,6 @@
 import { Alert, Button, Descriptions, Tabs } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { toProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
@@ -13,12 +13,16 @@ import type { ImportSummary } from './api/importTypes'
 /** Only the lightweight Import detail polls; Issues/Raw Records never do. */
 const ACTIVE_POLL_INTERVAL_MS = 3000
 
+const ACTIVE_STATUSES = new Set(['PENDING', 'PROCESSING'])
+const TERMINAL_STATUSES = new Set(['PARSED', 'FAILED', 'CANCELED'])
+
 export function ImportDetailPage({ importId: propImportId }: { importId?: string } = {}) {
   const auth = useAuth()
   const { id } = useParams()
   const importId = propImportId ?? id ?? ''
   const queryClient = useQueryClient()
   const [commandError, setCommandError] = useState<string | null>(null)
+  const previousStatus = useRef<string | null>(null)
 
   const canRetry = hasPermission(auth.user?.permissions, 'IMPORT_RETRY')
   const canCancel = hasPermission(auth.user?.permissions, 'IMPORT_CANCEL')
@@ -33,18 +37,40 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
     },
   })
 
-  const invalidateAfterCommand = () => {
-    void queryClient.invalidateQueries({ queryKey: importKeys.detail(importId) })
-    void queryClient.invalidateQueries({ queryKey: importKeys.attempts(importId, 0, 50) })
+  /** Invalidates every Attempt/Issue/RawRecord page under the import. */
+  const invalidateLineage = () => {
+    void queryClient.invalidateQueries({ queryKey: ['imports', importId, 'attempts'] })
     void queryClient.invalidateQueries({ queryKey: importKeys.lists() })
   }
+
+  const invalidateEvidenceImports = (evidenceId: string | undefined) => {
+    if (evidenceId) {
+      void queryClient.invalidateQueries({ queryKey: ['evidence', evidenceId, 'imports'] })
+    }
+  }
+
+  // A real active -> terminal transition must refresh every dependent cache:
+  // attempt lineage, current issues/raw records, evidence imports, import list.
+  const status = detail.data?.status ?? null
+  useEffect(() => {
+    const previous = previousStatus.current
+    previousStatus.current = status
+    if (previous !== null && ACTIVE_STATUSES.has(previous) && status !== null && TERMINAL_STATUSES.has(status)) {
+      invalidateLineage()
+      invalidateEvidenceImports(detail.data?.evidence.id)
+    }
+  }, [status])
 
   const retryCommand = useMutation({
     mutationFn: (key: string) => importsApi.retry(importId, key),
     retry: false,
-    onSuccess: () => {
+    onSuccess: (result) => {
       setCommandError(null)
-      invalidateAfterCommand()
+      // The backend response is authoritative: Retry -> PENDING restarts
+      // polling immediately, before any dependent refetch.
+      queryClient.setQueryData(importKeys.detail(importId), result)
+      invalidateLineage()
+      invalidateEvidenceImports(result.evidence.id)
     },
     onError: (error: unknown) => {
       setCommandError(toProblemDetail(error).detail ?? toProblemDetail(error).title)
@@ -56,15 +82,35 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
   const cancelCommand = useMutation({
     mutationFn: (key: string) => importsApi.cancel(importId, key),
     retry: false,
-    onSuccess: () => {
+    onSuccess: (result) => {
       setCommandError(null)
-      invalidateAfterCommand()
+      // Cancel -> CANCELED stops polling immediately via the cache update.
+      queryClient.setQueryData(importKeys.detail(importId), result)
+      invalidateLineage()
+      invalidateEvidenceImports(result.evidence.id)
     },
     onError: (error: unknown) => {
       setCommandError(toProblemDetail(error).detail ?? toProblemDetail(error).title)
       void queryClient.invalidateQueries({ queryKey: importKeys.detail(importId) })
     },
   })
+
+  if (detail.isError) {
+    const problem = toProblemDetail(detail.error)
+    return (
+      <div className="imports-page">
+        <Alert
+          type="error"
+          showIcon
+          title="加载失败"
+          description={problem.detail ?? problem.title}
+        />
+        <Button onClick={() => void queryClient.invalidateQueries({ queryKey: importKeys.detail(importId) })}>
+          重试
+        </Button>
+      </div>
+    )
+  }
 
   const data = detail.data
   if (detail.isLoading || !data) {

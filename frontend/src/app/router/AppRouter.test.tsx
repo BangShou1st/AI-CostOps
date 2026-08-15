@@ -16,6 +16,9 @@ vi.mock('../../features/imports/ImportListPage', () => ({
 vi.mock('../../features/imports/ImportDetailPage', () => ({
   ImportDetailPage: () => <h1>Import detail page</h1>,
 }))
+vi.mock('../../features/settings/users/UsersPage', () => ({
+  UsersPage: () => <h1>Users page</h1>,
+}))
 
 const mockedUseAuth = vi.mocked(useAuth)
 
@@ -73,5 +76,31 @@ describe('AppRouter permission gates', () => {
     renderRouter(['IMPORT_READ'], '/imports/123')
 
     expect(screen.getByRole('heading', { name: 'Import detail page' })).toBeInTheDocument()
+  })
+})
+
+describe('AppRouter application landing', () => {
+  it('appRootLandsOnEvidenceForEvidenceReadOnlyUser', () => {
+    renderRouter(['EVIDENCE_READ'], '/app')
+
+    expect(screen.getByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
+  })
+
+  it('appRootLandsOnImportsForImportReadOnlyUser', () => {
+    renderRouter(['IMPORT_READ'], '/app')
+
+    expect(screen.getByRole('heading', { name: 'Import list page' })).toBeInTheDocument()
+  })
+
+  it('appRootLandsOnFirstSettingsRouteForSettingsOnlyUser', () => {
+    renderRouter(['USER_READ'], '/app')
+
+    expect(screen.getByRole('heading', { name: 'Users page' })).toBeInTheDocument()
+  })
+
+  it('authenticatedWildcardReturnsToAppLanding', () => {
+    renderRouter(['EVIDENCE_READ'], '/unknown-route')
+
+    expect(screen.getByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
   })
 })

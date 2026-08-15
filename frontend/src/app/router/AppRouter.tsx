@@ -12,6 +12,7 @@ import { CostCentersPage } from '../../features/settings/costCenters/CostCenters
 import { ProviderAccountsPage } from '../../features/settings/providerAccounts/ProviderAccountsPage'
 import { UsersPage } from '../../features/settings/users/UsersPage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
+import { ApplicationLanding } from './ApplicationLanding'
 import { ProtectedRoute } from './ProtectedRoute'
 import { PublicRoute } from './PublicRoute'
 import { PermissionRoute } from './PermissionRoute'
@@ -56,8 +57,8 @@ export function AppRouter() {
         </Route>
         <Route path="/settings" element={<SettingsRedirect />} />
       </Route>
-      <Route path="/app" element={<SettingsRedirect />} />
+      <Route path="/app" element={<ApplicationLanding />} />
     </Route>
-    <Route path="*" element={<Navigate to={auth.status === 'authenticated' ? '/settings' : '/login'} replace />} />
+    <Route path="*" element={<Navigate to={auth.status === 'authenticated' ? '/app' : '/login'} replace />} />
   </Routes></BrowserRouter>
 }

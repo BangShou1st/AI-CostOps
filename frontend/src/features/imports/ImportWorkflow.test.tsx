@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../auth/AuthSessionProvider'
 import type { PageResponse } from '../../api/pagination'
+import { importKeys } from './api/importKeys'
 import { importsApi } from './api/importsApi'
 import { settingsApi } from '../settings/api/settingsApi'
 import type { AttemptSummary, ImportSummary, IssueSummary, RawRecordDetail, RawRecordSummary } from './api/importTypes'
@@ -82,6 +83,7 @@ function queryClientForTest() {
 }
 
 function renderPage(permissions: string[], page: 'list' | 'detail') {
+  const queryClient = queryClientForTest()
   mockedUseAuth.mockReturnValue({
     status: 'authenticated',
     user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '3', permissions },
@@ -89,11 +91,12 @@ function renderPage(permissions: string[], page: 'list' | 'detail') {
     refreshMe: vi.fn(),
     logout: vi.fn(),
   } as ReturnType<typeof useAuth>)
-  return render(
-    <QueryClientProvider client={queryClientForTest()}>
+  const rendered = render(
+    <QueryClientProvider client={queryClient}>
       {page === 'list' ? <ImportListPage /> : <ImportDetailPage importId="123" />}
     </QueryClientProvider>,
   )
+  return { queryClient, unmount: rendered.unmount }
 }
 
 const pageOf = <T,>(items: T[], total = items.length): PageResponse<T> =>
@@ -205,10 +208,10 @@ describe('ImportDetailPage', () => {
     await waitFor(() => {
       expect(mockedImportsApi.retry).toHaveBeenCalledWith('123', 'uuid-retry-1')
     })
-    // Detail refetched after invalidation.
-    await waitFor(() => {
-      expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(2)
-    })
+    // The backend response is written into the detail cache directly: the page
+    // shows PENDING immediately without an extra detail fetch.
+    expect(await screen.findByText('PENDING')).toBeInTheDocument()
+    expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(1)
   })
 
   it('cancel success stops polling', async () => {
@@ -224,9 +227,9 @@ describe('ImportDetailPage', () => {
     await waitFor(() => {
       expect(mockedImportsApi.cancel).toHaveBeenCalledWith('123', 'uuid-cancel-1')
     })
-    await waitFor(() => {
-      expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(2)
-    })
+    // Cancel response lands in the cache: CANCELED renders immediately.
+    expect(await screen.findByText('CANCELED')).toBeInTheDocument()
+    expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(1)
   })
 
   it('409 conflict shows state-changed error and never auto-replays the mutation', async () => {
@@ -378,5 +381,96 @@ describe('ImportDetailPage attempt review', () => {
     await waitFor(() => {
       expect(mockedImportsApi.listIssues).toHaveBeenCalledWith('123', '3', expect.objectContaining({ severity: 'ERROR', page: 0 }))
     })
+  })
+
+  it('issue code filter accepts arbitrary server-side values not present on the page', async () => {
+    renderPage(['IMPORT_READ'], 'detail')
+    await screen.findByText('invoice.csv')
+    fireEvent.click(screen.getByRole('tab', { name: /尝\s*试/ }))
+    await waitFor(() => {
+      expect(mockedImportsApi.listIssues).toHaveBeenCalledWith('123', '3', expect.objectContaining({ page: 0 }))
+    })
+
+    const input = screen.getByLabelText(/问题代码/) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'MYSTERY_CODE' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(mockedImportsApi.listIssues).toHaveBeenCalledWith(
+        '123', '3', expect.objectContaining({ issueCode: 'MYSTERY_CODE', page: 0 }))
+    })
+  })
+})
+describe('ImportDetailPage cache lifecycle', () => {
+  it('active to terminal transition invalidates attempt lineage and stops polling', async () => {
+    const active: ImportSummary = { ...importSummary, status: 'PENDING', retryable: false, cancelable: true }
+    const terminal: ImportSummary = { ...active, status: 'PARSED', cancelable: false }
+    mockedImportsApi.getImport.mockResolvedValue(active)
+    mockedImportsApi.listAttempts.mockResolvedValue(pageOf([attempt('3', 3, 'SUCCEEDED')]))
+
+    const { queryClient } = renderPage(['IMPORT_READ'], 'detail')
+    await screen.findByText('invoice.csv')
+
+    fireEvent.click(screen.getByRole('tab', { name: /尝\s*试/ }))
+    await waitFor(() => expect(mockedImportsApi.listAttempts).toHaveBeenCalledTimes(1))
+
+    // Simulate a poll response flipping PENDING -> PARSED through the cache:
+    // the transition must invalidate the whole attempt lineage.
+    await act(async () => {
+      queryClient.setQueryData(importKeys.detail('123'), terminal)
+    })
+    expect(screen.getByText('PARSED')).toBeInTheDocument()
+    expect(screen.getByText('尝试 #')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockedImportsApi.listAttempts.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  it('retry response PENDING restarts polling every three seconds', async () => {
+    vi.useFakeTimers()
+    mockedImportsApi.retry.mockResolvedValue({ ...importSummary, status: 'PENDING', retryable: false, cancelable: true })
+
+    renderPage(['IMPORT_READ', 'IMPORT_RETRY'], 'detail')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(mockedImportsApi.retry).toHaveBeenCalledTimes(1)
+
+    const callsAfterRetry = mockedImportsApi.getImport.mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000) })
+    expect(mockedImportsApi.getImport.mock.calls.length).toBeGreaterThan(callsAfterRetry)
+  })
+
+  it('cancel response CANCELED stops polling immediately', async () => {
+    vi.useFakeTimers()
+    const processing: ImportSummary = { ...importSummary, status: 'PROCESSING', retryable: false, cancelable: true }
+    mockedImportsApi.getImport.mockResolvedValue(processing)
+    mockedImportsApi.cancel.mockResolvedValue({ ...processing, status: 'CANCELED', cancelable: false, retryable: true })
+
+    renderPage(['IMPORT_READ', 'IMPORT_CANCEL'], 'detail')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(mockedImportsApi.cancel).toHaveBeenCalledTimes(1)
+
+    const callsAfterCancel = mockedImportsApi.getImport.mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000) })
+    expect(mockedImportsApi.getImport.mock.calls.length).toBe(callsAfterCancel)
+  })
+
+  it('detail read error renders error state instead of infinite loading', async () => {
+    mockedImportsApi.getImport.mockRejectedValue({
+      isAxiosError: true,
+      response: { data: {
+        title: 'Not found', status: 404, detail: 'The import is not available in the current organization.',
+        code: 'RESOURCE_NOT_FOUND', traceId: 't2',
+      } },
+    })
+
+    renderPage(['IMPORT_READ'], 'detail')
+
+    expect(await screen.findByText('加载失败')).toBeInTheDocument()
+    expect(screen.getByText('The import is not available in the current organization.')).toBeInTheDocument()
+    expect(screen.queryByText(/正在加载导入/)).not.toBeInTheDocument()
   })
 })

@@ -1,4 +1,4 @@
-import { Select, Table, Tag } from 'antd'
+import { Input, Select, Table, Tag } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { importKeys } from './api/importKeys'
@@ -115,19 +115,21 @@ export function AttemptReview({ importId }: { importId: string }) {
             options={[{ value: 'WARN', label: 'WARN' }, { value: 'ERROR', label: 'ERROR' }]}
             style={{ width: 140 }}
           />
-          <Select
+          <Input
             allowClear
-            placeholder="问题代码"
+            placeholder="问题代码（回车过滤）"
             aria-label="问题代码"
-            value={issueCode}
-            onChange={(value: string | undefined) => {
-              setIssueCode(value)
+            defaultValue=""
+            onPressEnter={(event) => {
+              const value = event.currentTarget.value.trim()
+              setIssueCode(value || undefined)
               setIssuePage(0)
             }}
-            options={Array.from(new Set((issues.data?.items ?? []).map((issue) => issue.issueCode)))
-              .map((code) => ({ value: code, label: code }))}
-            showSearch
-            style={{ width: 180 }}
+            onClear={() => {
+              setIssueCode(undefined)
+              setIssuePage(0)
+            }}
+            style={{ width: 220 }}
           />
         </header>
         <Table<IssueSummary>
