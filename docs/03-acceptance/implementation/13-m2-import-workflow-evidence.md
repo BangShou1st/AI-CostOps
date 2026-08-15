@@ -126,6 +126,29 @@ Container/repo:
 返回值在 batchId/attemptId 语义间混用，此前依赖两表 auto_increment 同步而侥幸通过；
 本分支暴露后已修复（commit 7b17233），全套 299 integration 通过。
 
+### Independent review fix round（2026-08-15，dbb965a 之后）
+
+- F1（BLOCKER）Raw Record 元数据脱敏：`record_locator` / `provider_record_key`
+  在持久化边界与读取边界都经 `SecretShapes` redaction + VARCHAR(500) bound；
+  回归测试直接持久化 `sk-SECRET-SENTINEL-DO-NOT-RETURN` 后 list/detail 均不泄露，
+  `credentialId=keyid_fake` 保留（commit 9facebc）。
+- F2（MAJOR）SQL 级租户边界：Import 读取全部 org-scoped，lineage join 附加
+  org 一致性条件，Raw detail 用 scoped read；跨组织 lineage 异常行不可见
+  （commit 9facebc）。
+- F3（MAJOR）active→terminal 缓存失效：transition 检测 + 前缀 invalidate +
+  command 响应 setQueryData（Retry 立即恢复轮询、Cancel 立即停止）+
+  fake-timer/cache 测试（commit 0fdadf7）。
+- F4（MAJOR）Import detail 读取错误态：loading/error/success 三态 + 回归测试
+  （commit 0fdadf7）。
+- F5（MAJOR）`/app` business-aware landing：EVIDENCE_READ/IMPORT_READ →
+  business route，fallback settings，无权限 403（commit 0fdadf7）。
+- F6（MAJOR）issueCode 过滤器接受任意 server-side 值（bounded text input），
+  不再从当前页派生 options（commit 0fdadf7）。
+- F7 cancel-first 确定性 fencing 回归 + persistence 边界脱敏证明
+  （commit 5e27012）。
+- F8 Retry/Cancel audit 写入失败与 mutation/idempotency 同事务回滚证明
+  （commit 5e27012）。
+
 ## 8. 交付确认
 
 - [ ] 无 docs/superpowers/** 进入实现分支

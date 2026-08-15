@@ -416,6 +416,14 @@ stale owner/version 不能 heartbeat、persist、finalize。
   取消不中断 worker 线程，依靠现有 lease/fencing 使 stale worker 的后续写入失败。
 - M2 Group 3 未引入任何新表/业务列/状态值；`V7__m2_import_workflow_review_indexes.sql`
   仅为 Evidence / Import / RawRecord / Issue 增加 review 读索引。
+- 读取租户边界在 SQL 层强制执行：Import detail/列表查找都带
+  `ib.org_id = ?`，Evidence / Provider Account lineage join 附加
+  `e.org_id = ib.org_id` / `pa.org_id = ib.org_id`，跨组织 lineage 的异常行
+  不可见；Raw detail 用 `recordId + attemptId` scoped read。
+- `raw_provider_record.record_locator` / `provider_record_key` 是
+  adapter 可控元数据（例如 GLM 任意 worksheet 名生成的 locator）：持久化边界
+  与读取边界都跑 `SecretShapes` redaction（`[REDACTED]`）并截断到
+  VARCHAR(500)，safe provider identity（如 `keyid_fake`）保持不变。
 
 ### `raw_provider_record`
 
