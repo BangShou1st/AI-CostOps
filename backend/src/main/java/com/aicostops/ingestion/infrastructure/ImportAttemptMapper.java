@@ -189,6 +189,20 @@ public interface ImportAttemptMapper {
             @Param("workerId") String workerId,
             @Param("leaseVersion") long leaseVersion);
 
+    /**
+     * Cooperative cancel: status-sensitive so a fenced worker can never be
+     * canceled twice or cancel a succeeded/failed attempt. Preserves
+     * started_at, counters, inspection fields, and lease_version.
+     */
+    @Update("""
+            UPDATE import_attempt ia
+            SET ia.status='CANCELED', ia.finished_at=#{now}, ia.lease_owner=NULL, ia.lease_until=NULL
+            WHERE ia.id=#{attemptId} AND ia.status IN ('QUEUED','RUNNING')
+            """)
+    int cancelQueuedOrRunning(
+            @Param("attemptId") long attemptId,
+            @Param("now") Instant now);
+
     @Update("""
             UPDATE import_attempt ia
             SET ia.records_seen=ia.records_seen+#{seen},

@@ -129,6 +129,67 @@ public class ImportWorkflowCommandService {
         }
     }
 
+    /**
+     * Cooperative cancel: legal only for {@code PENDING + QUEUED} or
+     * {@code PROCESSING + RUNNING}. The latest Attempt becomes CANCELED with
+     * {@code finished_at} set and its active lease cleared; the Batch becomes
+     * CANCELED in the same transaction. Worker threads are never interrupted —
+     * the existing lease/fencing model makes every later worker write fail.
+     */
+    public ImportSummary cancel(AuthenticatedUser user, long importId, String idempotencyKey) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "IMPORT_CANCEL");
+        ImportCommandIdempotency.validateKey(idempotencyKey);
+        preflightOrgScopedBatch(context.organizationId(), importId);
+
+        var requestHash = ImportCommandIdempotency.requestHash(
+                ImportCommandIdempotency.OPERATION_CANCEL, context.organizationId(),
+                context.organizationMemberId(), importId);
+        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+            var decision = idempotency.reserve(context.organizationId(), context.organizationMemberId(),
+                    ImportCommandIdempotency.OPERATION_CANCEL, idempotencyKey, requestHash);
+            if (decision.replay()) {
+                return responseSerializer.importDetailFromJson(decision.responseBody());
+            }
+
+            var latest = attemptMapper.findLatestByBatchForUpdate(importId);
+            var batch = batchMapper.findByIdForUpdate(importId);
+            if (batch == null || batch.organizationId() != context.organizationId()) {
+                throw notFound();
+            }
+            requireCancelable(batch, latest);
+            if (latest == null) {
+                throw new IllegalStateException("A cancelable ImportBatch must have a latest Attempt");
+            }
+
+            var now = clock.instant();
+            if (attemptMapper.cancelQueuedOrRunning(latest.id(), now) != 1) {
+                throw new IllegalStateException("ImportAttempt cancellation must update exactly one row");
+            }
+            if (batchMapper.updateStatus(importId, "CANCELED", now) != 1) {
+                throw new IllegalStateException("ImportBatch cancellation must update exactly one row");
+            }
+            audit.importCanceled(context.organizationId(), context.userId(), importId,
+                    latest.id(), latest.status().name(), batch.status().name());
+
+            var detail = currentDetail(importId);
+            idempotency.finalize(decision.id(), 200, responseSerializer.importDetailJson(detail));
+            return detail;
+        }));
+    }
+
+    private void requireCancelable(ImportBatch batch, ImportAttempt latest) {
+        var pendingQueued = batch.status() == ImportBatchStatus.PENDING
+                && latest != null && latest.status() == ImportAttemptStatus.QUEUED;
+        var processingRunning = batch.status() == ImportBatchStatus.PROCESSING
+                && latest != null && latest.status() == ImportAttemptStatus.RUNNING;
+        if (!pendingQueued && !processingRunning) {
+            throw stateConflict("Import cannot be canceled",
+                    "Only a PENDING import with a queued attempt or a PROCESSING import "
+                            + "with a running attempt can be canceled.");
+        }
+    }
+
     private void requireRetryable(ImportBatch batch, ImportAttempt latest) {
         if (batch.status() != ImportBatchStatus.FAILED && batch.status() != ImportBatchStatus.CANCELED) {
             throw stateConflict("Import cannot be retried",
