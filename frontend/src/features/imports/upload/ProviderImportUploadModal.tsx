@@ -68,10 +68,9 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
     : undefined
   const unsupported = selectedProviderCode !== undefined && availableTypes === undefined
 
-  const submit = () => {
+  const submit = async () => {
     if (!file) return
-    const { providerAccountId, sourceType } = form.getFieldsValue()
-    if (!providerAccountId || !sourceType) return
+    const { providerAccountId, sourceType } = await form.validateFields()
     upload.mutate({ providerAccountId, sourceType, file })
   }
 
@@ -80,10 +79,9 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
       open={open}
       title="上传 Provider 账单"
       onCancel={onClose}
-      onOk={submit}
+      onOk={() => void submit()}
       okText="上传"
       cancelText="取消"
-      confirmLoading={upload.isPending}
       okButtonProps={{ disabled: !file || unsupported }}
     >
       <Form form={form} layout="vertical" disabled={upload.isPending}>
@@ -129,7 +127,7 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
           <Alert
             type="warning"
             showIcon
-            message="该 Provider 暂不支持上传"
+            title="该 Provider 暂不支持上传"
             description="当前 Provider 没有已注册的 M2 上传来源类型。"
           />
         )}
@@ -139,7 +137,7 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
             <Alert
               type="error"
               showIcon
-              message={problem.title}
+              title={problem.title}
               description={problem.detail ?? '请稍后重试。'}
             />
           )
