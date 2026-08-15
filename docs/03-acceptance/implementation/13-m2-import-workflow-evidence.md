@@ -78,6 +78,13 @@ Cancel:  (PENDING,QUEUED) | (PROCESSING,RUNNING) → Attempt CANCELED + Batch CA
 浏览器可见 ID 全部为十进制字符串（含 provider-imports 创建响应）。
 Raw Record 列表仅 key 摘要（keyCount/keys<=32/keysTruncated），无 payload 值；
 detail 返回持久化脱敏 payload 并在响应边界再次 PayloadRedactor。
+Raw Provider Record 的 payload object-key 也属于 secret-safe review boundary：
+持久化与读取边界都会把自身含 secret material 的 key（sk-...、Bearer ...、
+api_key=sk-...）替换为 deterministic SHA-256 占位符（[REDACTED_KEY:<hex>]），
+普通 schema key（model/usage/credentialId/api_key/token/future_note）原样保留；
+legacy 行的 key 摘要同样 sanitize，不直接回传 JSON_KEYS 原文。
+Evidence associated Imports 的 page/count 使用完全相同的 tenant-consistent
+dataset（evidence 与 provider_account 均带 org 一致性 join）。
 Evidence object key 与 worker lease 内部字段不暴露。
 ```
 
@@ -148,6 +155,22 @@ Container/repo:
   （commit 5e27012）。
 - F8 Retry/Cancel audit 写入失败与 mutation/idempotency 同事务回滚证明
   （commit 5e27012）。
+
+### M2 Closure fix round（2026-08-15）
+
+- G1（BLOCKER）secret-shaped JSON object key 三条路径全部关闭：新持久化
+  （raw_payload/normalized_payload 落库前 PayloadRedactor 替换 key）、legacy
+  Raw Record Detail（响应边界再次 redact）、legacy Raw Record List key 摘要
+  （JSON_KEYS 结果逐个 sanitizeKey）；sanitization deterministic（SHA-256）
+  且 collision-safe，普通 schema key 名称保留、secret-shaped key 的 value
+  同步 fail-closed 为 [REDACTED]。RED→GREEN 回归：单元 6 个 + persistence
+  DB 直查 + JDBC 直插 legacy 后 list/detail HTTP 双端点。
+- G2（MAJOR）Evidence associated Imports count 与 page 同一 logical dataset：
+  countEvidenceImports 补齐与 pageEvidenceImports 完全相同的 evidence /
+  provider_account org 一致性 joins；回归：current-org Evidence + Batch +
+  foreign-org ProviderAccount 异常 lineage 在
+  GET /api/v1/evidence/{evidenceId}/imports 中既不出现于 items 也不计入
+  totalElements。
 
 ## 8. 交付确认
 

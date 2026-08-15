@@ -152,6 +152,40 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
     }
 
     @Test
+    void secretShapedJsonObjectKeysAreSanitizedBeforePersistence() {
+        var lease = claimedLease("batch-key-sanitize");
+        var raw = Map.<String, Object>of(
+                "sk-SECRET-SENTINEL-DO-NOT-RETURN", "anything",
+                "model", "gpt-example",
+                "api_key", "live-key-value");
+        var normalized = Map.<String, Object>of(
+                "api_key=sk-SECRET-SENTINEL-DO-NOT-RETURN", "anything",
+                "usage", 12.5);
+        var result = persistence.persist(lease, List.of(
+                new NormalizedProviderRecord(0, "cost.csv:row=1", "record-0",
+                        raw, normalized, null, null, RawRecordNormalizeStatus.NORMALIZED, List.of())));
+
+        assertThat(result.recordsPersisted()).isEqualTo(1);
+        var rawStored = jdbc.queryForObject("""
+                SELECT raw_payload FROM raw_provider_record
+                WHERE import_attempt_id=? AND record_index=0
+                """, String.class, lease.attemptId());
+        assertThat(rawStored)
+                .doesNotContain("SECRET-SENTINEL")
+                .doesNotContain("sk-")
+                .contains("\"model\"", "gpt-example")
+                .contains("\"api_key\"")
+                .doesNotContain("live-key-value");
+        var normalizedStored = jdbc.queryForObject("""
+                SELECT normalized_payload FROM raw_provider_record
+                WHERE import_attempt_id=? AND record_index=0
+                """, String.class, lease.attemptId());
+        assertThat(normalizedStored)
+                .doesNotContain("SECRET-SENTINEL")
+                .contains("\"usage\"");
+    }
+
+    @Test
     void warnAndErrorCountersAreExact() {
         var lease = claimedLease("batch-counters");
         var records = new ArrayList<NormalizedProviderRecord>();

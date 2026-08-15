@@ -226,6 +226,34 @@ class ImportWorkflowReadApiIntegrationTest extends AuthenticationContainersSuppo
     }
 
     @Test
+    void evidenceImportsPageAndCountShareTheSameTenantConsistentDataset() throws Exception {
+        // Anomalous lineage: current-org Evidence + current-org ImportBatch, but
+        // the ProviderAccount points into a foreign org (FKs only check id
+        // existence). The org-consistent joins must exclude it from BOTH items
+        // and totalElements.
+        var foreignAccountId = insertProviderAccount(foreignOrganizationId, "TEST_PROVIDER", "Foreign Account");
+        jdbc.update("""
+                INSERT INTO import_batch(
+                    org_id,evidence_id,provider_account_id,expected_provider_code,source_type,
+                    parser_version,status,period_start,period_end,created_by_member_id,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,'PENDING',NULL,NULL,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, organizationId, evidenceId, foreignAccountId, "TEST_PROVIDER", "FILE_EXPORT",
+                "test-parser-v1", actorMemberId);
+        var anomalousBatchId = jdbc.queryForObject("""
+                SELECT id FROM import_batch WHERE org_id=? AND evidence_id=? AND provider_account_id=?
+                """, Long.class, organizationId, evidenceId, foreignAccountId);
+
+        var body = mockMvc.perform(get("/api/v1/evidence/{evidenceId}/imports", evidenceId)
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(Long.toString(batchId)))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain(Long.toString(anomalousBatchId) + "\"");
+    }
+
+    @Test
     void missingImportReadIsForbiddenBeforeLookup() throws Exception {
         jdbc.update("DELETE FROM role_assignment WHERE org_member_id=?", actorMemberId);
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();

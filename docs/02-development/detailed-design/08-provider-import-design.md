@@ -623,6 +623,11 @@ headers 已被 inspection fail-closed，lookup 遇歧义直接失败而非 first
 `PayloadRedactor` 在 key-based 规则之上增加 value-level fail-closed：所有 String
 scalar 经过 `SecretShapes`（Bearer、key=value、`sk-`/`ghp_`/`AKIA` 形状）替换为
 `[REDACTED]`；`credentialId`/`credentialLabel` 等普通 provider identity 不受影响。
+payload object-key 同属 secret-safe review boundary：key 自身含 secret material
+（`sk-...`、`Bearer ...`、`api_key=sk-...`）时替换为 deterministic 且
+collision-safe 的 SHA-256 占位符 `[REDACTED_KEY:<hex>]`，普通 schema key 名称
+（`model`/`usage`/`api_key`/`token`）原样保留；该规则在持久化边界与读取边界
+（Raw Record Detail 与 List key 摘要）一致生效，legacy 行也按同一规则 sanitize。
 
 ZIP 使用 Commons Compress 流式统计，不落盘；XLSX 使用 POI SAX/event 读取，
 禁止 `new XSSFWorkbook(inputStream)`，不放松 POI ZipSecureFile 默认 ZIP-bomb 防御。

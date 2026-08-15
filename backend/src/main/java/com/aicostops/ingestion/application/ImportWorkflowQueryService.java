@@ -232,9 +232,20 @@ public class ImportWorkflowQueryService {
 
     private KeySummary keySummary(int keyCount, String keysPreview) {
         if (keyCount <= 32) {
-            return new KeySummary(keyCount, parseKeyList(keysPreview), false);
+            return new KeySummary(keyCount, sanitizeKeys(parseKeyList(keysPreview)), false);
         }
         return new KeySummary(keyCount, List.of(), true);
+    }
+
+    /**
+     * Defense-in-depth at the read boundary: legacy rows persisted before
+     * key-level sanitization existed may still carry secret-shaped JSON keys
+     * (e.g. {@code sk-...}, {@code api_key=sk-...}); the list key summary never
+     * returns them raw. Sanitization is idempotent, so already-safe keys pass
+     * through unchanged.
+     */
+    private List<String> sanitizeKeys(List<String> keys) {
+        return keys.stream().map(PayloadRedactor::sanitizeKey).toList();
     }
 
     @SuppressWarnings("unchecked")

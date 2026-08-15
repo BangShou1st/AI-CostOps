@@ -133,6 +133,8 @@ public interface ImportWorkflowQueryMapper {
     @Select("""
             SELECT COUNT(*)
             FROM import_batch ib
+            JOIN evidence e ON e.id = ib.evidence_id AND e.org_id = ib.org_id
+            JOIN provider_account pa ON pa.id = ib.provider_account_id AND pa.org_id = ib.org_id
             WHERE ib.evidence_id=#{evidenceId}
               AND ib.org_id=#{organizationId}
             """)

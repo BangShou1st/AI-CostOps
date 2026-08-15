@@ -1,6 +1,10 @@
 package com.aicostops.ingestion.application;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -17,10 +21,21 @@ import java.util.Map;
  * {@code future_note}) fail closed as well. Ordinary provider identities such as
  * {@code keyid_fake} are not secret-shaped and survive. The rejected value is never
  * logged; it becomes a fixed placeholder.
+ *
+ * <p>JSON object keys are covered too ({@link #sanitizeKey}): a key that itself
+ * carries secret material ({@code sk-...}, {@code Bearer ...},
+ * {@code api_key=sk-...}) is replaced with a deterministic SHA-256-derived
+ * placeholder so the secret never leaves the boundary, distinct dangerous keys
+ * never collide, and a second redaction of an already-safe payload is stable.
+ * Ordinary schema key names such as {@code model}, {@code usage}, {@code api_key}
+ * or {@code token} pass through untouched.
  */
 public final class PayloadRedactor {
 
     public static final String REDACTED = "[REDACTED]";
+
+    /** Prefix of the deterministic placeholder that replaces secret-shaped keys. */
+    public static final String REDACTED_KEY_PREFIX = "[REDACTED_KEY:";
 
     private static final List<String> SECRET_FRAGMENTS = List.of(
             "password", "token", "secret", "apikey", "authorization");
@@ -33,7 +48,10 @@ public final class PayloadRedactor {
             var redacted = new LinkedHashMap<String, Object>();
             for (var entry : map.entrySet()) {
                 var key = String.valueOf(entry.getKey());
-                redacted.put(key, isSecretKey(key) ? REDACTED : redact(entry.getValue()));
+                var safeKey = sanitizeKey(key);
+                var secretShapedKey = !safeKey.equals(key);
+                redacted.put(safeKey,
+                        isSecretKey(key) || secretShapedKey ? REDACTED : redact(entry.getValue()));
             }
             return redacted;
         }
@@ -50,6 +68,21 @@ public final class PayloadRedactor {
         return value;
     }
 
+    /**
+     * Sanitizes one JSON object key. Keys that contain no secret material are
+     * returned unchanged; keys that do ({@code sk-...}, {@code Bearer ...},
+     * {@code api_key=sk-...}) become {@code [REDACTED_KEY:<sha256 hex>]}. The
+     * digest keeps sibling fields distinct without relying on randomness, and
+     * the placeholder itself never matches a secret shape, so already-sanitized
+     * persisted payloads pass a second redaction unchanged.
+     */
+    public static String sanitizeKey(String key) {
+        if (key == null) {
+            return null;
+        }
+        return SecretShapes.redact(key).equals(key) ? key : REDACTED_KEY_PREFIX + sha256Hex(key) + "]";
+    }
+
     static boolean isSecretKey(String key) {
         var normalized = key.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
         for (var fragment : SECRET_FRAGMENTS) {
@@ -58,5 +91,14 @@ public final class PayloadRedactor {
             }
         }
         return false;
+    }
+
+    private static String sha256Hex(String text) {
+        try {
+            var digest = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 must be available", impossible);
+        }
     }
 }

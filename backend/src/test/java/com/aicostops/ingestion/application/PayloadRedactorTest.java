@@ -64,4 +64,89 @@ class PayloadRedactorTest {
         assertThat(redacted).containsEntry("user_id", "user-1")
                 .containsEntry("period", "2026-08-01 00:00:00 - 2026-08-31 23:59:59");
     }
+
+    // ------------------------------------------------------------------
+    // R1 review fix: secret-shaped JSON object keys must never leak
+    // ------------------------------------------------------------------
+
+    @Test
+    void secretShapedObjectKeysAreSanitizedWhileSafeKeysSurvive() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> redacted = (Map<String, Object>) PayloadRedactor.redact(Map.of(
+                "sk-SECRET-SENTINEL-DO-NOT-RETURN", "anything",
+                "model", "gpt-example"));
+
+        assertThat(redacted).containsEntry("model", "gpt-example");
+        assertThat(redacted).hasSize(2);
+        assertThat(redacted).doesNotContainKey("sk-SECRET-SENTINEL-DO-NOT-RETURN");
+        assertThat(redacted.toString()).doesNotContain("SECRET-SENTINEL");
+        // The dangerous key is replaced by exactly one deterministic placeholder.
+        assertThat(redacted.keySet()).filteredOn(
+                key -> key.startsWith("[REDACTED_KEY:")).hasSize(1);
+    }
+
+    @Test
+    void secretShapedKeyEntriesFailClosedWithRedactedValue() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> redacted = (Map<String, Object>) PayloadRedactor.redact(
+                Map.of("sk-SECRET-SENTINEL-DO-NOT-RETURN", "live-value"));
+
+        assertThat(redacted).containsValue("[REDACTED]");
+    }
+
+    @Test
+    void nestedSecretShapedObjectKeysAreSanitizedRecursively() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> redacted = (Map<String, Object>) PayloadRedactor.redact(Map.of(
+                "safe", Map.of("sk-NESTED-SECRET-SENTINEL-123", "v", "usage", 5),
+                "list", List.of(Map.of("Authorization: Bearer eyJhbGciOiJSUzI1NiJ9", "t"))));
+
+        assertThat(redacted.toString())
+                .doesNotContain("sk-NESTED-SECRET-SENTINEL-123", "eyJhbGciOiJSUzI1NiJ9");
+        assertThat(redacted.toString()).contains("safe", "list", "usage");
+    }
+
+    @Test
+    void ordinarySchemaKeyNamesSurviveIncludingApiKeyAndToken() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> redacted = (Map<String, Object>) PayloadRedactor.redact(Map.of(
+                "model", "gpt-example",
+                "usage", 12.5,
+                "credentialId", "keyid_fake",
+                "api_key", "live-value",
+                "token", "tok-1",
+                "future_note", "note"));
+
+        assertThat(redacted).containsKeys("model", "usage", "credentialId", "api_key", "token", "future_note");
+        assertThat(redacted.keySet()).noneMatch(key -> key.startsWith("[REDACTED_KEY:"));
+        // api_key/token keep their field identity; only their values are redacted.
+        assertThat(redacted).containsEntry("api_key", "[REDACTED]").containsEntry("token", "[REDACTED]");
+        assertThat(redacted).containsEntry("model", "gpt-example").containsEntry("usage", 12.5);
+    }
+
+    @Test
+    void distinctDangerousKeysDoNotCollideAfterSanitization() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> redacted = (Map<String, Object>) PayloadRedactor.redact(Map.of(
+                "sk-SECRET-KEY-AAAAAAAAAAAA", 1,
+                "api_key=sk-SECRET-KEY-BBBBBBBBBBBB", 2,
+                "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9", 3));
+
+        var sanitizedKeys = redacted.keySet().stream()
+                .filter(key -> key.startsWith("[REDACTED_KEY:"))
+                .toList();
+        assertThat(sanitizedKeys).hasSize(3).doesNotHaveDuplicates();
+        assertThat(redacted.toString()).doesNotContain("SECRET-KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9");
+    }
+
+    @Test
+    void keySanitizationIsDeterministicAndIdempotentAtTheReadBoundary() {
+        var first = PayloadRedactor.redact(Map.of("sk-SECRET-KEY-AAAAAAAAAAAA", "x"));
+        var second = PayloadRedactor.redact(Map.of("sk-SECRET-KEY-AAAAAAAAAAAA", "x"));
+        assertThat(second).isEqualTo(first);
+
+        // Already-sanitized persisted payloads pass a second redaction untouched
+        // (persistence + read boundary both run PayloadRedactor).
+        assertThat(PayloadRedactor.redact(first)).isEqualTo(first);
+    }
 }

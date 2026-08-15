@@ -179,6 +179,41 @@ class ImportWorkflowSecurityIntegrationTest extends AuthenticationContainersSupp
     }
 
     @Test
+    void legacySecretShapedJsonKeysNeverReachRawListOrDetail() throws Exception {
+        // Bypass the persistence sanitizer on purpose: these rows stand in for
+        // history persisted before key-level sanitization existed. Both the raw
+        // and normalized payloads carry the sentinel inside JSON object keys.
+        var rawJson = "{\"" + SECRET_SENTINEL + "\":\"anything\",\"model\":\"x\"}";
+        var normalizedJson = "{\"api_key=" + SECRET_SENTINEL + "\":\"anything\",\"usage\":1}";
+        jdbc.update("""
+                INSERT INTO raw_provider_record(
+                    import_attempt_id,record_index,record_locator,provider_record_key,
+                    raw_payload,normalized_payload,usage_start,usage_end,normalize_status,created_at)
+                VALUES (?,0,'cost.csv:row=1','k',CAST(? AS JSON),CAST(? AS JSON),NULL,NULL,'NORMALIZED',
+                    UTC_TIMESTAMP(6))
+                """, attemptId, rawJson, normalizedJson);
+        var recordId = jdbc.queryForObject(
+                "SELECT id FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0",
+                Long.class, attemptId);
+
+        var listBody = mockMvc.perform(get("/api/v1/imports/{id}/attempts/{aid}/raw-records",
+                        batchId, attemptId).header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].rawPayloadKeys.keyCount").value(2))
+                .andExpect(jsonPath("$.items[0].normalizedPayloadKeys.keyCount").value(2))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(listBody).doesNotContain(SECRET_SENTINEL);
+
+        var detailBody = mockMvc.perform(get("/api/v1/imports/{id}/attempts/{aid}/raw-records/{rid}",
+                        batchId, attemptId, recordId).header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rawPayload.model").value("x"))
+                .andExpect(jsonPath("$.normalizedPayload.usage").value(1))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(detailBody).doesNotContain(SECRET_SENTINEL);
+    }
+
+    @Test
     void crossOrganizationLineageIsNeverExposedThroughImportReads() throws Exception {
         // Anomalous row: the Batch belongs to the current org but its Evidence
         // lineage points into a foreign org (FKs only check id existence). The
