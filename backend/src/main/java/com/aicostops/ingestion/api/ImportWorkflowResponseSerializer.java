@@ -75,6 +75,7 @@ public class ImportWorkflowResponseSerializer implements ImportCommandResponseSe
                     parseId(response.createdByMemberId()),
                     response.createdAt(),
                     response.updatedAt(),
+                    response.confirmedAttemptId() == null ? null : parseId(response.confirmedAttemptId()),
                     response.retryable(),
                     response.cancelable());
         } catch (Exception exception) {

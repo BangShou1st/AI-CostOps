@@ -149,4 +149,74 @@ class PayloadRedactorTest {
         // (persistence + read boundary both run PayloadRedactor).
         assertThat(PayloadRedactor.redact(first)).isEqualTo(first);
     }
+
+    // ------------------------------------------------------------------
+    // R1 review fix: normalized-payload-aware sanitation
+    // ------------------------------------------------------------------
+
+    @Test
+    void normalizedUsageMeterNumbersSurviveTokenLikeSchemaKeys() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sanitized = (Map<String, Object>) PayloadRedactor.redactNormalizedPayload(Map.of(
+                "sourceSchema", "openai.organization-usage-completions-json.v1",
+                "recordKind", "USAGE",
+                "usage", Map.of(
+                        "inputTokens", 123L,
+                        "outputTokens", 0L,
+                        "numModelRequests", 5L),
+                "dimensions", Map.of("providerUser", "user_x")));
+
+        @SuppressWarnings("unchecked")
+        var usage = (Map<String, Object>) sanitized.get("usage");
+        assertThat(usage).containsEntry("inputTokens", 123L)
+                .containsEntry("outputTokens", 0L)
+                .containsEntry("numModelRequests", 5L);
+        assertThat(usage).doesNotContainValue("[REDACTED]");
+    }
+
+    @Test
+    void normalizedUsageSecretShapedStringValuesAreStillRedacted() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sanitized = (Map<String, Object>) PayloadRedactor.redactNormalizedPayload(Map.of(
+                "usage", Map.of("totalAudioDurationRaw", "sk-SECRET-SENTINEL-12345678"),
+                "dimensions", Map.of("model", "gpt-example")));
+
+        assertThat(sanitized.toString()).doesNotContain("SECRET-SENTINEL");
+        @SuppressWarnings("unchecked")
+        var usage = (Map<String, Object>) sanitized.get("usage");
+        assertThat(usage.get("totalAudioDurationRaw")).isEqualTo("[REDACTED]");
+    }
+
+    @Test
+    void normalizedNonUsageSectionsKeepFailClosedKeyRedaction() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sanitized = (Map<String, Object>) PayloadRedactor.redactNormalizedPayload(Map.of(
+                "sourceSchema", "openai.organization-costs-json.v1",
+                "recordKind", "COST",
+                "usage", Map.of("inputTokens", 7L),
+                "providerFields", Map.of("credentialLabel", "sk-SECRET-SENTINEL-12345678"),
+                "dimensions", Map.of("credentialId", "keyid_fake")));
+
+        assertThat(sanitized.toString()).doesNotContain("SECRET-SENTINEL");
+        @SuppressWarnings("unchecked")
+        var providerFields = (Map<String, Object>) sanitized.get("providerFields");
+        assertThat(providerFields.get("credentialLabel")).isEqualTo("[REDACTED]");
+        @SuppressWarnings("unchecked")
+        var dimensions = (Map<String, Object>) sanitized.get("dimensions");
+        assertThat(dimensions).containsEntry("credentialId", "keyid_fake");
+        @SuppressWarnings("unchecked")
+        var usage = (Map<String, Object>) sanitized.get("usage");
+        assertThat(usage).containsEntry("inputTokens", 7L);
+    }
+
+    @Test
+    void normalizedSecretShapedObjectKeysAreSanitizedEverywhere() {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sanitized = (Map<String, Object>) PayloadRedactor.redactNormalizedPayload(Map.of(
+                "usage", Map.of("sk-SECRET-SENTINEL-KEY", 5L),
+                "providerFields", Map.of("Authorization: Bearer eyJhbGciOiJSUzI1NiJ9", "t")));
+
+        assertThat(sanitized.toString())
+                .doesNotContain("SECRET-SENTINEL", "eyJhbGciOiJSUzI1NiJ9");
+    }
 }

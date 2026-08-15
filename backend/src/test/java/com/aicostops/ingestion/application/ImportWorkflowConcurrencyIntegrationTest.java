@@ -33,6 +33,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @Tag("integration")
 class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersSupport {
 
+    /** Zero-fact whitelisted payload so canonicalization writes nothing for race tests. */
+    private static final Map<String, Object> EMPTY_EXPORT_PAYLOAD = Map.of(
+            "sourceSchema", "openai.observed-empty-export.v1",
+            "recordKind", "EMPTY_USAGE_BUCKET");
+
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
@@ -110,9 +115,9 @@ class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersS
                 assertThat(batchStatus).isEqualTo("CANCELED");
                 assertThat(finishResult).isFalse();
             } else {
-                // Worker finalization won: attempt SUCCEEDED, batch PARSED.
+                // Worker finalization won: attempt SUCCEEDED, batch READY_FOR_REVIEW.
                 assertThat(attemptStatus).isEqualTo("SUCCEEDED");
-                assertThat(batchStatus).isEqualTo("PARSED");
+                assertThat(batchStatus).isEqualTo("READY_FOR_REVIEW");
                 assertThat(finishResult).isTrue();
             }
         } finally {
@@ -144,13 +149,13 @@ class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersS
         var lease = new ImportLease(attemptId, batchId, "worker-1", 1);
         var record = new NormalizedProviderRecord(
                 0, "cost.csv:row=1", "row-key-1",
-                Map.of("model", "x"), Map.of("model", "x"),
+                Map.of("model", "x"), EMPTY_EXPORT_PAYLOAD,
                 Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-08-02T00:00:00Z"),
                 RawRecordNormalizeStatus.NORMALIZED, List.of());
 
         commands.cancel(user(), batchId, "idem-cancel-first");
 
-        var result = persistence.persist(lease, List.of(record));
+        var result = persistence.persist(lease, List.of(record), organizationId, "TEST_PROVIDER");
         assertThat(result.leaseLost()).isTrue();
         assertThat(result.recordsPersisted()).isZero();
         assertThat(jdbc.queryForObject(
@@ -182,11 +187,11 @@ class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersS
         var lease = new ImportLease(attemptId, batchId, "worker-1", 1);
         var record = new NormalizedProviderRecord(
                 0, "sk-SECRET-SENTINEL-DO-NOT-RETURN:row=1", "credentialId=keyid_fake&sk-SECRET-SENTINEL",
-                Map.of("model", "x"), Map.of("model", "x"),
+                Map.of("model", "x"), EMPTY_EXPORT_PAYLOAD,
                 Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-08-02T00:00:00Z"),
                 RawRecordNormalizeStatus.NORMALIZED, List.of());
 
-        var result = persistence.persist(lease, List.of(record));
+        var result = persistence.persist(lease, List.of(record), organizationId, "TEST_PROVIDER");
         assertThat(result.leaseLost()).isFalse();
         assertThat(result.recordsPersisted()).isEqualTo(1);
 
@@ -316,7 +321,7 @@ class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersS
         var lease = new ImportLease(attemptId, batchId, "worker-1", 1);
         var record = new NormalizedProviderRecord(
                 0, "cost.csv:row=1", "row-key-1",
-                Map.of("model", "x"), Map.of("model", "x"),
+                Map.of("model", "x"), EMPTY_EXPORT_PAYLOAD,
                 Instant.parse("2026-08-01T00:00:00Z"), Instant.parse("2026-08-02T00:00:00Z"),
                 RawRecordNormalizeStatus.NORMALIZED, List.of());
         var pool = Executors.newFixedThreadPool(2);
@@ -328,7 +333,7 @@ class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersS
             });
             var persist = pool.submit(() -> {
                 start.await();
-                return persistence.persist(lease, List.of(record));
+                return persistence.persist(lease, List.of(record), organizationId, "TEST_PROVIDER");
             });
             start.countDown();
 

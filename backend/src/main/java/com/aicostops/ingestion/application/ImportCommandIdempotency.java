@@ -29,6 +29,7 @@ public class ImportCommandIdempotency {
 
     public static final String OPERATION_RETRY = "IMPORT_RETRY";
     public static final String OPERATION_CANCEL = "IMPORT_CANCEL";
+    public static final String OPERATION_CONFIRM = "IMPORT_CONFIRM";
 
     private static final int MAX_KEY_CHARACTERS = 200;
 

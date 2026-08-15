@@ -22,9 +22,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Idempotent Import workflow commands. Both commands follow the established
- * {@code ImportAttempt -> ImportBatch} lock order, reserve/replay their
- * Idempotency-Key inside the same transaction, and append exactly one secret-free
+ * Idempotent Import workflow commands. retry/cancel follow the established
+ * {@code ImportAttempt -> ImportBatch} lock order; confirm locks the Batch first
+ * and reads the latest Attempt without locking (the reverse order, absorbed by
+ * the bounded deadlock retry). Every command reserves/replays its
+ * Idempotency-Key inside the same transaction and appends exactly one secret-free
  * audit event per committed command.
  *
  * <p>Concurrent commands on one Batch can hit MySQL's classic gap-lock/insert-
@@ -173,6 +175,77 @@ public class ImportWorkflowCommandService {
             idempotency.finalize(decision.id(), 200, responseSerializer.importDetailJson(detail));
             return detail;
         }));
+    }
+
+    /**
+     * Confirm: a READY_FOR_REVIEW batch with a SUCCEEDED, error-free latest
+     * Attempt becomes CONFIRMED in one transaction and records one audit event.
+     * A CONFIRMED batch whose confirmed attempt is the latest attempt is a
+     * semantic idempotent success even under a new Idempotency-Key (the current
+     * reservation is finalized as 200, never left provisional). Lock order is
+     * batch-first, attempt read-only — the reverse of retry/cancel, so the bounded
+     * deadlock retry absorbs the intersection.
+     */
+    public ImportSummary confirm(AuthenticatedUser user, long importId, String idempotencyKey) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "IMPORT_CONFIRM");
+        ImportCommandIdempotency.validateKey(idempotencyKey);
+        preflightOrgScopedBatch(context.organizationId(), importId);
+
+        var requestHash = ImportCommandIdempotency.requestHash(
+                ImportCommandIdempotency.OPERATION_CONFIRM, context.organizationId(),
+                context.organizationMemberId(), importId);
+        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+            var decision = idempotency.reserve(context.organizationId(), context.organizationMemberId(),
+                    ImportCommandIdempotency.OPERATION_CONFIRM, idempotencyKey, requestHash);
+            if (decision.replay()) {
+                return responseSerializer.importDetailFromJson(decision.responseBody());
+            }
+
+            var batch = batchMapper.findByIdForUpdate(importId);
+            if (batch == null || batch.organizationId() != context.organizationId()) {
+                throw notFound();
+            }
+            var latest = attemptMapper.findLatestByBatch(importId);
+            if (latest == null || latest.importBatchId() != batch.id()) {
+                throw stateConflict("Import cannot be confirmed",
+                        "The import has no latest attempt matching the batch.");
+            }
+
+            // Semantic re-confirm: same attempt under a new key is success.
+            if (batch.status() == ImportBatchStatus.CONFIRMED) {
+                if (batch.confirmedAttemptId() != null && batch.confirmedAttemptId() == latest.id()) {
+                    var replayed = currentDetail(context.organizationId(), importId);
+                    idempotency.finalize(decision.id(), 200,
+                            responseSerializer.importDetailJson(replayed));
+                    return replayed;
+                }
+                throw stateConflict("Import cannot be confirmed",
+                        "A confirmed import can only re-confirm its confirmed attempt.");
+            }
+            requireConfirmable(batch, latest);
+
+            var now = clock.instant();
+            if (batchMapper.markConfirmed(batch.id(), latest.id(), now) != 1) {
+                throw new IllegalStateException("Import confirmation must update exactly one row");
+            }
+            audit.importConfirmed(context.organizationId(), context.userId(), importId,
+                    latest.id(), batch.status().name());
+
+            var detail = currentDetail(context.organizationId(), importId);
+            idempotency.finalize(decision.id(), 200, responseSerializer.importDetailJson(detail));
+            return detail;
+        }));
+    }
+
+    private void requireConfirmable(ImportBatch batch, ImportAttempt latest) {
+        if (batch.status() != ImportBatchStatus.READY_FOR_REVIEW
+                || latest == null
+                || latest.status() != ImportAttemptStatus.SUCCEEDED
+                || latest.errorCount() != 0) {
+            throw stateConflict("Import cannot be confirmed",
+                    "Only a READY_FOR_REVIEW import with a SUCCEEDED attempt and no blocking errors can be confirmed.");
+        }
     }
 
     private void requireCancelable(ImportBatch batch, ImportAttempt latest) {

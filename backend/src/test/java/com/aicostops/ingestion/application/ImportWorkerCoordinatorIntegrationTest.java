@@ -67,7 +67,7 @@ class ImportWorkerCoordinatorIntegrationTest extends MySqlContainerSupport {
         assertThat(TestProviderAdapter.enteredLatch.await(10, TimeUnit.SECONDS)).isTrue();
         awaitAttemptStatus(batchId, "SUCCEEDED", 10_000);
         assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
-                String.class, batchId)).isEqualTo("PARSED");
+                String.class, batchId)).isEqualTo("READY_FOR_REVIEW");
         assertThat(jdbc.queryForObject("SELECT lease_owner FROM import_attempt WHERE import_batch_id=?",
                 String.class, batchId)).isEqualTo(coordinator.workerId());
     }
@@ -183,6 +183,11 @@ class ImportWorkerCoordinatorIntegrationTest extends MySqlContainerSupport {
     /** Shared synthetic adapter whose parse blocks on a latch to prove TaskExecutor dispatch. */
     static class TestProviderAdapter implements ProviderAdapter {
 
+        /** Zero-fact whitelisted payload so canonicalization writes nothing for coordinator tests. */
+        private static final Map<String, Object> EMPTY_EXPORT_PAYLOAD = Map.of(
+                "sourceSchema", "openai.observed-empty-export.v1",
+                "recordKind", "EMPTY_USAGE_BUCKET");
+
         static volatile CountDownLatch enteredLatch = new CountDownLatch(0);
         static volatile CountDownLatch releaseLatch = new CountDownLatch(0);
         static volatile boolean blockParse;
@@ -219,13 +224,13 @@ class ImportWorkerCoordinatorIntegrationTest extends MySqlContainerSupport {
                 }
             }
             sink.accept(new NormalizedProviderRecord(0, "cost.csv:row=1", "record-0",
-                    Map.of("row", 0), Map.of(), null, null, RawRecordNormalizeStatus.NORMALIZED, List.of()));
+                    Map.of("row", 0), EMPTY_EXPORT_PAYLOAD, null, null, RawRecordNormalizeStatus.NORMALIZED, List.of()));
         }
 
         @Override
         public NormalizedProviderRecord normalize(ParsedProviderRecord record, InspectionResult inspection) {
             return new NormalizedProviderRecord(record.index(), record.locator(), null,
-                    Map.of(), Map.of(), null, null, RawRecordNormalizeStatus.NORMALIZED, List.of());
+                    Map.of(), EMPTY_EXPORT_PAYLOAD, null, null, RawRecordNormalizeStatus.NORMALIZED, List.of());
         }
     }
 }

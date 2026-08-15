@@ -69,6 +69,54 @@ public final class PayloadRedactor {
     }
 
     /**
+     * Normalized-payload-aware sanitation for the M2 intermediate shape produced
+     * by {@code NormalizedPayloadBuilder}: {@code sourceSchema} / {@code recordKind}
+     * / {@code dimensions} / {@code usage} / {@code money} / {@code providerFields}.
+     *
+     * <p>The top-level {@code usage} section is a trusted schema section: numeric
+     * meter values under schema keys such as {@code inputTokens} must survive, so
+     * key-name redaction ({@code isSecretKey}) is skipped there. Values still pass
+     * the recursive {@link SecretShapes} sanitation, secret-shaped object keys are
+     * still sanitized everywhere, and every other section keeps the exact
+     * fail-closed behavior of {@link #redact(Object)}. The result is the single
+     * sanitized source for both {@code raw_provider_record.normalized_payload} and
+     * canonicalization input.
+     */
+    public static Object redactNormalizedPayload(Object value) {
+        return redactNormalized(value, true, false);
+    }
+
+    private static Object redactNormalized(Object value, boolean topLevel, boolean usageSection) {
+        if (value instanceof Map<?, ?> map) {
+            var redacted = new LinkedHashMap<String, Object>();
+            for (var entry : map.entrySet()) {
+                var key = String.valueOf(entry.getKey());
+                var safeKey = sanitizeKey(key);
+                var secretShapedKey = !safeKey.equals(key);
+                var isUsageSection = usageSection || (topLevel && "usage".equals(key));
+                // Inside the trusted usage section, schema key names (inputTokens
+                // etc.) never redact their values; secret-shaped keys and values
+                // still fail closed everywhere.
+                var redactValue = secretShapedKey || (!isUsageSection && isSecretKey(key));
+                redacted.put(safeKey, redactValue ? REDACTED
+                        : redactNormalized(entry.getValue(), false, isUsageSection));
+            }
+            return redacted;
+        }
+        if (value instanceof List<?> list) {
+            var redacted = new ArrayList<Object>(list.size());
+            for (var item : list) {
+                redacted.add(redactNormalized(item, false, usageSection));
+            }
+            return redacted;
+        }
+        if (value instanceof String text) {
+            return SecretShapes.redact(text);
+        }
+        return value;
+    }
+
+    /**
      * Sanitizes one JSON object key. Keys that contain no secret material are
      * returned unchanged; keys that do ({@code sk-...}, {@code Bearer ...},
      * {@code api_key=sk-...}) become {@code [REDACTED_KEY:<sha256 hex>]}. The

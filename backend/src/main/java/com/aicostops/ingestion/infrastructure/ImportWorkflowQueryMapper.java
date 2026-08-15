@@ -19,7 +19,7 @@ public interface ImportWorkflowQueryMapper {
     String BATCH_REVIEW_COLUMNS = """
             ib.id,ib.org_id,ib.evidence_id,ib.provider_account_id,ib.expected_provider_code,
             ib.source_type,ib.parser_version,ib.status,ib.period_start,ib.period_end,
-            ib.created_by_member_id,ib.created_at,ib.updated_at,
+            ib.created_by_member_id,ib.created_at,ib.updated_at,ib.confirmed_attempt_id,
             e.original_filename AS evidence_original_filename,
             pa.display_name AS provider_display_name
             """;
@@ -256,6 +256,7 @@ public interface ImportWorkflowQueryMapper {
             long createdByMemberId,
             Instant createdAt,
             Instant updatedAt,
+            Long confirmedAttemptId,
             String evidenceOriginalFilename,
             String providerDisplayName,
             Long latestAttemptId,

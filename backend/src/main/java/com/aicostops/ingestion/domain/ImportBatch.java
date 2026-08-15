@@ -19,5 +19,6 @@ public record ImportBatch(
         Instant periodEnd,
         long createdByMemberId,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        Long confirmedAttemptId) {
 }

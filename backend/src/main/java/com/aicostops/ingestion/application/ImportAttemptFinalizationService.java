@@ -42,7 +42,7 @@ public class ImportAttemptFinalizationService {
                     lease.attemptId(), lease.leaseOwner(), lease.leaseVersion()) != 1) {
                 return false;
             }
-            if (batchMapper.updateStatus(lease.importBatchId(), "PARSED", clock.instant()) != 1) {
+            if (batchMapper.updateStatus(lease.importBatchId(), "READY_FOR_REVIEW", clock.instant()) != 1) {
                 throw new IllegalStateException("ImportBatch finalization must update exactly one row");
             }
             return true;

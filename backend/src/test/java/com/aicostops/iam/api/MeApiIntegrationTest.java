@@ -94,12 +94,18 @@ class MeApiIntegrationTest extends AuthenticationContainersSupport {
     }
 
     @Test
-    void meExcludesNonM1FinancePermissions() throws Exception {
+    void meProjectsAllFinancePermissionsIncludingM3() throws Exception {
         assign("FINANCE_ADMIN", "ORG", organizationId);
 
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.permissions", contains(
+                        "ALLOCATION_CONFIRM",
+                        "ALLOCATION_EDIT",
+                        "ALLOCATION_READ",
+                        "ALLOCATION_RULE_MANAGE",
+                        "COST_READ",
+                        "DUPLICATE_REVIEW",
                         "EVIDENCE_DOWNLOAD",
                         "EVIDENCE_READ",
                         "EVIDENCE_UPLOAD_PROVIDER",
@@ -120,8 +126,14 @@ class MeApiIntegrationTest extends AuthenticationContainersSupport {
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.permissions", contains(
+                        "ALLOCATION_CONFIRM",
+                        "ALLOCATION_EDIT",
+                        "ALLOCATION_READ",
+                        "ALLOCATION_RULE_MANAGE",
                         "COST_CENTER_MANAGE",
                         "COST_CENTER_READ",
+                        "COST_READ",
+                        "DUPLICATE_REVIEW",
                         "EVIDENCE_DOWNLOAD",
                         "EVIDENCE_READ",
                         "EVIDENCE_UPLOAD_PROVIDER",

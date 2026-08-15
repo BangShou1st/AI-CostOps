@@ -15,9 +15,15 @@ public final class M2DatabaseCleaner {
     }
 
     public static void clean(JdbcTemplate jdbc) {
+        jdbc.update("DELETE FROM attribution_hint");
+        jdbc.update("DELETE FROM charge_fact");
+        jdbc.update("DELETE FROM pricing_fact");
+        jdbc.update("DELETE FROM consumption_fact");
+        jdbc.update("DELETE FROM external_document");
         jdbc.update("DELETE FROM import_issue");
         jdbc.update("DELETE FROM raw_provider_record");
-        // predecessor_attempt_id self-references import_attempt; clear it before deletion.
+        // confirmed_attempt_id and predecessor_attempt_id reference import_attempt; clear them before deletion.
+        jdbc.update("UPDATE import_batch SET confirmed_attempt_id=NULL");
         jdbc.update("UPDATE import_attempt SET predecessor_attempt_id=NULL");
         jdbc.update("DELETE FROM import_attempt");
         jdbc.update("DELETE FROM import_batch");

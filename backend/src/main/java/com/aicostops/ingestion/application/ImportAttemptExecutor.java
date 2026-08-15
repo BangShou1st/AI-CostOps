@@ -113,7 +113,8 @@ public class ImportAttemptExecutor {
                         "Provider schema is not compatible with the registered adapter.");
                 return;
             }
-            var sink = new BoundedRecordSink(lease, persistence, properties.persistenceBatchSize());
+            var sink = new BoundedRecordSink(lease, persistence, properties.persistenceBatchSize(),
+                    batch.organizationId(), batch.expectedProviderCode());
             adapter.parse(input, inspection, sink);
             sink.flush();
         } catch (LeaseLostException lost) {
@@ -162,16 +163,22 @@ public class ImportAttemptExecutor {
         private final ImportLeaseService.ImportLease lease;
         private final ImportRawPersistenceService persistence;
         private final int batchSize;
+        private final long orgId;
+        private final String providerCode;
         private final List<NormalizedProviderRecord> buffer = new ArrayList<>();
         private boolean leaseLost;
 
         private BoundedRecordSink(
                 ImportLeaseService.ImportLease lease,
                 ImportRawPersistenceService persistence,
-                int batchSize) {
+                int batchSize,
+                long orgId,
+                String providerCode) {
             this.lease = lease;
             this.persistence = persistence;
             this.batchSize = batchSize;
+            this.orgId = orgId;
+            this.providerCode = providerCode;
         }
 
         @Override
@@ -189,7 +196,7 @@ public class ImportAttemptExecutor {
             if (buffer.isEmpty()) {
                 return;
             }
-            var result = persistence.persist(lease, List.copyOf(buffer));
+            var result = persistence.persist(lease, List.copyOf(buffer), orgId, providerCode);
             buffer.clear();
             if (result.leaseLost()) {
                 leaseLost = true;

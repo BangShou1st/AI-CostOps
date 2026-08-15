@@ -12,4 +12,7 @@ public interface ImportWorkflowAuditPort {
 
     void importCanceled(long orgId, long actorUserId, long batchId,
             long attemptId, String previousAttemptStatus, String previousBatchStatus);
+
+    void importConfirmed(long orgId, long actorUserId, long batchId,
+            long attemptId, String previousBatchStatus);
 }

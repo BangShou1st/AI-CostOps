@@ -34,6 +34,7 @@ public final class ImportWorkflowResponses {
             String createdByMemberId,
             Instant createdAt,
             Instant updatedAt,
+            String confirmedAttemptId,
             boolean retryable,
             boolean cancelable) {
 
@@ -54,6 +55,7 @@ public final class ImportWorkflowResponses {
                     Long.toString(summary.createdByMemberId()),
                     summary.createdAt(),
                     summary.updatedAt(),
+                    summary.confirmedAttemptId() == null ? null : Long.toString(summary.confirmedAttemptId()),
                     summary.retryable(),
                     summary.cancelable());
         }

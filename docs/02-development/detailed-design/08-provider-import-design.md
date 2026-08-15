@@ -659,3 +659,44 @@ SCHEMA_DRIFT_SYNTHETIC     故意漂移，用于证明 WARN/ERROR 策略
   但 provider-account 过滤选项查询不挂载。
 - M2 Group 3 不实现 Import Confirm / READY_FOR_REVIEW / Normalized Facts UI /
   Allocation Proposal / Ledger / WebSocket / SSE / provider 实时 API 轮询 / 凭据存储。
+
+### 16.8 M3 Group 1 Canonical 化契约（2026-08-15，AIC-032/033）
+
+**全局规则 R1–R15：**
+
+| # | 规则 |
+|---|---|
+| R1 | ChargeFact 只来自 `money.reportedAmount`；money 缺失 → 零 charge |
+| R2 | `money.components` 永不额外生成 ChargeFact，且不得通过求和/减法/公式推导 charge 或 reported_*；但允许 `(sourceSchema,recordKind)` 白名单把语义完全同义的 Provider 原生字段直接复制到 ExternalDocument reported_*（当前仅 GLM 四项）。Kimi paid/promotional components 不求和，reported_* 恒 NULL |
+| R3 | 一切 canonical 化以 `(sourceSchema, recordKind) → 显式 whitelist mapping` 驱动；whitelist 枚举每个 meter 的键与单位；未列入的数字键不自动升级 |
+| R4 | 未知/未支持 `(sourceSchema, recordKind)` → fail closed：抛 `IllegalStateException` → 整批回滚 → attempt FAILED |
+| R5 | 已知合法 zero-fact schema（OpenAI empty-export 等）显式返回 empty batch，不 fail |
+| R6 | `unit` 白名单 = {`tokens`, `requests`}；consumption_fact.unit NOT NULL |
+| R7 | 金额/数量进 metadata_json 以字符串序列化（`BigDecimal.toPlainString()`）；权威列仍是 DECIMAL |
+| R8 | provider 身份字段 → consumption_fact ref 列 + Provider-native hint |
+| R9 | Provider-native hint：candidate_scope_type/id = NULL、confidence = NULL；hint_type + provider_value（非掩码） |
+| R10 | 掩码形态（`"********"`/redacted）不产生 API-key hint；`provider_api_key_hash` 恒 NULL |
+| R11 | providerFields.\* 一律只进 metadata_json；usage-only 记录（无 metadata 列）→ 丢弃 |
+| R12 | `normalize_status='ERROR'` → 零 canonical 写入（ingestion 过滤）；WARN 照常 |
+| R13 | 0 保留、缺失不猜；period 取 usageStart/usageEnd；`service_code` 只用 provider 报告的 service 标识 |
+| R14 | canonicalizer 只消费 normalized_payload；绝不回读 raw_payload 补字段（如 DeepSeek cost 的 price/amount 不在归一化输出中，就不得出现） |
+| R15 | Exact decimal / currency guard：Money DECIMAL(20,8)、Usage DECIMAL(30,8) 必须精确可表示；currency 非空白且恰好 3 字符，不猜/不截断/不自动补（非空列缺失 → fail closed；可空列保持 NULL） |
+
+**Provider 事实产出矩阵：**
+
+| Provider / schema | external_document | consumption_fact | pricing_fact | charge_fact | attribution_hint |
+|---|---|---|---|---|---|
+| OpenAI usage JSON | 0 | 3 required + ≤12 optional（input_tokens/output_tokens tokens；num_model_requests requests；breakdown 白名单且单位∈{tokens,requests}） | 0 | 0 | PROVIDER_USER · PROVIDER_PROJECT · PROVIDER_API_KEY |
+| OpenAI costs JSON | 0 | 0 | 0 | 1（money.reportedAmount，USAGE，period=usage window，metadata=providerFields） | 仅 PROVIDER_PROJECT · PROVIDER_API_KEY（无 providerUser 来源） |
+| OpenAI empty-export | 0 | 0 | 0 | 0 | 0（显式 empty batch） |
+| MiMo Model sheet | 0 | 5（total/input_hit/input_miss/output tokens ×4 + request_count requests） | 0 | 1（reportedAmount；components+date+totalAudioDurationRaw → metadata） | 0 |
+| MiMo Plugin sheet | 0 | 1（request_count；service_code=provider 报告的 plugin 值，无则 NULL） | 0 | 1 | 0 |
+| GLM BillingSummary | 1（BILL_SUMMARY；currency=NULL；reported_total/payable/paid/outstanding 四项 direct semantic copy；其余 components → metadata） | 0 | 0 | 0 | 0 |
+| Kimi BillingSummary | 1（BILL_SUMMARY；currency=CNY；reported_* 全 NULL；components+billingEntity+periodText+providerOrganization → metadata） | 0 | 0 | 0 | 仅 PROVIDER_USER（providerOrganization 绝不映射 PROJECT） |
+| DeepSeek amount.csv | 0 | 0 | 0 | 0（price/amount 原始字段不升级，防 double count） | PROVIDER_USER · PROVIDER_API_KEY（非掩码 credentialLabel） |
+| DeepSeek cost.csv | 0 | 0 | 0 | 1（metadata 仅 {model, walletType}；price/amount 不回读） | 仅 PROVIDER_USER |
+
+**Import Confirm 契约：** `POST /api/v1/imports/{importId}/confirm`
+（Idempotency-Key + `IMPORT_CONFIRM` @ ORG）。锁顺序 batch 先、attempt 普通读；
+CONFIRMED 同 attempt 重复 confirm（新 key）→ 幂等成功；READY_FOR_REVIEW 且
+SUCCEEDED 且 error_count=0 才可 confirm。Import Confirm ≠ Ledger Posting。
