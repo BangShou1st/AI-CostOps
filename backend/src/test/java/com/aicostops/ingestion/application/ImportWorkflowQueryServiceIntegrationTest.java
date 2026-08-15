@@ -200,10 +200,44 @@ class ImportWorkflowQueryServiceIntegrationTest extends AuthenticationContainers
     }
 
     @Test
+    void rawListKeySummaryBoundaryAtExactlyThirtyTwoKeys() {
+        var atBoundary = new LinkedHashMap<String, Object>();
+        for (var i = 0; i < 32; i++) {
+            atBoundary.put("field_" + i, "value-" + i);
+        }
+        insertRawRecord(attempt3Id, 0, "boundary.csv:row=1", "boundary-32", atBoundary, null, "NORMALIZED",
+                "2026-08-03 11:00:00");
+        var exactly32 = queries.listRawRecords(user(), batchId, attempt3Id, 0, 50, null).items().get(0);
+        assertThat(exactly32.rawPayloadKeys().keyCount()).isEqualTo(32);
+        assertThat(exactly32.rawPayloadKeys().keys()).hasSize(32);
+        assertThat(exactly32.rawPayloadKeys().keysTruncated()).isFalse();
+
+        insertRawRecord(attempt3Id, 1, "boundary.csv:row=2", "boundary-33",
+                withKeys(33), null, "NORMALIZED", "2026-08-03 11:01:00");
+        var thirtyThree = queries.listRawRecords(user(), batchId, attempt3Id, 0, 50, null).items().get(1);
+        assertThat(thirtyThree.rawPayloadKeys().keyCount()).isEqualTo(33);
+        assertThat(thirtyThree.rawPayloadKeys().keysTruncated()).isTrue();
+        assertThat(thirtyThree.rawPayloadKeys().keys()).hasSizeLessThanOrEqualTo(32);
+    }
+
+    @Test
+    void rawListEmptyObjectKeySummaryIsZero() {
+        insertRawRecord(attempt3Id, 0, "empty.csv:row=1", "empty-key",
+                Map.of(), null, "NORMALIZED", "2026-08-03 11:00:00");
+        var summary = queries.listRawRecords(user(), batchId, attempt3Id, 0, 50, null).items().get(0);
+        assertThat(summary.rawPayloadKeys().keyCount()).isZero();
+        assertThat(summary.rawPayloadKeys().keys()).isEmpty();
+        assertThat(summary.rawPayloadKeys().keysTruncated()).isFalse();
+        assertThat(summary.normalizedPayloadKeys().keyCount()).isZero();
+        assertThat(summary.normalizedPayloadKeys().keys()).isEmpty();
+        assertThat(summary.normalizedPayloadKeys().keysTruncated()).isFalse();
+    }
+
+    @Test
     void rawDetailLazyLoadsRedactedPayloads() {
         insertRawRecord(attempt3Id, 0, "cost.csv:row=1", "row-key-1",
-                Map.of("model", "x", "future_note", "safe", "api_key", "[REDACTED]"),
-                Map.of("model", "x"), "NORMALIZED", "2026-08-03 11:00:00");
+                Map.of("model", "x", "future_note", "safe", "api_key", "sk-SECRET-SENTINEL"),
+                null, "NORMALIZED", "2026-08-03 11:00:00");
         var recordId = jdbc.queryForObject(
                 "SELECT id FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0",
                 Long.class, attempt3Id);
@@ -212,8 +246,11 @@ class ImportWorkflowQueryServiceIntegrationTest extends AuthenticationContainers
         @SuppressWarnings("unchecked")
         var raw = (Map<String, Object>) detail.rawPayload();
         assertThat(raw).containsEntry("model", "x");
+        // Persistence-time and response-boundary redaction both apply: the
+        // secret-shaped value must never reach the caller.
+        assertThat(detail.rawPayload().toString()).doesNotContain("sk-SECRET-SENTINEL");
         assertThat(raw).containsEntry("api_key", "[REDACTED]");
-        assertThat(detail.normalizedPayload()).isInstanceOf(Map.class);
+        assertThat(detail.normalizedPayload()).isNull();
     }
 
     @Test
@@ -281,6 +318,14 @@ class ImportWorkflowQueryServiceIntegrationTest extends AuthenticationContainers
                 .isInstanceOf(DomainException.class).satisfies(this::isValidationFailed);
         assertThatThrownBy(() -> queries.listImports(user(), 0, 201, null, null))
                 .isInstanceOf(DomainException.class).satisfies(this::isValidationFailed);
+    }
+
+    private Map<String, Object> withKeys(int count) {
+        var map = new LinkedHashMap<String, Object>();
+        for (var i = 0; i < count; i++) {
+            map.put("field_" + i, "value-" + i);
+        }
+        return map;
     }
 
     private void isNotFound(Throwable throwable) {
