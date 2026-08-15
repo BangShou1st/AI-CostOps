@@ -158,9 +158,6 @@ public class ImportWorkflowCommandService {
                 throw notFound();
             }
             requireCancelable(batch, latest);
-            if (latest == null) {
-                throw new IllegalStateException("A cancelable ImportBatch must have a latest Attempt");
-            }
 
             var now = clock.instant();
             if (attemptMapper.cancelQueuedOrRunning(latest.id(), now) != 1) {

@@ -65,6 +65,8 @@ public class SecurityConfiguration {
                                 "/api/v1/imports/{importId}/attempts/{attemptId}/raw-records",
                                 "/api/v1/imports/{importId}/attempts/{attemptId}/raw-records/{recordId}")
                         .authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/imports/{importId}/retry",
+                                "/api/v1/imports/{importId}/cancel").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/provider-imports").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();

@@ -5,12 +5,15 @@ import com.aicostops.ingestion.api.ImportWorkflowResponses.ImportResponse;
 import com.aicostops.ingestion.api.ImportWorkflowResponses.IssueResponse;
 import com.aicostops.ingestion.api.ImportWorkflowResponses.RawRecordDetailResponse;
 import com.aicostops.ingestion.api.ImportWorkflowResponses.RawRecordSummaryResponse;
+import com.aicostops.ingestion.application.ImportWorkflowCommandService;
 import com.aicostops.ingestion.application.ImportWorkflowQueryService;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.PageResponse;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -20,9 +23,27 @@ import org.springframework.web.bind.annotation.RestController;
 public class ImportWorkflowController {
 
     private final ImportWorkflowQueryService queries;
+    private final ImportWorkflowCommandService commands;
 
-    public ImportWorkflowController(ImportWorkflowQueryService queries) {
+    public ImportWorkflowController(ImportWorkflowQueryService queries, ImportWorkflowCommandService commands) {
         this.queries = queries;
+        this.commands = commands;
+    }
+
+    @PostMapping("/{importId}/retry")
+    public ImportResponse retry(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long importId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        return ImportResponse.from(commands.retry(authenticatedUser, importId, idempotencyKey));
+    }
+
+    @PostMapping("/{importId}/cancel")
+    public ImportResponse cancel(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long importId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey) {
+        return ImportResponse.from(commands.cancel(authenticatedUser, importId, idempotencyKey));
     }
 
     @GetMapping
