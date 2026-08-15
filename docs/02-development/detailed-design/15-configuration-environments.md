@@ -153,20 +153,39 @@ plan 原指定的 `RELEASE.2025-10-15T17-29-55Z` 在官方 registry 不存在）
 
 ## 6. Local IDE Mode
 
-推荐：
+推荐（Daily Development Mode）：
 
 ```text
 MySQL / Redis / MinIO
-→ Docker
+→ Docker（compose.yaml + compose.dev.yaml，只启动三个基础设施服务）
 
 Backend
-→ IDEA / ./mvnw spring-boot:run
+→ IDEA / .\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local
 
 Frontend
 → npm run dev
 ```
 
 需要开放本地端口时使用 `compose.dev.yaml`，不要每个人都改 tracked `compose.yaml`。
+端口映射只存在于 dev overlay：
+
+```text
+MySQL   localhost:3307
+Redis   localhost:6379
+MinIO   localhost:9000 / 9001
+```
+
+本机 Backend 使用 `application-local.yml`（`local` profile）提供默认值：
+datasource / redis / storage 指向上述 localhost 端口，JWT 使用本地开发密钥，
+允许公开注册、refresh cookie 非 secure、允许的 Origin 为 `http://localhost:5173`
+（Vite dev server）。每个值都可用同名环境变量覆盖，规则与 `application.yml` 一致。
+Backend 默认监听 `localhost:8081`（`BACKEND_PORT`），避免与容器模式前端
+`localhost:8080` 冲突。
+
+本机 Frontend 依赖 Vite dev proxy：`vite.config.ts` 把 `/api/v1` 代理到
+`http://localhost:${BACKEND_PORT:-8081}`，浏览器视角保持同源
+（页面与 API 都在 `localhost:5173`），因此不引入额外 CORS hack，登录 /
+refresh cookie / 权限流程与 Nginx 容器模式一致。
 
 ## 7. Full Compose
 

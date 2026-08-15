@@ -30,7 +30,7 @@ class DevInvitationMailboxTest {
     @Test
     void devMailboxWritesAcceptLinkWithoutLogging(CapturedOutput output) throws Exception {
         var secureMailbox = mailbox.resolve("invitations");
-        var sink = new DevInvitationMailbox(secureMailbox, "http://localhost:8080/accept-invitation");
+        var sink = new DevInvitationMailbox(secureMailbox, "http://localhost:8080/invite");
 
         sink.deliver("person@example.com", "invitation-secret-value");
 
@@ -38,14 +38,14 @@ class DevInvitationMailboxTest {
         assertThat(messages).hasSize(1);
         assertThat(Files.readString(messages.getFirst()))
                 .contains("email=person@example.com")
-                .contains("acceptLink=http://localhost:8080/accept-invitation?token=invitation-secret-value");
+                .contains("acceptLink=http://localhost:8080/invite/invitation-secret-value");
         assertThat(output.getAll()).doesNotContain("invitation-secret-value", "person@example.com");
     }
 
     @Test
     void devMailboxRestrictsRawTokenToOwnerOnly() throws Exception {
         var secureMailbox = mailbox.resolve("invitations");
-        var sink = new DevInvitationMailbox(secureMailbox, "http://localhost:8080/accept-invitation");
+        var sink = new DevInvitationMailbox(secureMailbox, "http://localhost:8080/invite");
 
         sink.deliver("person@example.com", "invitation-secret-value");
 
@@ -85,7 +85,7 @@ class DevInvitationMailboxTest {
         var link = mailbox.resolve("invitations");
         Files.createSymbolicLink(link, target.getFileName());
         var sink = new DevInvitationMailbox(link,
-                "http://localhost:8080/accept-invitation");
+                "http://localhost:8080/invite");
 
         assertThatThrownBy(() -> sink.deliver("person@example.com", "invitation-secret-value"))
                 .isInstanceOf(IllegalStateException.class)

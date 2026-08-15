@@ -33,7 +33,7 @@ public class InvitationDeliveryConfiguration {
     @Profile("dev")
     InvitationDelivery devInvitationDelivery(
             @Value("${aicostops.iam.dev-invitation-mailbox-path:.local-dev/invitations}") Path mailbox,
-            @Value("${aicostops.iam.dev-invite-page-url:http://localhost:8080/accept-invitation}")
+            @Value("${aicostops.iam.dev-invite-page-url:http://localhost:8080/invite}")
             String invitePageUrl) {
         return new DevInvitationMailbox(mailbox, invitePageUrl);
     }

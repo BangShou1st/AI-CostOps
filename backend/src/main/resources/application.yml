@@ -1,6 +1,15 @@
 spring:
   application:
     name: ai-costops-backend
+  profiles:
+    group:
+      # Activating `local` (host-run daily development) must also activate the
+      # dev-only components: DevAuthenticationBootstrap, the file-backed
+      # password-reset mailbox and the invitation mailbox. Without this group,
+      # a plain `-Dspring-boot.run.profiles=local` would pick the !dev
+      # production placeholders instead.
+      local:
+        - dev
   autoconfigure:
     exclude: org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration
   servlet:
@@ -75,7 +84,7 @@ aicostops:
     invitation-default-lifetime: ${AICOSTOPS_IAM_INVITATION_DEFAULT_LIFETIME:72h}
     invitation-max-lifetime: ${AICOSTOPS_IAM_INVITATION_MAX_LIFETIME:168h}
     dev-invitation-mailbox-path: ${AICOSTOPS_IAM_DEV_INVITATION_MAILBOX_PATH:.local-dev/invitations}
-    dev-invite-page-url: ${AICOSTOPS_IAM_DEV_INVITE_PAGE_URL:http://localhost:8080/accept-invitation}
+    dev-invite-page-url: ${AICOSTOPS_IAM_DEV_INVITE_PAGE_URL:http://localhost:8080/invite}
   auth:
     allow-public-registration: ${AICOSTOPS_ALLOW_PUBLIC_REGISTRATION:false}
     public-registration-org-slug: ${PUBLIC_REGISTRATION_ORG_SLUG:local-dev}

@@ -1,0 +1,48 @@
+# Local Day-to-Day Development profile (Mode A).
+#
+# Runs the Spring Boot backend directly on the Windows host while MySQL,
+# Redis and MinIO run in Docker (see compose.dev.yaml for the published
+# host ports). Every value below is a fallback default: an environment
+# variable of the same name (e.g. set in .env and imported into the shell)
+# still overrides it, exactly like application.yml.
+#
+# Activate with:
+#   .\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local
+# or set SPRING_PROFILES_ACTIVE=local in the IDE run configuration.
+spring:
+  datasource:
+    # compose.dev.yaml publishes MySQL on ${MYSQL_PORT} (3307 by default).
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:aicostops}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me-local-only}
+  data:
+    redis:
+      host: ${AICOSTOPS_REDIS_HOST:localhost}
+      port: ${AICOSTOPS_REDIS_PORT:6379}
+      password: ${AICOSTOPS_REDIS_PASSWORD:change-me-local-only}
+
+server:
+  # The host backend listens on 8081 by default so it never collides with
+  # the containerized frontend (http://localhost:8080) or a second instance.
+  port: ${BACKEND_PORT:8081}
+
+aicostops:
+  storage:
+    endpoint: ${AICOSTOPS_STORAGE_ENDPOINT:http://localhost:9000}
+    access-key: ${AICOSTOPS_STORAGE_ACCESS_KEY:aicostops}
+    secret-key: ${AICOSTOPS_STORAGE_SECRET_KEY:change-me-local-only}
+    bucket: ${AICOSTOPS_STORAGE_BUCKET:aicostops-evidence}
+  iam:
+    dev-invitation-mailbox-path: ${AICOSTOPS_IAM_DEV_INVITATION_MAILBOX_PATH:.local-dev/invitations}
+    dev-invite-page-url: ${AICOSTOPS_IAM_DEV_INVITE_PAGE_URL:http://localhost:5173/invite}
+  auth:
+    allow-public-registration: ${AICOSTOPS_ALLOW_PUBLIC_REGISTRATION:true}
+    public-registration-org-slug: ${PUBLIC_REGISTRATION_ORG_SLUG:local-dev}
+    # Local-development-only key; production must supply AICOSTOPS_JWT_SIGNING_KEY.
+    jwt-signing-secret: ${AICOSTOPS_JWT_SIGNING_KEY:local-development-only-signing-key-change-before-production-2026}
+    refresh-cookie-secure: ${AICOSTOPS_REFRESH_COOKIE_SECURE:false}
+    # The Vite dev server serves the single page on 5173 and proxies /api/v1,
+    # so auth requests carry Origin http://localhost:5173.
+    allowed-origins: ${AICOSTOPS_ALLOWED_ORIGINS:http://localhost:5173}
+    dev-mailbox-path: ${AICOSTOPS_DEV_MAILBOX_PATH:.local-dev/mailbox}
+    dev-reset-page-url: ${AICOSTOPS_DEV_RESET_PAGE_URL:http://localhost:5173/reset-password}
