@@ -638,3 +638,19 @@ SCHEMA_DRIFT_SYNTHETIC     故意漂移，用于证明 WARN/ERROR 策略
 ```
 
 真实原始账户文件不进入仓库。
+
+### 16.7 M2 Group 3 上传与导入工作流契约（2026-08-15）
+
+- 前端复用 `POST /api/v1/provider-imports`：字段 `file` / `providerAccountId` /
+  `sourceType`（multipart）。上传 UI 的 provider/source-type UX 映射是显式白名单
+  （DEEPSEEK/MIMO/KIMI/GLM → FILE_EXPORT；OPENAI → FILE_EXPORT/USAGE_API_JSON/
+  COSTS_API_JSON），未知 provider code 显示"不支持上传"而非猜测；后端 adapter
+  registry/inspection 仍权威。
+- 创建响应 ID（`evidenceId` / `importBatchId` / `latestAttemptId`）序列化为十进制
+  字符串；应用层保持 `long`。`duplicateEvidence` / `duplicateBatch` 明确返回，
+  前端不把重复上传呈现为新 Batch。
+- 上传按钮与 provider-account 目录需要 `EVIDENCE_UPLOAD_PROVIDER` +
+  `PROVIDER_ACCOUNT_READ`；Import 列表在缺 `PROVIDER_ACCOUNT_READ` 时仍可用，
+  但 provider-account 过滤选项查询不挂载。
+- M2 Group 3 不实现 Import Confirm / READY_FOR_REVIEW / Normalized Facts UI /
+  Allocation Proposal / Ledger / WebSocket / SSE / provider 实时 API 轮询 / 凭据存储。

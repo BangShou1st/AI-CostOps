@@ -165,16 +165,22 @@ Download
 /imports/:id
 ```
 
-Tab：
+M2 Tab（Group 3 实现，2026-08-15）：
 
 ```text
 Overview
 Attempts
 Issues
 Raw Records
-Normalized Facts
-Allocation Proposal
 ```
+
+M2 不渲染 M3 占位 Tab（Normalized Facts / Allocation Proposal 等）。
+
+权限门控：`/evidence/**` 需要 `EVIDENCE_READ`，`/imports/**` 需要 `IMPORT_READ`；
+`PermissionRoute` 在 child page mount 之前拦截，未授权直达路由显示 403 且子页面
+（及其查询）不挂载。Evidence 详情页的关联 Imports 子查询仅在 `IMPORT_READ` 时
+启动；Import 详情页的 Evidence 元数据在 `IMPORT_READ` 下可见，原始文件下载仍
+需要 `EVIDENCE_DOWNLOAD`。
 
 ### Cost / Allocation
 
@@ -325,13 +331,15 @@ USD 20
 
 ## 9. Import Progress
 
-V1 用 Polling：
+V1 用 Polling（M2 Group 3 固定契约）：
 
 ```text
-GET /imports/{id}
+GET /api/v1/imports/{id}
 ```
 
-Processing 时每 2-5 秒 Poll，Terminal State 停止。
+`PENDING` / `PROCESSING` 每 3 秒 Poll 一次；`PARSED` / `FAILED` / `CANCELED`
+立即停止。只有轻量 Import detail 轮询，Issues / Raw Records 大表不轮询。
+路由卸载 / logout 时随 query teardown 停止轮询。
 
 不为了进度引入 WebSocket/SSE。
 
