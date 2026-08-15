@@ -19,7 +19,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
-import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest(properties =
         "aicostops.auth.jwt-signing-secret=import-workflow-read-test-only-signing-secret-with-more-than-32-bytes")
@@ -35,8 +34,6 @@ class ImportWorkflowReadApiIntegrationTest extends AuthenticationContainersSuppo
     private JwtTokenService tokens;
     @Autowired
     private StringRedisTemplate redis;
-
-    private final ObjectMapper json = new ObjectMapper();
 
     private long organizationId;
     private long foreignOrganizationId;
@@ -109,6 +106,13 @@ class ImportWorkflowReadApiIntegrationTest extends AuthenticationContainersSuppo
         mockMvc.perform(get("/api/v1/imports?status=PARSED").header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(0));
+        mockMvc.perform(get("/api/v1/imports?providerAccountId=" + accountId)
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+        mockMvc.perform(get("/api/v1/imports?providerAccountId=999999").header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
         mockMvc.perform(get("/api/v1/imports?status=INVENTED").header("Authorization", bearer()))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
@@ -156,6 +160,12 @@ class ImportWorkflowReadApiIntegrationTest extends AuthenticationContainersSuppo
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.items[0].issueCode").value("UNKNOWN_FIELD"));
+
+        mockMvc.perform(get("/api/v1/imports/{importId}/attempts/{attemptId}/issues?issueCode=FIELD_EMPTY",
+                        batchId, attempt1Id).header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items[0].id").isString());
     }
 
     @Test
@@ -185,19 +195,21 @@ class ImportWorkflowReadApiIntegrationTest extends AuthenticationContainersSuppo
     @Test
     void rawRecordDetailLazyLoadsRedactedPayload() throws Exception {
         insertRawRecord(attempt2Id, 0, "cost.csv:row=1", "row-key-1",
-                "{\"model\":\"x\",\"future_note\":\"safe\",\"api_key\":\"[REDACTED]\"}",
+                "{\"model\":\"x\",\"future_note\":\"safe\",\"api_key\":\"sk-SECRET-SENTINEL\"}",
                 "{\"model\":\"x\"}", "NORMALIZED");
         var recordId = jdbc.queryForObject(
                 "SELECT id FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0",
                 Long.class, attempt2Id);
 
-        mockMvc.perform(get("/api/v1/imports/{importId}/attempts/{attemptId}/raw-records/{recordId}",
+        var body = mockMvc.perform(get("/api/v1/imports/{importId}/attempts/{attemptId}/raw-records/{recordId}",
                         batchId, attempt2Id, recordId).header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").isString())
                 .andExpect(jsonPath("$.rawPayload.model").value("x"))
                 .andExpect(jsonPath("$.rawPayload.api_key").value("[REDACTED]"))
-                .andExpect(jsonPath("$.normalizedPayload.model").value("x"));
+                .andExpect(jsonPath("$.normalizedPayload.model").value("x"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("sk-SECRET-SENTINEL");
     }
 
     @Test
