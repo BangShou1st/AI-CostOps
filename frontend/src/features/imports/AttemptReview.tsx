@@ -34,14 +34,16 @@ export function AttemptReview({ importId }: { importId: string }) {
   const latestAttemptId = attemptsList.length > 0 ? attemptsList[0].id : null
 
   // Follow the latest Attempt by default; after a retry adds a successor, move
-  // to it only when the reviewer had been following the previous latest.
+  // to it only when the reviewer had been following the previous latest. The
+  // follow-up is limited to the first page so paging through history never
+  // silently reselects the current page's first row.
   useEffect(() => {
-    if (latestAttemptId === null) return
+    if (attemptPage !== 0 || latestAttemptId === null) return
     if (selectedAttemptId === null || (wasFollowingLatest && selectedAttemptId !== latestAttemptId)) {
       setSelectedAttemptId(latestAttemptId)
       setWasFollowingLatest(true)
     }
-  }, [latestAttemptId, selectedAttemptId, wasFollowingLatest])
+  }, [attemptPage, latestAttemptId, selectedAttemptId, wasFollowingLatest])
 
   const selectAttempt = (attemptId: string) => {
     setSelectedAttemptId(attemptId)
@@ -122,7 +124,8 @@ export function AttemptReview({ importId }: { importId: string }) {
               setIssueCode(value)
               setIssuePage(0)
             }}
-            options={[]}
+            options={Array.from(new Set((issues.data?.items ?? []).map((issue) => issue.issueCode)))
+              .map((code) => ({ value: code, label: code }))}
             showSearch
             style={{ width: 180 }}
           />
