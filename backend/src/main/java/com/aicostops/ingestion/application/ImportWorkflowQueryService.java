@@ -74,13 +74,13 @@ public class ImportWorkflowQueryService {
         var rows = queryMapper.pageImports(context.organizationId(), status, providerAccountId,
                 offset, pageRequest.size());
         var total = queryMapper.countImports(context.organizationId(), status, providerAccountId);
-        return PageResponse.of(rows.stream().map(this::toImportSummary).toList(), pageRequest, total);
+        return PageResponse.of(rows.stream().map(ImportWorkflowQueryService::mapImportSummary).toList(), pageRequest, total);
     }
 
     public ImportSummary getImport(AuthenticatedUser user, long importId) {
         var context = authorizedContext(user);
         var row = orgScopedImport(context.organizationId(), importId);
-        return toImportSummary(row);
+        return mapImportSummary(row);
     }
 
     public PageResponse<ImportSummary> listEvidenceImports(
@@ -95,7 +95,7 @@ public class ImportWorkflowQueryService {
         var rows = queryMapper.pageEvidenceImports(
                 context.organizationId(), evidenceId, offset, pageRequest.size());
         var total = queryMapper.countEvidenceImports(context.organizationId(), evidenceId);
-        return PageResponse.of(rows.stream().map(this::toImportSummary).toList(), pageRequest, total);
+        return PageResponse.of(rows.stream().map(ImportWorkflowQueryService::mapImportSummary).toList(), pageRequest, total);
     }
 
     public PageResponse<AttemptSummary> listAttempts(
@@ -106,7 +106,8 @@ public class ImportWorkflowQueryService {
         var offset = (long) pageRequest.page() * pageRequest.size();
         var attempts = queryMapper.pageAttempts(importId, offset, pageRequest.size());
         var total = queryMapper.countAttempts(importId);
-        return PageResponse.of(attempts.stream().map(this::toAttemptSummary).toList(), pageRequest, total);
+        return PageResponse.of(attempts.stream().map(ImportWorkflowQueryService::toAttemptSummary).toList(),
+                pageRequest, total);
     }
 
     public PageResponse<IssueSummary> listIssues(
@@ -186,7 +187,7 @@ public class ImportWorkflowQueryService {
         }
     }
 
-    private ImportSummary toImportSummary(ImportReviewRow row) {
+    static ImportSummary mapImportSummary(ImportReviewRow row) {
         var latest = row.latestAttemptId() == null ? null : toAttemptSummary(
                 new com.aicostops.ingestion.domain.ImportAttempt(
                         row.latestAttemptId(), row.id(), row.latestAttemptNo(), attemptStatusOf(row.latestAttemptStatus()),
@@ -204,7 +205,7 @@ public class ImportWorkflowQueryService {
                 row.createdByMemberId(), row.createdAt(), row.updatedAt());
     }
 
-    private AttemptSummary toAttemptSummary(com.aicostops.ingestion.domain.ImportAttempt attempt) {
+    private static AttemptSummary toAttemptSummary(com.aicostops.ingestion.domain.ImportAttempt attempt) {
         return new AttemptSummary(
                 attempt.id(), attempt.attemptNo(), attempt.status(), attempt.triggerType(),
                 attempt.predecessorAttemptId(), attempt.parserVersion(), attempt.detectedProviderCode(),
