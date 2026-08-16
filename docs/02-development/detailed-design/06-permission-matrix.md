@@ -172,6 +172,22 @@ SYSTEM_ADMIN seed 不含 finance 权限 → 不自动获得；`/auth/me` 投影�
 自动包含 ORG 级 finance grant。Confirm（`IMPORT_CONFIRM`）沿用 M2 的
 ORG 级策略，零 seed 改动。
 
+M3 Group 2 Duplicate API 实际只使用 ORG 级 scope：
+
+```text
+POST /api/v1/duplicate-candidates/scan                       DUPLICATE_REVIEW @ ORG
+GET  /api/v1/duplicate-candidates                            DUPLICATE_REVIEW @ ORG
+GET  /api/v1/duplicate-candidates/{candidateId}              DUPLICATE_REVIEW @ ORG
+POST /api/v1/duplicate-candidates/{candidateId}/keep         DUPLICATE_REVIEW @ ORG
+POST /api/v1/duplicate-candidates/{candidateId}/exclude      DUPLICATE_REVIEW @ ORG
+```
+
+原因：pre-allocation Charge 尚无可靠 Project/CostCenter ownership，candidate
+是跨 confirmed imports 的 org-level review 资源；PROJECT/COST_CENTER 级
+finance grant 的 applicability 保留在 policy，未来 allocation 之后可加 scoped
+projection。Allocation 权限的 HTTP workflow 属 #49/#50，Group 2 未提供
+allocation 相关 API。
+
 ### Expense
 
 ```text

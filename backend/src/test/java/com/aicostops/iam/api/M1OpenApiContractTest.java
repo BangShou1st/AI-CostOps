@@ -225,6 +225,11 @@ class M1OpenApiContractTest {
         add(operations, "GET /imports/{importId}/attempts/{attemptId}/issues", "200", "400", "401", "403", "404");
         add(operations, "GET /imports/{importId}/attempts/{attemptId}/raw-records", "200", "400", "401", "403", "404");
         add(operations, "GET /imports/{importId}/attempts/{attemptId}/raw-records/{recordId}", "200", "400", "401", "403", "404");
+        add(operations, "POST /duplicate-candidates/scan", "200", "400", "401", "403", "409");
+        add(operations, "GET /duplicate-candidates", "200", "400", "401", "403");
+        add(operations, "GET /duplicate-candidates/{candidateId}", "200", "400", "401", "403", "404");
+        add(operations, "POST /duplicate-candidates/{candidateId}/keep", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /duplicate-candidates/{candidateId}/exclude", "200", "400", "401", "403", "404", "409");
         return Map.copyOf(operations);
     }
 

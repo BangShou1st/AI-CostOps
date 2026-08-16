@@ -292,6 +292,37 @@ Shared
 
 用 ArchUnit 固化。
 
+### 3.1 cost.review（M3 Group 2 起）
+
+Duplicate Review 工作流放在 `cost.review` 子包，不进 `cost.application` /
+`cost.infrastructure`（它们的 allowed 列表冻结且不含 iam/audit）：
+
+```text
+cost.review.domain          → cost.domain / shared / java
+cost.review.application     → cost.review.domain / cost.domain / iam（授权上下文）/ shared / Spring / Jackson
+cost.review.infrastructure  → cost.review.application / cost.review.domain / cost.domain / audit.application / MyBatis / Spring
+cost.review.api             → cost.review.application / cost.review.domain / shared / Spring Web
+```
+
+白名单按 `cost.review.<layer>..` 精确列出，绝不放宽成整个 `cost.review..`
+（否则 application → infrastructure 会被放过）。全 `cost..` 不得依赖
+`ingestion / attribution / ledger / budget / reporting`；Scan 只读
+charge_fact 的 confirmed-attempt lineage（IDs join），不 import ingestion 代码。
+
+### 3.2 attribution foundation（M3 Group 2 起）
+
+`attribution` 模块当前只有 persistence foundation：
+
+```text
+attribution.domain          → shared / java
+attribution.application     → attribution.domain / shared / java
+attribution.infrastructure  → attribution.application / attribution.domain / shared / Spring / MyBatis
+```
+
+不依赖 iam / audit / ingestion / evidence / cost——DB lineage 与 FK 用 IDs 即可。
+Group 3 若需要 cost read model，再按真实调用点最小放宽；本组不提前放宽。
+attribution 反向禁止：cost 不能依赖 attribution（同上）。
+
 ## 4. 事务放在哪里
 
 `@Transactional` 放在 Application Use Case。

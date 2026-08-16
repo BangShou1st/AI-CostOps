@@ -66,6 +66,31 @@ CLEAN
 
 `SUSPECTED_DUPLICATE` 不能 Posting。
 
+### 3.1 DuplicateCandidate（M3 Group 2，V9）
+
+```text
+OPEN → KEPT_CLEAN
+OPEN → CONFIRMED_DUPLICATE
+OPEN → SUPERSEDED
+```
+
+三种右侧状态 terminal。candidate 状态与 pair identity
+`(org, charge_fact_id < matched_charge_id, algorithm_version)` 绑定：同
+algorithm 重扫 terminal pair 是 no-op，不重开；未来 algorithm v2 可对同一
+pair 开新 candidate 而不覆盖 v1 的 reviewer history。
+
+`charge_fact.review_status` 是 candidate 的 materialized aggregate：
+
+```text
+EXCLUDED_DUPLICATE / EXCLUDED_NONCOST   terminal，不参与聚合
+otherwise:
+    存在 OPEN candidate  ⇒ SUSPECTED_DUPLICATE
+    不存在 OPEN candidate ⇒ CLEAN
+```
+
+每次 scan / keep / exclude 都在 candidate terminal 之后基于 DB 的 OPEN 行
+reconcile，而不是假设一次 UPDATE 永远正确。
+
 ## 4. AllocationDecision
 
 ```text
@@ -86,6 +111,11 @@ CONFIRMED
 ```text
 Correction
 ```
+
+M3 Group 2 只持久化以上 schema states（V9 CHECK + generated-column
+UNIQUE + composite current-pointer FK）；DRAFT→CONFIRMED / SUPERSEDED 的
+transition 事务、exact-sum 与 currency 校验、pointer mutation 属 #49
+Allocation Confirm，本组未实现。
 
 ## 5. ExpenseClaim
 

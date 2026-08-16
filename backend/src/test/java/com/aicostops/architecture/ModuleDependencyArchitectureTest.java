@@ -101,6 +101,186 @@ class ModuleDependencyArchitectureTest {
     }
 
     @Test
+    void costMustNotDependOnPlanningModules() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule costRule = classes()
+                .that().resideInAPackage("com.aicostops.cost..")
+                .should().onlyDependOnClassesThat().resideOutsideOfPackages(
+                        "com.aicostops.attribution..",
+                        "com.aicostops.ledger..",
+                        "com.aicostops.budget..",
+                        "com.aicostops.reporting..");
+
+        costRule.check(productionClasses);
+    }
+
+    @Test
+    void costReviewDomainDependsOnlyOnCostDomainAndShared() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.cost.review.domain..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.cost.review.domain..",
+                        "com.aicostops.cost.domain..",
+                        "com.aicostops.shared..",
+                        "java..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void costReviewApplicationNeverReachesInfrastructureOrPersistence() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.cost.review.application..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.cost.review.application..",
+                        "com.aicostops.cost.review.domain..",
+                        "com.aicostops.cost.domain..",
+                        // AuthorizationContextService.current(user) hands the caller
+                        // iam.domain.AuthorizationContext; using that return type is the
+                        // documented integration style (ingestion allows all of iam..).
+                        "com.aicostops.iam.application..",
+                        "com.aicostops.iam.domain..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void costReviewInfrastructureDependsOnlyOnReviewLayersAuditAndFramework() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.cost.review.infrastructure..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.cost.review.infrastructure..",
+                        "com.aicostops.cost.review.application..",
+                        "com.aicostops.cost.review.domain..",
+                        "com.aicostops.cost.domain..",
+                        "com.aicostops.audit.application..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "org.apache.ibatis..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void costReviewApiDependsOnlyOnReviewApplicationAndDomain() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.cost.review.api..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.cost.review.api..",
+                        "com.aicostops.cost.review.application..",
+                        "com.aicostops.cost.review.domain..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void attributionMustNotDependOnWorkflowOrIdentityModules() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.attribution..")
+                .should().onlyDependOnClassesThat().resideOutsideOfPackages(
+                        "com.aicostops.ingestion..",
+                        "com.aicostops.evidence..",
+                        "com.aicostops.iam..",
+                        "com.aicostops.audit..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void attributionDomainStaysFrameworkFree() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.attribution.domain..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.attribution.domain..",
+                        "com.aicostops.shared..",
+                        "java..")
+                .allowEmptyShould(true);
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void attributionApplicationDependsOnlyOnDomainAndShared() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.attribution.application..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.attribution.application..",
+                        "com.aicostops.attribution.domain..",
+                        "com.aicostops.shared..",
+                        "java..")
+                .allowEmptyShould(true);
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void attributionInfrastructureDependsOnlyOnAttributionLayersAndFramework() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.attribution.infrastructure..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.attribution.infrastructure..",
+                        "com.aicostops.attribution.application..",
+                        "com.aicostops.attribution.domain..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "org.apache.ibatis..")
+                .allowEmptyShould(true);
+
+        rule.check(productionClasses);
+    }
+
+    @Test
     void costDomainStaysFrameworkFree() {
         var productionClasses = new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
