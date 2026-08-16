@@ -129,11 +129,22 @@ class DuplicateCandidateApiIntegrationTest extends AuthenticationContainersSuppo
                 VALUES (?,?,?,'OVERLAP',SHA2('api',256),'v2','overlap fixture','OPEN',UTC_TIMESTAMP(6))
                 """, orgId, charge1, charge2);
 
+        // unfiltered list: both candidates return with valid shape; relative order
+        // follows the mapper's created_at DESC contract, so candidateType of items[0]
+        // depends on clock skew between the app-scanned and fixture-inserted rows
         mockMvc.perform(get("/api/v1/duplicate-candidates")
                         .header("Authorization", bearer())
                         .queryParam("page", "0").queryParam("size", "10"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.items[0].id").isString())
+                .andExpect(jsonPath("$.items[1].id").isString());
+
+        mockMvc.perform(get("/api/v1/duplicate-candidates")
+                        .header("Authorization", bearer())
+                        .queryParam("candidateType", "EXACT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.items[0].id").isString())
                 .andExpect(jsonPath("$.items[0].candidateType").value("EXACT"))
                 .andExpect(jsonPath("$.items[0].fingerprint").isString())
