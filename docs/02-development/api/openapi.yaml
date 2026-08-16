@@ -436,6 +436,52 @@ components:
       allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/RawRecordSummaryResponse' } } } }]
     PageResponseEvidence:
       allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/EvidenceResponse' } } } }]
+    CandidateStatus: { type: string, enum: [OPEN, KEPT_CLEAN, CONFIRMED_DUPLICATE, SUPERSEDED] }
+    CandidateType: { type: string, enum: [EXACT, OVERLAP] }
+    ChargeReviewStatus: { type: string, enum: [CLEAN, SUSPECTED_DUPLICATE, EXCLUDED_DUPLICATE, EXCLUDED_NONCOST] }
+    DuplicateChargeRef:
+      type: object
+      required: [id, providerCode, chargeCategory, amount, currency, reviewStatus]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        providerCode: { type: string }
+        chargeCategory: { type: string }
+        amount: { type: string, pattern: '^-?[0-9]+\\.[0-9]{8}$' }
+        currency: { type: string }
+        periodStart: { type: [string, 'null'], format: date-time }
+        periodEnd: { type: [string, 'null'], format: date-time }
+        reviewStatus: { $ref: '#/components/schemas/ChargeReviewStatus' }
+        duplicateOfChargeId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+    DuplicateCandidateResponse:
+      type: object
+      required: [id, candidateType, fingerprint, algorithmVersion, matchReason, status, chargeFact, matchedChargeFact, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        candidateType: { $ref: '#/components/schemas/CandidateType' }
+        fingerprint: { type: string }
+        algorithmVersion: { type: string }
+        matchReason: { type: string }
+        status: { $ref: '#/components/schemas/CandidateStatus' }
+        chargeFact: { $ref: '#/components/schemas/DuplicateChargeRef' }
+        matchedChargeFact: { $ref: '#/components/schemas/DuplicateChargeRef' }
+        createdAt: { type: string, format: date-time }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+    PageResponseDuplicateCandidate:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/DuplicateCandidateResponse' } } } }]
+    DuplicateExcludeRequest:
+      type: object
+      required: [excludedChargeFactId]
+      properties:
+        excludedChargeFactId: { $ref: '#/components/schemas/Id' }
+    DuplicateScanResponse:
+      type: object
+      required: [chargesScanned, candidatePairsEvaluated, candidatesCreated, candidatesAlreadyPresent, scannedAt]
+      properties:
+        chargesScanned: { type: integer, format: int64 }
+        candidatePairsEvaluated: { type: integer, format: int64 }
+        candidatesCreated: { type: integer, format: int64 }
+        candidatesAlreadyPresent: { type: integer, format: int64 }
+        scannedAt: { type: string, format: date-time }
 
 paths:
   /auth/login:
@@ -620,3 +666,22 @@ paths:
   /imports/{importId}/attempts/{attemptId}/raw-records/{recordId}:
     get:
       responses: { '200': { description: Raw record detail with redacted payloads, content: { application/json: { schema: { $ref: '#/components/schemas/RawRecordDetailResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /duplicate-candidates/scan:
+    post:
+      responses: { '200': { description: Scan summary of one explicit organization-level run, content: { application/json: { schema: { $ref: '#/components/schemas/DuplicateScanResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /duplicate-candidates:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: status, in: query, schema: { $ref: '#/components/schemas/CandidateStatus' } }, { name: candidateType, in: query, schema: { $ref: '#/components/schemas/CandidateType' } }]
+      responses: { '200': { description: Paged duplicate candidates with both endpoint charges, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseDuplicateCandidate' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /duplicate-candidates/{candidateId}:
+    get:
+      responses: { '200': { description: Duplicate candidate detail, content: { application/json: { schema: { $ref: '#/components/schemas/DuplicateCandidateResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /duplicate-candidates/{candidateId}/keep:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Candidate judged unique after keep, content: { application/json: { schema: { $ref: '#/components/schemas/DuplicateCandidateResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /duplicate-candidates/{candidateId}/exclude:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DuplicateExcludeRequest' } } } }
+      responses: { '200': { description: Candidate resolved as a confirmed duplicate after exclude, content: { application/json: { schema: { $ref: '#/components/schemas/DuplicateCandidateResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }

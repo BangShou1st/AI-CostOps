@@ -583,6 +583,32 @@ EXCLUDED_DUPLICATE
 EXCLUDED_NONCOST
 ```
 
+V9 起 `duplicate_of_charge_id` 是 same-org composite self-FK：
+`(duplicate_of_charge_id, org_id) → charge_fact(id, org_id)`，跨 org duplicate
+pointer 被 DB 拒绝（`UNIQUE(id, org_id)` 支撑）；self/chain guard 由应用层
+Exclude 事务负责（MySQL 8.4 不允许 CHECK 引用 auto-increment 列）。
+`current_allocation_decision_id` 见 `allocation_decision` 的 composite FK。
+
+### `duplicate_candidate`（V9）
+
+两条 Charge 之间的候选重复关系，一条 Charge 可同时挂多个 candidate：
+
+```text
+charge_fact_id / matched_charge_id   CHECK(charge_fact_id < matched_charge_id)
+candidate_type                       EXACT | OVERLAP
+fingerprint                          SHA-256 evidence marker（不建 UNIQUE）
+algorithm_version                    属于 pair identity（UNIQUE(org,pair,version)）
+match_reason                         human-readable evidence 说明
+status                               OPEN | KEPT_CLEAN | CONFIRMED_DUPLICATE | SUPERSEDED
+resolved_at                          非 OPEN 必填
+```
+
+两端都是 same-org composite FK。EXACT/OVERLAP 的 evidence signature 只用
+canonical 列（org / provider account lineage / provider / category / currency /
+half-open period window / amount），不回读 raw payload。fingerprint 是可解释的
+deterministic marker，不是 row identity；重跑同 algorithm 对 terminal pair 是
+`INSERT ... duplicate → no-op`，不重开历史。
+
 ### `attribution_hint`
 
 保存：
@@ -598,55 +624,72 @@ EMPLOYEE_SELECTION
 
 Hint 不是最终 Allocation Truth。
 
-## 5. Attribution 表
+## 5. Attribution 表（V9 foundation）
 
 ### `allocation_rule`
 
-版本化追加：
+版本化追加，`UNIQUE(org_id, rule_key, version)`，历史 Rule Version 不重写，
+repository 不提供 definition UPDATE：
 
 ```text
 rule_key
-version
-priority
-status
-match_type
-match_config_json
-target_project_id
-target_cost_center_id
-target_team_id
-effective_from/to
+version                CHECK(version > 0)
+priority               CHECK(1..9999)，无 UNIQUE(org,priority)——历史版本可复用 priority
+status                 ACTIVE | ARCHIVED（lifecycle metadata）
+match_hint_type        PROVIDER_API_KEY | PROVIDER_PROJECT | PROVIDER_USER
+match_value            exact deterministic match
+provider_code / provider_account_id(NULL=任意 account)
+target_project_id / target_cost_center_id / target_team_id   CHECK 恰一个非 NULL
+effective_from/to      half-open [from,to)，CHECK(to IS NULL OR from<to)
 ```
 
-历史 Rule Version 不重写。
+V1 matcher 只用显式 provider/hint/value 列，对齐 Group 1 attribution_hint 的
+evidence types。没有 `match_config_json`，没有 DIMENSION matcher，没有 regex /
+expression / generic JSON DSL。同 key 的 ACTIVE version 不允许 overlap 由
+`existsActiveOverlapSameKey` 查询（half-open 语义，adjacent 合法）供 #50
+create-version 事务使用；tie-break（lower priority number → rule_key ASC →
+version DESC → id ASC）属 #50 evaluator。
 
 ### `allocation_decision`
 
 Subject：
 
 ```text
-CHARGE_FACT
-EXPENSE_CLAIM
+CHARGE_FACT             charge_fact_id NOT NULL，expense_claim_id NULL
+EXPENSE_CLAIM           expense_claim_id NOT NULL，charge_fact_id NULL
 ```
 
-Status：
+`expense_claim_id` 在 M3 有 identity、无 FK——M4 建 Expense 表时再补 FK。
+
+Source / trace：
 
 ```text
-DRAFT
-CONFIRMED
-SUPERSEDED
+decision_source         MANUAL ⇒ allocation_rule_id NULL
+                        RULE   ⇒ allocation_rule_id NOT NULL（指向 immutable rule version）
+status                  DRAFT | CONFIRMED | SUPERSEDED
+created_by_member_id    NULLable（rule 生成可能无人 creator）
 ```
 
-Source Subject 保存 `current_allocation_decision_id`。
+One-confirmed-per-charge 由 STORED generated column 保证：
+
+```text
+confirmed_charge_fact_id = CASE WHEN status='CONFIRMED' THEN charge_fact_id END
+UNIQUE(confirmed_charge_fact_id)
+```
+
+Source Subject 保存 `current_allocation_decision_id`——V9 用 composite FK
+`(current_allocation_decision_id, id, org_id) → allocation_decision(id,
+charge_fact_id, org_id)`，DB 强制 pointer 只能指向同一 Charge、同一 org 的
+decision；CONFIRMED 与 pointer mutation 本身仍属 #49 confirm 事务。
 
 ### `allocation_line`
 
 ```text
-allocated_amount
-currency
-project_id
-cost_center_id
-team_id
-budget_commitment_id
+line_index              CHECK(>=0)，UNIQUE(decision_id, line_index)
+allocated_amount        DECIMAL(20,8)
+currency                CHAR(3)
+project_id / cost_center_id / team_id   CHECK 恰一个非 NULL
+(decision_id, org_id)   composite FK → allocation_decision(id, org_id)
 ```
 
 权威不变量：
@@ -655,7 +698,10 @@ budget_commitment_id
 SUM(lines.amount) = subject amount
 ```
 
-同一 Currency/Scale。
+同一 Currency/Scale。Java 侧在 mapper write 前用 `AllocationDecimal.money`
+做 exact-representability guard（scale≤8 精确、precision≤20，拒绝任何
+rounding/truncation）；`SUM == subject amount` 与 currency equality 由 #49
+Confirm 事务验证，schema 不做无法独立保证的 CHECK。
 
 ## 6. Expense / Approval 表
 

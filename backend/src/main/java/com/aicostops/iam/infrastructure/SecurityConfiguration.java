@@ -69,6 +69,11 @@ public class SecurityConfiguration {
                                 "/api/v1/imports/{importId}/cancel",
                                 "/api/v1/imports/{importId}/confirm").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/provider-imports").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/duplicate-candidates/scan").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/duplicate-candidates",
+                                "/api/v1/duplicate-candidates/{candidateId}").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/duplicate-candidates/{candidateId}/keep",
+                                "/api/v1/duplicate-candidates/{candidateId}/exclude").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

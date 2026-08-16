@@ -15,6 +15,14 @@ public final class M2DatabaseCleaner {
     }
 
     public static void clean(JdbcTemplate jdbc) {
+        jdbc.update("DELETE FROM duplicate_candidate");
+        jdbc.update("DELETE FROM allocation_line");
+        // current decision and duplicate pointers on charge_fact must be cleared
+        // before their referenced decision/charge rows are deleted.
+        jdbc.update(
+                "UPDATE charge_fact SET current_allocation_decision_id=NULL, duplicate_of_charge_id=NULL");
+        jdbc.update("DELETE FROM allocation_decision");
+        jdbc.update("DELETE FROM allocation_rule");
         jdbc.update("DELETE FROM attribution_hint");
         jdbc.update("DELETE FROM charge_fact");
         jdbc.update("DELETE FROM pricing_fact");

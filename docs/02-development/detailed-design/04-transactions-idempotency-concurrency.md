@@ -161,6 +161,48 @@ ImportBatch CONFIRMED
 review_status = CLEAN
 ```
 
+## 6.1 Duplicate Scan / Keep / Exclude（M3 Group 2）
+
+Scan 是显式 org-level command，但不是长事务：
+
+```text
+非锁定读取 org eligible rows（confirmed-attempt lineage, CLEAN/SUSPECTED）
+内存分组 + pairwise（EXACT / half-open OVERLAP，strict <，adjacent 不是 overlap）
+drafts 按 ≤500 分批
+每批独立短事务：
+    lock / re-read endpoint charge rows（id ASC）
+    endpoint 已 terminal 的 draft 直接丢弃
+    insert candidate（同 (org,pair,algorithm) 已存在 → no-op）
+    只对 DB 中实际存在 OPEN candidate 的 endpoint 将 CLEAN → SUSPECTED
+commit，下一批
+```
+
+重扫不会复活 terminal pair 的 SUSPECTED 状态（只有 OPEN 行驱动聚合）。
+
+Keep / Exclude 是幂等事务，锁序与重试：
+
+```text
+idempotency reserve / replay（事务内）
+candidate FOR UPDATE
+受影响 endpoint charges FOR UPDATE（id ASC）
+guards（Exclude 还有 duplicate-chain guard：有 inbound 依赖的 charge 不可再被 exclude）
+candidate terminal 之后按 DB OPEN 行 reconcile 两端 / 所有受影响端点
+audit（secret-free）
+idempotency finalize
+commit
+外层 bounded deadlock retry ×3（只有 MySQL deadlock/serialization loser 重试）
+```
+
+Exclude 的 graph cleanup：与 excluded 端相连的其它 OPEN candidate 全部
+SUPERSEDED，每个受影响的非 excluded counterpart reconcile 回 CLEAN（若无
+剩余 OPEN）。Idempotency-Key 语义与 Import workflow 一致：exact UTF-8 原文
+SHA-256 指纹（不 trim，`"abc"` 与 `" abc"` 是不同 caller key），request hash
+覆盖 operation/org/actor/candidate(/excluded charge)；same key same hash =
+replay 存储的 CandidateSummary，same key different hash = 409。
+
+#49 的 Allocation Confirm 锁序（decision vs charge vs pointer）仍 deferred，
+Group 2 未实现该事务。
+
 ## 7. API 幂等
 
 优先自然业务键：

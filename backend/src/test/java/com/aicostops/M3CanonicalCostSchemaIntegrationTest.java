@@ -45,22 +45,12 @@ class M3CanonicalCostSchemaIntegrationTest extends MySqlContainerSupport {
 
     @BeforeEach
     void setUp() {
-        cleanCanonical();
         M2DatabaseCleaner.clean(jdbcTemplate);
     }
 
     @AfterEach
     void tearDown() {
-        cleanCanonical();
         M2DatabaseCleaner.clean(jdbcTemplate);
-    }
-
-    private void cleanCanonical() {
-        jdbcTemplate.update("DELETE FROM attribution_hint");
-        jdbcTemplate.update("DELETE FROM charge_fact");
-        jdbcTemplate.update("DELETE FROM pricing_fact");
-        jdbcTemplate.update("DELETE FROM consumption_fact");
-        jdbcTemplate.update("DELETE FROM external_document");
     }
 
     @Test
