@@ -91,7 +91,7 @@ export function ExpenseReviewDetailPage() {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+    <Space orientation="vertical" style={{ width: '100%' }} size="middle">
       {problem && <Alert type="error" showIcon message={problem} closable onClose={() => setProblem(null)} />}
       <Card title={`报销审核 ${expense.id}`} extra={
         <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>

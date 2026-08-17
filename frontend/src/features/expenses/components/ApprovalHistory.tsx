@@ -20,7 +20,7 @@ export function ApprovalHistory({ history }: ApprovalHistoryProps) {
   return (
     <Timeline
       items={history.map((action) => ({
-        children: (
+        content: (
           <>
             <Typography.Text strong>{ACTION_LABELS[action.actionType] ?? action.actionType}</Typography.Text>
             {action.comment && (

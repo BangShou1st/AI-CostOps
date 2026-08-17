@@ -120,7 +120,7 @@ export function AuthenticatedLayout() {
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           placement="left"
-          width={280}
+          size={280}
           title={SETTINGS_COPY.brand}
         >
           <div className="settings-drawer-body">
