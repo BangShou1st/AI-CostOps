@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { createApiClient } from '../../api/client'
 import { accessTokenStore } from './accessTokenStore'
-import { refreshWithRaceRetry, type AuthTokenResponse, type AuthUser } from './authSession'
+import { refreshTokenOnce, type AuthTokenResponse, type AuthUser } from './authSession'
 
 const cookieClient = axios.create({ baseURL: '/api/v1', withCredentials: true })
 
@@ -11,7 +11,7 @@ async function refreshRequest(): Promise<AuthTokenResponse> {
 
 export const apiClient = createApiClient({
   tokenStore: accessTokenStore,
-  refreshAccessToken: async () => (await refreshWithRaceRetry(refreshRequest)).accessToken,
+  refreshAccessToken: async () => (await refreshTokenOnce(refreshRequest)).accessToken,
 })
 
 export const authApi = {

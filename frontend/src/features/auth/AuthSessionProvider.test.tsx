@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProtectedRoute } from '../../app/router/ProtectedRoute'
@@ -116,6 +117,25 @@ describe('AuthSessionProvider session expiry', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument())
     expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1)
     expect(mockedAuthApi.me).toHaveBeenCalledTimes(1)
+  })
+
+  it('bootstraps exactly one refresh under StrictMode double effects', async () => {
+    // The app mounts under <StrictMode>; in dev this double-runs the bootstrap
+    // effect, which used to fire two concurrent refresh calls with the same
+    // rotation cookie (one always 409 AUTH_REFRESH_RACE on every page load).
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <AuthSessionProvider><AuthProbe /></AuthSessionProvider>
+        </QueryClientProvider>
+      </StrictMode>,
+    )
+
+    await screen.findByText('Settings home')
+    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1)
+    expect(mockedAuthApi.me).toHaveBeenCalledTimes(1)
+    expect(accessTokenStore.get()).toBe('fresh')
   })
 
   it('refreshMe refetches the me projection and keeps the session', async () => {
