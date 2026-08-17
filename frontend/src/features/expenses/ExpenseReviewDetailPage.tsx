@@ -61,7 +61,12 @@ export function ExpenseReviewDetailPage() {
   const manualDraft = allDecisions.find(
     (decision) => decision.source === 'MANUAL' && decision.status === 'DRAFT',
   ) ?? null
-  const hasConfirmed = allDecisions.some((decision) => decision.status === 'CONFIRMED')
+  const confirmedDecision = allDecisions.find((decision) => decision.status === 'CONFIRMED') ?? null
+  const hasConfirmed = confirmedDecision !== null
+  // The editor shows the current decision: an open MANUAL DRAFT while one
+  // exists, otherwise the CONFIRMED decision as read-only truth. A confirmed
+  // decision must never be rendered as "no allocation lines".
+  const draft = manualDraft ?? confirmedDecision
 
   const handleApprove = async () => {
     setLoading(true); setProblem(null)
@@ -92,7 +97,7 @@ export function ExpenseReviewDetailPage() {
 
   return (
     <Space orientation="vertical" style={{ width: '100%' }} size="middle">
-      {problem && <Alert type="error" showIcon message={problem} closable onClose={() => setProblem(null)} />}
+      {problem && <Alert type="error" showIcon title={problem} closable onClose={() => setProblem(null)} />}
       <Card title={`报销审核 ${expense.id}`} extra={
         <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
       }>
@@ -133,7 +138,7 @@ export function ExpenseReviewDetailPage() {
             subjectId={expense.id}
             subjectAmount={expense.amount}
             subjectCurrency={expense.currency}
-            draft={manualDraft}
+            draft={draft}
             canEdit={canAllocate}
             canConfirm={canConfirm}
             hasConfirmed={hasConfirmed}

@@ -53,7 +53,7 @@ export function CostDetailPage() {
         <Alert
           type="error"
           showIcon
-          message="无法加载成本详情"
+          title="无法加载成本详情"
           description={problem && (
             <>
               <div>{`${problem.title}（${problem.code}）`}</div>
@@ -73,8 +73,11 @@ export function CostDetailPage() {
   const ruleDraft = allDecisions.find(
     (decision) => decision.source === 'RULE' && decision.status === 'DRAFT',
   ) ?? null
-  const draft = manualDraft ?? ruleDraft
-  const hasConfirmed = allDecisions.some((decision) => decision.status === 'CONFIRMED')
+  const confirmedDecision = allDecisions.find((decision) => decision.status === 'CONFIRMED') ?? null
+  const hasConfirmed = confirmedDecision !== null
+  // The editor shows the current decision: an open draft while one exists,
+  // otherwise the CONFIRMED decision as read-only truth.
+  const draft = manualDraft ?? ruleDraft ?? confirmedDecision
   const suspected = detail.reviewStatus === 'SUSPECTED_DUPLICATE'
   const excluded = detail.reviewStatus === 'EXCLUDED_DUPLICATE' || detail.reviewStatus === 'EXCLUDED_NONCOST'
 
@@ -106,7 +109,7 @@ export function CostDetailPage() {
       </Descriptions>
 
       {excluded && (
-        <Alert type="info" showIcon style={{ marginTop: 16 }} message="该成本已被排除，不参与分摊。" />
+        <Alert type="info" showIcon style={{ marginTop: 16 }} title="该成本已被排除，不参与分摊。" />
       )}
 
       {canReadAllocation && !excluded && (
@@ -116,7 +119,7 @@ export function CostDetailPage() {
             <Alert
               type="error"
               showIcon
-              message="无法加载分摊信息"
+              title="无法加载分摊信息"
               description={(() => {
                 const problem = toProblemDetail(decisions.error)
                 return (

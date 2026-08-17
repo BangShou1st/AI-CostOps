@@ -71,7 +71,7 @@ export function RulesPage() {
   })
 
   if (!canManage) {
-    return <main className="settings-page"><h1>分摊规则</h1><Alert type="warning" showIcon message="缺少 ALLOCATION_RULE_MANAGE 权限" /></main>
+    return <main className="settings-page"><h1>分摊规则</h1><Alert type="warning" showIcon title="缺少 ALLOCATION_RULE_MANAGE 权限" /></main>
   }
 
   const listProblem = list.error ? toProblemDetail(list.error) : null
@@ -88,7 +88,7 @@ export function RulesPage() {
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`${problem.title}（${problem.code}）`}
+          title={`${problem.title}（${problem.code}）`}
           description={problem.detail}
         />
       )}
@@ -98,7 +98,7 @@ export function RulesPage() {
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          message="无法加载分摊规则"
+          title="无法加载分摊规则"
           description={(
             <>
               <div>{`${listProblem.title}（${listProblem.code}）`}</div>

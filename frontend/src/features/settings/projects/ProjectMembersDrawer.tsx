@@ -78,11 +78,11 @@ export function ProjectMembersDrawer({ project, onClose }: { project: MasterData
   }))
 
   return (
-    <Drawer open title={`${project.name} 的成员`} onClose={onClose} width={520}>
-      {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon style={{ marginBottom: 12 }} />}
+    <Drawer open title={`${project.name} 的成员`} onClose={onClose} size={520}>
+      {problem && <Alert type="error" role="alert" title={problem.detail || problem.title} showIcon style={{ marginBottom: 12 }} />}
       {membersQuery.isLoading && <div role="status">正在加载成员…</div>}
       {membersQuery.isError && (
-        <Alert type="error" role="alert" message={toProblemDetail(membersQuery.error).detail || toProblemDetail(membersQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={toProblemDetail(membersQuery.error).detail || toProblemDetail(membersQuery.error).title} showIcon />
       )}
       {membersQuery.data && membersQuery.data.items.length === 0 && <div className="settings-empty">该项目暂无成员。</div>}
       {membersQuery.data && membersQuery.data.items.length > 0 && (

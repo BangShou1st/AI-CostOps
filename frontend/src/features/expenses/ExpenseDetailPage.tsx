@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Alert, Button, Card, Descriptions, Space, Tag, Modal } from 'antd'
-import { expenseApi, expenseKeys } from './api/expenseApi'
+import { expenseApi, expenseKeys, type ApprovalActionResponse } from './api/expenseApi'
 import { ExpenseForm } from './components/ExpenseForm'
 import { ApprovalHistory } from './components/ApprovalHistory'
 import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
@@ -13,6 +13,19 @@ const STATUS_LABEL: Record<string, string> = {
 }
 const STATUS_COLOR: Record<string, string> = {
   DRAFT: 'default', SUBMITTED: 'processing', NEEDS_INFO: 'warning', APPROVED: 'success', REJECTED: 'error', CANCELED: 'default',
+}
+
+/** The API has no submittedAt field; the last SUBMIT/RESUBMIT action is the
+ *  authoritative submit instant (the employee detail page and the approval
+ *  history must agree). Returns null when the expense was never submitted. */
+function lastSubmittedAt(history: ApprovalActionResponse[]): string | null {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const action = history[index]
+    if (action.actionType === 'SUBMIT' || action.actionType === 'RESUBMIT') {
+      return action.createdAt
+    }
+  }
+  return null
 }
 
 export function ExpenseDetailPage() {
@@ -63,8 +76,8 @@ export function ExpenseDetailPage() {
   }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      {problem && <Alert type="error" showIcon message={problem} closable onClose={() => setProblem(null)} />}
+    <Space orientation="vertical" style={{ width: '100%' }} size="middle">
+      {problem && <Alert type="error" showIcon title={problem} closable onClose={() => setProblem(null)} />}
       <Card title={`报销 ${expense.id}`} extra={
         <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
       }>
@@ -74,7 +87,12 @@ export function ExpenseDetailPage() {
           <Descriptions.Item label="版本">v{expense.version}</Descriptions.Item>
           <Descriptions.Item label="审核状态">{expense.approvalStatus ?? '-'}</Descriptions.Item>
           <Descriptions.Item label="发布就绪">{expense.postingReady ? '✓' : '否'}</Descriptions.Item>
-          <Descriptions.Item label="提交时间">{'-'}</Descriptions.Item>
+          <Descriptions.Item label="提交时间">
+            {(() => {
+              const submittedAt = lastSubmittedAt(expense.history)
+              return submittedAt ? new Date(submittedAt).toLocaleString() : '-'
+            })()}
+          </Descriptions.Item>
         </Descriptions>
       </Card>
       {(canEdit || expense.status === 'DRAFT' || expense.status === 'NEEDS_INFO') && (

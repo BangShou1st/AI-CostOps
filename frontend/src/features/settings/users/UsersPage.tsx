@@ -55,11 +55,11 @@ export function UsersPage() {
         {canInvite && <Button type="primary" onClick={() => setInviteOpen(true)}>邀请成员</Button>}
       </div>
       {inviteProblem && (
-        <Alert type="error" role="alert" message={inviteProblem.detail || inviteProblem.title} showIcon style={{ marginBottom: 16 }} />
+        <Alert type="error" role="alert" title={inviteProblem.detail || inviteProblem.title} showIcon style={{ marginBottom: 16 }} />
       )}
       {usersQuery.isLoading && <div role="status">正在加载用户…</div>}
       {usersQuery.isError && (
-        <Alert type="error" role="alert" message={toProblemDetail(usersQuery.error).detail || toProblemDetail(usersQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={toProblemDetail(usersQuery.error).detail || toProblemDetail(usersQuery.error).title} showIcon />
       )}
       {usersQuery.data && usersQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无用户。</div>}
       {usersQuery.data && usersQuery.data.items.length > 0 && (
@@ -158,7 +158,7 @@ function UserActions({ user }: { user: User }) {
 
   return (
     <>
-      {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon style={{ marginBottom: 8 }} />}
+      {problem && <Alert type="error" role="alert" title={problem.detail || problem.title} showIcon style={{ marginBottom: 8 }} />}
       <div className="settings-actions">
         {canManage && (
           <Button
@@ -191,8 +191,8 @@ function RoleAssignmentDrawer({ user, onClose }: { user: User; onClose: () => vo
   })
 
   return (
-    <Drawer open title={`${user.displayName} 的角色`} onClose={onClose} width={460}>
-      {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon style={{ marginBottom: 12 }} />}
+    <Drawer open title={`${user.displayName} 的角色`} onClose={onClose} size={460}>
+      {problem && <Alert type="error" role="alert" title={problem.detail || problem.title} showIcon style={{ marginBottom: 12 }} />}
       <Table<User['roleAssignments'][number]>
         rowKey="id"
         size="small"
@@ -245,7 +245,7 @@ function AssignRoleModal({ memberId, onClose, onDone }: { memberId: string; onCl
       onCancel={onClose}
     >
       <div style={{ display: 'grid', gap: 12 }}>
-        {problem && <Alert type="error" role="alert" message={problem.detail || problem.title} showIcon />}
+        {problem && <Alert type="error" role="alert" title={problem.detail || problem.title} showIcon />}
         <label>
           角色
           <Select

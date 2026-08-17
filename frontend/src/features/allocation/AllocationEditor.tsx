@@ -71,7 +71,10 @@ export function AllocationEditor({
 
   useEffect(() => { setLines(initialLines(draft?.lines ?? [])) }, [draft])
 
-  const ruleDraft = draft !== null && draft.source === 'RULE'
+  // A RULE decision is only "the current rule draft" while it is still a
+  // DRAFT; a CONFIRMED rule decision is final and must be shown read-only
+  // without the override or review actions.
+  const ruleDraft = draft !== null && draft.status === 'DRAFT' && draft.source === 'RULE'
   const editable = canEdit && !ruleDraft && !hasConfirmed
   const suspectedDuplicate = reviewStatus === 'SUSPECTED_DUPLICATE'
   // Exact-sum check: sum of parsed lines must equal the source amount.

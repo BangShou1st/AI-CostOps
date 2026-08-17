@@ -25,7 +25,7 @@ export function ExpensesNewPage() {
 
   return (
     <Card title="新建报销">
-      {problem && <Alert type="error" showIcon message={problem} style={{ marginBottom: 16 }} />}
+      {problem && <Alert type="error" showIcon title={problem} style={{ marginBottom: 16 }} />}
       <ExpenseForm editable={true} onSubmit={handleSubmit} loading={loading} submitLabel="创建" />
     </Card>
   )
