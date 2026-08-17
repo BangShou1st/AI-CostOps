@@ -6,6 +6,7 @@ import com.aicostops.allocation.infrastructure.AllocationChargeFactMapper;
 import com.aicostops.attribution.application.AllocationDecisionRepository;
 import com.aicostops.attribution.application.AllocationRuleRepository;
 import com.aicostops.attribution.domain.AllocationDecision;
+import com.aicostops.attribution.domain.AllocationSubjectType;
 import com.aicostops.expense.application.ExpenseAllocationSourcePort;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Service;
 public class AllocationDecisionQueryService {
 
     private static final String PERMISSION_ALLOCATION_READ = "ALLOCATION_READ";
+    private static final String PERMISSION_EXPENSE_REVIEW = "EXPENSE_REVIEW";
 
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
@@ -62,6 +64,10 @@ public class AllocationDecisionQueryService {
     public List<AllocationDecisionView> listByExpense(AuthenticatedUser user, long expenseClaimId) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_ALLOCATION_READ);
+        // Listing an expense's allocations is a finance-review action: the
+        // whole list is always EXPENSE_CLAIM, so EXPENSE_REVIEW is required in
+        // addition to ALLOCATION_READ.
+        authorization.requireOrg(context, PERMISSION_EXPENSE_REVIEW);
         if (!expenseSource.exists(context.organizationId(), expenseClaimId)) {
             throw notFound();
         }
@@ -74,7 +80,14 @@ public class AllocationDecisionQueryService {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_ALLOCATION_READ);
         return decisions.findByIdAndOrganization(context.organizationId(), decisionId)
-                .map(decision -> viewOf(context.organizationId(), decision))
+                .map(decision -> {
+                    if (decision.subjectType() == AllocationSubjectType.EXPENSE_CLAIM) {
+                        // Reading an expense allocation decision is a
+                        // finance-review action; charge decisions are not.
+                        authorization.requireOrg(context, PERMISSION_EXPENSE_REVIEW);
+                    }
+                    return viewOf(context.organizationId(), decision);
+                })
                 .orElseThrow(this::notFound);
     }
 

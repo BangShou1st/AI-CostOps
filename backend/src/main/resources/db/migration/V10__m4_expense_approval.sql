@@ -15,6 +15,14 @@
 ALTER TABLE evidence
     ADD CONSTRAINT uq_evidence_id_org UNIQUE (id, org_id);
 
+-- 0b. organization_member needs UQ(id, org_id) as the same-org FK target for
+--     expense_claim.claimant_member_id and approval_action.actor_member_id, so
+--     M4 rows can only reference a member of their own organization. The PK on
+--     id already guarantees uniqueness, but the composite unique index is the
+--     required FK target; M1-M3 single-column member FKs are left untouched.
+ALTER TABLE organization_member
+    ADD CONSTRAINT uq_organization_member_id_org UNIQUE (id, org_id);
+
 -- 1. expense_claim
 CREATE TABLE expense_claim (
     id BIGINT NOT NULL AUTO_INCREMENT,
@@ -39,7 +47,8 @@ CREATE TABLE expense_claim (
         FOREIGN KEY (org_id) REFERENCES organization (id),
 
     CONSTRAINT fk_expense_claim_claimant
-        FOREIGN KEY (claimant_member_id) REFERENCES organization_member (id),
+        FOREIGN KEY (claimant_member_id, org_id)
+        REFERENCES organization_member (id, org_id),
 
     CONSTRAINT fk_expense_claim_evidence_org
         FOREIGN KEY (evidence_id, org_id) REFERENCES evidence (id, org_id),
@@ -135,7 +144,8 @@ CREATE TABLE approval_action (
         REFERENCES approval_case (id, org_id),
 
     CONSTRAINT fk_approval_action_actor
-        FOREIGN KEY (actor_member_id) REFERENCES organization_member (id),
+        FOREIGN KEY (actor_member_id, org_id)
+        REFERENCES organization_member (id, org_id),
 
     CONSTRAINT chk_approval_action_type
         CHECK (action_type IN (

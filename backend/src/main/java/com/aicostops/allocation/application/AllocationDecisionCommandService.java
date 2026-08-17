@@ -47,6 +47,7 @@ public class AllocationDecisionCommandService {
 
     private static final String PERMISSION_ALLOCATION_EDIT = "ALLOCATION_EDIT";
     private static final String PERMISSION_ALLOCATION_CONFIRM = "ALLOCATION_CONFIRM";
+    private static final String PERMISSION_EXPENSE_REVIEW = "EXPENSE_REVIEW";
     private static final int DEADLOCK_RETRIES = 3;
 
     private final AuthorizationContextService authorizationContexts;
@@ -96,6 +97,11 @@ public class AllocationDecisionCommandService {
             String idempotencyKey) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_ALLOCATION_EDIT);
+        if (subjectType == AllocationSubjectType.EXPENSE_CLAIM) {
+            // Expense allocation is Finance-only: editing an expense claim's
+            // allocation draft additionally requires EXPENSE_REVIEW.
+            authorization.requireOrg(context, PERMISSION_EXPENSE_REVIEW);
+        }
         AllocationIdempotency.validateKey(idempotencyKey);
         var subject = requireSubject(subjectType);
         var requestHash = idempotency.manualDraftRequestHash(context.organizationId(),
@@ -145,6 +151,11 @@ public class AllocationDecisionCommandService {
             var pre = decisions.findByIdAndOrganization(context.organizationId(), decisionId)
                     .orElseThrow(this::decisionNotFound);
             var subject = requireSubject(pre.subjectType());
+            if (pre.subjectType() == AllocationSubjectType.EXPENSE_CLAIM) {
+                // Expense allocation is Finance-only: editing an expense claim's
+                // allocation draft additionally requires EXPENSE_REVIEW.
+                authorization.requireOrg(context, PERMISSION_EXPENSE_REVIEW);
+            }
             var load = subject.loadForUpdate(context.organizationId(), subjectIdOf(pre));
             var locked = decisions.findByIdForUpdate(context.organizationId(), decisionId)
                     .orElseThrow(this::decisionNotFound);
@@ -183,12 +194,25 @@ public class AllocationDecisionCommandService {
                     .orElseThrow(this::decisionNotFound);
             var subject = requireSubject(pre.subjectType());
             var subjectId = subjectIdOf(pre);
+            if (pre.subjectType() == AllocationSubjectType.EXPENSE_CLAIM) {
+                // Expense allocation is Finance-only: confirming an expense
+                // claim's allocation additionally requires EXPENSE_REVIEW.
+                authorization.requireOrg(context, PERMISSION_EXPENSE_REVIEW);
+            }
+            // Lock order is SOURCE -> DECISION -> LINES: the subject row is
+            // locked before the decision row, which is locked before the line
+            // rows, so concurrent charge/expense confirmations cannot
+            // cross-deadlock on disjoint subject tables.
+            var load = subject.loadForUpdate(context.organizationId(), subjectId);
             var locked = decisions.findByIdForUpdate(context.organizationId(), decisionId)
                     .orElseThrow(this::decisionNotFound);
             if (locked.status() != AllocationDecisionStatus.DRAFT) {
                 throw decisionNotDraft("Only DRAFT decisions can be confirmed.");
             }
-            var load = subject.loadForUpdate(context.organizationId(), subjectId);
+            if (locked.subjectType() != pre.subjectType()
+                    || subjectIdOf(locked).compareTo(subjectId) != 0) {
+                throw decisionNotFound();
+            }
             subject.assertConfirmEligible(context.organizationId(), load);
             var lines = decisions.linesOfDecisionForUpdate(context.organizationId(), decisionId);
             if (lines.isEmpty()) {
