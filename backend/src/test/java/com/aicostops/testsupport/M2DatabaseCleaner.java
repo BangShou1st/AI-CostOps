@@ -17,6 +17,13 @@ public final class M2DatabaseCleaner {
     public static void clean(JdbcTemplate jdbc) {
         jdbc.update("DELETE FROM duplicate_candidate");
         jdbc.update("DELETE FROM allocation_line");
+        // M4 pointers on expense_claim must be cleared before their referenced
+        // approval_case / allocation_decision rows are deleted.
+        jdbc.update("DELETE FROM approval_action");
+        jdbc.update(
+                "UPDATE expense_claim SET current_allocation_decision_id=NULL, approval_case_id=NULL");
+        jdbc.update("DELETE FROM approval_case");
+        jdbc.update("DELETE FROM expense_claim");
         // current decision and duplicate pointers on charge_fact must be cleared
         // before their referenced decision/charge rows are deleted.
         jdbc.update(
