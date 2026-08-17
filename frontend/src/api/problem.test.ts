@@ -26,6 +26,26 @@ describe('toProblemDetail', () => {
     expect(toProblemDetail(error)).toEqual(response.data)
   })
 
+  it('preserves a server ProblemDetail whose traceId is null', () => {
+    const config = { headers: {} } as InternalAxiosRequestConfig
+    const response: AxiosResponse = {
+      config,
+      data: {
+        title: 'Manual allocation draft exists',
+        status: 409,
+        detail: 'A manual allocation draft already exists for this expense.',
+        code: 'MANUAL_ALLOCATION_DRAFT_EXISTS',
+        traceId: null,
+      },
+      headers: {},
+      status: 409,
+      statusText: 'Conflict',
+    }
+    const error = new AxiosError('conflict', 'ERR_BAD_RESPONSE', config, undefined, response)
+
+    expect(toProblemDetail(error)).toEqual(response.data)
+  })
+
   it('returns a stable fallback for network and unknown errors', () => {
     expect(toProblemDetail(new Error('socket closed'))).toEqual({
       title: 'Request failed',
