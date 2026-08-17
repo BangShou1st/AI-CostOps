@@ -48,7 +48,7 @@ export function CostsListPage() {
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          message="无法加载成本明细"
+          title="无法加载成本明细"
           description={(
             <>
               <div>{`${problem.title}（${problem.code}）`}</div>

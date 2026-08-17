@@ -39,7 +39,7 @@ export function LifecycleEditorModal({ title, submitting, error, initial, onCanc
       onCancel={onCancel}
     >
       <div style={{ display: 'grid', gap: 12 }}>
-        {error && <Alert type="error" role="alert" message={error.detail || error.title} showIcon />}
+        {error && <Alert type="error" role="alert" title={error.detail || error.title} showIcon />}
         <label>
           编码
           <Input aria-label="编码" value={code} disabled={editing} onChange={(event) => setCode(event.target.value)} placeholder="组织内唯一编码" />
