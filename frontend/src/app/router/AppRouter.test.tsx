@@ -16,6 +16,18 @@ vi.mock('../../features/imports/ImportListPage', () => ({
 vi.mock('../../features/imports/ImportDetailPage', () => ({
   ImportDetailPage: () => <h1>Import detail page</h1>,
 }))
+vi.mock('../../features/costs/CostsListPage', () => ({
+  CostsListPage: () => <h1>Costs list page</h1>,
+}))
+vi.mock('../../features/costs/CostDetailPage', () => ({
+  CostDetailPage: () => <h1>Cost detail page</h1>,
+}))
+vi.mock('../../features/duplicates/DuplicatesPage', () => ({
+  DuplicatesPage: () => <h1>Duplicates page</h1>,
+}))
+vi.mock('../../features/allocation-rules/RulesPage', () => ({
+  RulesPage: () => <h1>Rules page</h1>,
+}))
 vi.mock('../../features/settings/users/UsersPage', () => ({
   UsersPage: () => <h1>Users page</h1>,
 }))
@@ -77,6 +89,49 @@ describe('AppRouter permission gates', () => {
 
     expect(screen.getByRole('heading', { name: 'Import detail page' })).toBeInTheDocument()
   })
+
+  it('costsRouteWithoutCostReadRendersForbidden', () => {
+    renderRouter([], '/costs')
+
+    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Costs list page' })).not.toBeInTheDocument()
+  })
+
+  it('costsListMountsWithCostRead', () => {
+    renderRouter(['COST_READ'], '/costs')
+
+    expect(screen.getByRole('heading', { name: 'Costs list page' })).toBeInTheDocument()
+  })
+
+  it('costDetailMountsWithCostRead', () => {
+    renderRouter(['COST_READ'], '/costs/123')
+
+    expect(screen.getByRole('heading', { name: 'Cost detail page' })).toBeInTheDocument()
+  })
+
+  it('duplicatesRouteRequiresDuplicateReviewEvenWithCostRead', () => {
+    renderRouter(['COST_READ'], '/costs/duplicates')
+
+    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+  })
+
+  it('duplicatesRouteMountsWithDuplicateReview', () => {
+    renderRouter(['COST_READ', 'DUPLICATE_REVIEW'], '/costs/duplicates')
+
+    expect(screen.getByRole('heading', { name: 'Duplicates page' })).toBeInTheDocument()
+  })
+
+  it('allocationRulesRouteRequiresRuleManage', () => {
+    renderRouter([], '/allocation-rules')
+
+    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+  })
+
+  it('allocationRulesRouteMountsWithRuleManage', () => {
+    renderRouter(['ALLOCATION_RULE_MANAGE'], '/allocation-rules')
+
+    expect(screen.getByRole('heading', { name: 'Rules page' })).toBeInTheDocument()
+  })
 })
 
 describe('AppRouter application landing', () => {
@@ -90,6 +145,18 @@ describe('AppRouter application landing', () => {
     renderRouter(['IMPORT_READ'], '/app')
 
     expect(screen.getByRole('heading', { name: 'Import list page' })).toBeInTheDocument()
+  })
+
+  it('appRootLandsOnCostsForCostReadOnlyUser', () => {
+    renderRouter(['COST_READ'], '/app')
+
+    expect(screen.getByRole('heading', { name: 'Costs list page' })).toBeInTheDocument()
+  })
+
+  it('appRootLandsOnRulesForRuleManageOnlyUser', () => {
+    renderRouter(['ALLOCATION_RULE_MANAGE'], '/app')
+
+    expect(screen.getByRole('heading', { name: 'Rules page' })).toBeInTheDocument()
   })
 
   it('appRootLandsOnFirstSettingsRouteForSettingsOnlyUser', () => {

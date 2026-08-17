@@ -182,6 +182,30 @@ POST /api/v1/duplicate-candidates/{candidateId}/keep         DUPLICATE_REVIEW @ 
 POST /api/v1/duplicate-candidates/{candidateId}/exclude      DUPLICATE_REVIEW @ ORG
 ```
 
+M3 Group 3（#49/#50/#51）Cost / Allocation HTTP workflow 同样全部 ORG 级
+boundary（pre-allocation Charge 尚无可靠 ownership；PROJECT/COST_CENTER 级
+grant 的 applicability 保留在 policy，未来可加 scoped projection）：
+
+```text
+GET  /api/v1/costs/charges                                  COST_READ @ ORG
+GET  /api/v1/costs/charges/{chargeFactId}                   COST_READ @ ORG
+GET  /api/v1/costs/charges/{chargeFactId}/allocation-decisions   ALLOCATION_READ @ ORG
+GET  /api/v1/allocation-decisions/{decisionId}              ALLOCATION_READ @ ORG
+POST /api/v1/costs/charges/{chargeFactId}/allocation-decisions/manual   ALLOCATION_EDIT @ ORG
+PUT  /api/v1/allocation-decisions/{decisionId}/lines        ALLOCATION_EDIT @ ORG
+POST /api/v1/costs/charges/{chargeFactId}/allocation-proposal   ALLOCATION_EDIT @ ORG
+POST /api/v1/allocation-decisions/{decisionId}/confirm      ALLOCATION_CONFIRM @ ORG
+GET  /api/v1/allocation-rules                               ALLOCATION_RULE_MANAGE @ ORG
+GET  /api/v1/allocation-rules/{ruleId}                      ALLOCATION_RULE_MANAGE @ ORG
+POST /api/v1/allocation-rules/{ruleKey}/versions            ALLOCATION_RULE_MANAGE @ ORG
+POST /api/v1/allocation-rules/{ruleId}/archive              ALLOCATION_RULE_MANAGE @ ORG
+GET  /api/v1/allocation-targets                             ALLOCATION_EDIT @ ORG
+```
+
+统一 enforcement：缺 permission → 403（resource lookup 之前）；有 permission
+但跨 org / 不可见资源 → privacy-preserving 404。前端只做 UX visibility /
+disable，backend 永远 authoritative。
+
 原因：pre-allocation Charge 尚无可靠 Project/CostCenter ownership，candidate
 是跨 confirmed imports 的 org-level review 资源；PROJECT/COST_CENTER 级
 finance grant 的 applicability 保留在 policy，未来 allocation 之后可加 scoped

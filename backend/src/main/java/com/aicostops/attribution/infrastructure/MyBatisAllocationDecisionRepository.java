@@ -70,4 +70,46 @@ public class MyBatisAllocationDecisionRepository implements AllocationDecisionRe
     public int countConfirmedForCharge(long organizationId, long chargeFactId) {
         return mapper.countConfirmedForCharge(organizationId, chargeFactId);
     }
+
+    @Override
+    public Optional<AllocationDecision> findByIdForUpdate(long organizationId, long decisionId) {
+        return Optional.ofNullable(mapper.selectByIdForUpdate(organizationId, decisionId));
+    }
+
+    @Override
+    public List<AllocationDecision> findDraftDecisionsByChargeForUpdate(long organizationId,
+            long chargeFactId) {
+        return mapper.selectDraftDecisionsByChargeForUpdate(organizationId, chargeFactId);
+    }
+
+    @Override
+    public List<AllocationDecision> findDecisionsByCharge(long organizationId, long chargeFactId) {
+        return mapper.selectDecisionsByCharge(organizationId, chargeFactId);
+    }
+
+    @Override
+    public List<AllocationLine> linesOfDecisionForUpdate(long organizationId, long decisionId) {
+        return mapper.selectLinesOfDecisionForUpdate(organizationId, decisionId);
+    }
+
+    @Override
+    public void deleteLinesOfDecision(long organizationId, long decisionId) {
+        mapper.deleteLinesOfDecision(organizationId, decisionId);
+    }
+
+    @Override
+    public void confirmDecision(long organizationId, long decisionId) {
+        if (mapper.updateStatus(organizationId, decisionId, "DRAFT", "CONFIRMED") != 1) {
+            throw new IllegalStateException(
+                    "Confirming a decision must transition exactly one DRAFT row");
+        }
+    }
+
+    @Override
+    public void supersedeDecision(long organizationId, long decisionId) {
+        if (mapper.updateStatus(organizationId, decisionId, "DRAFT", "SUPERSEDED") != 1) {
+            throw new IllegalStateException(
+                    "Superseding a decision must transition exactly one DRAFT row");
+        }
+    }
 }

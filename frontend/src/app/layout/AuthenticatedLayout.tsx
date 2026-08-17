@@ -1,12 +1,14 @@
 import {
   AccountBookOutlined,
   CloudOutlined,
+  DeploymentUnitOutlined,
   FileTextOutlined,
   FolderOutlined,
   ImportOutlined,
   LeftOutlined,
   LogoutOutlined,
   MenuOutlined,
+  PayCircleOutlined,
   RightOutlined,
   SafetyOutlined,
   TeamOutlined,
@@ -27,6 +29,8 @@ const DESKTOP_QUERY = '(min-width: 1024px)'
 const NAV_ICONS: Record<string, ReactNode> = {
   '/evidence': <FileTextOutlined />,
   '/imports': <ImportOutlined />,
+  '/costs': <PayCircleOutlined />,
+  '/allocation-rules': <DeploymentUnitOutlined />,
   '/settings/users': <UserOutlined />,
   '/settings/roles': <SafetyOutlined />,
   '/settings/projects': <FolderOutlined />,

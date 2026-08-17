@@ -41,7 +41,8 @@ class M1OpenApiContractTest {
     @Test
     void pagedContractsUseExistingPageShape() {
         var paged = Set.of("GET /users", "GET /projects", "GET /projects/{id}/members", "GET /teams",
-                "GET /teams/{id}/members", "GET /cost-centers", "GET /provider-accounts");
+                "GET /teams/{id}/members", "GET /cost-centers", "GET /provider-accounts",
+                "GET /costs/charges", "GET /allocation-rules");
         for (var operation : paged) {
             assertThat(parameterRefs(operation)).contains(
                     "#/components/parameters/Page", "#/components/parameters/Size");
@@ -58,6 +59,20 @@ class M1OpenApiContractTest {
         assertThat(parameterRefs("GET /permissions")).isEmpty();
         assertThat(successSchemaRef("GET /roles")).isEqualTo("#/components/schemas/RoleCatalog");
         assertThat(successSchemaRef("GET /permissions")).isEqualTo("#/components/schemas/PermissionCatalog");
+    }
+
+    @Test
+    void allocationTargetDirectoryIsAnUnpagedArrayOfSafeRefs() {
+        assertThat(parameterRefs("GET /allocation-targets")).isEmpty();
+        var success = map(operation("GET /allocation-targets"), "responses");
+        var schema = map(map(map(success, "200"), "content"), "application/json");
+        var items = map(schema.get("schema")).get("items");
+        assertThat(map(items).get("$ref"))
+                .isEqualTo("#/components/schemas/AllocationTargetResponse");
+        assertThat(schema("AllocationTargetResponse").get("required"))
+                .isEqualTo(List.of("type", "id", "name"));
+        assertThat(propertyRef("AllocationTargetResponse", "id"))
+                .isEqualTo("#/components/schemas/Id");
     }
 
     @Test
@@ -117,6 +132,24 @@ class M1OpenApiContractTest {
         assertThat(schema.get("minLength")).isEqualTo(1);
     }
 
+    @Test
+    void allocationCommandsDeclareIdempotencyKeyHeaderParameter() {
+        var idempotentCommands = Set.of(
+                "POST /costs/charges/{chargeFactId}/allocation-decisions/manual",
+                "POST /allocation-decisions/{decisionId}/confirm",
+                "POST /costs/charges/{chargeFactId}/allocation-proposal",
+                "POST /allocation-rules/{ruleKey}/versions",
+                "POST /allocation-rules/{ruleId}/archive");
+        for (var operation : idempotentCommands) {
+            assertThat(parameterRefs(operation))
+                    .as(operation)
+                    .contains("#/components/parameters/IdempotencyKey");
+        }
+        // PUT replace-lines is naturally idempotent: no key is required.
+        assertThat(parameterRefs("PUT /allocation-decisions/{decisionId}/lines"))
+                .doesNotContain("#/components/parameters/IdempotencyKey");
+    }
+
     private static void assertStringSchema(String name) {
         assertThat(schema(name).get("type")).isEqualTo("string");
         assertThat(schema(name).get("pattern")).isEqualTo("^[0-9]+$");
@@ -130,7 +163,10 @@ class M1OpenApiContractTest {
         var parameters = list(operation(operation).getOrDefault("parameters", List.of()));
         var refs = new TreeSet<String>();
         for (var parameter : parameters) {
-            refs.add((String) map(parameter).get("$ref"));
+            // Inline parameters (filters etc.) carry no $ref and are skipped.
+            if (map(parameter).get("$ref") instanceof String ref) {
+                refs.add(ref);
+            }
         }
         return refs;
     }
@@ -230,6 +266,19 @@ class M1OpenApiContractTest {
         add(operations, "GET /duplicate-candidates/{candidateId}", "200", "400", "401", "403", "404");
         add(operations, "POST /duplicate-candidates/{candidateId}/keep", "200", "400", "401", "403", "404", "409");
         add(operations, "POST /duplicate-candidates/{candidateId}/exclude", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /costs/charges", "200", "400", "401", "403");
+        add(operations, "GET /costs/charges/{chargeFactId}", "200", "400", "401", "403", "404");
+        add(operations, "GET /costs/charges/{chargeFactId}/allocation-decisions", "200", "400", "401", "403", "404");
+        add(operations, "GET /allocation-decisions/{decisionId}", "200", "400", "401", "403", "404");
+        add(operations, "POST /costs/charges/{chargeFactId}/allocation-decisions/manual", "200", "400", "401", "403", "404", "409");
+        add(operations, "PUT /allocation-decisions/{decisionId}/lines", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /allocation-decisions/{decisionId}/confirm", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /costs/charges/{chargeFactId}/allocation-proposal", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /allocation-rules", "200", "400", "401", "403");
+        add(operations, "GET /allocation-targets", "200", "400", "401", "403");
+        add(operations, "GET /allocation-rules/{ruleId}", "200", "400", "401", "403", "404");
+        add(operations, "POST /allocation-rules/{ruleKey}/versions", "200", "400", "401", "403", "409");
+        add(operations, "POST /allocation-rules/{ruleId}/archive", "200", "400", "401", "403", "404", "409");
         return Map.copyOf(operations);
     }
 

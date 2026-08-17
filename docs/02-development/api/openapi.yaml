@@ -483,6 +483,148 @@ components:
         candidatesAlreadyPresent: { type: integer, format: int64 }
         scannedAt: { type: string, format: date-time }
 
+    Money: { type: string, pattern: '^-?[0-9]+\.[0-9]{8}$' }
+    ChargeCostResponse:
+      type: object
+      required: [id, providerCode, chargeCategory, amount, currency, reviewStatus]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        providerCode: { type: string }
+        chargeCategory: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+        periodStart: { type: [string, 'null'], format: date-time }
+        periodEnd: { type: [string, 'null'], format: date-time }
+        reviewStatus: { $ref: '#/components/schemas/ChargeReviewStatus' }
+        currentAllocationDecisionId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+    ChargeCostDetailResponse:
+      type: object
+      required: [id, providerCode, chargeCategory, amount, currency, reviewStatus, confirmedImport]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        providerCode: { type: string }
+        chargeCategory: { type: string }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+        periodStart: { type: [string, 'null'], format: date-time }
+        periodEnd: { type: [string, 'null'], format: date-time }
+        reviewStatus: { $ref: '#/components/schemas/ChargeReviewStatus' }
+        currentAllocationDecisionId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        duplicateOfChargeId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        confirmedImport: { type: boolean }
+    PageResponseChargeCost:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ChargeCostResponse' } } } }]
+    AllocationDecisionStatus: { type: string, enum: [DRAFT, CONFIRMED, SUPERSEDED] }
+    AllocationDecisionSource: { type: string, enum: [MANUAL, RULE] }
+    AllocationSubjectType: { type: string, enum: [CHARGE_FACT, EXPENSE_CLAIM] }
+    AllocationRuleMatchType: { type: string, enum: [PROVIDER_API_KEY, PROVIDER_PROJECT, PROVIDER_USER] }
+    AllocationRuleStatus: { type: string, enum: [ACTIVE, ARCHIVED] }
+    AllocationRuleTrace:
+      type: object
+      required: [id, ruleKey, version, priority]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        ruleKey: { type: string }
+        version: { type: integer }
+        priority: { type: integer }
+    AllocationLineResponse:
+      type: object
+      required: [lineIndex, allocatedAmount, currency]
+      properties:
+        lineIndex: { type: integer }
+        allocatedAmount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+        projectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        costCenterId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        teamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+    AllocationDecisionResponse:
+      type: object
+      required: [id, subjectType, chargeFactId, source, status, createdAt, lines]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        subjectType: { $ref: '#/components/schemas/AllocationSubjectType' }
+        chargeFactId: { $ref: '#/components/schemas/Id' }
+        source: { $ref: '#/components/schemas/AllocationDecisionSource' }
+        status: { $ref: '#/components/schemas/AllocationDecisionStatus' }
+        allocationRule: { oneOf: [{ $ref: '#/components/schemas/AllocationRuleTrace' }, { type: 'null' }] }
+        createdByMemberId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        lines: { type: array, items: { $ref: '#/components/schemas/AllocationLineResponse' } }
+    AllocationProposalStatus: { type: string, enum: [CREATED, REUSED, NO_MATCH] }
+    AllocationProposalReason: { type: string, enum: [NO_EFFECTIVE_TIME, NO_RULE_MATCH] }
+    AllocationProposalResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/AllocationProposalStatus' }
+        decision: { oneOf: [{ $ref: '#/components/schemas/AllocationDecisionResponse' }, { type: 'null' }] }
+        ruleTrace: { oneOf: [{ $ref: '#/components/schemas/AllocationRuleTrace' }, { type: 'null' }] }
+        reason: { oneOf: [{ $ref: '#/components/schemas/AllocationProposalReason' }, { type: 'null' }] }
+    AllocationLineRequest:
+      type: object
+      required: [allocatedAmount, currency]
+      properties:
+        allocatedAmount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+        projectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        costCenterId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        teamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+    ManualDraftRequest:
+      type: object
+      required: [lines]
+      properties:
+        lines: { type: array, minItems: 1, items: { $ref: '#/components/schemas/AllocationLineRequest' } }
+    ReplaceLinesRequest:
+      type: object
+      required: [lines]
+      properties:
+        lines: { type: array, minItems: 1, items: { $ref: '#/components/schemas/AllocationLineRequest' } }
+    AllocationRuleResponse:
+      type: object
+      required: [id, ruleKey, version, name, providerCode, matchHintType, matchValue, priority, effectiveFrom, status, createdByMemberId, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        ruleKey: { type: string }
+        version: { type: integer }
+        name: { type: string }
+        providerCode: { type: string }
+        providerAccountId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        matchHintType: { $ref: '#/components/schemas/AllocationRuleMatchType' }
+        matchValue: { type: string }
+        priority: { type: integer }
+        targetProjectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        targetCostCenterId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        targetTeamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        effectiveFrom: { type: string, format: date-time }
+        effectiveTo: { type: [string, 'null'], format: date-time }
+        status: { $ref: '#/components/schemas/AllocationRuleStatus' }
+        createdByMemberId: { $ref: '#/components/schemas/Id' }
+        createdAt: { type: string, format: date-time }
+    PageResponseAllocationRule:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/AllocationRuleResponse' } } } }]
+    AllocationTargetResponse:
+      type: object
+      required: [type, id, name]
+      properties:
+        type: { type: string, enum: [PROJECT, COST_CENTER, TEAM] }
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+    RuleVersionRequest:
+      type: object
+      required: [name, providerCode, matchHintType, matchValue, priority, effectiveFrom]
+      properties:
+        name: { type: string }
+        providerCode: { type: string }
+        providerAccountId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        matchHintType: { $ref: '#/components/schemas/AllocationRuleMatchType' }
+        matchValue: { type: string }
+        priority: { type: integer }
+        targetProjectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        targetCostCenterId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        targetTeamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        effectiveFrom: { type: string, format: date-time }
+        effectiveTo: { type: [string, 'null'], format: date-time }
+
 paths:
   /auth/login:
     post:
@@ -685,3 +827,53 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DuplicateExcludeRequest' } } } }
       responses: { '200': { description: Candidate resolved as a confirmed duplicate after exclude, content: { application/json: { schema: { $ref: '#/components/schemas/DuplicateCandidateResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+
+  /costs/charges:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: reviewStatus, in: query, schema: { $ref: '#/components/schemas/ChargeReviewStatus' } }]
+      responses: { '200': { description: Paged canonical charges, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseChargeCost' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /costs/charges/{chargeFactId}:
+    get:
+      responses: { '200': { description: Charge detail with allocation/duplicate state, content: { application/json: { schema: { $ref: '#/components/schemas/ChargeCostDetailResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /costs/charges/{chargeFactId}/allocation-decisions:
+    get:
+      responses: { '200': { description: Every allocation decision of one charge, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /allocation-decisions/{decisionId}:
+    get:
+      responses: { '200': { description: Allocation decision with lines and rule trace, content: { application/json: { schema: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /costs/charges/{chargeFactId}/allocation-decisions/manual:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ManualDraftRequest' } } } }
+      responses: { '200': { description: Manual DRAFT created (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /allocation-decisions/{decisionId}/lines:
+    put:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReplaceLinesRequest' } } } }
+      responses: { '200': { description: Line set fully replaced, content: { application/json: { schema: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /allocation-decisions/{decisionId}/confirm:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Decision CONFIRMED and pointer set (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /costs/charges/{chargeFactId}/allocation-proposal:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Deterministic rule proposal (CREATED/REUSED/NO_MATCH), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationProposalResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /allocation-rules:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses: { '200': { description: Paged immutable rule versions, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseAllocationRule' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /allocation-targets:
+    get:
+      responses: { '200': { description: Same-org ACTIVE project, cost center, and team safe refs for editors (ALLOCATION_EDIT at ORG scope), content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AllocationTargetResponse' } } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /allocation-rules/{ruleId}:
+    get:
+      responses: { '200': { description: One immutable rule version, content: { application/json: { schema: { $ref: '#/components/schemas/AllocationRuleResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /allocation-rules/{ruleKey}/versions:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RuleVersionRequest' } } } }
+      responses: { '200': { description: New server-authoritative rule version (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationRuleResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /allocation-rules/{ruleId}/archive:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Rule version ARCHIVED (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationRuleResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }

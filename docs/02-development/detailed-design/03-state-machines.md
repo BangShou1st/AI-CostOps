@@ -112,10 +112,20 @@ CONFIRMED
 Correction
 ```
 
-M3 Group 2 只持久化以上 schema states（V9 CHECK + generated-column
-UNIQUE + composite current-pointer FK）；DRAFT→CONFIRMED / SUPERSEDED 的
-transition 事务、exact-sum 与 currency 校验、pointer mutation 属 #49
-Allocation Confirm，本组未实现。
+M3 Group 3（#49/#50）已实现 transition 事务：
+
+```text
+DRAFT → CONFIRMED   Confirm 事务：charge FOR UPDATE → decision FOR UPDATE
+                   → lines FOR UPDATE → 校验 lineage/currency/exact-sum/
+                   target → status CONFIRMED → pointer mutation → audit
+DRAFT → SUPERSEDED  Manual override（新 MANUAL draft 创建时）与 changed
+                   winning rule proposal（新 RULE draft 创建时）；lines 与
+                   trace 保留，history 不消失
+```
+
+CONFIRMED 后不可改写：edit 只允许 MANUAL+DRAFT，confirm 只允许 DRAFT；
+competing confirm 由 `UNIQUE(confirmed_charge_fact_id)` + charge 锁兜底，
+另一 decision 保持 DRAFT（不会被隐式 SUPERSEDED）。
 
 ## 5. ExpenseClaim
 

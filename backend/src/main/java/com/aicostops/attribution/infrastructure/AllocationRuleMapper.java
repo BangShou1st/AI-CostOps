@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /** Row access for {@code allocation_rule}; versions are append-only. */
 @Mapper
@@ -109,4 +110,75 @@ public interface AllocationRuleMapper {
             @Param("ruleKey") String ruleKey,
             @Param("effectiveFrom") Instant effectiveFrom,
             @Param("effectiveTo") Instant effectiveTo);
+
+    @Select("""
+            SELECT
+            """ + RULE_COLUMNS + """
+            FROM allocation_rule ar
+            WHERE ar.org_id=#{organizationId} AND ar.id=#{ruleId}
+            FOR UPDATE
+            """)
+    AllocationRule selectByIdForUpdate(
+            @Param("organizationId") long organizationId,
+            @Param("ruleId") long ruleId);
+
+    /**
+     * Exact evaluation match: ACTIVE rules whose provider, optional provider
+     * account constraint, hint type, hint value, and half-open effective range
+     * all match. The provider code and match value comparisons are BINARY on
+     * both sides, so both are case-sensitive and whitespace-sensitive
+     * regardless of the column collation. A rule without an account
+     * constraint matches every account. The ORDER BY mirrors the RuleEvaluator
+     * tie-break exactly.
+     */
+    @Select("""
+            SELECT
+            """ + RULE_COLUMNS + """
+            FROM allocation_rule ar
+            WHERE ar.org_id=#{organizationId}
+              AND ar.status='ACTIVE'
+              AND BINARY ar.provider_code = BINARY #{providerCode}
+              AND (ar.provider_account_id IS NULL OR ar.provider_account_id=#{providerAccountId})
+              AND ar.match_hint_type=#{matchHintType}
+              AND BINARY ar.match_value = BINARY #{matchValue}
+              AND ar.effective_from <= #{effectiveAt}
+              AND (ar.effective_to IS NULL OR #{effectiveAt} < ar.effective_to)
+            ORDER BY ar.priority ASC, ar.rule_key ASC, ar.version DESC, ar.id ASC
+            """)
+    List<AllocationRule> selectActiveMatching(
+            @Param("organizationId") long organizationId,
+            @Param("providerCode") String providerCode,
+            @Param("providerAccountId") Long providerAccountId,
+            @Param("matchHintType") String matchHintType,
+            @Param("matchValue") String matchValue,
+            @Param("effectiveAt") Instant effectiveAt);
+
+    @Update("""
+            UPDATE allocation_rule
+            SET status='ARCHIVED'
+            WHERE org_id=#{organizationId} AND id=#{ruleId} AND status='ACTIVE'
+            """)
+    int updateStatusToArchived(
+            @Param("organizationId") long organizationId,
+            @Param("ruleId") long ruleId);
+
+    @Select("""
+            SELECT
+            """ + RULE_COLUMNS + """
+            FROM allocation_rule ar
+            WHERE ar.org_id=#{organizationId}
+            ORDER BY ar.rule_key ASC, ar.version DESC, ar.id DESC
+            LIMIT #{limit} OFFSET #{offset}
+            """)
+    List<AllocationRule> selectPage(
+            @Param("organizationId") long organizationId,
+            @Param("limit") int limit,
+            @Param("offset") int offset);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM allocation_rule
+            WHERE org_id=#{organizationId}
+            """)
+    long countAll(@Param("organizationId") long organizationId);
 }
