@@ -22,6 +22,8 @@ function renderAppRoot(permissions: string[]) {
         <Route path="/app" element={<ApplicationLanding />} />
         <Route path="/evidence" element={<h1>Evidence page</h1>} />
         <Route path="/imports" element={<h1>Imports page</h1>} />
+        <Route path="/expenses" element={<h1>Expenses page</h1>} />
+        <Route path="/expense-reviews" element={<h1>Expense reviews page</h1>} />
         <Route path="/settings/users" element={<h1>Users page</h1>} />
         <Route path="/login" element={<h1>Sign in page</h1>} />
       </Routes>
@@ -42,6 +44,18 @@ describe('ApplicationLanding', () => {
     renderAppRoot(['IMPORT_READ'])
 
     expect(screen.getByRole('heading', { name: 'Imports page' })).toBeInTheDocument()
+  })
+
+  it('routes employee-only users to their expenses', () => {
+    renderAppRoot(['EXPENSE_READ_OWN'])
+
+    expect(screen.getByRole('heading', { name: 'Expenses page' })).toBeInTheDocument()
+  })
+
+  it('routes expense reviewers to the review queue when that is their only business permission', () => {
+    renderAppRoot(['EXPENSE_REVIEW'])
+
+    expect(screen.getByRole('heading', { name: 'Expense reviews page' })).toBeInTheDocument()
   })
 
   it('falls back to the first permitted settings route for settings-only roles', () => {
