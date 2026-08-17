@@ -150,6 +150,27 @@ class M1OpenApiContractTest {
                 .doesNotContain("#/components/parameters/IdempotencyKey");
     }
 
+    @Test
+    void expenseCommandsDeclareIdempotencyKeyHeaderParameter() {
+        var idempotentCommands = Set.of(
+                "POST /expenses",
+                "POST /expenses/{expenseId}/submit",
+                "POST /expenses/{expenseId}/cancel",
+                "POST /expenses/{expenseId}/request-info",
+                "POST /expenses/{expenseId}/approve",
+                "POST /expenses/{expenseId}/reject",
+                "POST /expenses/{expenseId}/allocation-decisions/manual",
+                "POST /allocation-decisions/{decisionId}/confirm");
+        for (var operation : idempotentCommands) {
+            assertThat(parameterRefs(operation))
+                    .as(operation)
+                    .contains("#/components/parameters/IdempotencyKey");
+        }
+        // PUT edit is a full-replacement CAS: no key is required.
+        assertThat(parameterRefs("PUT /expenses/{expenseId}"))
+                .doesNotContain("#/components/parameters/IdempotencyKey");
+    }
+
     private static void assertStringSchema(String name) {
         assertThat(schema(name).get("type")).isEqualTo("string");
         assertThat(schema(name).get("pattern")).isEqualTo("^[0-9]+$");
@@ -274,6 +295,22 @@ class M1OpenApiContractTest {
         add(operations, "PUT /allocation-decisions/{decisionId}/lines", "200", "400", "401", "403", "404", "409");
         add(operations, "POST /allocation-decisions/{decisionId}/confirm", "200", "400", "401", "403", "404", "409");
         add(operations, "POST /costs/charges/{chargeFactId}/allocation-proposal", "200", "400", "401", "403", "404", "409");
+        // M4 expense workflow
+        add(operations, "POST /expenses", "200", "400", "401", "403", "409");
+        add(operations, "GET /expenses", "200", "400", "401", "403");
+        add(operations, "GET /expenses/{expenseId}", "200", "400", "401", "403", "404");
+        add(operations, "PUT /expenses/{expenseId}", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /expenses/{expenseId}/evidence", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /expenses/{expenseId}/evidence/download", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /expenses/{expenseId}/submit", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /expenses/{expenseId}/cancel", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /expense-reviews", "200", "400", "401", "403");
+        add(operations, "GET /expense-reviews/{expenseId}", "200", "400", "401", "403", "404");
+        add(operations, "POST /expenses/{expenseId}/request-info", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /expenses/{expenseId}/approve", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /expenses/{expenseId}/reject", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /expenses/{expenseId}/allocation-decisions", "200", "400", "401", "403", "404");
+        add(operations, "POST /expenses/{expenseId}/allocation-decisions/manual", "200", "400", "401", "403", "404", "409");
         add(operations, "GET /allocation-rules", "200", "400", "401", "403");
         add(operations, "GET /allocation-targets", "200", "400", "401", "403");
         add(operations, "GET /allocation-rules/{ruleId}", "200", "400", "401", "403", "404");

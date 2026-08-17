@@ -281,6 +281,128 @@ class ModuleDependencyArchitectureTest {
     }
 
     @Test
+    void expenseDomainStaysFrameworkFree() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.expense.domain..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.expense.domain..",
+                        "com.aicostops.shared..",
+                        "java..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void expenseApplicationNeverReachesInfrastructureOrAllocation() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.expense.application..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        // Application services use the module's own mapper
+                        // directly (Evidence-module style), never allocation or
+                        // other modules' persistence.
+                        "com.aicostops.expense..",
+                        // Evidence storage/download services are the
+                        // documented integration seams; the Evidence record
+                        // and its storage status flow through them.
+                        "com.aicostops.evidence.application..",
+                        "com.aicostops.evidence.domain..",
+                        "com.aicostops.iam.application..",
+                        "com.aicostops.iam.domain..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void expenseInfrastructureDependsOnlyOnExpenseLayersAuditAndFramework() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.expense.infrastructure..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.expense.infrastructure..",
+                        "com.aicostops.expense.application..",
+                        "com.aicostops.expense.domain..",
+                        "com.aicostops.audit.application..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "org.apache.ibatis..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void expenseApiDependsOnlyOnExpenseApplicationAndShared() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.expense.api..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.expense.api..",
+                        "com.aicostops.expense.application..",
+                        "com.aicostops.expense.domain..",
+                        // EvidenceDownload is the streaming download seam
+                        // and carries the Evidence record.
+                        "com.aicostops.evidence.application..",
+                        "com.aicostops.evidence.domain..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void allocationApplicationNeverReachesExpenseOrEvidence() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.allocation.application..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.allocation.application..",
+                        "com.aicostops.allocation.infrastructure..",
+                        "com.aicostops.attribution..",
+                        // M3 charge read models carry the cost review status.
+                        "com.aicostops.cost.domain..",
+                        // The expense source port is the only allowed expense
+                        // dependency (subject abstraction seam).
+                        "com.aicostops.expense.application..",
+                        "com.aicostops.iam..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
     void costDomainStaysFrameworkFree() {
         var productionClasses = new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
