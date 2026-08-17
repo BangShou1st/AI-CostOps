@@ -394,7 +394,10 @@ describe('ExpensePages', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /确认分摊/ }))
     await waitFor(() => expect(mockedAllocationApi.confirm).toHaveBeenCalledWith('dec-draft', expect.any(String)))
-  })
+    // This test walks the full create-draft -> refetch -> confirm workflow
+    // through jsdom + antd; on slow CI runners it takes ~8s, so it gets an
+    // explicit timeout instead of the 5s default.
+  }, 15_000)
 
   it('displays the backend problem detail on a 409 conflict', async () => {
     currentUser = FINANCE

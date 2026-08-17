@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.nio.charset.StandardCharsets;
@@ -99,10 +100,7 @@ class ExpenseEvidenceIntegrationTest extends ExpenseTestSupport {
         var expenseId = insertExpenseDraft();
         attachEvidence(expenseId);
 
-        mockMvc.perform(get("/api/v1/expenses/{expenseId}/evidence/download", expenseId)
-                        .header("Authorization", employeeBearer()))
-                .andExpect(status().isOk())
-                .andExpect(content().bytes(RECEIPT));
+        performDownload(expenseId, employeeBearer());
 
         var foreignUserId = insertUser("download-foreign-" + System.nanoTime() + "@example.com");
         var foreignClaimant = insertMember(orgId, foreignUserId);
@@ -119,10 +117,7 @@ class ExpenseEvidenceIntegrationTest extends ExpenseTestSupport {
         var expenseId = insertExpenseDraft();
         attachEvidence(expenseId);
 
-        mockMvc.perform(get("/api/v1/expenses/{expenseId}/evidence/download", expenseId)
-                        .header("Authorization", financeBearer()))
-                .andExpect(status().isOk())
-                .andExpect(content().bytes(RECEIPT));
+        performDownload(expenseId, financeBearer());
     }
 
     @Test
@@ -141,5 +136,24 @@ class ExpenseEvidenceIntegrationTest extends ExpenseTestSupport {
                         .param("expectedVersion", "0")
                         .header("Authorization", employeeBearer()))
                 .andExpect(status().isOk());
+    }
+
+    /**
+     * Streams the evidence body and asserts the full byte content. The download
+     * endpoint returns a {@code StreamingResponseBody}, which Spring MVC writes
+     * on the async processing thread, so the body is only available once that
+     * thread has finished. Waiting on {@link org.springframework.test.web.servlet.MvcResult#getAsyncResult()}
+     * blocks until the stream is written without re-dispatching the request
+     * (an ASYNC re-dispatch would re-run the security filter chain on the
+     * already-authorized request).
+     */
+    private void performDownload(long expenseId, String bearer) throws Exception {
+        var download = mockMvc.perform(get("/api/v1/expenses/{expenseId}/evidence/download", expenseId)
+                        .header("Authorization", bearer))
+                .andExpect(request().asyncStarted())
+                .andReturn();
+        download.getAsyncResult();
+        status().isOk().match(download);
+        content().bytes(RECEIPT).match(download);
     }
 }
