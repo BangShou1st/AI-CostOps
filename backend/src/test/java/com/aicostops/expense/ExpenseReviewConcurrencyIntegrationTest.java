@@ -82,8 +82,7 @@ class ExpenseReviewConcurrencyIntegrationTest extends ExpenseTestSupport {
     private AuthenticatedUser secondFinanceReviewer() {
         var userId = insertUser("finance-b-" + System.nanoTime() + "@example.com");
         var memberId = insertMember(orgId, userId);
-        createPermissionRole("EXPENSE_FINANCE_B", FINANCE_PERMISSIONS);
-        assign("EXPENSE_FINANCE_B", orgId, memberId);
+        assign("EXPENSE_FINANCE", orgId, memberId);
         return new AuthenticatedUser(userId, 7);
     }
 
