@@ -83,6 +83,22 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/allocation-decisions/{decisionId}/lines").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/allocation-decisions/{decisionId}/confirm").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/costs/charges/{chargeFactId}/allocation-proposal").authenticated()
+                        // M4 expense workflow (real authorization in the services)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/expenses").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/expenses",
+                                "/api/v1/expenses/{expenseId}").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/expenses/{expenseId}").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/expenses/{expenseId}/evidence",
+                                "/api/v1/expenses/{expenseId}/submit",
+                                "/api/v1/expenses/{expenseId}/cancel",
+                                "/api/v1/expenses/{expenseId}/request-info",
+                                "/api/v1/expenses/{expenseId}/approve",
+                                "/api/v1/expenses/{expenseId}/reject").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/expenses/{expenseId}/evidence/download",
+                                "/api/v1/expense-reviews",
+                                "/api/v1/expense-reviews/{expenseId}",
+                                "/api/v1/expenses/{expenseId}/allocation-decisions").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/expenses/{expenseId}/allocation-decisions/manual").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/allocation-rules",
                                 "/api/v1/allocation-rules/{ruleId}").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/allocation-targets").authenticated()
