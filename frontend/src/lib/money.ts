@@ -23,6 +23,21 @@ export function parseDecimal8(amount: string): bigint {
   return negative ? -value : value
 }
 
+const USER_MONEY_PATTERN = /^-?[0-9]+(\.[0-9]{1,8})?$/
+
+/**
+ * Parses user-typed money (integer or up to 8 fractional digits) into scale-8
+ * minor units. The API only accepts exact scale-8 strings, so the UI
+ * normalizes typed amounts through this before sending them.
+ */
+export function parseUserDecimal8(amount: string): bigint {
+  if (typeof amount !== 'string' || !USER_MONEY_PATTERN.test(amount)) {
+    throw new Error(`Not a parseable money amount: ${String(amount)}`)
+  }
+  const [whole, fraction = ''] = amount.split('.')
+  return parseDecimal8(`${whole}.${fraction.padEnd(8, '0')}`)
+}
+
 /** Formats minor units back into a canonical scale-8 decimal string. */
 export function formatDecimal8(value: bigint): string {
   const negative = value < 0n

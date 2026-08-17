@@ -399,6 +399,48 @@ describe('ExpensePages', () => {
     // explicit timeout instead of the 5s default.
   }, 15_000)
 
+  it('finance creates an expense manual draft from a short-decimal amount (real UAT flow)', async () => {
+    // The UAT operator typed 129.5 (not 129.50000000) for Expense 1. The
+    // request must still leave the browser with the canonical scale-8 amount.
+    currentUser = FINANCE
+    const draft = makeDecision({
+      id: 'dec-draft',
+      lines: [{ lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+    })
+    mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
+      status: 'APPROVED',
+      evidenceId: 'ev-1',
+      canEdit: false,
+      amount: '129.50000000',
+    }))
+    mockedAllocationApi.listDecisionsByExpense.mockResolvedValue([])
+    mockedAllocationApi.listTargets.mockResolvedValue([{ type: 'PROJECT', id: 'p-1', name: 'UAT Project' }])
+    mockedAllocationApi.createManualDraftForExpense.mockResolvedValue(draft)
+    mockedExpenseApi.downloadEvidence.mockResolvedValue(new Blob(['x']))
+
+    renderWithRouter(<ExpenseReviewDetailPage />, '/expense-reviews/exp-1')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '创建分摊草稿' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '添加分摊行' }))
+    fireEvent.change(screen.getByLabelText('第 1 行金额'), { target: { value: '129.5' } })
+
+    await screen.findByRole('option', { name: 'UAT Project' })
+    fireEvent.change(screen.getByLabelText('第 1 行分摊对象'), { target: { value: 'PROJECT:p-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '创建分摊草稿' })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建分摊草稿' }))
+
+    await waitFor(() => expect(mockedAllocationApi.createManualDraftForExpense).toHaveBeenCalledWith(
+      'exp-1',
+      [{ allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+      expect.any(String),
+    ))
+  })
+
   it('displays the backend problem detail on a 409 conflict', async () => {
     currentUser = FINANCE
     const draft = makeDecision({ id: 'dec-draft', source: 'MANUAL', status: 'DRAFT' })

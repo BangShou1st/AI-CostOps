@@ -8,6 +8,7 @@ vi.mock('./api/allocationApi', () => ({
   allocationApi: {
     listTargets: vi.fn(),
     createManualDraft: vi.fn(),
+    createManualDraftForExpense: vi.fn(),
     replaceLines: vi.fn(),
     confirm: vi.fn(),
     propose: vi.fn(),
@@ -186,6 +187,40 @@ describe('AllocationEditor', () => {
     expect(lines).toEqual([
       { allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null },
     ])
+    expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('creates an expense manual draft from user-typed amounts and refreshes decisions', async () => {
+    // Real UAT flow: APPROVED Expense 1, amount typed as 129.5 (short decimal),
+    // target UAT Project (id 1). The short decimal must be normalized to
+    // scale-8 before the request leaves the browser.
+    mockedAllocationApi.listTargets.mockResolvedValue([{ type: 'PROJECT', id: '1', name: 'UAT Project' }])
+    mockedAllocationApi.createManualDraftForExpense.mockResolvedValue({
+      ...DRAFT,
+      subjectType: 'EXPENSE_CLAIM',
+      expenseClaimId: '1',
+      chargeFactId: null,
+    })
+    const { onChanged } = renderEditor({ subjectType: 'EXPENSE_CLAIM', subjectId: '1', chargeId: '' })
+
+    fireEvent.click(screen.getByRole('button', { name: '添加分摊行' }))
+    fireEvent.change(screen.getByLabelText('第 1 行金额'), { target: { value: '129.5' } })
+
+    await screen.findByRole('option', { name: 'UAT Project' })
+    fireEvent.change(screen.getByLabelText('第 1 行分摊对象'), { target: { value: 'PROJECT:1' } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '创建分摊草稿' })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建分摊草稿' }))
+
+    await waitFor(() => expect(mockedAllocationApi.createManualDraftForExpense).toHaveBeenCalledTimes(1))
+    const [expenseId, lines, idempotencyKey] = mockedAllocationApi.createManualDraftForExpense.mock.calls[0]
+    expect(expenseId).toBe('1')
+    expect(lines).toEqual([
+      { allocatedAmount: '129.50000000', currency: 'CNY', projectId: '1', costCenterId: null, teamId: null },
+    ])
+    expect(idempotencyKey).toBeTruthy()
     expect(onChanged).toHaveBeenCalled()
   })
 

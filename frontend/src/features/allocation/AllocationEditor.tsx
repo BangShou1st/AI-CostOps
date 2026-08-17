@@ -4,6 +4,7 @@ import { toProblemDetail, type ProblemDetail } from '../../api/problem'
 import {
   allocationApi,
   type AllocationDecision,
+  type AllocationLineInput,
 } from './api/allocationApi'
 import {
   AllocationLinesEditor,
@@ -32,6 +33,22 @@ interface AllocationEditorProps {
   onProposalApplied: () => void
   /** Charge-only: review status for suspected-duplicate gate; omitted for expense */
   reviewStatus?: string
+}
+
+function toLineInputsOrProblem(lines: AllocationEditorLine[], currency: string): { input: AllocationLineInput[] } | { problem: ProblemDetail } {
+  try {
+    return { input: toLineInputs(lines, currency) }
+  } catch {
+    return {
+      problem: {
+        title: '分摊金额格式不正确',
+        status: 422,
+        detail: '每行金额必须是整数或最多 8 位小数的数字，例如 129.5 或 129.50000000。',
+        code: 'ALLOCATION_AMOUNT_FORMAT',
+        traceId: null,
+      },
+    }
+  }
 }
 
 export function AllocationEditor({
@@ -75,14 +92,15 @@ export function AllocationEditor({
   const saveDraft = async () => {
     if (!canEdit || submitting) return
     setSubmitting(true); setProblem(null)
+    const prepared = toLineInputsOrProblem(lines, subjectCurrency)
+    if ('problem' in prepared) { setProblem(prepared.problem); setSubmitting(false); return }
     try {
-      const input = toLineInputs(lines, subjectCurrency)
       if (draft && draft.source === 'MANUAL') {
-        await allocationApi.replaceLines(draft.id, input)
+        await allocationApi.replaceLines(draft.id, prepared.input)
       } else if (subjectType === 'EXPENSE_CLAIM' && subjectId) {
-        await allocationApi.createManualDraftForExpense(subjectId, input, crypto.randomUUID())
+        await allocationApi.createManualDraftForExpense(subjectId, prepared.input, crypto.randomUUID())
       } else {
-        await allocationApi.createManualDraft(chargeId, input, crypto.randomUUID())
+        await allocationApi.createManualDraft(chargeId, prepared.input, crypto.randomUUID())
       }
       refresh()
     } catch (e) { setProblem(toProblemDetail(e)) }
@@ -112,12 +130,13 @@ export function AllocationEditor({
   const overrideRuleDraft = async () => {
     if (!canEdit || !ruleDraft || submitting) return
     setSubmitting(true); setProblem(null)
+    const prepared = toLineInputsOrProblem(lines, subjectCurrency)
+    if ('problem' in prepared) { setProblem(prepared.problem); setSubmitting(false); return }
     try {
-      const input = toLineInputs(lines, subjectCurrency)
       if (subjectType === 'EXPENSE_CLAIM' && subjectId) {
-        await allocationApi.createManualDraftForExpense(subjectId, input, crypto.randomUUID())
+        await allocationApi.createManualDraftForExpense(subjectId, prepared.input, crypto.randomUUID())
       } else {
-        await allocationApi.createManualDraft(chargeId, input, crypto.randomUUID())
+        await allocationApi.createManualDraft(chargeId, prepared.input, crypto.randomUUID())
       }
       refresh()
     } catch (e) { setProblem(toProblemDetail(e)) }
@@ -126,18 +145,18 @@ export function AllocationEditor({
 
   return (
     <section aria-label="分摊编辑">
-      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+      <Space orientation="vertical" style={{ width: '100%' }} size="middle">
         {suspectedDuplicate && (
-          <Alert type="warning" showIcon message="疑似重复待处理"
+          <Alert type="warning" showIcon title="疑似重复待处理"
             description="该成本被标记为疑似重复，需先在重复审核中处理，确认分摊被阻止。" />
         )}
         {ruleDraft && (
-          <Alert type="info" showIcon message="规则草案"
+          <Alert type="info" showIcon title="规则草案"
             description="该分摊由规则生成，行内容只读；可直接确认，或手动覆盖生成 MANUAL 草稿后编辑。" />
         )}
         {problem && (
           <Alert type="error" showIcon
-            message={`${problem.title}（${problem.code}）`}
+            title={`${problem.title}（${problem.code}）`}
             description={problem.detail} />
         )}
         <AllocationLinesEditor
