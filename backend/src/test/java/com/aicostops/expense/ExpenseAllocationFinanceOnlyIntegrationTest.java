@@ -149,6 +149,35 @@ class ExpenseAllocationFinanceOnlyIntegrationTest extends ExpenseTestSupport {
         assertThat(confirmed.decision().status().name()).isEqualTo("CONFIRMED");
     }
 
+    @Test
+    void replayedExpenseConfirmStillChecksCurrentExpenseReview() {
+        var expenseId = insertApprovedExpense("10.00000000");
+        var draft = commands.createManualDraft(financeUser(), AllocationSubjectType.EXPENSE_CLAIM,
+                expenseId, manualDraft(projectId, "10.00000000"), "replay-draft");
+
+        // First confirm succeeds: ALLOCATION_CONFIRM + EXPENSE_REVIEW present.
+        var confirmed = commands.confirm(financeUser(), draft.decision().id(), "replay-key");
+        assertThat(confirmed.decision().status().name()).isEqualTo("CONFIRMED");
+
+        // Revoke EXPENSE_REVIEW while keeping ALLOCATION_CONFIRM, then flush the
+        // IAM/permission cache so the next context load reflects the change.
+        jdbc.update("""
+                DELETE FROM role_permission
+                WHERE role_id = (SELECT id FROM `role` WHERE code = 'EXPENSE_FINANCE')
+                  AND permission_id = (SELECT id FROM permission WHERE code = 'EXPENSE_REVIEW')
+                """);
+        redis.getConnectionFactory().getConnection().serverCommands().flushAll();
+
+        // Same actor, same decision, same idempotency key: the replay must NOT
+        // return the cached success; the current EXPENSE_REVIEW gate must refuse.
+        assertThatThrownBy(() -> commands.confirm(financeUser(), draft.decision().id(), "replay-key"))
+                .satisfies(thrown -> {
+                    var domain = (DomainException) thrown;
+                    assertThat(domain.status().value()).isEqualTo(403);
+                    assertThat(domain.code().name()).isEqualTo("FORBIDDEN");
+                });
+    }
+
     // -- helpers ---------------------------------------------------------------
 
     private void assertForbidden(Throwable thrown) {

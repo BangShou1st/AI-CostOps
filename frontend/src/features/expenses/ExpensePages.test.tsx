@@ -8,6 +8,7 @@ import { allocationApi, type AllocationDecision } from '../allocation/api/alloca
 import { ExpenseDetailPage } from './ExpenseDetailPage'
 import { ExpenseReviewDetailPage } from './ExpenseReviewDetailPage'
 import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
+import { ExpensesNewPage } from './ExpensesNewPage'
 
 // -- mocks ------------------------------------------------------------------
 
@@ -165,6 +166,7 @@ function renderWithRouter(element: React.ReactElement, entry = '/expenses/exp-1'
   return render(
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
+        <Route path="/expenses/new" element={element} />
         <Route path="/expenses/:expenseId" element={element} />
         <Route path="/expense-reviews/:expenseId" element={element} />
       </Routes>
@@ -282,40 +284,116 @@ describe('ExpensePages', () => {
   it('finance confirm path re-reads postingReady from the backend and refreshes', async () => {
     currentUser = FINANCE
     const draft = makeDecision({ id: 'dec-draft', source: 'MANUAL', status: 'DRAFT' })
-    mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
-      status: 'APPROVED',
-      evidenceId: 'ev-1',
-      canEdit: false,
-      postingReady: false,
-    }))
-    mockedAllocationApi.listDecisionsByExpense.mockResolvedValue([draft])
-    mockedAllocationApi.confirm.mockResolvedValue(makeDecision({ id: 'dec-draft', status: 'CONFIRMED' }))
-    // After confirm, the refetched expense reports postingReady = true.
-    mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
-      status: 'APPROVED',
-      evidenceId: 'ev-1',
-      canEdit: false,
-      postingReady: true,
-      currentAllocationDecisionId: 'dec-draft',
-    }))
+    const confirmed = makeDecision({ id: 'dec-draft', source: 'MANUAL', status: 'CONFIRMED' })
+    // The first backend expense response reports NOT posting-ready; the
+    // SECOND response (returned after the confirm refetch) reports ready.
+    // mockResolvedValueOnce + mockResolvedValue keeps the initial state
+    // genuinely false — a single mockResolvedValue(true) would override the
+    // first response and fake the tick from the start.
+    mockedExpenseApi.getForReview
+      .mockResolvedValueOnce(makeExpense({
+        status: 'APPROVED',
+        evidenceId: 'ev-1',
+        canEdit: false,
+        postingReady: false,
+      }))
+      .mockResolvedValue(makeExpense({
+        status: 'APPROVED',
+        evidenceId: 'ev-1',
+        canEdit: false,
+        postingReady: true,
+        currentAllocationDecisionId: 'dec-draft',
+      }))
+    // Decisions are simulated for real as well: DRAFT before confirm,
+    // CONFIRMED after the confirm refetch.
+    mockedAllocationApi.listDecisionsByExpense
+      .mockResolvedValueOnce([draft])
+      .mockResolvedValue([confirmed])
+    mockedAllocationApi.confirm.mockResolvedValue(confirmed)
     mockedExpenseApi.downloadEvidence.mockResolvedValue(new Blob(['x']))
 
     renderWithRouter(<ExpenseReviewDetailPage />, '/expense-reviews/exp-1')
 
+    // Initial backend response: posting is NOT ready.
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '确认分摊' })).toBeEnabled()
     })
+    expect(screen.getByText('否')).toBeInTheDocument()
+    expect(screen.queryByText('✓')).not.toBeInTheDocument()
+
     fireEvent.click(screen.getByRole('button', { name: '确认分摊' }))
 
+    // The backend confirm endpoint was called for the manual draft.
     await waitFor(() => expect(mockedAllocationApi.confirm).toHaveBeenCalledWith('dec-draft', expect.any(String)))
+    // The tick can only come from the refetched backend expense response:
+    // both queries are re-read after the mutation.
     await waitFor(() => {
-      expect(screen.getByText('发布就绪')).toBeInTheDocument()
+      expect(screen.getByText('✓')).toBeInTheDocument()
     })
-    // postingReady flips to true only after the backend refetch.
+    expect(mockedExpenseApi.getForReview.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(mockedAllocationApi.listDecisionsByExpense.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('finance creates a manual draft from an empty decision list, refetches, then confirms it', async () => {
+    currentUser = FINANCE
+    const draft = makeDecision({ id: 'dec-draft', source: 'MANUAL', status: 'DRAFT' })
+    const confirmed = makeDecision({ id: 'dec-draft', source: 'MANUAL', status: 'CONFIRMED' })
+    mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
+      status: 'APPROVED',
+      evidenceId: 'ev-1',
+      canEdit: false,
+    }))
+    // No drafts yet; after the create-draft refetch the backend reports the
+    // MANUAL DRAFT. This regression covers the historical bug where the page
+    // kept draft={null} after creation and confirm never became available.
+    mockedAllocationApi.listDecisionsByExpense
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([draft])
+    mockedAllocationApi.listTargets.mockResolvedValue([
+      { type: 'PROJECT', id: 'p-1', name: '平台' },
+    ])
+    mockedAllocationApi.createManualDraftForExpense.mockResolvedValue(draft)
+    mockedAllocationApi.confirm.mockResolvedValue(confirmed)
+    mockedExpenseApi.downloadEvidence.mockResolvedValue(new Blob(['x']))
+
+    renderWithRouter(<ExpenseReviewDetailPage />, '/expense-reviews/exp-1')
+
+    // The page starts with no draft: confirm exists but is not executable.
     await waitFor(() => {
-      const readyText = screen.getAllByText('✓')
-      expect(readyText.length).toBeGreaterThan(0)
+      expect(screen.getByRole('button', { name: '创建分摊草稿' })).toBeInTheDocument()
     })
+    // Once the create-draft mutation has run, the shared loading state leaves
+    // antd's loading icon (aria-label="loading") on the confirm button; jsdom
+    // never fires the CSS transition end, so the icon never leaves the DOM and
+    // the accessible name becomes "loading 确认分摊". The regex match keeps
+    // the query working in both pre- and post-mutation states.
+    expect(screen.getByRole('button', { name: /确认分摊/ })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '添加分摊行' }))
+    fireEvent.change(screen.getByLabelText('第 1 行金额'), { target: { value: '100.00000000' } })
+
+    await screen.findByRole('option', { name: '平台' })
+    fireEvent.change(screen.getByLabelText('第 1 行分摊对象'), { target: { value: 'PROJECT:p-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '创建分摊草稿' })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建分摊草稿' }))
+
+    await waitFor(() => expect(mockedAllocationApi.createManualDraftForExpense).toHaveBeenCalledWith(
+      'exp-1',
+      [{ allocatedAmount: '100.00000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+      expect.any(String),
+    ))
+    // The refetch picked up the created MANUAL DRAFT: the editor recognizes
+    // the draft (button switches to 保存分摊) and confirm becomes executable.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /确认分摊/ })).toBeEnabled()
+    })
+    expect(screen.getByRole('button', { name: /保存分摊/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /确认分摊/ }))
+    await waitFor(() => expect(mockedAllocationApi.confirm).toHaveBeenCalledWith('dec-draft', expect.any(String)))
   })
 
   it('displays the backend problem detail on a 409 conflict', async () => {
@@ -387,6 +465,109 @@ describe('ExpensePages', () => {
       expect(screen.getByText(/Permission is required/)).toBeInTheDocument()
     })
     expect(screen.getByText('EXPENSE_REVIEW is required to review expense allocations.')).toBeInTheDocument()
+  })
+})
+
+describe('Employee expense mutations', () => {
+  // antd inserts a space between two Chinese characters in Button text, so
+  // two-character button names are matched with a whitespace-tolerant regex.
+  it('create: employee fills the form and expenseApi.create is called with an Idempotency-Key', async () => {
+    mockedExpenseApi.create.mockResolvedValue(makeExpense({ id: 'exp-new' }))
+
+    renderWithRouter(<ExpensesNewPage />, '/expenses/new')
+
+    const amountInput = await screen.findByRole('spinbutton')
+    fireEvent.change(amountInput, { target: { value: '100' } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^创\s*建$/ })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^创\s*建$/ }))
+
+    await waitFor(() => expect(mockedExpenseApi.create).toHaveBeenCalledTimes(1))
+    const [body, idempotencyKey] = mockedExpenseApi.create.mock.calls[0]
+    expect(body.amount).toBe('100.00000000')
+    expect(body.currency).toBe('CNY')
+    expect(body.expenseDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i)
+  })
+
+  it('edit: saving a DRAFT expense calls expenseApi.edit with the expected version', async () => {
+    mockedExpenseApi.get.mockResolvedValue(makeExpense({ status: 'DRAFT' }))
+
+    renderWithRouter(<ExpenseDetailPage />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^保\s*存$/ })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^保\s*存$/ }))
+
+    await waitFor(() => expect(mockedExpenseApi.edit).toHaveBeenCalledTimes(1))
+    const [expenseId, body] = mockedExpenseApi.edit.mock.calls[0]
+    expect(expenseId).toBe('exp-1')
+    expect(body).toEqual({
+      expenseDate: '2026-08-01',
+      amount: '100.00000000',
+      currency: 'CNY',
+      expectedVersion: 1,
+    })
+  })
+
+  it('submit: submitting a DRAFT expense with evidence calls expenseApi.submit with version and key', async () => {
+    mockedExpenseApi.get.mockResolvedValue(makeExpense({ status: 'DRAFT', evidenceId: 'ev-1' }))
+
+    renderWithRouter(<ExpenseDetailPage />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^提\s*交$/ })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^提\s*交$/ }))
+
+    await waitFor(() => expect(mockedExpenseApi.submit).toHaveBeenCalledTimes(1))
+    const [expenseId, body, idempotencyKey] = mockedExpenseApi.submit.mock.calls[0]
+    expect(expenseId).toBe('exp-1')
+    expect(body).toEqual({ expectedVersion: 1 })
+    expect(idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i)
+  })
+
+  it('resubmit: NEEDS_INFO with evidence resubmits through the same submit endpoint', async () => {
+    mockedExpenseApi.get.mockResolvedValue(makeExpense({ status: 'NEEDS_INFO', evidenceId: 'ev-1', version: 2 }))
+
+    renderWithRouter(<ExpenseDetailPage />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '重新提交' })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '重新提交' }))
+
+    // No new endpoint: the re-submit reuses expenseApi.submit.
+    await waitFor(() => expect(mockedExpenseApi.submit).toHaveBeenCalledTimes(1))
+    expect(mockedExpenseApi.submit.mock.calls[0][0]).toBe('exp-1')
+    expect(mockedExpenseApi.submit.mock.calls[0][1]).toEqual({ expectedVersion: 2 })
+  })
+
+  it('cancel: cancelling a SUBMITTED expense confirms the modal then calls expenseApi.cancel', async () => {
+    mockedExpenseApi.get.mockResolvedValue(makeExpense({ status: 'SUBMITTED', evidenceId: 'ev-1', canEdit: false, version: 3 }))
+
+    renderWithRouter(<ExpenseDetailPage />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^取\s*消$/ })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^取\s*消$/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('确定取消这笔报销吗？')).toBeInTheDocument()
+    })
+    // Without the zhCN ConfigProvider the modal footer is the antd English
+    // default: the confirm action is the OK button.
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
+
+    await waitFor(() => expect(mockedExpenseApi.cancel).toHaveBeenCalledTimes(1))
+    const [expenseId, body, idempotencyKey] = mockedExpenseApi.cancel.mock.calls[0]
+    expect(expenseId).toBe('exp-1')
+    expect(body).toEqual({ expectedVersion: 3 })
+    expect(idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i)
   })
 })
 

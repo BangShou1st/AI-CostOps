@@ -184,12 +184,11 @@ public class AllocationDecisionCommandService {
         var requestHash = idempotency.confirmRequestHash(context.organizationId(),
                 context.organizationMemberId(), decisionId);
         return executeWithDeadlockRetry(() -> transactions.execute(status -> {
-            var reserved = idempotency.reserve(context.organizationId(),
-                    context.organizationMemberId(), AllocationIdempotency.OPERATION_CONFIRM,
-                    idempotencyKey, requestHash);
-            if (reserved.replay()) {
-                return codec.decisionFromJson(reserved.responseBody());
-            }
+            // The non-locking decision read resolves the subject type BEFORE the
+            // idempotency reserve, and the EXPENSE_REVIEW gate is enforced
+            // BEFORE the reserve as well: a replayed confirm must pass the
+            // actor's CURRENT permissions, so a revoked EXPENSE_REVIEW cannot
+            // be bypassed by replaying a previously cached success response.
             var pre = decisions.findByIdAndOrganization(context.organizationId(), decisionId)
                     .orElseThrow(this::decisionNotFound);
             var subject = requireSubject(pre.subjectType());
@@ -198,6 +197,12 @@ public class AllocationDecisionCommandService {
                 // Expense allocation is Finance-only: confirming an expense
                 // claim's allocation additionally requires EXPENSE_REVIEW.
                 authorization.requireOrg(context, PERMISSION_EXPENSE_REVIEW);
+            }
+            var reserved = idempotency.reserve(context.organizationId(),
+                    context.organizationMemberId(), AllocationIdempotency.OPERATION_CONFIRM,
+                    idempotencyKey, requestHash);
+            if (reserved.replay()) {
+                return codec.decisionFromJson(reserved.responseBody());
             }
             // Lock order is SOURCE -> DECISION -> LINES: the subject row is
             // locked before the decision row, which is locked before the line

@@ -219,6 +219,25 @@ class AllocationCommandIntegrationTest extends AllocationApiTestSupport {
         assertThat(auditCount("ALLOCATION_DECISION_CONFIRMED")).isEqualTo(1);
     }
 
+    @Test
+    void chargeConfirmReplayIsUnaffectedByExpenseReviewGate() {
+        // CHARGE_FACT subjects have no EXPENSE_REVIEW gate, so a replayed confirm
+        // must still return the cached success response even if the actor's
+        // EXPENSE_REVIEW permission changes between the two calls.
+        var draft = commands.createManualDraft(user(), chargeId,
+                new com.aicostops.allocation.application.AllocationCommands.ManualDraftCommand(
+                        List.of(new AllocationLineCommand(
+                                new BigDecimal("10.00000000"), "CNY", projectId, null, null))),
+                "charge-replay-draft");
+        commands.confirm(user(), draft.decision().id(), "charge-replay-key");
+
+        var replayed = commands.confirm(user(), draft.decision().id(), "charge-replay-key");
+        assertThat(replayed.decision().status().name()).isEqualTo("CONFIRMED");
+        // Exactly one confirm audit event: the replay does not re-run the
+        // confirm transaction.
+        assertThat(auditCount("ALLOCATION_DECISION_CONFIRMED")).isEqualTo(1);
+    }
+
     // -- helpers ----------------------------------------------------------------
 
     private AuthenticatedUser user() {
