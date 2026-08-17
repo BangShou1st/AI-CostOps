@@ -1,6 +1,7 @@
 package com.aicostops.expense;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -139,21 +140,17 @@ class ExpenseEvidenceIntegrationTest extends ExpenseTestSupport {
     }
 
     /**
-     * Streams the evidence body and asserts the full byte content. The download
-     * endpoint returns a {@code StreamingResponseBody}, which Spring MVC writes
-     * on the async processing thread, so the body is only available once that
-     * thread has finished. Waiting on {@link org.springframework.test.web.servlet.MvcResult#getAsyncResult()}
-     * blocks until the stream is written without re-dispatching the request
-     * (an ASYNC re-dispatch would re-run the security filter chain on the
-     * already-authorized request).
+     * Exercises the same servlet async continuation used by a real HTTP client.
+     * The second dispatch must remain authorized and return the completed body.
      */
     private void performDownload(long expenseId, String bearer) throws Exception {
-        var download = mockMvc.perform(get("/api/v1/expenses/{expenseId}/evidence/download", expenseId)
+        var initial = mockMvc.perform(get("/api/v1/expenses/{expenseId}/evidence/download", expenseId)
                         .header("Authorization", bearer))
                 .andExpect(request().asyncStarted())
                 .andReturn();
-        download.getAsyncResult();
-        status().isOk().match(download);
-        content().bytes(RECEIPT).match(download);
+        initial.getAsyncResult();
+        mockMvc.perform(asyncDispatch(initial))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(RECEIPT));
     }
 }
