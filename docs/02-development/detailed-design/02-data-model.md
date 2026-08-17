@@ -646,9 +646,12 @@ effective_from/to      half-open [from,to)，CHECK(to IS NULL OR from<to)
 V1 matcher 只用显式 provider/hint/value 列，对齐 Group 1 attribution_hint 的
 evidence types。没有 `match_config_json`，没有 DIMENSION matcher，没有 regex /
 expression / generic JSON DSL。同 key 的 ACTIVE version 不允许 overlap 由
-`existsActiveOverlapSameKey` 查询（half-open 语义，adjacent 合法）供 #50
-create-version 事务使用；tie-break（lower priority number → rule_key ASC →
-version DESC → id ASC）属 #50 evaluator。
+`existsActiveOverlapSameKey` 查询（half-open 语义，adjacent 合法）。#50 已实现
+create-version 事务（`organization FOR UPDATE` 串行化 `maxVersion + 1`，定义
+列永不 UPDATE，新定义 = 新 version）与 archive（ACTIVE → ARCHIVED，生命周期
+命令，不改定义；ARCHIVED 永不参与 evaluator，历史 decision 的 trace 保留）。
+evaluator tie-break 冻结为 lower priority number → rule_key ASC → version DESC
+→ id ASC（SQL ORDER BY 与 Java comparator 一致）。
 
 ### `allocation_decision`
 
@@ -680,7 +683,10 @@ UNIQUE(confirmed_charge_fact_id)
 Source Subject 保存 `current_allocation_decision_id`——V9 用 composite FK
 `(current_allocation_decision_id, id, org_id) → allocation_decision(id,
 charge_fact_id, org_id)`，DB 强制 pointer 只能指向同一 Charge、同一 org 的
-decision；CONFIRMED 与 pointer mutation 本身仍属 #49 confirm 事务。
+decision；CONFIRMED 与 pointer mutation 由 #49 Confirm 事务在 charge 锁内
+原子完成（decision status + pointer + audit 同事务），competing confirm 由
+`UNIQUE(confirmed_charge_fact_id)` 兜底。RULE decision 的 `allocation_rule_id`
+指向不可变 rule version，即使该 version 之后被 ARCHIVED，trace 不消失。
 
 ### `allocation_line`
 

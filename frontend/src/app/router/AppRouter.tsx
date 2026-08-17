@@ -5,6 +5,10 @@ import { EvidenceDetailPage } from '../../features/evidence/EvidenceDetailPage'
 import { EvidenceListPage } from '../../features/evidence/EvidenceListPage'
 import { ImportDetailPage } from '../../features/imports/ImportDetailPage'
 import { ImportListPage } from '../../features/imports/ImportListPage'
+import { CostDetailPage } from '../../features/costs/CostDetailPage'
+import { CostsListPage } from '../../features/costs/CostsListPage'
+import { DuplicatesPage } from '../../features/duplicates/DuplicatesPage'
+import { RulesPage } from '../../features/allocation-rules/RulesPage'
 import { RolesPage } from '../../features/settings/roles/RolesPage'
 import { ProjectsPage } from '../../features/settings/projects/ProjectsPage'
 import { TeamsPage } from '../../features/settings/teams/TeamsPage'
@@ -36,6 +40,16 @@ export function AppRouter() {
         <Route path="/imports" element={<PermissionRoute permission="IMPORT_READ" />}>
           <Route index element={<ImportListPage />} />
           <Route path=":id" element={<ImportDetailPage />} />
+        </Route>
+        <Route path="/costs" element={<PermissionRoute permission="COST_READ" />}>
+          <Route index element={<CostsListPage />} />
+          <Route path=":id" element={<CostDetailPage />} />
+          <Route path="duplicates" element={<PermissionRoute permission="DUPLICATE_REVIEW" />}>
+            <Route index element={<DuplicatesPage />} />
+          </Route>
+        </Route>
+        <Route path="/allocation-rules" element={<PermissionRoute permission="ALLOCATION_RULE_MANAGE" />}>
+          <Route index element={<RulesPage />} />
         </Route>
         <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
           <Route index element={<UsersPage />} />

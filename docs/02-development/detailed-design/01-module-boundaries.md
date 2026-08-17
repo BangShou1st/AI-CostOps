@@ -323,6 +323,31 @@ attribution.infrastructure  → attribution.application / attribution.domain / s
 Group 3 若需要 cost read model，再按真实调用点最小放宽；本组不提前放宽。
 attribution 反向禁止：cost 不能依赖 attribution（同上）。
 
+### 3.3 allocation workflow（M3 Group 3，#49/#50 起）
+
+事务命令服务不能放进 `attribution`：`attribution.application` 的 ArchUnit
+白名单只有 domain/shared/java（无 Spring transaction / iam / audit），
+`attribution..` 整体不得依赖 iam/audit，`cost..` 又不得依赖 attribution。
+因此 orchestration 放在独立模块 `com.aicostops.allocation`（无既有依赖
+限制）：
+
+```text
+allocation.api            → allocation.application / shared / Spring Web
+allocation.application    → attribution.application（repository ports）/
+                            attribution.domain / cost.domain（read models）/
+                            iam（授权上下文）/ shared / Spring（事务、幂等）/
+                            audit port（自建接口）
+allocation.infrastructure → allocation.application / attribution.infrastructure /
+                            audit.application（AuditService adapter）/
+                            MyBatis / Spring
+```
+
+职责：manual draft / replace-lines / confirm（#49）、rule version / archive /
+deterministic evaluator / proposal（#50）、decision/rule 查询。attribution 的
+repository 接口与 mapper 只增加查询与状态 transition（无 schema 变更），
+`attribution.application` 保持纯 Java。cost read API 仍在 `cost` 模块
+（`cost.api` 做 COST_READ 授权，`cost.application` 只接收 orgId）。
+
 ## 4. 事务放在哪里
 
 `@Transactional` 放在 Application Use Case。

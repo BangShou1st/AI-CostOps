@@ -74,6 +74,20 @@ public class SecurityConfiguration {
                                 "/api/v1/duplicate-candidates/{candidateId}").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/duplicate-candidates/{candidateId}/keep",
                                 "/api/v1/duplicate-candidates/{candidateId}/exclude").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/costs/charges",
+                                "/api/v1/costs/charges/{chargeFactId}").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/costs/charges/{chargeFactId}/allocation-decisions",
+                                "/api/v1/allocation-decisions/{decisionId}").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/costs/charges/{chargeFactId}/allocation-decisions/manual")
+                        .authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/allocation-decisions/{decisionId}/lines").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/allocation-decisions/{decisionId}/confirm").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/costs/charges/{chargeFactId}/allocation-proposal").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/allocation-rules",
+                                "/api/v1/allocation-rules/{ruleId}").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/allocation-targets").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/allocation-rules/{ruleKey}/versions",
+                                "/api/v1/allocation-rules/{ruleId}/archive").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

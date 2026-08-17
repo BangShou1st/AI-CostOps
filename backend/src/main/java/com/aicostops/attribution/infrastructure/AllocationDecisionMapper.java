@@ -5,10 +5,12 @@ import com.aicostops.attribution.domain.AllocationLine;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /** Row access for {@code allocation_decision} and {@code allocation_line}. */
 @Mapper
@@ -79,6 +81,17 @@ public interface AllocationDecisionMapper {
             @Param("decisionId") long decisionId);
 
     @Select("""
+            SELECT
+            """ + DECISION_COLUMNS + """
+            FROM allocation_decision ad
+            WHERE ad.org_id=#{organizationId} AND ad.id=#{decisionId}
+            FOR UPDATE
+            """)
+    AllocationDecision selectByIdForUpdate(
+            @Param("organizationId") long organizationId,
+            @Param("decisionId") long decisionId);
+
+    @Select("""
             SELECT COUNT(*)
             FROM allocation_decision
             WHERE org_id=#{organizationId} AND charge_fact_id=#{chargeFactId}
@@ -87,4 +100,59 @@ public interface AllocationDecisionMapper {
     int countConfirmedForCharge(
             @Param("organizationId") long organizationId,
             @Param("chargeFactId") long chargeFactId);
+
+    @Select("""
+            SELECT
+            """ + DECISION_COLUMNS + """
+            FROM allocation_decision ad
+            WHERE ad.org_id=#{organizationId} AND ad.charge_fact_id=#{chargeFactId}
+              AND ad.status='DRAFT'
+            ORDER BY ad.id ASC
+            FOR UPDATE
+            """)
+    List<AllocationDecision> selectDraftDecisionsByChargeForUpdate(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    @Select("""
+            SELECT
+            """ + DECISION_COLUMNS + """
+            FROM allocation_decision ad
+            WHERE ad.org_id=#{organizationId} AND ad.charge_fact_id=#{chargeFactId}
+            ORDER BY ad.id ASC
+            """)
+    List<AllocationDecision> selectDecisionsByCharge(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    @Select("""
+            SELECT al.id,al.org_id,al.decision_id,al.line_index,al.allocated_amount,al.currency,
+                   al.project_id,al.cost_center_id,al.team_id,al.created_at
+            FROM allocation_line al
+            WHERE al.org_id=#{organizationId} AND al.decision_id=#{decisionId}
+            ORDER BY al.line_index ASC
+            FOR UPDATE
+            """)
+    List<AllocationLine> selectLinesOfDecisionForUpdate(
+            @Param("organizationId") long organizationId,
+            @Param("decisionId") long decisionId);
+
+    @Delete("""
+            DELETE FROM allocation_line
+            WHERE org_id=#{organizationId} AND decision_id=#{decisionId}
+            """)
+    int deleteLinesOfDecision(
+            @Param("organizationId") long organizationId,
+            @Param("decisionId") long decisionId);
+
+    @Update("""
+            UPDATE allocation_decision
+            SET status=#{toStatus}
+            WHERE org_id=#{organizationId} AND id=#{decisionId} AND status=#{fromStatus}
+            """)
+    int updateStatus(
+            @Param("organizationId") long organizationId,
+            @Param("decisionId") long decisionId,
+            @Param("fromStatus") String fromStatus,
+            @Param("toStatus") String toStatus);
 }

@@ -137,7 +137,7 @@ Commit
 
 Confirm 不直接 Posting Ledger。
 
-## 6. Allocation Confirm
+## 6. Allocation Confirm（#49，已实现）
 
 ```text
 Lock Source
@@ -160,6 +160,24 @@ Charge 还必须：
 ImportBatch CONFIRMED
 review_status = CLEAN
 ```
+
+实现锁序（全命令一致，避免与 duplicate 工作流死锁）：
+
+```text
+idempotency reserve（事务内）
+charge_fact FOR UPDATE
+allocation_decision FOR UPDATE（需 supersede 的其它 DRAFT 按 id ASC FOR UPDATE）
+allocation_line FOR UPDATE（replace-lines 先锁旧行再删插）
+audit（secret-free）→ idempotency finalize → commit
+外层 bounded deadlock retry ×3
+```
+
+Eligibility 失败（import 未 CONFIRMED / lineage 不属于 confirmed attempt /
+review_status ≠ CLEAN / EXCLUDED）→ 409 `ALLOCATION_NOT_ELIGIBLE`；sum 不
+精确相等 → 409 `ALLOCATION_SUM_MISMATCH`；已有 CONFIRMED → 409
+`ALLOCATION_ALREADY_CONFIRMED`；非 DRAFT → 409 `DECISION_NOT_DRAFT`。审计
+事件 `ALLOCATION_DECISION_CONFIRMED`（subject CHARGE_FACT），metadata 仅
+decisionId/source/ruleId/lineCount/currency。
 
 ## 6.1 Duplicate Scan / Keep / Exclude（M3 Group 2）
 
@@ -200,8 +218,9 @@ SHA-256 指纹（不 trim，`"abc"` 与 `" abc"` 是不同 caller key），reque
 覆盖 operation/org/actor/candidate(/excluded charge)；same key same hash =
 replay 存储的 CandidateSummary，same key different hash = 409。
 
-#49 的 Allocation Confirm 锁序（decision vs charge vs pointer）仍 deferred，
-Group 2 未实现该事务。
+#49 的 Allocation Confirm 已实现（见 §6）；#50 的 rule version 创建用
+`organization FOR UPDATE` 行锁串行化同 org 的 `maxVersion + 1`（无新表），
+`UNIQUE(org_id, rule_key, version)` 兜底，并发同 key 创建恰好得到连续版本号。
 
 ## 7. API 幂等
 
@@ -230,6 +249,21 @@ Commit
 ```
 
 不要把唯一 Idempotency Record 放 Redis。
+
+M3 allocation 命令复用同一张 `api_idempotency` 表（无新 schema），operation
+前缀：
+
+```text
+ALLOCATION_MANUAL_DRAFT    hash 覆盖 chargeId + 规范化 lines（scale-8 金额）
+ALLOCATION_CONFIRM         hash 覆盖 decisionId
+ALLOCATION_PROPOSAL        hash 覆盖 chargeId
+ALLOCATION_RULE_VERSION    hash 覆盖 ruleKey + 规范化 definition
+ALLOCATION_RULE_ARCHIVE    hash 覆盖 ruleId
+```
+
+PUT replace-lines 是完整替换语义，天然幂等，不强加 key。replay 响应体经
+`AllocationResponseCodec` 序列化（金额一律 scale-8 字符串），同 key 回放
+byte-stable。
 
 ## 8. Budget Commitment Activation
 
@@ -482,6 +516,18 @@ BillingPeriod
 → Budget sorted by id
 → Commitment sorted by id
 → Source
+```
+
+Charge 相关工作流（duplicate review + allocation）统一 `charge id ASC` 先锁
+charge，再锁候选/decision（按 id ASC）/lines，与 duplicate Keep/Exclude 的
+endpoint 锁序一致，避免跨工作流死锁：
+
+```text
+idempotency reserve
+→ affected charge_fact FOR UPDATE（sorted id）
+→ duplicate_candidate / allocation_decision FOR UPDATE
+→ allocation_line FOR UPDATE
+→ organization FOR UPDATE（仅 rule version 创建，串行化 maxVersion+1）
 ```
 
 Deadlock 只允许 Bound Retry + Jitter，不无限重试。

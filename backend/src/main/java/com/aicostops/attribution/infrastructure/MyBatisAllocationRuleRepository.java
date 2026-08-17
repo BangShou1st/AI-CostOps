@@ -3,6 +3,7 @@ package com.aicostops.attribution.infrastructure;
 import com.aicostops.attribution.application.AllocationRuleRepository;
 import com.aicostops.attribution.application.NewAllocationRuleVersion;
 import com.aicostops.attribution.domain.AllocationRule;
+import com.aicostops.attribution.domain.AllocationRuleMatchType;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -67,5 +68,36 @@ public class MyBatisAllocationRuleRepository implements AllocationRuleRepository
     public boolean existsActiveOverlapSameKey(long organizationId, String ruleKey,
             Instant effectiveFrom, Instant effectiveTo) {
         return mapper.existsActiveOverlapSameKey(organizationId, ruleKey, effectiveFrom, effectiveTo);
+    }
+
+    @Override
+    public Optional<AllocationRule> findByIdForUpdate(long organizationId, long ruleId) {
+        return Optional.ofNullable(mapper.selectByIdForUpdate(organizationId, ruleId));
+    }
+
+    @Override
+    public List<AllocationRule> findActiveMatching(long organizationId, String providerCode,
+            Long providerAccountId, AllocationRuleMatchType matchHintType, String matchValue,
+            Instant effectiveAt) {
+        return mapper.selectActiveMatching(organizationId, providerCode, providerAccountId,
+                matchHintType.name(), matchValue, effectiveAt);
+    }
+
+    @Override
+    public void archiveRule(long organizationId, long ruleId) {
+        if (mapper.updateStatusToArchived(organizationId, ruleId) != 1) {
+            throw new IllegalStateException(
+                    "Archiving a rule must transition exactly one ACTIVE row");
+        }
+    }
+
+    @Override
+    public List<AllocationRule> pageVersions(long organizationId, int limit, int offset) {
+        return mapper.selectPage(organizationId, limit, offset);
+    }
+
+    @Override
+    public long countVersions(long organizationId) {
+        return mapper.countAll(organizationId);
     }
 }
