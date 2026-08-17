@@ -5,7 +5,6 @@ import com.aicostops.expense.application.ExpenseCommands.RejectExpenseCommand;
 import com.aicostops.expense.application.ExpenseCommands.RequestInfoCommand;
 import com.aicostops.expense.application.ExpenseIdempotencyStore.IdempotencyDecision;
 import com.aicostops.expense.application.ExpenseReadModels.ExpenseDetail;
-import com.aicostops.expense.domain.ApprovalCase;
 import com.aicostops.expense.domain.ApprovalCaseStatus;
 import com.aicostops.expense.domain.ExpenseClaim;
 import com.aicostops.expense.domain.ExpenseClaimStatus;

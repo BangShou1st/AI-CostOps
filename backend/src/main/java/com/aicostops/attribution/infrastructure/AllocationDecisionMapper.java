@@ -102,6 +102,16 @@ public interface AllocationDecisionMapper {
             @Param("chargeFactId") long chargeFactId);
 
     @Select("""
+            SELECT COUNT(*)
+            FROM allocation_decision
+            WHERE org_id=#{organizationId} AND expense_claim_id=#{expenseClaimId}
+              AND status='CONFIRMED'
+            """)
+    int countConfirmedForExpense(
+            @Param("organizationId") long organizationId,
+            @Param("expenseClaimId") long expenseClaimId);
+
+    @Select("""
             SELECT
             """ + DECISION_COLUMNS + """
             FROM allocation_decision ad
@@ -118,12 +128,36 @@ public interface AllocationDecisionMapper {
             SELECT
             """ + DECISION_COLUMNS + """
             FROM allocation_decision ad
+            WHERE ad.org_id=#{organizationId} AND ad.expense_claim_id=#{expenseClaimId}
+              AND ad.status='DRAFT'
+            ORDER BY ad.id ASC
+            FOR UPDATE
+            """)
+    List<AllocationDecision> selectDraftDecisionsByExpenseForUpdate(
+            @Param("organizationId") long organizationId,
+            @Param("expenseClaimId") long expenseClaimId);
+
+    @Select("""
+            SELECT
+            """ + DECISION_COLUMNS + """
+            FROM allocation_decision ad
             WHERE ad.org_id=#{organizationId} AND ad.charge_fact_id=#{chargeFactId}
             ORDER BY ad.id ASC
             """)
     List<AllocationDecision> selectDecisionsByCharge(
             @Param("organizationId") long organizationId,
             @Param("chargeFactId") long chargeFactId);
+
+    @Select("""
+            SELECT
+            """ + DECISION_COLUMNS + """
+            FROM allocation_decision ad
+            WHERE ad.org_id=#{organizationId} AND ad.expense_claim_id=#{expenseClaimId}
+            ORDER BY ad.id ASC
+            """)
+    List<AllocationDecision> selectDecisionsByExpense(
+            @Param("organizationId") long organizationId,
+            @Param("expenseClaimId") long expenseClaimId);
 
     @Select("""
             SELECT al.id,al.org_id,al.decision_id,al.line_index,al.allocated_amount,al.currency,

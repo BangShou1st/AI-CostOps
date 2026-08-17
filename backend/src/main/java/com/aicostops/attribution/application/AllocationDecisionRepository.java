@@ -26,6 +26,9 @@ public interface AllocationDecisionRepository {
     int countConfirmedForCharge(
             long organizationId, long chargeFactId);
 
+    int countConfirmedForExpense(
+            long organizationId, long expenseClaimId);
+
     /** Locking read of one decision, org-scoped. */
     Optional<AllocationDecision> findByIdForUpdate(
             long organizationId, long decisionId);
@@ -40,6 +43,17 @@ public interface AllocationDecisionRepository {
     /** Non-locking read of every decision of one charge, ordered by id ascending. */
     List<AllocationDecision> findDecisionsByCharge(
             long organizationId, long chargeFactId);
+
+    /**
+     * Locking read of every DRAFT decision of one expense, ordered by decision
+     * id ascending (expense mirror of {@link #findDraftDecisionsByChargeForUpdate}).
+     */
+    List<AllocationDecision> findDraftDecisionsByExpenseForUpdate(
+            long organizationId, long expenseClaimId);
+
+    /** Non-locking read of every decision of one expense, ordered by id ascending. */
+    List<AllocationDecision> findDecisionsByExpense(
+            long organizationId, long expenseClaimId);
 
     /** Locking read of the lines of one decision, ordered by line index. */
     List<AllocationLine> linesOfDecisionForUpdate(

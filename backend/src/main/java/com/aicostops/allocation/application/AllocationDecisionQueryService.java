@@ -6,6 +6,7 @@ import com.aicostops.allocation.infrastructure.AllocationChargeFactMapper;
 import com.aicostops.attribution.application.AllocationDecisionRepository;
 import com.aicostops.attribution.application.AllocationRuleRepository;
 import com.aicostops.attribution.domain.AllocationDecision;
+import com.aicostops.expense.application.ExpenseAllocationSourcePort;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -30,16 +31,19 @@ public class AllocationDecisionQueryService {
     private final AllocationDecisionRepository decisions;
     private final AllocationRuleRepository rules;
     private final AllocationChargeFactMapper charges;
+    private final ExpenseAllocationSourcePort expenseSource;
 
     public AllocationDecisionQueryService(
             AuthorizationContextService authorizationContexts,
             AllocationDecisionRepository decisions,
             AllocationRuleRepository rules,
-            AllocationChargeFactMapper charges) {
+            AllocationChargeFactMapper charges,
+            ExpenseAllocationSourcePort expenseSource) {
         this.authorizationContexts = authorizationContexts;
         this.decisions = decisions;
         this.rules = rules;
         this.charges = charges;
+        this.expenseSource = expenseSource;
     }
 
     /** Every decision of one charge (the charge must be visible). */
@@ -50,6 +54,18 @@ public class AllocationDecisionQueryService {
             throw notFound();
         }
         return decisions.findDecisionsByCharge(context.organizationId(), chargeFactId).stream()
+                .map(decision -> viewOf(context.organizationId(), decision))
+                .toList();
+    }
+
+    /** Every decision of one expense (the expense must be visible). */
+    public List<AllocationDecisionView> listByExpense(AuthenticatedUser user, long expenseClaimId) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, PERMISSION_ALLOCATION_READ);
+        if (!expenseSource.exists(context.organizationId(), expenseClaimId)) {
+            throw notFound();
+        }
+        return decisions.findDecisionsByExpense(context.organizationId(), expenseClaimId).stream()
                 .map(decision -> viewOf(context.organizationId(), decision))
                 .toList();
     }

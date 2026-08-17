@@ -170,6 +170,19 @@ public abstract class ExpenseTestSupport extends MinioAuthenticationContainersSu
 
     // -- assertions helpers ----------------------------------------------------
 
+    protected long insertTarget(String table, long org, String code) {
+        jdbc.update("""
+                INSERT INTO %s(org_id,code,name,status,created_at,updated_at)
+                VALUES (?,?,'Target','ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """.formatted(table), org, code);
+        return jdbc.queryForObject(
+                "SELECT id FROM " + table + " WHERE org_id=? AND code=?", Long.class, org, code);
+    }
+
+    protected void deactivateTarget(String table, long org, long id) {
+        jdbc.update("UPDATE " + table + " SET status='ARCHIVED' WHERE org_id=? AND id=?", org, id);
+    }
+
     protected String expenseStatus(long expenseId) {
         return jdbc.queryForObject(
                 "SELECT status FROM expense_claim WHERE id=?", String.class, expenseId);

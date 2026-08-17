@@ -10,6 +10,7 @@ import com.aicostops.allocation.api.AllocationDecisionResponses.AllocationPropos
 import com.aicostops.allocation.application.AllocationDecisionCommandService;
 import com.aicostops.allocation.application.AllocationDecisionQueryService;
 import com.aicostops.allocation.application.AllocationProposalService;
+import com.aicostops.attribution.domain.AllocationSubjectType;
 import com.aicostops.shared.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -69,6 +70,26 @@ public class AllocationDecisionController {
             @Valid @RequestBody ManualDraftRequest request) {
         return AllocationDecisionResponse.from(commands.createManualDraft(
                 authenticatedUser, chargeFactId, parse(request), idempotencyKey));
+    }
+
+    @GetMapping("/expenses/{expenseId}/allocation-decisions")
+    public List<AllocationDecisionResponse> listByExpense(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long expenseId) {
+        return queries.listByExpense(authenticatedUser, expenseId).stream()
+                .map(AllocationDecisionResponse::from)
+                .toList();
+    }
+
+    @PostMapping("/expenses/{expenseId}/allocation-decisions/manual")
+    public AllocationDecisionResponse createExpenseManualDraft(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long expenseId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody ManualDraftRequest request) {
+        return AllocationDecisionResponse.from(commands.createManualDraft(
+                authenticatedUser, AllocationSubjectType.EXPENSE_CLAIM, expenseId,
+                parse(request), idempotencyKey));
     }
 
     @PutMapping("/allocation-decisions/{decisionId}/lines")

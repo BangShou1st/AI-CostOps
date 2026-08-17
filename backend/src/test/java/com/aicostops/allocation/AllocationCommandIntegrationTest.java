@@ -50,13 +50,13 @@ class AllocationCommandIntegrationTest extends AllocationApiTestSupport {
         com.aicostops.allocation.application.AllocationAuditPort switchableAuditPort(
                 AuditService auditService) {
             var real = new com.aicostops.allocation.infrastructure.AuditAllocationAdapter(auditService);
-            return (organizationId, actorUserId, decisionId, chargeFactId, decisionSource,
-                    allocationRuleId, lineCount, currency) -> {
+            return (organizationId, actorUserId, decisionId, subjectType, subjectId,
+                    decisionSource, allocationRuleId, lineCount, currency) -> {
                 if (FAIL_AUDIT.get()) {
                     throw new IllegalStateException("test audit failure");
                 }
-                real.decisionConfirmed(organizationId, actorUserId, decisionId, chargeFactId,
-                        decisionSource, allocationRuleId, lineCount, currency);
+                real.decisionConfirmed(organizationId, actorUserId, decisionId, subjectType,
+                        subjectId, decisionSource, allocationRuleId, lineCount, currency);
             };
         }
 

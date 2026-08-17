@@ -2,10 +2,8 @@ package com.aicostops.allocation.application;
 
 import com.aicostops.allocation.application.AllocationCommands.AllocationLineCommand;
 import com.aicostops.allocation.application.AllocationCommands.ManualDraftCommand;
-import com.aicostops.allocation.application.AllocationReadModels.AllocationChargeRow;
 import com.aicostops.allocation.application.AllocationReadModels.AllocationDecisionView;
 import com.aicostops.allocation.application.AllocationReadModels.AllocationRuleTrace;
-import com.aicostops.allocation.infrastructure.AllocationChargeFactMapper;
 import com.aicostops.attribution.application.AllocationDecisionRepository;
 import com.aicostops.attribution.application.AllocationRuleRepository;
 import com.aicostops.attribution.application.AllocationTargetDirectory;
@@ -16,7 +14,6 @@ import com.aicostops.attribution.domain.AllocationDecisionSource;
 import com.aicostops.attribution.domain.AllocationDecisionStatus;
 import com.aicostops.attribution.domain.AllocationLine;
 import com.aicostops.attribution.domain.AllocationSubjectType;
-import com.aicostops.cost.domain.ReviewStatus;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -24,7 +21,10 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.springframework.dao.DeadlockLoserDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,10 +34,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * Manual allocation draft creation, replace-lines editing, and confirm.
  *
- * <p>Lock order is always {@code charge_fact -> allocation_decision ->
- * allocation_line}, with related DRAFT decisions of the same charge locked by
- * decision id ascending; this matches the duplicate-review workflow's
- * charge-first ordering so the two workflows cannot deadlock.
+ * <p>Every operation routes through the {@link AllocationSubjectPort} of the
+ * decision's subject: CHARGE_FACT keeps the confirmed-import lineage and CLEAN
+ * review gates, EXPENSE_CLAIM requires an APPROVED claim. Lock order is always
+ * {@code source -> allocation_decision -> allocation_line}, with related DRAFT
+ * decisions of the same subject locked by decision id ascending; the two
+ * subjects touch disjoint tables, so charge and expense workflows cannot
+ * cross-deadlock.
  */
 @Service
 public class AllocationDecisionCommandService {
@@ -51,7 +54,7 @@ public class AllocationDecisionCommandService {
     private final AllocationDecisionRepository decisions;
     private final AllocationRuleRepository rules;
     private final AllocationTargetDirectory targets;
-    private final AllocationChargeFactMapper charges;
+    private final Map<AllocationSubjectType, AllocationSubjectPort> subjectPorts;
     private final AllocationIdempotency idempotency;
     private final AllocationAuditPort audit;
     private final AllocationResponseCodec codec;
@@ -62,7 +65,7 @@ public class AllocationDecisionCommandService {
             AllocationDecisionRepository decisions,
             AllocationRuleRepository rules,
             AllocationTargetDirectory targets,
-            AllocationChargeFactMapper charges,
+            List<AllocationSubjectPort> subjectPorts,
             AllocationIdempotency idempotency,
             AllocationAuditPort audit,
             AllocationResponseCodec codec,
@@ -71,7 +74,8 @@ public class AllocationDecisionCommandService {
         this.decisions = decisions;
         this.rules = rules;
         this.targets = targets;
-        this.charges = charges;
+        this.subjectPorts = subjectPorts.stream().collect(Collectors.toUnmodifiableMap(
+                AllocationSubjectPort::subjectType, Function.identity()));
         this.idempotency = idempotency;
         this.audit = audit;
         this.codec = codec;
@@ -80,13 +84,22 @@ public class AllocationDecisionCommandService {
 
     // -- manual draft ----------------------------------------------------------
 
+    /** Charge endpoint: creates a manual draft for a CHARGE_FACT subject. */
     public AllocationDecisionView createManualDraft(AuthenticatedUser user, long chargeFactId,
             ManualDraftCommand command, String idempotencyKey) {
+        return createManualDraft(user, AllocationSubjectType.CHARGE_FACT, chargeFactId,
+                command, idempotencyKey);
+    }
+
+    public AllocationDecisionView createManualDraft(AuthenticatedUser user,
+            AllocationSubjectType subjectType, long subjectId, ManualDraftCommand command,
+            String idempotencyKey) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_ALLOCATION_EDIT);
         AllocationIdempotency.validateKey(idempotencyKey);
+        var subject = requireSubject(subjectType);
         var requestHash = idempotency.manualDraftRequestHash(context.organizationId(),
-                context.organizationMemberId(), chargeFactId, command.lines());
+                context.organizationMemberId(), subjectType, subjectId, command.lines());
         return executeWithDeadlockRetry(() -> transactions.execute(status -> {
             var reserved = idempotency.reserve(context.organizationId(),
                     context.organizationMemberId(), AllocationIdempotency.OPERATION_MANUAL_DRAFT,
@@ -94,23 +107,26 @@ public class AllocationDecisionCommandService {
             if (reserved.replay()) {
                 return codec.decisionFromJson(reserved.responseBody());
             }
-            var charge = requireChargeForUpdate(context.organizationId(), chargeFactId);
-            if (decisions.countConfirmedForCharge(context.organizationId(), chargeFactId) > 0) {
-                throw alreadyConfirmed();
+            var load = subject.loadForUpdate(context.organizationId(), subjectId);
+            if (subjectType == AllocationSubjectType.EXPENSE_CLAIM) {
+                // Expenses are only allocatable after approval (M4 eligibility).
+                subject.assertConfirmEligible(context.organizationId(), load);
             }
-            var drafts = decisions.findDraftDecisionsByChargeForUpdate(
-                    context.organizationId(), chargeFactId);
+            assertNoConfirmed(context.organizationId(), subjectType, subjectId);
+            var drafts = findDraftDecisionsForUpdate(context.organizationId(), subjectType, subjectId);
             if (drafts.stream().anyMatch(draft -> draft.decisionSource() == AllocationDecisionSource.MANUAL)) {
                 throw manualDraftExists();
             }
-            validateLinesAgainstCharge(context.organizationId(), command.lines(), charge.currency());
+            validateLinesAgainstSubject(context.organizationId(), command.lines(), load.currency());
             for (var draft : drafts) {
                 // Rule drafts are superseded with their lines preserved; that is
                 // the manual-override lineage.
                 decisions.supersedeDecision(context.organizationId(), draft.id());
             }
             var decisionId = decisions.insertDraft(new NewAllocationDecisionDraft(
-                    context.organizationId(), AllocationSubjectType.CHARGE_FACT, chargeFactId, null,
+                    context.organizationId(), subjectType,
+                    subjectType == AllocationSubjectType.CHARGE_FACT ? subjectId : null,
+                    subjectType == AllocationSubjectType.EXPENSE_CLAIM ? subjectId : null,
                     AllocationDecisionSource.MANUAL, null, context.organizationMemberId()));
             insertLines(context.organizationId(), decisionId, command.lines());
             var view = buildView(context.organizationId(), decisionId);
@@ -128,7 +144,8 @@ public class AllocationDecisionCommandService {
         return executeWithDeadlockRetry(() -> transactions.execute(status -> {
             var pre = decisions.findByIdAndOrganization(context.organizationId(), decisionId)
                     .orElseThrow(this::decisionNotFound);
-            var charge = requireChargeForUpdate(context.organizationId(), pre.chargeFactId());
+            var subject = requireSubject(pre.subjectType());
+            var load = subject.loadForUpdate(context.organizationId(), subjectIdOf(pre));
             var locked = decisions.findByIdForUpdate(context.organizationId(), decisionId)
                     .orElseThrow(this::decisionNotFound);
             if (locked.decisionSource() != AllocationDecisionSource.MANUAL
@@ -137,7 +154,7 @@ public class AllocationDecisionCommandService {
                         "Only MANUAL DRAFT decisions can be edited; override a RULE draft "
                                 + "by creating a new manual draft.");
             }
-            validateLinesAgainstCharge(context.organizationId(), lines, charge.currency());
+            validateLinesAgainstSubject(context.organizationId(), lines, load.currency());
             // Lock the existing lines, then replace the whole set.
             decisions.linesOfDecisionForUpdate(context.organizationId(), decisionId);
             decisions.deleteLinesOfDecision(context.organizationId(), decisionId);
@@ -164,24 +181,15 @@ public class AllocationDecisionCommandService {
             }
             var pre = decisions.findByIdAndOrganization(context.organizationId(), decisionId)
                     .orElseThrow(this::decisionNotFound);
-            var charge = requireChargeForUpdate(context.organizationId(), pre.chargeFactId());
+            var subject = requireSubject(pre.subjectType());
+            var subjectId = subjectIdOf(pre);
             var locked = decisions.findByIdForUpdate(context.organizationId(), decisionId)
                     .orElseThrow(this::decisionNotFound);
             if (locked.status() != AllocationDecisionStatus.DRAFT) {
                 throw decisionNotDraft("Only DRAFT decisions can be confirmed.");
             }
-            var lineage = charges.selectLineage(context.organizationId(), charge.id());
-            if (lineage == null || !lineage.confirmedImport()) {
-                throw notEligible(
-                        "The charge does not belong to the confirmed import lineage.");
-            }
-            if (charge.reviewStatus() != ReviewStatus.CLEAN) {
-                throw notEligible(
-                        "Only CLEAN charges are eligible for allocation confirm.");
-            }
-            if (charge.currentAllocationDecisionId() != null) {
-                throw alreadyConfirmed();
-            }
+            var load = subject.loadForUpdate(context.organizationId(), subjectId);
+            subject.assertConfirmEligible(context.organizationId(), load);
             var lines = decisions.linesOfDecisionForUpdate(context.organizationId(), decisionId);
             if (lines.isEmpty()) {
                 throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
@@ -189,33 +197,27 @@ public class AllocationDecisionCommandService {
                         "A confirmed allocation decision must carry at least one line.");
             }
             for (var line : lines) {
-                if (!line.currency().equals(charge.currency())) {
+                if (!line.currency().equals(load.currency())) {
                     throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                             "Allocation line currency mismatch",
-                            "Every line currency must match the charge currency.");
+                            "Every line currency must match the subject currency.");
                 }
                 requireActiveTarget(context.organizationId(), line);
             }
             var sum = lines.stream()
                     .map(AllocationLine::allocatedAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
-            if (sum.compareTo(charge.amount()) != 0) {
+            if (sum.compareTo(load.amount()) != 0) {
                 throw new DomainException(HttpStatus.CONFLICT, ProblemCode.ALLOCATION_SUM_MISMATCH,
                         "Allocation sum mismatch",
-                        "The lines must exactly sum to the charge amount.");
+                        "The lines must exactly sum to the subject amount.");
             }
-            if (decisions.countConfirmedForCharge(context.organizationId(), charge.id()) > 0) {
-                throw alreadyConfirmed();
-            }
+            assertNoConfirmed(context.organizationId(), pre.subjectType(), subjectId);
             decisions.confirmDecision(context.organizationId(), decisionId);
-            if (charges.updateCurrentDecisionPointer(
-                    context.organizationId(), charge.id(), decisionId) != 1) {
-                throw new IllegalStateException(
-                        "The charge current-decision pointer update must affect exactly one row");
-            }
+            subject.setCurrentDecisionPointer(context.organizationId(), subjectId, decisionId);
             audit.decisionConfirmed(context.organizationId(), context.userId(), decisionId,
-                    charge.id(), locked.decisionSource(), locked.allocationRuleId(),
-                    lines.size(), charge.currency());
+                    pre.subjectType(), subjectId, locked.decisionSource(),
+                    locked.allocationRuleId(), lines.size(), load.currency());
             var view = buildView(context.organizationId(), decisionId);
             idempotency.finalize(reserved.id(), 200, codec.decisionToJson(view));
             return view;
@@ -224,18 +226,46 @@ public class AllocationDecisionCommandService {
 
     // -- shared helpers --------------------------------------------------------
 
-    private AllocationChargeRow requireChargeForUpdate(long organizationId, long chargeFactId) {
-        return Optional.ofNullable(charges.selectChargeForUpdate(organizationId, chargeFactId))
-                .orElseThrow(this::chargeNotFound);
+    private AllocationSubjectPort requireSubject(AllocationSubjectType subjectType) {
+        var subject = subjectPorts.get(subjectType);
+        if (subject == null) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Unsupported allocation subject",
+                    "No allocation subject adapter is registered for " + subjectType + ".");
+        }
+        return subject;
     }
 
-    private void validateLinesAgainstCharge(long organizationId,
-            List<AllocationLineCommand> lines, String chargeCurrency) {
+    private static Long subjectIdOf(AllocationDecision decision) {
+        return decision.subjectType() == AllocationSubjectType.CHARGE_FACT
+                ? decision.chargeFactId()
+                : decision.expenseClaimId();
+    }
+
+    private void assertNoConfirmed(long organizationId, AllocationSubjectType subjectType,
+            long subjectId) {
+        var confirmed = subjectType == AllocationSubjectType.CHARGE_FACT
+                ? decisions.countConfirmedForCharge(organizationId, subjectId)
+                : decisions.countConfirmedForExpense(organizationId, subjectId);
+        if (confirmed > 0) {
+            throw alreadyConfirmed();
+        }
+    }
+
+    private List<AllocationDecision> findDraftDecisionsForUpdate(long organizationId,
+            AllocationSubjectType subjectType, long subjectId) {
+        return subjectType == AllocationSubjectType.CHARGE_FACT
+                ? decisions.findDraftDecisionsByChargeForUpdate(organizationId, subjectId)
+                : decisions.findDraftDecisionsByExpenseForUpdate(organizationId, subjectId);
+    }
+
+    private void validateLinesAgainstSubject(long organizationId,
+            List<AllocationLineCommand> lines, String subjectCurrency) {
         for (var line : lines) {
-            if (!line.currency().equals(chargeCurrency)) {
+            if (!line.currency().equals(subjectCurrency)) {
                 throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
                         "Invalid allocation line",
-                        "Every line currency must match the charge currency " + chargeCurrency + ".");
+                        "Every line currency must match the subject currency " + subjectCurrency + ".");
             }
             if (!activeTargetExists(organizationId, line)) {
                 throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
@@ -298,7 +328,7 @@ public class AllocationDecisionCommandService {
         return new AllocationDecisionView(decision, lines, trace);
     }
 
-    private <T> T executeWithDeadlockRetry(java.util.function.Supplier<T> operation) {
+    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
         for (var attempt = 1; ; attempt++) {
             try {
                 return operation.get();
@@ -310,12 +340,6 @@ public class AllocationDecisionCommandService {
         }
     }
 
-    private DomainException chargeNotFound() {
-        return new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
-                "Charge not found",
-                "The charge is not available in the current organization.");
-    }
-
     private DomainException decisionNotFound() {
         return new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                 "Allocation decision not found",
@@ -325,14 +349,14 @@ public class AllocationDecisionCommandService {
     private static DomainException manualDraftExists() {
         return new DomainException(HttpStatus.CONFLICT, ProblemCode.MANUAL_ALLOCATION_DRAFT_EXISTS,
                 "Manual allocation draft exists",
-                "The charge already has a MANUAL DRAFT allocation; edit it instead "
+                "The subject already has a MANUAL DRAFT allocation; edit it instead "
                         + "of creating another one.");
     }
 
     private static DomainException alreadyConfirmed() {
         return new DomainException(HttpStatus.CONFLICT, ProblemCode.ALLOCATION_ALREADY_CONFIRMED,
                 "Allocation already confirmed",
-                "The charge already has a confirmed allocation that cannot be rewritten.");
+                "The subject already has a confirmed allocation that cannot be rewritten.");
     }
 
     private static DomainException decisionNotDraft(String detail) {
@@ -343,7 +367,7 @@ public class AllocationDecisionCommandService {
 
     private static DomainException notEligible(String detail) {
         return new DomainException(HttpStatus.CONFLICT, ProblemCode.ALLOCATION_NOT_ELIGIBLE,
-                "Charge not eligible for allocation",
+                "Subject not eligible for allocation",
                 detail);
     }
 }

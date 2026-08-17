@@ -110,13 +110,14 @@ class AllocationDecisionPersistenceIntegrationTest extends MySqlContainerSupport
     }
 
     @Test
-    void expenseClaimSubjectKeepsIdentityWithoutForeignKey() {
+    void expenseClaimSubjectKeepsIdentityWithForeignKey() {
+        var expenseId = insertExpenseClaim(orgId, memberId);
         var decisionId = decisions.insertDraft(new NewAllocationDecisionDraft(
-                orgId, AllocationSubjectType.EXPENSE_CLAIM, null, 4242L,
+                orgId, AllocationSubjectType.EXPENSE_CLAIM, null, expenseId,
                 AllocationDecisionSource.MANUAL, null, memberId));
 
         var stored = decisions.findByIdAndOrganization(orgId, decisionId).orElseThrow();
-        assertThat(stored.expenseClaimId()).isEqualTo(4242L);
+        assertThat(stored.expenseClaimId()).isEqualTo(expenseId);
         assertThat(stored.chargeFactId()).isNull();
     }
 
@@ -316,6 +317,19 @@ class AllocationDecisionPersistenceIntegrationTest extends MySqlContainerSupport
                 VALUES (?,?,0,'GLM','USAGE',10.0,'CNY',UTC_TIMESTAMP(6))
                 """, org, rawId);
         return jdbc.queryForObject("SELECT id FROM charge_fact WHERE raw_record_id=?", Long.class, rawId);
+    }
+
+    private long insertExpenseClaim(long org, long claimantMemberId) {
+        jdbc.update("""
+                INSERT INTO expense_claim(
+                    org_id,claimant_member_id,evidence_id,expense_date,amount,currency,status,
+                    current_allocation_decision_id,approval_case_id,version,created_at,updated_at)
+                VALUES (?,?,NULL,'2026-08-01','100.00000000','CNY','APPROVED',
+                    NULL,NULL,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, org, claimantMemberId);
+        return jdbc.queryForObject(
+                "SELECT id FROM expense_claim WHERE org_id=? AND claimant_member_id=? ORDER BY id DESC LIMIT 1",
+                Long.class, org, claimantMemberId);
     }
 
     private long insertProject(long org, String code) {

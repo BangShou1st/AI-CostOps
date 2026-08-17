@@ -105,6 +105,22 @@ public interface ExpenseClaimMapper {
             @Param("now") Instant now);
 
     /**
+     * Records the confirmed allocation decision pointer (confirm transaction
+     * only; version is intentionally not bumped — the pointer is a booking fact
+     * written by the finance workflow, not an owner edit).
+     */
+    @Update("""
+            UPDATE expense_claim
+            SET current_allocation_decision_id=#{decisionId}, updated_at=#{now}
+            WHERE id=#{expenseId} AND org_id=#{organizationId}
+            """)
+    int updateCurrentAllocationDecisionPointer(
+            @Param("organizationId") long organizationId,
+            @Param("expenseId") long expenseId,
+            @Param("decisionId") long decisionId,
+            @Param("now") Instant now);
+
+    /**
      * Status mutation guarded by expectedVersion + expected status CAS, used by
      * submit/cancel/review transitions. Also records the approval case pointer
      * on first submit. Affects exactly one row on success.

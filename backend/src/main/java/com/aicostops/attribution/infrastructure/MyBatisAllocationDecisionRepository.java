@@ -72,6 +72,11 @@ public class MyBatisAllocationDecisionRepository implements AllocationDecisionRe
     }
 
     @Override
+    public int countConfirmedForExpense(long organizationId, long expenseClaimId) {
+        return mapper.countConfirmedForExpense(organizationId, expenseClaimId);
+    }
+
+    @Override
     public Optional<AllocationDecision> findByIdForUpdate(long organizationId, long decisionId) {
         return Optional.ofNullable(mapper.selectByIdForUpdate(organizationId, decisionId));
     }
@@ -83,8 +88,19 @@ public class MyBatisAllocationDecisionRepository implements AllocationDecisionRe
     }
 
     @Override
+    public List<AllocationDecision> findDraftDecisionsByExpenseForUpdate(long organizationId,
+            long expenseClaimId) {
+        return mapper.selectDraftDecisionsByExpenseForUpdate(organizationId, expenseClaimId);
+    }
+
+    @Override
     public List<AllocationDecision> findDecisionsByCharge(long organizationId, long chargeFactId) {
         return mapper.selectDecisionsByCharge(organizationId, chargeFactId);
+    }
+
+    @Override
+    public List<AllocationDecision> findDecisionsByExpense(long organizationId, long expenseClaimId) {
+        return mapper.selectDecisionsByExpense(organizationId, expenseClaimId);
     }
 
     @Override
