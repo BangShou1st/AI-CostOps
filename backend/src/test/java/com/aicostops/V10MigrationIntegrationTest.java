@@ -167,6 +167,92 @@ class V10MigrationIntegrationTest extends MySqlContainerSupport {
                 """, orgId)).hasSize(2);
     }
 
+    // -- M4 same-org member FK -------------------------------------------------
+
+    @Test
+    void createsSameOrgMemberUniqueConstraint() {
+        var constraints = jdbc.queryForList("""
+                SELECT constraint_name FROM information_schema.table_constraints
+                WHERE constraint_schema = DATABASE()
+                  AND constraint_name = 'uq_organization_member_id_org'
+                """, String.class);
+        assertThat(constraints).hasSize(1);
+    }
+
+    @Test
+    void expenseClaimClaimantUsesCompositeMemberFk() {
+        var rows = jdbc.queryForList("""
+                SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                FROM information_schema.KEY_COLUMN_USAGE
+                WHERE constraint_schema = DATABASE()
+                  AND constraint_name = 'fk_expense_claim_claimant'
+                ORDER BY ORDINAL_POSITION
+                """);
+        assertThat(rows).hasSize(2);
+        assertThat(((String) rows.get(0).get("COLUMN_NAME"))).isEqualTo("claimant_member_id");
+        assertThat(((String) rows.get(0).get("REFERENCED_TABLE_NAME"))).isEqualTo("organization_member");
+        assertThat(((String) rows.get(0).get("REFERENCED_COLUMN_NAME"))).isEqualTo("id");
+        assertThat(((String) rows.get(1).get("COLUMN_NAME"))).isEqualTo("org_id");
+        assertThat(((String) rows.get(1).get("REFERENCED_COLUMN_NAME"))).isEqualTo("org_id");
+    }
+
+    @Test
+    void approvalActionActorUsesCompositeMemberFk() {
+        var rows = jdbc.queryForList("""
+                SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                FROM information_schema.KEY_COLUMN_USAGE
+                WHERE constraint_schema = DATABASE()
+                  AND constraint_name = 'fk_approval_action_actor'
+                ORDER BY ORDINAL_POSITION
+                """);
+        assertThat(rows).hasSize(2);
+        assertThat(((String) rows.get(0).get("COLUMN_NAME"))).isEqualTo("actor_member_id");
+        assertThat(((String) rows.get(0).get("REFERENCED_TABLE_NAME"))).isEqualTo("organization_member");
+        assertThat(((String) rows.get(0).get("REFERENCED_COLUMN_NAME"))).isEqualTo("id");
+        assertThat(((String) rows.get(1).get("COLUMN_NAME"))).isEqualTo("org_id");
+        assertThat(((String) rows.get(1).get("REFERENCED_COLUMN_NAME"))).isEqualTo("org_id");
+    }
+
+    @Test
+    void crossOrgClaimantInsertIsRejected() {
+        var otherOrgId = insertOrganization("V10 Foreign Claimant",
+                "v10-foreign-claimant-" + fixture.incrementAndGet());
+        var otherUserId = insertUser("v10-foreign-claimant-" + fixture.incrementAndGet() + "@example.com");
+        var otherMemberId = insertMember(otherOrgId, otherUserId);
+
+        // The claim lives in this organization but points at a member of
+        // another organization: the composite FK must reject it.
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO expense_claim(
+                    org_id, claimant_member_id, evidence_id, expense_date, amount, currency, status,
+                    current_allocation_decision_id, approval_case_id, version, created_at, updated_at)
+                VALUES (?,?,?,'2026-08-01','100.00000000','CNY','DRAFT',NULL,NULL,0,
+                    UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, otherMemberId, evidenceId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void crossOrgApprovalActorInsertIsRejected() {
+        var otherOrgId = insertOrganization("V10 Foreign Actor",
+                "v10-foreign-actor-" + fixture.incrementAndGet());
+        var otherUserId = insertUser("v10-foreign-actor-" + fixture.incrementAndGet() + "@example.com");
+        var otherMemberId = insertMember(otherOrgId, otherUserId);
+        var expenseId = insertExpense("SUBMITTED", null);
+        var caseId = insertApprovalCase(expenseId);
+
+        // The action belongs to this organization's approval case but is
+        // performed by a member of another organization: the composite FK must
+        // reject it.
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO approval_action(
+                    org_id, approval_case_id, actor_member_id, action_type,
+                    from_state, to_state, comment, created_at)
+                VALUES (?,?,?,'SUBMIT','DRAFT','SUBMITTED',NULL,UTC_TIMESTAMP(6))
+                """, orgId, caseId, otherMemberId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
     // -- fixtures -------------------------------------------------------------
 
     private long insertOrganization(String name, String slug) {

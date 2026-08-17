@@ -81,7 +81,9 @@ class ExpenseAllocationEligibilityIntegrationTest extends ExpenseTestSupport {
 
     @Test
     void crossOrgExpenseIsNotFound() {
-        var foreignExpenseId = insertExpenseDraftFor(foreignOrgId, employeeMemberId,
+        var foreignEmployeeUserId = insertUser("exp-foreign-employee-" + System.nanoTime() + "@example.com");
+        var foreignEmployeeMemberId = insertMember(foreignOrgId, foreignEmployeeUserId);
+        var foreignExpenseId = insertExpenseDraftFor(foreignOrgId, foreignEmployeeMemberId,
                 "100.00000000", "CNY", "APPROVED");
         assertThatThrownBy(() -> commands.createManualDraft(financeUser(),
                 AllocationSubjectType.EXPENSE_CLAIM, foreignExpenseId,
