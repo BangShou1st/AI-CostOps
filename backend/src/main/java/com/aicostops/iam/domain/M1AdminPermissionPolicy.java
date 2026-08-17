@@ -24,6 +24,14 @@ public final class M1AdminPermissionPolicy {
             Map.entry("EVIDENCE_UPLOAD_PROVIDER", Set.of(ScopeType.ORG)),
             Map.entry("EVIDENCE_READ", Set.of(ScopeType.ORG)),
             Map.entry("EVIDENCE_DOWNLOAD", Set.of(ScopeType.ORG)),
+            // M4 expense permissions. ORG applicable scope never implies OWN:
+            // the *_OWN checks are applied in the expense services by comparing
+            // the claimant against the current organization member.
+            Map.entry("EXPENSE_CREATE_OWN", Set.of(ScopeType.ORG)),
+            Map.entry("EXPENSE_READ_OWN", Set.of(ScopeType.ORG)),
+            Map.entry("EXPENSE_SUBMIT_OWN", Set.of(ScopeType.ORG)),
+            Map.entry("EXPENSE_REVIEW", Set.of(ScopeType.ORG)),
+            Map.entry("EXPENSE_POST", Set.of(ScopeType.ORG)),
             Map.entry("IMPORT_READ", Set.of(ScopeType.ORG)),
             Map.entry("IMPORT_RETRY", Set.of(ScopeType.ORG)),
             Map.entry("IMPORT_CONFIRM", Set.of(ScopeType.ORG)),

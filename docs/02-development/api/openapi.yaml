@@ -539,11 +539,12 @@ components:
         teamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
     AllocationDecisionResponse:
       type: object
-      required: [id, subjectType, chargeFactId, source, status, createdAt, lines]
+      required: [id, subjectType, source, status, createdAt, lines]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         subjectType: { $ref: '#/components/schemas/AllocationSubjectType' }
-        chargeFactId: { $ref: '#/components/schemas/Id' }
+        chargeFactId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        expenseClaimId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         source: { $ref: '#/components/schemas/AllocationDecisionSource' }
         status: { $ref: '#/components/schemas/AllocationDecisionStatus' }
         allocationRule: { oneOf: [{ $ref: '#/components/schemas/AllocationRuleTrace' }, { type: 'null' }] }
@@ -579,6 +580,81 @@ components:
       required: [lines]
       properties:
         lines: { type: array, minItems: 1, items: { $ref: '#/components/schemas/AllocationLineRequest' } }
+    ExpenseClaimStatus: { type: string, enum: [DRAFT, SUBMITTED, NEEDS_INFO, APPROVED, REJECTED, CANCELED] }
+    ApprovalActionType: { type: string, enum: [SUBMIT, REQUEST_INFO, RESUBMIT, APPROVE, REJECT, CANCEL] }
+    ApprovalActionResponse:
+      type: object
+      required: [id, actionType, actorMemberId, fromState, toState, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        actionType: { $ref: '#/components/schemas/ApprovalActionType' }
+        actorMemberId: { $ref: '#/components/schemas/Id' }
+        fromState: { type: string }
+        toState: { type: string }
+        comment: { oneOf: [{ type: string }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+    ExpenseResponse:
+      type: object
+      required: [id, status, claimantMemberId, expenseDate, amount, currency, postingReady, canEdit, version, createdAt, updatedAt, history]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/ExpenseClaimStatus' }
+        claimantMemberId: { $ref: '#/components/schemas/Id' }
+        evidenceId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        expenseDate: { type: string, format: date }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+        currentAllocationDecisionId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        approvalCaseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        approvalStatus: { oneOf: [{ $ref: '#/components/schemas/ApprovalCaseStatus' }, { type: 'null' }] }
+        postingReady: { type: boolean }
+        canEdit: { type: boolean }
+        version: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        history: { type: array, items: { $ref: '#/components/schemas/ApprovalActionResponse' } }
+    ExpenseSummaryResponse:
+      type: object
+      required: [id, status, expenseDate, amount, currency, postingReady, version, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/ExpenseClaimStatus' }
+        evidenceId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        expenseDate: { type: string, format: date }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+        approvalStatus: { oneOf: [{ $ref: '#/components/schemas/ApprovalCaseStatus' }, { type: 'null' }] }
+        postingReady: { type: boolean }
+        version: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+    ApprovalCaseStatus: { type: string, enum: [PENDING, NEEDS_INFO, APPROVED, REJECTED, CANCELED] }
+    PageResponseExpense: { type: object, required: [items, page, size, totalElements, totalPages], properties: { items: { type: array, items: { $ref: '#/components/schemas/ExpenseSummaryResponse' } }, page: { type: integer }, size: { type: integer }, totalElements: { type: integer }, totalPages: { type: integer } } }
+    CreateExpenseRequest:
+      type: object
+      required: [expenseDate, amount, currency]
+      properties:
+        expenseDate: { type: string, format: date }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+    EditExpenseRequest:
+      type: object
+      required: [expenseDate, amount, currency, expectedVersion]
+      properties:
+        expenseDate: { type: string, format: date }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+        expectedVersion: { type: integer, minimum: 0 }
+    ExpectedVersionRequest:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, minimum: 0 }
+    CommentedVersionRequest:
+      type: object
+      required: [expectedVersion, comment]
+      properties:
+        expectedVersion: { type: integer, minimum: 0 }
+        comment: { type: string, maxLength: 2000 }
     AllocationRuleResponse:
       type: object
       required: [id, ruleKey, version, name, providerCode, matchHintType, matchValue, priority, effectiveFrom, status, createdByMemberId, createdAt]
@@ -858,6 +934,67 @@ paths:
     post:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       responses: { '200': { description: Deterministic rule proposal (CREATED/REUSED/NO_MATCH), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationProposalResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateExpenseRequest' } } } }
+      responses: { '200': { description: DRAFT expense created (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses: { '200': { description: My expenses (claimant-scoped), content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseExpense' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}:
+    get:
+      responses: { '200': { description: Owner expense detail with approval history, content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+    put:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EditExpenseRequest' } } } }
+      responses: { '200': { description: DRAFT/NEEDS_INFO body replaced with version CAS, content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/evidence:
+    post:
+      requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, required: [expectedVersion, file], properties: { expectedVersion: { type: integer }, file: { type: string, format: binary } } } } } }
+      responses: { '200': { description: Primary evidence attached (version CAS), content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/evidence/download:
+    get:
+      responses: { '200': { description: Expense-scoped evidence bytes (owner or finance review), content: { application/octet-stream: {} } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/submit:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
+      responses: { '200': { description: Expense SUBMITTED (SUBMIT/RESUBMIT action) or the stored replay, content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/cancel:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
+      responses: { '200': { description: SUBMITTED expense CANCELED or the stored replay, content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expense-reviews:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: status, in: query, schema: { type: string, enum: [ALL, SUBMITTED, NEEDS_INFO, APPROVED] } }]
+      responses: { '200': { description: Finance review queue (SUBMITTED/NEEDS_INFO/APPROVED-unallocated), content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseExpense' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /expense-reviews/{expenseId}:
+    get:
+      responses: { '200': { description: Finance review detail (no owner comparison), content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/request-info:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CommentedVersionRequest' } } } }
+      responses: { '200': { description: SUBMITTED expense moved to NEEDS_INFO or the stored replay, content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/approve:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
+      responses: { '200': { description: SUBMITTED expense APPROVED or the stored replay, content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/reject:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CommentedVersionRequest' } } } }
+      responses: { '200': { description: SUBMITTED expense REJECTED or the stored replay, content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/allocation-decisions:
+    get:
+      responses: { '200': { description: Every allocation decision of one expense, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/allocation-decisions/manual:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ManualDraftRequest' } } } }
+      responses: { '200': { description: Manual DRAFT created for the expense (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /allocation-rules:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]

@@ -1,6 +1,7 @@
 package com.aicostops.allocation.application;
 
 import com.aicostops.attribution.domain.AllocationDecisionSource;
+import com.aicostops.attribution.domain.AllocationSubjectType;
 
 /**
  * Audit port of the allocation workflow. Implementations must append the
@@ -10,16 +11,18 @@ import com.aicostops.attribution.domain.AllocationDecisionSource;
 public interface AllocationAuditPort {
 
     /**
-     * Appends {@code ALLOCATION_DECISION_CONFIRMED} with subject type
-     * {@code CHARGE_FACT} and subject id {@code chargeFactId}. Metadata is
-     * limited to safe fields: decision id, source, optional rule id, line
-     * count, and currency — never provider raw values or secrets.
+     * Appends {@code ALLOCATION_DECISION_CONFIRMED} with the decision's subject
+     * type and subject id (CHARGE_FACT -> chargeFactId, EXPENSE_CLAIM ->
+     * expenseClaimId). Metadata is limited to safe fields: decision id, source,
+     * optional rule id, line count, and currency — never provider raw values
+     * or secrets.
      */
     void decisionConfirmed(
             long organizationId,
             long actorUserId,
             long decisionId,
-            long chargeFactId,
+            AllocationSubjectType subjectType,
+            long subjectId,
             AllocationDecisionSource decisionSource,
             Long allocationRuleId,
             int lineCount,

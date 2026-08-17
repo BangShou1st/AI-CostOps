@@ -239,21 +239,22 @@ class M3Group2DuplicateAttributionSchemaIntegrationTest extends MySqlContainerSu
     }
 
     @Test
-    void expenseSubjectKeepsIdentityWithoutForeignKey() {
+    void expenseSubjectKeepsIdentityWithForeignKey() {
         var fixture = insertConfirmedCharge("dec-expense");
+        var expenseId = insertExpenseClaim(fixture.orgId(), fixture.memberId());
 
         assertThatThrownBy(() -> insertDecision(fixture.orgId(), "EXPENSE_CLAIM", null, null, "MANUAL", null, "DRAFT"))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("chk_allocation_decision_subject");
 
-        insertDecision(fixture.orgId(), "EXPENSE_CLAIM", null, 4242L, "MANUAL", null, "DRAFT");
+        insertDecision(fixture.orgId(), "EXPENSE_CLAIM", null, expenseId, "MANUAL", null, "DRAFT");
 
         var expenseReferences = jdbcTemplate.queryForList("""
                 SELECT referenced_table_name FROM information_schema.key_column_usage
                 WHERE table_schema = DATABASE() AND table_name = 'allocation_decision'
                   AND column_name = 'expense_claim_id' AND referenced_table_name IS NOT NULL
                 """, String.class);
-        assertThat(expenseReferences).isEmpty();
+        assertThat(expenseReferences).isNotEmpty();
     }
 
     @Test
@@ -374,6 +375,19 @@ class M3Group2DuplicateAttributionSchemaIntegrationTest extends MySqlContainerSu
     // -- fixtures ----------------------------------------------------------------
 
     private record OrgFixture(long orgId, long memberId, long rawRecordId, long chargeId, long projectId) {
+    }
+
+    private long insertExpenseClaim(long orgId, long claimantMemberId) {
+        jdbcTemplate.update("""
+                INSERT INTO expense_claim(
+                    org_id,claimant_member_id,evidence_id,expense_date,amount,currency,status,
+                    current_allocation_decision_id,approval_case_id,version,created_at,updated_at)
+                VALUES (?,?,NULL,'2026-08-01','10.00000000','CNY','APPROVED',
+                    NULL,NULL,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, claimantMemberId);
+        return jdbcTemplate.queryForObject(
+                "SELECT id FROM expense_claim WHERE org_id=? AND claimant_member_id=? ORDER BY id DESC LIMIT 1",
+                Long.class, orgId, claimantMemberId);
     }
 
     /** Creates one confirmed-import lineage with one CLEAN charge (fact index 0). */

@@ -2,6 +2,7 @@ package com.aicostops.allocation.infrastructure;
 
 import com.aicostops.allocation.application.AllocationAuditPort;
 import com.aicostops.attribution.domain.AllocationDecisionSource;
+import com.aicostops.attribution.domain.AllocationSubjectType;
 import com.aicostops.audit.application.AuditService;
 import java.util.HashMap;
 import java.util.Map;
@@ -19,7 +20,8 @@ public class AuditAllocationAdapter implements AllocationAuditPort {
 
     @Override
     public void decisionConfirmed(long organizationId, long actorUserId, long decisionId,
-            long chargeFactId, AllocationDecisionSource decisionSource, Long allocationRuleId,
+            AllocationSubjectType subjectType, long subjectId,
+            AllocationDecisionSource decisionSource, Long allocationRuleId,
             int lineCount, String currency) {
         var metadata = new HashMap<String, Object>();
         metadata.put("allocationDecisionId", decisionId);
@@ -29,7 +31,9 @@ public class AuditAllocationAdapter implements AllocationAuditPort {
         }
         metadata.put("lineCount", lineCount);
         metadata.put("currency", currency);
+        // Charge output is byte-compatible with the M3 contract: subjectType
+        // CHARGE_FACT with the charge id as subject id.
         auditService.append("ALLOCATION_DECISION_CONFIRMED", organizationId, actorUserId,
-                "CHARGE_FACT", chargeFactId, metadata);
+                subjectType.name(), subjectId, metadata);
     }
 }

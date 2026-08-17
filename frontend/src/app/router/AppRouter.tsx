@@ -15,6 +15,11 @@ import { TeamsPage } from '../../features/settings/teams/TeamsPage'
 import { CostCentersPage } from '../../features/settings/costCenters/CostCentersPage'
 import { ProviderAccountsPage } from '../../features/settings/providerAccounts/ProviderAccountsPage'
 import { UsersPage } from '../../features/settings/users/UsersPage'
+import { ExpensesListPage } from '../../features/expenses/ExpensesListPage'
+import { ExpensesNewPage } from '../../features/expenses/ExpensesNewPage'
+import { ExpenseDetailPage } from '../../features/expenses/ExpenseDetailPage'
+import { ExpenseReviewQueuePage } from '../../features/expenses/ExpenseReviewQueuePage'
+import { ExpenseReviewDetailPage } from '../../features/expenses/ExpenseReviewDetailPage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ApplicationLanding } from './ApplicationLanding'
 import { ProtectedRoute } from './ProtectedRoute'
@@ -50,6 +55,15 @@ export function AppRouter() {
         </Route>
         <Route path="/allocation-rules" element={<PermissionRoute permission="ALLOCATION_RULE_MANAGE" />}>
           <Route index element={<RulesPage />} />
+        </Route>
+        <Route path="/expenses" element={<PermissionRoute permission="EXPENSE_READ_OWN" />}>
+          <Route index element={<ExpensesListPage />} />
+          <Route path="new" element={<ExpensesNewPage />} />
+          <Route path=":expenseId" element={<ExpenseDetailPage />} />
+        </Route>
+        <Route path="/expense-reviews" element={<PermissionRoute permission="EXPENSE_REVIEW" />}>
+          <Route index element={<ExpenseReviewQueuePage />} />
+          <Route path=":expenseId" element={<ExpenseReviewDetailPage />} />
         </Route>
         <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
           <Route index element={<UsersPage />} />

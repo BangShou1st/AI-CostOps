@@ -41,6 +41,7 @@ public final class AllocationDecisionResponses {
             ApiId id,
             String subjectType,
             ApiId chargeFactId,
+            ApiId expenseClaimId,
             String source,
             String status,
             AllocationRuleTraceResponse allocationRule,
@@ -52,7 +53,12 @@ public final class AllocationDecisionResponses {
             return new AllocationDecisionResponse(
                     ApiId.of(view.decision().id()),
                     view.decision().subjectType().name(),
-                    ApiId.of(view.decision().chargeFactId()),
+                    view.decision().chargeFactId() == null
+                            ? null
+                            : ApiId.of(view.decision().chargeFactId()),
+                    view.decision().expenseClaimId() == null
+                            ? null
+                            : ApiId.of(view.decision().expenseClaimId()),
                     view.decision().decisionSource().name(),
                     view.decision().status().name(),
                     view.ruleTrace() == null

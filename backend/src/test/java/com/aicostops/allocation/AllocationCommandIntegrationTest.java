@@ -9,6 +9,7 @@ import com.aicostops.allocation.application.AllocationReadModels.AllocationCharg
 import com.aicostops.allocation.infrastructure.AllocationChargeFactMapper;
 import com.aicostops.audit.application.AuditService;
 import com.aicostops.attribution.domain.AllocationDecisionSource;
+import com.aicostops.attribution.domain.AllocationSubjectType;
 import com.aicostops.cost.domain.ReviewStatus;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
@@ -50,13 +51,13 @@ class AllocationCommandIntegrationTest extends AllocationApiTestSupport {
         com.aicostops.allocation.application.AllocationAuditPort switchableAuditPort(
                 AuditService auditService) {
             var real = new com.aicostops.allocation.infrastructure.AuditAllocationAdapter(auditService);
-            return (organizationId, actorUserId, decisionId, chargeFactId, decisionSource,
-                    allocationRuleId, lineCount, currency) -> {
+            return (organizationId, actorUserId, decisionId, subjectType, subjectId,
+                    decisionSource, allocationRuleId, lineCount, currency) -> {
                 if (FAIL_AUDIT.get()) {
                     throw new IllegalStateException("test audit failure");
                 }
-                real.decisionConfirmed(organizationId, actorUserId, decisionId, chargeFactId,
-                        decisionSource, allocationRuleId, lineCount, currency);
+                real.decisionConfirmed(organizationId, actorUserId, decisionId, subjectType,
+                        subjectId, decisionSource, allocationRuleId, lineCount, currency);
             };
         }
 
@@ -193,6 +194,48 @@ class AllocationCommandIntegrationTest extends AllocationApiTestSupport {
         assertThat(currentDecisionPointer(chargeId)).isNull();
         assertThat(auditCount("ALLOCATION_DECISION_CONFIRMED")).isZero();
         assertThat(idempotencyCount("ALLOCATION_CONFIRM")).isZero();
+    }
+
+    @Test
+    void expenseConfirmKeepsSourceFirstLockOrder() {
+        // Regression for the confirm lock order (SOURCE -> DECISION -> LINES):
+        // an EXPENSE_CLAIM confirm must lock the expense claim before the
+        // allocation decision, which is locked before the line rows.
+        var expenseId = insertApprovedExpense("10.00000000");
+        var draft = commands.createManualDraft(financeUser(), AllocationSubjectType.EXPENSE_CLAIM,
+                expenseId, new com.aicostops.allocation.application.AllocationCommands.ManualDraftCommand(
+                        List.of(new AllocationLineCommand(
+                                new BigDecimal("4.00000000"), "CNY", projectId, null, null),
+                                new AllocationLineCommand(
+                                        new BigDecimal("6.00000000"), "CNY", null, costCenterId, null))),
+                "lock-order-expense-draft");
+
+        var confirmed = commands.confirm(financeUser(), draft.decision().id(), "lock-order-expense-confirm");
+        assertThat(confirmed.decision().status().name()).isEqualTo("CONFIRMED");
+        assertThat(confirmed.decision().expenseClaimId()).isEqualTo(expenseId);
+        assertThat(jdbc.queryForObject(
+                "SELECT current_allocation_decision_id FROM expense_claim WHERE id=?",
+                Long.class, expenseId)).isEqualTo(draft.decision().id());
+        assertThat(auditCount("ALLOCATION_DECISION_CONFIRMED")).isEqualTo(1);
+    }
+
+    @Test
+    void chargeConfirmReplayIsUnaffectedByExpenseReviewGate() {
+        // CHARGE_FACT subjects have no EXPENSE_REVIEW gate, so a replayed confirm
+        // must still return the cached success response even if the actor's
+        // EXPENSE_REVIEW permission changes between the two calls.
+        var draft = commands.createManualDraft(user(), chargeId,
+                new com.aicostops.allocation.application.AllocationCommands.ManualDraftCommand(
+                        List.of(new AllocationLineCommand(
+                                new BigDecimal("10.00000000"), "CNY", projectId, null, null))),
+                "charge-replay-draft");
+        commands.confirm(user(), draft.decision().id(), "charge-replay-key");
+
+        var replayed = commands.confirm(user(), draft.decision().id(), "charge-replay-key");
+        assertThat(replayed.decision().status().name()).isEqualTo("CONFIRMED");
+        // Exactly one confirm audit event: the replay does not re-run the
+        // confirm transaction.
+        assertThat(auditCount("ALLOCATION_DECISION_CONFIRMED")).isEqualTo(1);
     }
 
     // -- helpers ----------------------------------------------------------------

@@ -1,6 +1,7 @@
 package com.aicostops.allocation;
 
 import com.aicostops.iam.infrastructure.JwtTokenService;
+import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import java.util.List;
@@ -38,6 +39,8 @@ public abstract class AllocationApiTestSupport extends AuthenticationContainersS
     protected long foreignOrgId;
     protected long actorUserId;
     protected long actorMemberId;
+    protected long financeUserId;
+    protected long financeMemberId;
     protected long accountId;
     protected long rawRecordId;
     protected long projectId;
@@ -55,8 +58,13 @@ public abstract class AllocationApiTestSupport extends AuthenticationContainersS
         foreignOrgId = insertOrganization("Alloc Foreign", "alloc-foreign-" + suffix);
         actorUserId = insertUser("alloc-" + suffix + "@example.com");
         actorMemberId = insertMember(orgId, actorUserId);
+        financeUserId = insertUser("alloc-finance-" + suffix + "@example.com");
+        financeMemberId = insertMember(orgId, financeUserId);
         createPermissionRole("ALLOC_WORKER", WORKER_PERMISSIONS);
         assign("ALLOC_WORKER", "ORG", orgId);
+        createPermissionRole("ALLOC_FINANCE", List.of(
+                "ALLOCATION_READ", "ALLOCATION_EDIT", "ALLOCATION_CONFIRM", "EXPENSE_REVIEW"));
+        assign("ALLOC_FINANCE", "ORG", orgId, financeMemberId);
         accountId = insertProviderAccount(orgId, "GLM");
         rawRecordId = insertConfirmedRawRecord(orgId, actorMemberId, accountId, suffix);
         projectId = insertTarget("project", orgId, "alloc-p-" + suffix);
@@ -74,6 +82,49 @@ public abstract class AllocationApiTestSupport extends AuthenticationContainersS
 
     protected String bearer() {
         return "Bearer " + tokens.issue(actorUserId, 7).token();
+    }
+
+    protected AuthenticatedUser financeUser() {
+        return new AuthenticatedUser(financeUserId, 7);
+    }
+
+    // -- expense fixtures ------------------------------------------------------
+
+    /** An APPROVED expense claim with its approval case, eligible for allocation. */
+    protected long insertApprovedExpense(String amount) {
+        return insertApprovedExpense(actorMemberId, amount);
+    }
+
+    protected long insertApprovedExpense(long claimant, String amount) {
+        var expenseId = insertExpense(orgId, claimant, amount, "APPROVED");
+        insertApprovalCase(expenseId);
+        return expenseId;
+    }
+
+    protected long insertExpense(long claimant, String amount, String status) {
+        return insertExpense(orgId, claimant, amount, status);
+    }
+
+    protected long insertExpense(long org, long claimant, String amount, String status) {
+        jdbc.update("""
+                INSERT INTO expense_claim(
+                    org_id,claimant_member_id,evidence_id,expense_date,amount,currency,status,
+                    current_allocation_decision_id,approval_case_id,version,created_at,updated_at)
+                VALUES (?,?,NULL,'2026-08-01',?,'CNY',?,NULL,NULL,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, org, claimant, amount, status);
+        return jdbc.queryForObject(
+                "SELECT id FROM expense_claim WHERE org_id=? AND claimant_member_id=? ORDER BY id DESC LIMIT 1",
+                Long.class, org, claimant);
+    }
+
+    protected long insertApprovalCase(long expenseId) {
+        jdbc.update("""
+                INSERT INTO approval_case(org_id,expense_claim_id,status,created_at,updated_at)
+                VALUES (?,?,'APPROVED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, expenseId);
+        return jdbc.queryForObject(
+                "SELECT id FROM approval_case WHERE org_id=? AND expense_claim_id=?",
+                Long.class, orgId, expenseId);
     }
 
     // -- charge fixtures -------------------------------------------------------
@@ -422,9 +473,9 @@ public abstract class AllocationApiTestSupport extends AuthenticationContainersS
         jdbc.update("""
                 DELETE rp FROM role_permission rp
                 JOIN `role` r ON r.id=rp.role_id
-                WHERE r.code IN ('ALLOC_WORKER','ALLOC_READER','ALLOC_EDITOR')
+                WHERE r.code IN ('ALLOC_WORKER','ALLOC_READER','ALLOC_EDITOR','ALLOC_FINANCE')
                 """);
-        jdbc.update("DELETE FROM `role` WHERE code IN ('ALLOC_WORKER','ALLOC_READER','ALLOC_EDITOR')");
+        jdbc.update("DELETE FROM `role` WHERE code IN ('ALLOC_WORKER','ALLOC_READER','ALLOC_EDITOR','ALLOC_FINANCE')");
     }
 
     protected void createPermissionRole(String roleCode, List<String> permissions) {
@@ -439,10 +490,14 @@ public abstract class AllocationApiTestSupport extends AuthenticationContainersS
     }
 
     protected void assign(String roleCode, String scopeType, long scopeId) {
+        assign(roleCode, scopeType, scopeId, actorMemberId);
+    }
+
+    protected void assign(String roleCode, String scopeType, long scopeId, long targetMemberId) {
         jdbc.update("""
                 INSERT INTO role_assignment(org_member_id,role_id,scope_type,scope_id,assigned_by,created_at)
                 SELECT ?,id,?,?,NULL,UTC_TIMESTAMP(6) FROM `role` WHERE code=?
-                """, actorMemberId, scopeType, scopeId, roleCode);
+                """, targetMemberId, scopeType, scopeId, roleCode);
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
     }
 

@@ -152,7 +152,8 @@ describe('CostDetailPage', () => {
       {
         id: '21',
         subjectType: 'CHARGE_FACT',
-        chargeFactId: '11',
+        expenseClaimId: null,
+      chargeFactId: '11',
         source: 'MANUAL',
         status: 'CONFIRMED',
         allocationRule: null,
@@ -252,7 +253,8 @@ describe('CostDetailPage', () => {
       {
         id: '22',
         subjectType: 'CHARGE_FACT',
-        chargeFactId: '11',
+        expenseClaimId: null,
+      chargeFactId: '11',
         source: 'RULE',
         status: 'DRAFT',
         allocationRule: { id: '41', ruleKey: 'glm-key', version: 1, priority: 10 },
@@ -280,7 +282,8 @@ describe('CostDetailPage', () => {
       {
         id: '21',
         subjectType: 'CHARGE_FACT',
-        chargeFactId: '11',
+        expenseClaimId: null,
+      chargeFactId: '11',
         source: 'MANUAL',
         status: 'CONFIRMED',
         allocationRule: null,

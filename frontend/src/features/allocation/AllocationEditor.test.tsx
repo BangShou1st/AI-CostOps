@@ -19,7 +19,8 @@ const mockedAllocationApi = vi.mocked(allocationApi)
 const DRAFT: AllocationDecision = {
   id: '21',
   subjectType: 'CHARGE_FACT',
-  chargeFactId: '11',
+  expenseClaimId: null,
+      chargeFactId: '11',
   source: 'MANUAL',
   status: 'DRAFT',
   allocationRule: null,
@@ -55,8 +56,8 @@ function renderEditor(props: Partial<Parameters<typeof AllocationEditor>[0]> = {
     <QueryClientProvider client={queryClient}>
       <AllocationEditor
         chargeId="11"
-        chargeAmount="10.00000000"
-        chargeCurrency="CNY"
+        subjectAmount="10.00000000"
+        subjectCurrency="CNY"
         reviewStatus="CLEAN"
         draft={null}
         canEdit
@@ -295,8 +296,8 @@ describe('AllocationEditor', () => {
       <QueryClientProvider client={queryClient}>
         <AllocationEditor
           chargeId="11"
-          chargeAmount="10.00000000"
-          chargeCurrency="CNY"
+          subjectAmount="10.00000000"
+          subjectCurrency="CNY"
           reviewStatus="CLEAN"
           draft={draft}
           canEdit

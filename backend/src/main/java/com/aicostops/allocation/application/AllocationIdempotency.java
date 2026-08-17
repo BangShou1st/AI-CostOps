@@ -4,6 +4,7 @@ import com.aicostops.allocation.application.AllocationCommands.AllocationLineCom
 import com.aicostops.allocation.application.AllocationCommands.RuleDefinitionCommand;
 import com.aicostops.allocation.infrastructure.AllocationIdempotencyMapper;
 import com.aicostops.allocation.infrastructure.AllocationIdempotencyMapper.IdempotencyRow;
+import com.aicostops.attribution.domain.AllocationSubjectType;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.math.BigDecimal;
@@ -63,10 +64,18 @@ public class AllocationIdempotency {
 
     public String manualDraftRequestHash(long organizationId, long actorMemberId, long chargeFactId,
             List<AllocationLineCommand> lines) {
+        // Charge endpoint compatibility: the charge draft is a CHARGE_FACT draft.
+        return manualDraftRequestHash(organizationId, actorMemberId,
+                AllocationSubjectType.CHARGE_FACT, chargeFactId, lines);
+    }
+
+    public String manualDraftRequestHash(long organizationId, long actorMemberId,
+            AllocationSubjectType subjectType, long subjectId, List<AllocationLineCommand> lines) {
         var canonical = new StringBuilder("operation=").append(OPERATION_MANUAL_DRAFT)
                 .append("\norgId=").append(organizationId)
                 .append("\nactorMemberId=").append(actorMemberId)
-                .append("\nchargeFactId=").append(chargeFactId);
+                .append("\nsubjectType=").append(subjectType.name())
+                .append("\nsubjectId=").append(subjectId);
         for (var line : lines) {
             canonical.append("\nline=").append(line.allocatedAmount().toPlainString())
                     .append(";").append(line.currency())
