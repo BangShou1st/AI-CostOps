@@ -131,8 +131,9 @@ export function CostDetailPage() {
             <>
               <AllocationEditor
                 chargeId={chargeId}
-                chargeAmount={detail.amount}
-                chargeCurrency={detail.currency}
+                subjectType="CHARGE_FACT"
+                subjectAmount={detail.amount}
+                subjectCurrency={detail.currency}
                 reviewStatus={detail.reviewStatus}
                 draft={draft}
                 canEdit={canEditAllocation}

@@ -25,7 +25,8 @@ export interface AllocationLine {
 export interface AllocationDecision {
   id: string
   subjectType: 'CHARGE_FACT' | 'EXPENSE_CLAIM'
-  chargeFactId: string
+  chargeFactId: string | null
+  expenseClaimId: string | null
   source: AllocationDecisionSource
   status: AllocationDecisionStatus
   allocationRule: AllocationRuleTrace | null
@@ -96,6 +97,18 @@ export const allocationApi = {
     return (await apiClient.post<AllocationProposal>(
       `/costs/charges/${encodeURIComponent(chargeId)}/allocation-proposal`,
       undefined,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    )).data
+  },
+  // Expense allocation
+  async listDecisionsByExpense(expenseId: string): Promise<AllocationDecision[]> {
+    return (await apiClient.get<AllocationDecision[]>(
+      `/expenses/${encodeURIComponent(expenseId)}/allocation-decisions`)).data
+  },
+  async createManualDraftForExpense(expenseId: string, lines: AllocationLineInput[], idempotencyKey: string): Promise<AllocationDecision> {
+    return (await apiClient.post<AllocationDecision>(
+      `/expenses/${encodeURIComponent(expenseId)}/allocation-decisions/manual`,
+      { lines },
       { headers: { 'Idempotency-Key': idempotencyKey } },
     )).data
   },
