@@ -36,6 +36,32 @@ public final class ExpenseRequests {
             Long expectedVersion) {
     }
 
+    public record SubmitRequest(Long expectedVersion) {
+    }
+
+    public record CancelRequest(Long expectedVersion) {
+    }
+
+    public static ExpenseCommands.SubmitExpenseCommand parse(SubmitRequest request) {
+        if (request == null) {
+            throw validation("A request body is required.");
+        }
+        if (request.expectedVersion() == null) {
+            throw validation("expectedVersion is required.");
+        }
+        return new ExpenseCommands.SubmitExpenseCommand(request.expectedVersion());
+    }
+
+    public static ExpenseCommands.CancelExpenseCommand parse(CancelRequest request) {
+        if (request == null) {
+            throw validation("A request body is required.");
+        }
+        if (request.expectedVersion() == null) {
+            throw validation("expectedVersion is required.");
+        }
+        return new ExpenseCommands.CancelExpenseCommand(request.expectedVersion());
+    }
+
     public static ExpenseCommands.CreateExpenseCommand parseCreate(CreateExpenseRequest request) {
         if (request == null) {
             throw validation("A request body is required.");

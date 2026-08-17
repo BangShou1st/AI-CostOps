@@ -148,7 +148,79 @@ public interface ExpenseClaimMapper {
             @Param("organizationId") long organizationId,
             @Param("claimantMemberId") long claimantMemberId);
 
+    /**
+     * Finance review queue: active reviews (SUBMITTED / NEEDS_INFO) plus
+     * APPROVED expenses that are not yet posting-ready (no current allocation
+     * decision). The {@code statusFilter} is one of
+     * SUBMITTED / NEEDS_INFO / APPROVED / ALL.
+     */
+    @Select("""
+            <script>
+            SELECT
+            """ + CLAIM_COLUMNS + """
+            FROM expense_claim ec
+            WHERE ec.org_id=#{organizationId}
+            <choose>
+              <when test="statusFilter == 'SUBMITTED'">
+                AND ec.status='SUBMITTED'
+              </when>
+              <when test="statusFilter == 'NEEDS_INFO'">
+                AND ec.status='NEEDS_INFO'
+              </when>
+              <when test="statusFilter == 'APPROVED'">
+                AND ec.status='APPROVED' AND ec.current_allocation_decision_id IS NULL
+              </when>
+              <otherwise>
+                AND (ec.status IN ('SUBMITTED','NEEDS_INFO')
+                     OR (ec.status='APPROVED' AND ec.current_allocation_decision_id IS NULL))
+              </otherwise>
+            </choose>
+            ORDER BY ec.created_at ASC, ec.id ASC
+            LIMIT #{size} OFFSET #{offset}
+            </script>
+            """)
+    List<ExpenseClaim> selectReviewQueue(
+            @Param("organizationId") long organizationId,
+            @Param("statusFilter") String statusFilter,
+            @Param("size") int size,
+            @Param("offset") int offset);
+
+    @Select("""
+            <script>
+            SELECT COUNT(*)
+            FROM expense_claim ec
+            WHERE ec.org_id=#{organizationId}
+            <choose>
+              <when test="statusFilter == 'SUBMITTED'">
+                AND ec.status='SUBMITTED'
+              </when>
+              <when test="statusFilter == 'NEEDS_INFO'">
+                AND ec.status='NEEDS_INFO'
+              </when>
+              <when test="statusFilter == 'APPROVED'">
+                AND ec.status='APPROVED' AND ec.current_allocation_decision_id IS NULL
+              </when>
+              <otherwise>
+                AND (ec.status IN ('SUBMITTED','NEEDS_INFO')
+                     OR (ec.status='APPROVED' AND ec.current_allocation_decision_id IS NULL))
+              </otherwise>
+            </choose>
+            </script>
+            """)
+    long countReviewQueue(
+            @Param("organizationId") long organizationId,
+            @Param("statusFilter") String statusFilter);
+
     // -- approval case ---------------------------------------------------------
+
+    /** Storage status of the expense's primary evidence (submit gate). */
+    @Select("""
+            SELECT ev.storage_status FROM evidence ev
+            WHERE ev.org_id=#{organizationId} AND ev.id=#{evidenceId}
+            """)
+    String selectEvidenceStorageStatus(
+            @Param("organizationId") long organizationId,
+            @Param("evidenceId") long evidenceId);
 
     /** The allocation decision status backing the postingReady derivation. */
     @Select("""

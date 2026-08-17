@@ -1,10 +1,13 @@
 package com.aicostops.expense.api;
 
+import static com.aicostops.expense.api.ExpenseRequests.parse;
 import static com.aicostops.expense.api.ExpenseRequests.parseCreate;
 import static com.aicostops.expense.api.ExpenseRequests.parseEdit;
 
+import com.aicostops.expense.api.ExpenseRequests.CancelRequest;
 import com.aicostops.expense.api.ExpenseRequests.CreateExpenseRequest;
 import com.aicostops.expense.api.ExpenseRequests.EditExpenseRequest;
+import com.aicostops.expense.api.ExpenseRequests.SubmitRequest;
 import com.aicostops.expense.api.ExpenseResponses.ExpenseResponse;
 import com.aicostops.expense.api.ExpenseResponses.ExpenseSummaryResponse;
 import com.aicostops.expense.application.ExpenseClaimCommandService;
@@ -78,6 +81,28 @@ public class ExpenseController {
             @PathVariable long expenseId,
             @Valid @RequestBody EditExpenseRequest request) {
         var detail = commands.edit(authenticatedUser, expenseId, parseEdit(request));
+        return ExpenseResponse.from(detail, detail.claimantMemberId());
+    }
+
+    @PostMapping("/{expenseId}/submit")
+    public ExpenseResponse submit(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long expenseId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody SubmitRequest request) {
+        var detail = commands.submit(authenticatedUser, expenseId,
+                parse(request), idempotencyKey);
+        return ExpenseResponse.from(detail, detail.claimantMemberId());
+    }
+
+    @PostMapping("/{expenseId}/cancel")
+    public ExpenseResponse cancel(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @PathVariable long expenseId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody CancelRequest request) {
+        var detail = commands.cancel(authenticatedUser, expenseId,
+                parse(request), idempotencyKey);
         return ExpenseResponse.from(detail, detail.claimantMemberId());
     }
 }

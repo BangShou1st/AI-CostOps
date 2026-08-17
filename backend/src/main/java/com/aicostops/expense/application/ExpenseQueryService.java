@@ -84,7 +84,7 @@ public class ExpenseQueryService {
         return toDetail(context.organizationId(), claim);
     }
 
-    private ExpenseReadModels.ExpenseDetail toDetail(long organizationId, ExpenseClaim claim) {
+    public ExpenseReadModels.ExpenseDetail toDetail(long organizationId, ExpenseClaim claim) {
         var approvalStatus = claim.approvalCaseId() == null ? null
                 : mapper.selectApprovalCaseByExpense(organizationId, claim.id()).status();
         var decisionConfirmed = claim.currentAllocationDecisionId() == null ? false

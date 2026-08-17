@@ -14,6 +14,7 @@ import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.function.Supplier;
 import org.springframework.dao.DeadlockLoserDataAccessException;
@@ -33,6 +34,7 @@ public class ExpenseClaimCommandService {
 
     private static final int DEADLOCK_RETRIES = 3;
     private static final String PERMISSION_EXPENSE_CREATE_OWN = "EXPENSE_CREATE_OWN";
+    private static final String PERMISSION_EXPENSE_SUBMIT_OWN = "EXPENSE_SUBMIT_OWN";
 
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
@@ -111,6 +113,172 @@ public class ExpenseClaimCommandService {
                     detail.version(), detail.currency());
             return detail;
         }));
+    }
+
+    /**
+     * Submits a DRAFT (SUBMIT action, creates the approval case) or resubmits
+     * a NEEDS_INFO expense (RESUBMIT action, reuses the case). The idempotency
+     * operation is always EXPENSE_SUBMIT so a retried key replays regardless of
+     * the intermediate state; the action type is chosen from the locked row.
+     * Evidence must be attached and AVAILABLE before any submission.
+     */
+    public ExpenseDetail submit(AuthenticatedUser user, long expenseId,
+            ExpenseCommands.SubmitExpenseCommand command, String idempotencyKey) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, PERMISSION_EXPENSE_SUBMIT_OWN);
+        idempotency.validateKey(idempotencyKey);
+        var requestHash = idempotency.submitRequestHash(context.organizationId(),
+                context.organizationMemberId(), expenseId, command.expectedVersion());
+        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+            var decision = idempotency.reserve(context.organizationId(),
+                    context.organizationMemberId(), ExpenseIdempotency.OPERATION_SUBMIT,
+                    idempotencyKey, requestHash);
+            if (decision.replay()) {
+                return responseCodec.fromJson(decision.responseBody());
+            }
+            var claim = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
+            requireOwnedVersioned(context.organizationId(), context.organizationMemberId(),
+                    claim, command.expectedVersion());
+            requireEvidenceForSubmit(context.organizationId(), claim);
+            var now = clock.instant();
+            switch (claim.status()) {
+                case DRAFT -> firstSubmit(context, claim, now);
+                case NEEDS_INFO -> resubmit(context, claim, now);
+                default -> throw notSubmittable();
+            }
+            var updated = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
+            var detail = toDetail(updated);
+            idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
+            return detail;
+        }));
+    }
+
+    /**
+     * Cancels a SUBMITTED expense (and its PENDING approval case). DRAFT /
+     * NEEDS_INFO / APPROVED expenses cannot be canceled in M4.
+     */
+    public ExpenseDetail cancel(AuthenticatedUser user, long expenseId,
+            ExpenseCommands.CancelExpenseCommand command, String idempotencyKey) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, PERMISSION_EXPENSE_SUBMIT_OWN);
+        idempotency.validateKey(idempotencyKey);
+        var requestHash = idempotency.cancelRequestHash(context.organizationId(),
+                context.organizationMemberId(), expenseId, command.expectedVersion());
+        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+            var decision = idempotency.reserve(context.organizationId(),
+                    context.organizationMemberId(), ExpenseIdempotency.OPERATION_CANCEL,
+                    idempotencyKey, requestHash);
+            if (decision.replay()) {
+                return responseCodec.fromJson(decision.responseBody());
+            }
+            var claim = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
+            requireOwnedVersioned(context.organizationId(), context.organizationMemberId(),
+                    claim, command.expectedVersion());
+            if (claim.status() != ExpenseClaimStatus.SUBMITTED) {
+                throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                        "Expense cannot be canceled",
+                        "Only a SUBMITTED expense can be canceled.");
+            }
+            if (claim.approvalCaseId() == null) {
+                throw new IllegalStateException("A SUBMITTED expense must have an approval case");
+            }
+            var approvalCase = mapper.selectApprovalCaseByExpenseForUpdate(
+                    context.organizationId(), claim.id());
+            if (approvalCase == null
+                    || approvalCase.status() != com.aicostops.expense.domain.ApprovalCaseStatus.PENDING) {
+                throw new IllegalStateException("A SUBMITTED expense must have a PENDING approval case");
+            }
+            var now = clock.instant();
+            if (mapper.updateStatusVersioned(context.organizationId(), expenseId,
+                    command.expectedVersion(), "SUBMITTED", "CANCELED",
+                    claim.approvalCaseId(), now) != 1) {
+                throw staleVersion();
+            }
+            if (mapper.updateApprovalCaseStatus(context.organizationId(), approvalCase.id(),
+                    "PENDING", "CANCELED", now) != 1) {
+                throw staleVersion();
+            }
+            mapper.insertApprovalAction(context.organizationId(), approvalCase.id(),
+                    context.organizationMemberId(), "CANCEL", "SUBMITTED", "CANCELED",
+                    null, now);
+            var updated = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
+            var detail = toDetail(updated);
+            audit.canceled(context.organizationId(), context.userId(), detail.id(), detail.version());
+            idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
+            return detail;
+        }));
+    }
+
+    private void firstSubmit(com.aicostops.iam.domain.AuthorizationContext context,
+            ExpenseClaim claim, Instant now) {
+        if (claim.approvalCaseId() != null) {
+            throw new IllegalStateException("A DRAFT expense cannot already have an approval case");
+        }
+        mapper.insertApprovalCase(context.organizationId(), claim.id(), now);
+        var approvalCaseId = mapper.selectApprovalCaseByExpense(context.organizationId(), claim.id()).id();
+        if (mapper.updateStatusVersioned(context.organizationId(), claim.id(), claim.version(),
+                "DRAFT", "SUBMITTED", approvalCaseId, now) != 1) {
+            throw staleVersion();
+        }
+        mapper.insertApprovalAction(context.organizationId(), approvalCaseId,
+                context.organizationMemberId(), "SUBMIT", "DRAFT", "SUBMITTED", null, now);
+        audit.submitted(context.organizationId(), context.userId(), claim.id(), "SUBMIT",
+                claim.version() + 1);
+    }
+
+    private void resubmit(com.aicostops.iam.domain.AuthorizationContext context,
+            ExpenseClaim claim, Instant now) {
+        if (claim.approvalCaseId() == null) {
+            throw new IllegalStateException("A NEEDS_INFO expense must have an approval case");
+        }
+        var approvalCase = mapper.selectApprovalCaseByExpenseForUpdate(
+                context.organizationId(), claim.id());
+        if (approvalCase == null
+                || approvalCase.status() != com.aicostops.expense.domain.ApprovalCaseStatus.NEEDS_INFO) {
+            throw new IllegalStateException("A NEEDS_INFO expense must have a NEEDS_INFO approval case");
+        }
+        if (mapper.updateStatusVersioned(context.organizationId(), claim.id(), claim.version(),
+                "NEEDS_INFO", "SUBMITTED", claim.approvalCaseId(), now) != 1) {
+            throw staleVersion();
+        }
+        if (mapper.updateApprovalCaseStatus(context.organizationId(), approvalCase.id(),
+                "NEEDS_INFO", "PENDING", now) != 1) {
+            throw staleVersion();
+        }
+        mapper.insertApprovalAction(context.organizationId(), approvalCase.id(),
+                context.organizationMemberId(), "RESUBMIT", "NEEDS_INFO", "SUBMITTED", null, now);
+        audit.submitted(context.organizationId(), context.userId(), claim.id(), "RESUBMIT",
+                claim.version() + 1);
+    }
+
+    private void requireEvidenceForSubmit(long organizationId, ExpenseClaim claim) {
+        if (claim.evidenceId() == null) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Evidence is required",
+                    "Attach the primary evidence before submitting the expense.");
+        }
+        if (!"AVAILABLE".equals(mapper.selectEvidenceStorageStatus(
+                organizationId, claim.evidenceId()))) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Evidence is not available",
+                    "The primary evidence must be AVAILABLE before submitting the expense.");
+        }
+    }
+
+    private void requireOwnedVersioned(long organizationId, long ownerMemberId,
+            ExpenseClaim claim, long expectedVersion) {
+        if (claim == null || !claim.isOwnedBy(ownerMemberId)) {
+            throw notFound();
+        }
+        if (claim.version() != expectedVersion) {
+            throw staleVersion();
+        }
+    }
+
+    private static DomainException notSubmittable() {
+        return new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                "Expense cannot be submitted",
+                "Only a DRAFT or NEEDS_INFO expense can be submitted.");
     }
 
     private ExpenseClaim requireOwnedEditable(long organizationId, long ownerMemberId,
