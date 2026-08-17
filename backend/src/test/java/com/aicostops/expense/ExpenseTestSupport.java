@@ -1,7 +1,7 @@
 package com.aicostops.expense;
 
 import com.aicostops.iam.infrastructure.JwtTokenService;
-import com.aicostops.testsupport.AuthenticationContainersSupport;
+import com.aicostops.testsupport.MinioAuthenticationContainersSupport;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -14,9 +14,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * Shared fixtures for the expense workflow tests: an employee actor with the
  * OWN permission set, a finance actor with the review permission set, and
  * helpers to seed expenses directly. Mirrors the allocation test fixture
- * style.
+ * style. The MySQL + Redis + MinIO container set is shared so evidence
+ * upload/download tests exercise the real object store.
  */
-public abstract class ExpenseTestSupport extends AuthenticationContainersSupport {
+public abstract class ExpenseTestSupport extends MinioAuthenticationContainersSupport {
 
     protected static final List<String> EMPLOYEE_PERMISSIONS = List.of(
             "EXPENSE_CREATE_OWN", "EXPENSE_READ_OWN", "EXPENSE_SUBMIT_OWN",
