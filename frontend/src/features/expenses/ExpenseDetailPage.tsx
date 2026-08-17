@@ -5,11 +5,8 @@ import { Alert, Button, Card, Descriptions, Space, Tag, Modal } from 'antd'
 import { expenseApi, expenseKeys } from './api/expenseApi'
 import { ExpenseForm } from './components/ExpenseForm'
 import { ApprovalHistory } from './components/ApprovalHistory'
-import { ExpenseEvidenceUpload } from './components/ExpenseEvidenceUpload'
+import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
 import { toProblemDetail } from '../../api/problem'
-import { useAuth } from '../auth/AuthSessionProvider'
-import { hasPermission } from '../settings/permissions'
-import { AllocationEditor } from '../allocation/AllocationEditor'
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', REJECTED: '已拒绝', CANCELED: '已取消',
@@ -20,9 +17,6 @@ const STATUS_COLOR: Record<string, string> = {
 
 export function ExpenseDetailPage() {
   const { expenseId } = useParams<{ expenseId: string }>()
-  const auth = useAuth()
-  const canAllocate = hasPermission(auth.user?.permissions, 'ALLOCATION_EDIT')
-  const canConfirm = hasPermission(auth.user?.permissions, 'ALLOCATION_CONFIRM')
   const qc = useQueryClient()
   const [problem, setProblem] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -93,16 +87,18 @@ export function ExpenseDetailPage() {
             onSubmit={handleEdit}
             loading={loading}
           />
-          <div style={{ marginTop: 16 }}>
-            <ExpenseEvidenceUpload
-              expenseId={expense.id}
-              evidenceId={expense.evidenceId}
-              expectedVersion={expense.version}
-              onChanged={refetch}
-            />
-          </div>
         </Card>
       )}
+      <Card title="凭证" size="small">
+        <ExpenseEvidenceSection
+          mode="employee"
+          canUpload={expense.status === 'DRAFT' || expense.status === 'NEEDS_INFO'}
+          expenseId={expense.id}
+          evidenceId={expense.evidenceId}
+          expectedVersion={expense.version}
+          onChanged={refetch}
+        />
+      </Card>
       <Card title="操作" size="small">
         <Space>
           {expense.status === 'DRAFT' && (
@@ -125,23 +121,6 @@ export function ExpenseDetailPage() {
       <Card title="审批历史" size="small">
         <ApprovalHistory history={expense.history} />
       </Card>
-      {expense.status === 'APPROVED' && canAllocate && (
-        <Card title="手动分摊" size="small">
-          <AllocationEditor
-            chargeId=""
-            subjectType="EXPENSE_CLAIM"
-            subjectId={expense.id}
-            subjectAmount={expense.amount}
-            subjectCurrency={expense.currency}
-            draft={null}
-            canEdit={true}
-            canConfirm={canConfirm}
-            onChanged={refetch}
-            onProposalApplied={() => {}}
-            hasConfirmed={expense.currentAllocationDecisionId !== null}
-          />
-        </Card>
-      )}
       <Modal
         title="确认取消报销"
         open={cancelModal}

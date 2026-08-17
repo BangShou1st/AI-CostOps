@@ -4,9 +4,12 @@ import { useParams } from 'react-router-dom'
 import { Alert, Button, Card, Descriptions, Input, Modal, Space, Tag } from 'antd'
 import { expenseApi, expenseKeys } from './api/expenseApi'
 import { ApprovalHistory } from './components/ApprovalHistory'
+import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
 import { toProblemDetail } from '../../api/problem'
 import { hasPermission } from '../settings/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
+import { allocationApi } from '../allocation/api/allocationApi'
+import { allocationKeys } from '../allocation/api/allocationKeys'
 import { AllocationEditor } from '../allocation/AllocationEditor'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -21,6 +24,8 @@ export function ExpenseReviewDetailPage() {
   const auth = useAuth()
   const canAllocate = hasPermission(auth.user?.permissions, 'ALLOCATION_EDIT')
   const canConfirm = hasPermission(auth.user?.permissions, 'ALLOCATION_CONFIRM')
+  const canReadAllocation = hasPermission(auth.user?.permissions, 'ALLOCATION_READ')
+  const canReview = hasPermission(auth.user?.permissions, 'EXPENSE_REVIEW')
   const qc = useQueryClient()
   const [problem, setProblem] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -34,12 +39,29 @@ export function ExpenseReviewDetailPage() {
     enabled: !!expenseId,
   })
 
+  // The allocation decisions are read from the backend (never guessed from
+  // local state), so a Finance reviewer can continue a MANUAL DRAFT that was
+  // created earlier and confirm it. Posting readiness is re-read from the
+  // backend after every mutation; it is never faked from frontend state.
+  const { data: decisions } = useQuery({
+    queryKey: allocationKeys.byExpense(expenseId!),
+    queryFn: () => allocationApi.listDecisionsByExpense(expenseId!),
+    enabled: !!expenseId && canReadAllocation,
+  })
+
   const refetch = useCallback(() => {
     qc.invalidateQueries({ queryKey: expenseKeys.reviewDetail(expenseId!) })
+    qc.invalidateQueries({ queryKey: allocationKeys.byExpense(expenseId!) })
   }, [qc, expenseId])
 
   if (isLoading || !expense) return <Card loading={isLoading} />
   const isSubmitted = expense.status === 'SUBMITTED'
+
+  const allDecisions = decisions ?? []
+  const manualDraft = allDecisions.find(
+    (decision) => decision.source === 'MANUAL' && decision.status === 'DRAFT',
+  ) ?? null
+  const hasConfirmed = allDecisions.some((decision) => decision.status === 'CONFIRMED')
 
   const handleApprove = async () => {
     setLoading(true); setProblem(null)
@@ -81,7 +103,7 @@ export function ExpenseReviewDetailPage() {
           <Descriptions.Item label="发布就绪">{expense.postingReady ? '✓' : '否'}</Descriptions.Item>
         </Descriptions>
       </Card>
-      {isSubmitted && (
+      {isSubmitted && canReview && (
         <Card title="审核操作" size="small">
           <Space>
             <Button type="primary" loading={loading} onClick={handleApprove}>批准</Button>
@@ -90,10 +112,20 @@ export function ExpenseReviewDetailPage() {
           </Space>
         </Card>
       )}
+      <Card title="凭证" size="small">
+        <ExpenseEvidenceSection
+          mode="finance"
+          canUpload={false}
+          expenseId={expense.id}
+          evidenceId={expense.evidenceId}
+          expectedVersion={expense.version}
+          onChanged={refetch}
+        />
+      </Card>
       <Card title="审批历史" size="small">
         <ApprovalHistory history={expense.history} />
       </Card>
-      {expense.status === 'APPROVED' && canAllocate && (
+      {expense.status === 'APPROVED' && canReview && canReadAllocation && canAllocate && (
         <Card title="手动分摊" size="small">
           <AllocationEditor
             chargeId=""
@@ -101,12 +133,12 @@ export function ExpenseReviewDetailPage() {
             subjectId={expense.id}
             subjectAmount={expense.amount}
             subjectCurrency={expense.currency}
-            draft={null}
-            canEdit={true}
+            draft={manualDraft}
+            canEdit={canAllocate}
             canConfirm={canConfirm}
+            hasConfirmed={hasConfirmed}
             onChanged={refetch}
-            onProposalApplied={() => {}}
-            hasConfirmed={expense.currentAllocationDecisionId !== null}
+            onProposalApplied={refetch}
           />
         </Card>
       )}

@@ -99,18 +99,25 @@ export const expenseApi = {
       headers: { 'Idempotency-Key': idempotencyKey },
     })).data
   },
-  async uploadEvidence(id: string, file: File, expectedVersion: number): Promise<ExpenseResponse> {
-    const form = new FormData()
-    form.append('file', file)
-    form.append('expectedVersion', String(expectedVersion))
-    return (await apiClient.post<ExpenseResponse>(
-      `/expenses/${encodeURIComponent(id)}/evidence`, form,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
-    )).data
-  },
-  evidenceDownloadUrl(id: string): string {
-    return `${apiClient.defaults.baseURL}/expenses/${encodeURIComponent(id)}/evidence/download`
-  },
+async uploadEvidence(id: string, file: File, expectedVersion: number): Promise<ExpenseResponse> {
+        const form = new FormData()
+        form.append('file', file)
+        form.append('expectedVersion', String(expectedVersion))
+        return (await apiClient.post<ExpenseResponse>(
+          `/expenses/${encodeURIComponent(id)}/evidence`, form,
+          { headers: { 'Content-Type': 'multipart/form-data' } },
+        )).data
+      },
+
+      /** Authenticated blob download: the Bearer token is attached by the
+       *  apiClient interceptor, so evidence is never fetched through a naked
+       *  URL that would bypass the session. */
+      async downloadEvidence(id: string): Promise<Blob> {
+        return (await apiClient.get<Blob>(
+          `/expenses/${encodeURIComponent(id)}/evidence/download`,
+          { responseType: 'blob' },
+        )).data
+      },
 
   // Finance review
   async listReviewQueue(status: ExpenseReviewStatusFilter, page: number, size: number): Promise<PageResponse<ExpenseSummaryResponse>> {
