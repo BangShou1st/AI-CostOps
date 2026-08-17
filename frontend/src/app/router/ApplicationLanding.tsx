@@ -24,6 +24,12 @@ export function ApplicationLanding() {
   if (hasPermission(permissions, 'ALLOCATION_RULE_MANAGE')) {
     return <Navigate to="/allocation-rules" replace />
   }
+  if (hasPermission(permissions, 'EXPENSE_REVIEW')) {
+    return <Navigate to="/expense-reviews" replace />
+  }
+  if (hasPermission(permissions, 'EXPENSE_READ_OWN')) {
+    return <Navigate to="/expenses" replace />
+  }
   const first = SETTINGS_NAV.find((entry) => hasPermission(permissions, entry.readPermission))
   if (!first) return <ForbiddenPage />
   return <Navigate to={first.path} replace />
