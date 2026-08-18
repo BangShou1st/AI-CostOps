@@ -1113,7 +1113,7 @@ paths:
     post:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
-      responses: { '200': { description: Atomic activation: commitment ACTIVE, budget committed reserved, approval case APPROVED (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+      responses: { '200': { description: Atomic activation reserves the budget and approves the case (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /commitments/{commitmentId}/reject:
     post:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
@@ -1128,7 +1128,7 @@ paths:
     post:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
-      responses: { '200': { description: ACTIVE/PARTIALLY_CONSUMED commitment RELEASED, committed remainder freed (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+      responses: { '200': { description: Released commitment frees the committed remainder (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /budgets:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: billingPeriodId, in: query, schema: { type: integer, format: int64 } }, { name: scopeType, in: query, schema: { $ref: '#/components/schemas/ScopeType' } }, { name: scopeId, in: query, schema: { type: integer, format: int64 } }]
