@@ -1,17 +1,23 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Card, Descriptions, Space } from 'antd'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { toProblemDetail } from '../../api/problem'
+import { hasPermission } from '../settings/permissions'
+import { useAuth } from '../auth/AuthSessionProvider'
 import { budgetApi, budgetKeys } from './api/budgetApi'
 import { commitmentApi, commitmentKeys } from './api/commitmentApi'
 import { BudgetMetrics } from './components/BudgetMetrics'
+import { BudgetTotalEditor } from './components/BudgetTotalEditor'
 import { CommitmentTable } from './components/CommitmentTable'
 
 const COMMITMENT_PAGE_SIZE = 10
 
 export function BudgetDetailPage() {
   const { budgetId } = useParams<{ budgetId: string }>()
+  const auth = useAuth()
+  const canManage = hasPermission(auth.user?.permissions, 'BUDGET_MANAGE')
+  const qc = useQueryClient()
   const [commitmentPage, setCommitmentPage] = useState(0)
 
   const budget = useQuery({
@@ -28,6 +34,13 @@ export function BudgetDetailPage() {
 
   const budgetProblem = budget.error ? toProblemDetail(budget.error) : null
   const commitmentProblem = commitments.error ? toProblemDetail(commitments.error) : null
+
+  // After any financial mutation the server read model is the truth: refresh
+  // the detail and every paged list instead of patching caches optimistically.
+  const refreshBudget = useCallback(() => {
+    qc.invalidateQueries({ queryKey: budgetKeys.detail(budgetId!) })
+    qc.invalidateQueries({ queryKey: budgetKeys.lists() })
+  }, [qc, budgetId])
 
   if (budgetProblem) {
     return (
@@ -63,7 +76,7 @@ export function BudgetDetailPage() {
             description="预算可用额度为负，请检查预算总额与实际 / 承诺支出。"
           />
         )}
-        <Card title="预算指标" size="small">
+        <Card title="预算指标" size="small" extra={canManage ? <BudgetTotalEditor budget={b} onChanged={refreshBudget} /> : undefined}>
           <BudgetMetrics budget={b} />
         </Card>
         <Card title="基本信息" size="small">
