@@ -109,6 +109,17 @@ public class SecurityConfiguration {
                                 "/api/v1/budgets/{budgetId}").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/budgets").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/v1/budgets/{budgetId}").authenticated()
+                        // M4 budget commitments (real authorization in the services).
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/budgets/{budgetId}/commitments").authenticated()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/commitments",
+                                "/api/v1/commitments/{commitmentId}").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/commitments/{commitmentId}/approve",
+                                "/api/v1/commitments/{commitmentId}/reject",
+                                "/api/v1/commitments/{commitmentId}/cancel",
+                                "/api/v1/commitments/{commitmentId}/release").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

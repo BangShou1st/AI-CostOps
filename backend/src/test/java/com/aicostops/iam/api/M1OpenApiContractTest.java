@@ -171,6 +171,23 @@ class M1OpenApiContractTest {
                 .doesNotContain("#/components/parameters/IdempotencyKey");
     }
 
+    @Test
+    void commitmentCommandsDeclareIdempotencyKeyHeaderParameter() {
+        var idempotentCommands = Set.of(
+                "POST /budgets/{budgetId}/commitments",
+                "POST /commitments/{commitmentId}/approve",
+                "POST /commitments/{commitmentId}/reject",
+                "POST /commitments/{commitmentId}/cancel",
+                "POST /commitments/{commitmentId}/release");
+        for (var operation : idempotentCommands) {
+            assertThat(parameterRefs(operation))
+                    .as(operation)
+                    .contains("#/components/parameters/IdempotencyKey");
+        }
+        // Consume is an internal primitive, not an HTTP operation at all.
+        assertThat(operations()).doesNotContainKey("POST /commitments/{commitmentId}/consume");
+    }
+
     private static void assertStringSchema(String name) {
         assertThat(schema(name).get("type")).isEqualTo("string");
         assertThat(schema(name).get("pattern")).isEqualTo("^[0-9]+$");
@@ -321,6 +338,14 @@ class M1OpenApiContractTest {
         add(operations, "POST /budgets", "201", "400", "401", "403", "409");
         add(operations, "GET /budgets/{budgetId}", "200", "400", "401", "403", "404");
         add(operations, "PUT /budgets/{budgetId}", "200", "400", "401", "403", "404", "409");
+        // M4 budget commitments (AIC-044 request + AIC-045 lifecycle).
+        add(operations, "POST /budgets/{budgetId}/commitments", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /commitments", "200", "400", "401", "403");
+        add(operations, "GET /commitments/{commitmentId}", "200", "400", "401", "403", "404");
+        add(operations, "POST /commitments/{commitmentId}/approve", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /commitments/{commitmentId}/reject", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /commitments/{commitmentId}/cancel", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /commitments/{commitmentId}/release", "200", "400", "401", "403", "404", "409");
         return Map.copyOf(operations);
     }
 

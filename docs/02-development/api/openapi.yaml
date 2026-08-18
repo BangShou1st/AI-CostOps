@@ -627,6 +627,48 @@ components:
         postingReady: { type: boolean }
         version: { type: integer, minimum: 0 }
         createdAt: { type: string, format: date-time }
+    BudgetCommitmentStatus: { type: string, enum: [REQUESTED, ACTIVE, PARTIALLY_CONSUMED, CONSUMED, RELEASED, REJECTED, CANCELED] }
+    CreateCommitmentRequest:
+      type: object
+      required: [requestedAmount, currency]
+      properties:
+        requestedAmount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+    RejectCommitmentRequest:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, minimum: 0 }
+        comment: { type: string, maxLength: 2000 }
+    ApprovalActionResponse:
+      type: object
+      required: [id, approvalCaseId, actorMemberId, actionType, fromState, toState, createdAt]
+      properties:
+        id: { type: integer, format: int64 }
+        approvalCaseId: { $ref: '#/components/schemas/Id' }
+        actorMemberId: { $ref: '#/components/schemas/Id' }
+        actionType: { type: string, enum: [SUBMIT, REQUEST_INFO, RESUBMIT, APPROVE, REJECT, CANCEL] }
+        fromState: { oneOf: [{ type: string }, { type: 'null' }] }
+        toState: { oneOf: [{ type: string }, { type: 'null' }] }
+        comment: { oneOf: [{ type: string }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+    CommitmentResponse:
+      type: object
+      required: [id, budgetId, status, requestedAmount, version, createdAt, updatedAt, history]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        budgetId: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/BudgetCommitmentStatus' }
+        requestedAmount: { $ref: '#/components/schemas/Money' }
+        approvedAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        remainingAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        version: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        approvalCaseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        approvalStatus: { oneOf: [{ $ref: '#/components/schemas/ApprovalCaseStatus' }, { type: 'null' }] }
+        history: { type: array, items: { $ref: '#/components/schemas/ApprovalActionResponse' } }
+    PageResponseCommitment: { type: object, required: [items, page, size, totalElements, totalPages], properties: { items: { type: array, items: { $ref: '#/components/schemas/CommitmentResponse' } }, page: { type: integer }, size: { type: integer }, totalElements: { type: integer }, totalPages: { type: integer } } }
     ApprovalCaseStatus: { type: string, enum: [PENDING, NEEDS_INFO, APPROVED, REJECTED, CANCELED] }
     PageResponseExpense: { type: object, required: [items, page, size, totalElements, totalPages], properties: { items: { type: array, items: { $ref: '#/components/schemas/ExpenseSummaryResponse' } }, page: { type: integer }, size: { type: integer }, totalElements: { type: integer }, totalPages: { type: integer } } }
     CreateExpenseRequest:
@@ -1054,6 +1096,39 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       responses: { '200': { description: Rule version ARCHIVED (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationRuleResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
 
+
+  /budgets/{budgetId}/commitments:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateCommitmentRequest' } } } }
+      responses: { '200': { description: REQUESTED commitment created with its PENDING approval case and SUBMIT action (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /commitments:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: budgetId, in: query, schema: { type: integer, format: int64 } }, { name: status, in: query, schema: { $ref: '#/components/schemas/BudgetCommitmentStatus' } }]
+      responses: { '200': { description: Paged commitments of budgets visible to the caller, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseCommitment' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /commitments/{commitmentId}:
+    get:
+      responses: { '200': { description: Commitment detail with approval history, content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /commitments/{commitmentId}/approve:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
+      responses: { '200': { description: Atomic activation reserves the budget and approves the case (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /commitments/{commitmentId}/reject:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RejectCommitmentRequest' } } } }
+      responses: { '200': { description: REQUESTED commitment REJECTED with its approval case (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /commitments/{commitmentId}/cancel:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
+      responses: { '200': { description: REQUESTED commitment CANCELED by its requester or an approver (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /commitments/{commitmentId}/release:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
+      responses: { '200': { description: Released commitment frees the committed remainder (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /budgets:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: billingPeriodId, in: query, schema: { type: integer, format: int64 } }, { name: scopeType, in: query, schema: { $ref: '#/components/schemas/ScopeType' } }, { name: scopeId, in: query, schema: { type: integer, format: int64 } }]
