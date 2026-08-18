@@ -207,6 +207,96 @@ class ModuleDependencyArchitectureTest {
     }
 
     @Test
+    void budgetDomainStaysFrameworkFree() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.budget.domain..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.budget.domain..",
+                        // Budget scope_type reuses the IAM ScopeType enum.
+                        "com.aicostops.iam.domain..",
+                        "com.aicostops.shared..",
+                        "java..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void budgetApplicationNeverReachesInfrastructureOrWorkflowModules() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.budget.application..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.budget.application..",
+                        "com.aicostops.budget.domain..",
+                        // The active same-org target directory is the documented
+                        // scope/target validation seam.
+                        "com.aicostops.attribution.application..",
+                        "com.aicostops.attribution.domain..",
+                        "com.aicostops.iam.application..",
+                        "com.aicostops.iam.domain..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void budgetInfrastructureDependsOnlyOnBudgetLayersAuditAndFramework() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.budget.infrastructure..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.budget.infrastructure..",
+                        "com.aicostops.budget.application..",
+                        "com.aicostops.budget.domain..",
+                        "com.aicostops.audit.application..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "org.apache.ibatis..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void budgetApiDependsOnlyOnBudgetApplicationAndShared() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.budget.api..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.budget.api..",
+                        "com.aicostops.budget.application..",
+                        "com.aicostops.budget.domain..",
+                        "com.aicostops.iam.domain..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
     void attributionMustNotDependOnWorkflowOrIdentityModules() {
         var productionClasses = new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)

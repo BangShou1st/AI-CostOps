@@ -42,7 +42,7 @@ class M1OpenApiContractTest {
     void pagedContractsUseExistingPageShape() {
         var paged = Set.of("GET /users", "GET /projects", "GET /projects/{id}/members", "GET /teams",
                 "GET /teams/{id}/members", "GET /cost-centers", "GET /provider-accounts",
-                "GET /costs/charges", "GET /allocation-rules");
+                "GET /costs/charges", "GET /allocation-rules", "GET /budgets");
         for (var operation : paged) {
             assertThat(parameterRefs(operation)).contains(
                     "#/components/parameters/Page", "#/components/parameters/Size");
@@ -316,6 +316,11 @@ class M1OpenApiContractTest {
         add(operations, "GET /allocation-rules/{ruleId}", "200", "400", "401", "403", "404");
         add(operations, "POST /allocation-rules/{ruleKey}/versions", "200", "400", "401", "403", "409");
         add(operations, "POST /allocation-rules/{ruleId}/archive", "200", "400", "401", "403", "404", "409");
+        // M4 budget management (natural identity create, version-CAS update)
+        add(operations, "GET /budgets", "200", "400", "401", "403");
+        add(operations, "POST /budgets", "201", "400", "401", "403", "409");
+        add(operations, "GET /budgets/{budgetId}", "200", "400", "401", "403", "404");
+        add(operations, "PUT /budgets/{budgetId}", "200", "400", "401", "403", "404", "409");
         return Map.copyOf(operations);
     }
 

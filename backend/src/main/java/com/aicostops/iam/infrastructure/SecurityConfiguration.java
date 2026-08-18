@@ -104,6 +104,11 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/allocation-targets").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/allocation-rules/{ruleKey}/versions",
                                 "/api/v1/allocation-rules/{ruleId}/archive").authenticated()
+                        // M4 budget management (real authorization in the services)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/budgets",
+                                "/api/v1/budgets/{budgetId}").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/budgets").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/budgets/{budgetId}").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

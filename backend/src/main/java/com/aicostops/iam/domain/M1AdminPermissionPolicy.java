@@ -41,7 +41,14 @@ public final class M1AdminPermissionPolicy {
             Map.entry("ALLOCATION_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
             Map.entry("ALLOCATION_EDIT", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
             Map.entry("ALLOCATION_CONFIRM", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
-            Map.entry("ALLOCATION_RULE_MANAGE", Set.of(ScopeType.ORG)));
+            Map.entry("ALLOCATION_RULE_MANAGE", Set.of(ScopeType.ORG)),
+            // M4 budget permissions. BUDGET_READ follows the budget's own
+            // polymorphic scope (budgets may be ORG/PROJECT/TEAM/COST_CENTER
+            // scoped); BUDGET_MANAGE is a sensitive finance-admin capability
+            // granted org-wide only, mirroring ALLOCATION_RULE_MANAGE.
+            Map.entry("BUDGET_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                    ScopeType.TEAM, ScopeType.COST_CENTER)),
+            Map.entry("BUDGET_MANAGE", Set.of(ScopeType.ORG)));
 
     private M1AdminPermissionPolicy() {
     }
