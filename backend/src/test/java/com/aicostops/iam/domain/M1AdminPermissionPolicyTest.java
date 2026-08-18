@@ -43,6 +43,9 @@ class M1AdminPermissionPolicyTest {
                 Arguments.of("ALLOCATION_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
                 Arguments.of("ALLOCATION_EDIT", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
                 Arguments.of("ALLOCATION_CONFIRM", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
-                Arguments.of("ALLOCATION_RULE_MANAGE", Set.of(ScopeType.ORG)));
+                Arguments.of("ALLOCATION_RULE_MANAGE", Set.of(ScopeType.ORG)),
+                Arguments.of("BUDGET_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                        ScopeType.TEAM, ScopeType.COST_CENTER)),
+                Arguments.of("BUDGET_MANAGE", Set.of(ScopeType.ORG)));
     }
 }

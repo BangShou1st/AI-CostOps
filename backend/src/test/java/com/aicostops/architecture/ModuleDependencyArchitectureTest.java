@@ -233,8 +233,9 @@ class ModuleDependencyArchitectureTest {
         ArchRule rule = classes()
                 .that().resideInAPackage("com.aicostops.budget.application..")
                 .should().onlyDependOnClassesThat().resideInAnyPackage(
-                        "com.aicostops.budget.application..",
-                        "com.aicostops.budget.domain..",
+                        // Application services use the module's own mapper
+                        // directly (Evidence-module style).
+                        "com.aicostops.budget..",
                         // The active same-org target directory is the documented
                         // scope/target validation seam.
                         "com.aicostops.attribution.application..",
