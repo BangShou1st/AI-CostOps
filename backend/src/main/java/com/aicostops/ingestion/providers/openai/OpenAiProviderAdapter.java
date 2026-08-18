@@ -130,6 +130,8 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
             case FILE_EXPORT -> inspectObservedCsv(input);
             case USAGE_API_JSON -> inspectJsonPage(input, USAGE_JSON, true);
             case COSTS_API_JSON -> inspectJsonPage(input, COSTS_JSON, false);
+            case COST_EXPORT -> throw new IllegalStateException(
+                    "COST_EXPORT is a persisted UAT batch type and never reaches inspection");
         };
     }
 
