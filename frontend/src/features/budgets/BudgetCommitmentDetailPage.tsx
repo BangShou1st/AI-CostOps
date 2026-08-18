@@ -11,8 +11,6 @@ import {
   commitmentKeys,
   type ApprovalActionResponse,
   type ApprovalActionType,
-  type CommitmentResponse,
-  type CommitmentStatus,
 } from './api/commitmentApi'
 import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL, budgetCommandProblemMessage } from './presentation'
 

@@ -73,7 +73,7 @@ const COMMITMENT: CommitmentResponse = {
   history: [],
 }
 
-function renderPage(permissions: string[], element: React.ReactElement) {
+function renderPage(permissions: string[]) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   mockedUseAuth.mockReturnValue({
     status: 'authenticated',
@@ -143,7 +143,7 @@ describe('BudgetsListPage', () => {
       items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 1, totalPages: 1,
     })
 
-    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+    renderPage(['BUDGET_READ'])
 
     await waitFor(() => expect(screen.getByText('100.00000000 CNY')).toBeInTheDocument())
     expect(screen.getByText('30.00000000 CNY')).toBeInTheDocument()
@@ -163,7 +163,7 @@ describe('BudgetsListPage', () => {
       items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 1, totalPages: 1,
     })
 
-    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+    renderPage(['BUDGET_READ'])
 
     await waitFor(() => expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument())
     expect(screen.queryByText('50.00000000 CNY')).not.toBeInTheDocument()
@@ -174,7 +174,7 @@ describe('BudgetsListPage', () => {
       items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 1, totalPages: 1,
     })
 
-    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+    renderPage(['BUDGET_READ'])
 
     await waitFor(() => expect(screen.getByText('PROJECT · 42')).toBeInTheDocument())
     expect(screen.getByText('3')).toBeInTheDocument()
@@ -187,7 +187,7 @@ describe('BudgetsListPage', () => {
       page: 0, size: 50, totalElements: 1, totalPages: 1,
     })
 
-    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+    renderPage(['BUDGET_READ'])
 
     await waitFor(() => expect(screen.getByText('超支')).toBeInTheDocument())
   })
@@ -197,7 +197,7 @@ describe('BudgetsListPage', () => {
       items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 55, totalPages: 2,
     })
 
-    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+    renderPage(['BUDGET_READ'])
 
     await screen.findByText('100.00000000 CNY')
     fireEvent.click(screen.getByTitle('2'))
@@ -212,7 +212,7 @@ describe('BudgetsListPage', () => {
       items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 1, totalPages: 1,
     })
 
-    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+    renderPage(['BUDGET_READ'])
 
     await screen.findByText('100.00000000 CNY')
     fireEvent.click(screen.getByText('7'))
@@ -234,7 +234,7 @@ describe('BudgetsListPage', () => {
       },
     })
 
-    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+    renderPage(['BUDGET_READ'])
 
     await waitFor(() => {
       expect(screen.getByText(/Forbidden（FORBIDDEN）/)).toBeInTheDocument()
@@ -391,7 +391,7 @@ describe('BudgetTotalEditor (total change is a sensitive action)', () => {
         expectedVersion: 4,
       })
     })
-    const body = mockedBudgetApi.update.mock.calls[0][1] as Record<string, unknown>
+    const body = mockedBudgetApi.update.mock.calls[0][1] as unknown as Record<string, unknown>
     expect(Object.keys(body).sort()).toEqual(['expectedVersion', 'totalAmount'])
   })
 
