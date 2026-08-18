@@ -561,7 +561,10 @@ describe('ExpensePages', () => {
     expect(screen.queryByRole('button', { name: '创建分摊草稿' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '添加分摊行' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /确认分摊/ })).toBeDisabled()
-  })
+    // Integration-heavy: React Query target resolution + AntD table read-only
+    // render; CI runners twice exceeded the 5s default (~5.1-5.6s), so this
+    // test gets a local budget instead. This is not a relaxed assertion.
+  }, 10_000)
 
   it('displays the backend problem detail on a 409 conflict', async () => {
     currentUser = FINANCE
