@@ -3,6 +3,7 @@ package com.aicostops.budget.application;
 import com.aicostops.budget.application.BudgetCommitmentCommands.ApproveCommitmentCommand;
 import com.aicostops.budget.application.BudgetCommitmentCommands.CancelCommitmentCommand;
 import com.aicostops.budget.application.BudgetCommitmentCommands.RejectCommitmentCommand;
+import com.aicostops.budget.application.BudgetCommitmentCommands.ReleaseCommitmentCommand;
 import com.aicostops.budget.application.BudgetCommitmentCommands.RequestCommitmentCommand;
 import com.aicostops.budget.application.CommitmentIdempotencyStore.IdempotencyDecision;
 import com.aicostops.budget.application.CommitmentReadModels.CommitmentDetail;
@@ -53,6 +54,7 @@ public class BudgetCommitmentCommandService {
     private static final int DEADLOCK_RETRIES = 3;
     private static final String PERMISSION_COMMITMENT_REQUEST = "COMMITMENT_REQUEST";
     private static final String PERMISSION_COMMITMENT_APPROVE = "COMMITMENT_APPROVE";
+    private static final String PERMISSION_COMMITMENT_RELEASE = "COMMITMENT_RELEASE";
 
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
@@ -400,6 +402,85 @@ public class BudgetCommitmentCommandService {
                             commitmentId));
             audit.canceled(context.organizationId(), context.userId(), commitmentId,
                     budget.id(), approvalCase.id(), "REQUESTED", "CANCELED");
+            idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
+            return detail;
+        }));
+    }
+
+    /**
+     * Release (AIC-045): ACTIVE / PARTIALLY_CONSUMED → RELEASED frees the
+     * exact outstanding remainder. Lock order BillingPeriod → Budget →
+     * Commitment; the period must be OPEN (release is an ordinary financial
+     * mutation); budget.committed_amount is decremented by R with a MySQL
+     * floor guard, remaining_amount is zeroed, versions bump, and the audit
+     * fires — all in one transaction. The approval case stays APPROVED
+     * (release is not an approval transition, and approval_action has no
+     * RELEASE type by design).
+     */
+    public CommitmentDetail release(AuthenticatedUser user, long commitmentId,
+            ReleaseCommitmentCommand command, String idempotencyKey) {
+        var context = authorizationContexts.fresh(user);
+        requireAnyApplicableGrant(context, PERMISSION_COMMITMENT_RELEASE);
+        idempotency.validateKey(idempotencyKey);
+        var requestHash = idempotency.releaseRequestHash(context.organizationId(),
+                context.organizationMemberId(), commitmentId, command.expectedVersion());
+        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+            var decision = idempotency.reserve(context.organizationId(),
+                    context.organizationMemberId(),
+                    CommitmentIdempotency.OPERATION_COMMITMENT_RELEASE,
+                    idempotencyKey, requestHash);
+            if (decision.replay()) {
+                return responseCodec.fromJson(decision.responseBody());
+            }
+            var budget = requireVisibleBudget(context, commitmentId,
+                    PERMISSION_COMMITMENT_RELEASE);
+            var now = clock.instant();
+            // BillingPeriod lock + OPEN guard inside the same transaction.
+            var period = billingPeriodMapper.selectByIdForUpdate(
+                    context.organizationId(), budget.billingPeriodId());
+            if (period == null || !period.covers(now)) {
+                throw stateConflict("No covering billing period",
+                        "The budget's billing period does not cover the transaction time.");
+            }
+            if (period.status() != BillingPeriodStatus.OPEN) {
+                throw periodNotOpen("The billing period of the budget is "
+                        + period.status() + "; release requires an OPEN period.");
+            }
+            var budgetLocked = budgetMapper.selectByIdForUpdate(context.organizationId(),
+                    budget.id());
+            if (budgetLocked.status() != BudgetStatus.ACTIVE) {
+                throw stateConflict("Budget is not active",
+                        "The budget must be ACTIVE before releasing.");
+            }
+            var commitmentLocked = commitmentMapper.selectByIdForUpdate(
+                    context.organizationId(), commitmentId);
+            if (commitmentLocked.version() != command.expectedVersion()) {
+                throw staleVersion();
+            }
+            if (!commitmentLocked.status().canRelease()) {
+                throw stateConflict("Commitment cannot be released",
+                        "Only an ACTIVE or PARTIALLY_CONSUMED commitment can be released; "
+                                + "the commitment is " + commitmentLocked.status() + ".");
+            }
+            var remainder = commitmentLocked.remainingAmount();
+            // committed -= R with the MySQL floor guard: never negative.
+            if (budgetMapper.decrementCommitted(context.organizationId(), budget.id(),
+                    remainder, now) != 1) {
+                throw stateConflict("Budget release conflict",
+                        "The committed counter cannot cover the released remainder.");
+            }
+            if (commitmentMapper.updateRelease(context.organizationId(), commitmentId, now) != 1) {
+                throw stateConflict("Commitment release conflict",
+                        "The commitment was no longer releasable when the release applied.");
+            }
+            var approvalCase = commitmentMapper.selectApprovalCaseByCommitment(
+                    context.organizationId(), commitmentId);
+            var detail = toDetail(commitmentMapper.selectByIdAndOrganization(
+                    context.organizationId(), commitmentId), approvalCase);
+            audit.released(context.organizationId(), context.userId(), commitmentId,
+                    budget.id(), remainder,
+                    approvalCase == null ? 0 : approvalCase.id(),
+                    commitmentLocked.status().name(), "RELEASED");
             idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
             return detail;
         }));
