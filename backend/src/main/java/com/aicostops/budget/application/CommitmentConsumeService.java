@@ -124,18 +124,24 @@ public class CommitmentConsumeService {
         }
         var commitmentLocked = commitmentMapper.selectByIdForUpdate(command.organizationId(),
                 command.commitmentId());
-        if (!commitmentLocked.status().canConsume()) {
-            throw stateConflict("Commitment cannot be consumed",
-                    "Only an ACTIVE or PARTIALLY_CONSUMED commitment can be consumed; "
-                            + "the commitment is " + commitmentLocked.status() + ".");
-        }
 
-        // Lineage replay: the same ledger entry has already consumed this
-        // commitment — return the stored consumption, never consume twice.
+        // Lineage replay FIRST: the same ledger entry has already consumed
+        // this commitment — return the stored consumption with zero side
+        // effects. The replay must also work for terminal states
+        // (CONSUMED/RELEASED): a replayed ledger entry is not a new
+        // consumption attempt, so it must never hit the state gate below.
         var existing = commitmentMapper.selectUsageAmountByLedgerEntry(
                 command.organizationId(), command.commitmentId(), command.ledgerEntryId());
         if (existing != null) {
             return resultOf(commitmentLocked, existing);
+        }
+        // No lineage yet: this is a NEW ledger entry, so the commitment state
+        // gate applies — an invalid state (terminal, REJECTED, CANCELED,
+        // REQUESTED) can never be consumed by a fresh entry.
+        if (!commitmentLocked.status().canConsume()) {
+            throw stateConflict("Commitment cannot be consumed",
+                    "Only an ACTIVE or PARTIALLY_CONSUMED commitment can be consumed; "
+                            + "the commitment is " + commitmentLocked.status() + ".");
         }
 
         var consumed = entryAmount.min(commitmentLocked.remainingAmount());

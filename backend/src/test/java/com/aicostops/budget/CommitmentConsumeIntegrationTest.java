@@ -257,6 +257,62 @@ class CommitmentConsumeIntegrationTest extends CommitmentTestSupport {
         assertThat(auditCount("COMMITMENT_CONSUMED")).isZero();
     }
 
+    @Test
+    void fullConsumeReplayDoesNotDoubleConsume() {
+        var setup = activatedBudget("100.00000000", "30.00000000");
+        long ledgerEntryId = 9601L;
+
+        // First consume of the fixed ledger entry: remaining 30 = entry 30.
+        var first = inTransaction(() -> consumeService.consume(new ConsumeCommand(
+                orgId, setup.commitmentId(), new BigDecimal("30.00000000"), ledgerEntryId)));
+        assertThat(first.status().name()).isEqualTo("CONSUMED");
+        assertThat(budgetCommitted(setup.budgetId())).isEqualTo("0.00000000");
+        assertThat(commitmentRemaining(setup.commitmentId())).isEqualTo("0.00000000");
+        assertThat(usageCount(setup.commitmentId())).isEqualTo(1);
+        assertThat(auditCount("COMMITMENT_CONSUMED")).isEqualTo(1);
+
+        // Same ledger entry again on the terminal CONSUMED commitment: this
+        // is lineage replay — zero side effects, stored consumption returned.
+        var replayed = inTransaction(() -> consumeService.consume(new ConsumeCommand(
+                orgId, setup.commitmentId(), new BigDecimal("30.00000000"), ledgerEntryId)));
+        assertThat(replayed.consumedAmount()).isEqualByComparingTo("30.00000000");
+        assertThat(replayed.remainingAmount()).isEqualByComparingTo("0.00000000");
+        assertThat(replayed.status().name()).isEqualTo("CONSUMED");
+
+        assertThat(usageCount(setup.commitmentId())).isEqualTo(1);
+        assertThat(auditCount("COMMITMENT_CONSUMED")).isEqualTo(1);
+        assertThat(budgetCommitted(setup.budgetId())).isEqualTo("0.00000000");
+        assertThat(commitmentRemaining(setup.commitmentId())).isEqualTo("0.00000000");
+        assertThat(commitmentStatus(setup.commitmentId())).isEqualTo("CONSUMED");
+        // The replay must not bump the version a second time.
+        assertThat(commitmentVersion(setup.commitmentId())).isEqualTo(2);
+    }
+
+    @Test
+    void overRemainingFullConsumeReplayIsAlsoIdempotent() {
+        var setup = activatedBudget("100.00000000", "30.00000000");
+        long ledgerEntryId = 9602L;
+
+        var first = inTransaction(() -> consumeService.consume(new ConsumeCommand(
+                orgId, setup.commitmentId(), new BigDecimal("50.00000000"), ledgerEntryId)));
+        assertThat(first.consumedAmount()).isEqualByComparingTo("30.00000000");
+        assertThat(first.status().name()).isEqualTo("CONSUMED");
+
+        // The same over-remaining entry again: replay the stored 30, never
+        // consume again (a second consume would have nothing to take, but
+        // the point is it must not even try and must not error).
+        var replayed = inTransaction(() -> consumeService.consume(new ConsumeCommand(
+                orgId, setup.commitmentId(), new BigDecimal("50.00000000"), ledgerEntryId)));
+        assertThat(replayed.consumedAmount()).isEqualByComparingTo("30.00000000");
+        assertThat(replayed.remainingAmount()).isEqualByComparingTo("0.00000000");
+        assertThat(replayed.status().name()).isEqualTo("CONSUMED");
+
+        assertThat(usageCount(setup.commitmentId())).isEqualTo(1);
+        assertThat(auditCount("COMMITMENT_CONSUMED")).isEqualTo(1);
+        assertThat(budgetCommitted(setup.budgetId())).isEqualTo("0.00000000");
+        assertThat(commitmentRemaining(setup.commitmentId())).isEqualTo("0.00000000");
+    }
+
     // -- helpers --------------------------------------------------------------
 
     private Activated activatedBudget(String total, String remaining) {
