@@ -48,7 +48,17 @@ public final class M1AdminPermissionPolicy {
             // granted org-wide only, mirroring ALLOCATION_RULE_MANAGE.
             Map.entry("BUDGET_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                     ScopeType.TEAM, ScopeType.COST_CENTER)),
-            Map.entry("BUDGET_MANAGE", Set.of(ScopeType.ORG)));
+            Map.entry("BUDGET_MANAGE", Set.of(ScopeType.ORG)),
+            // M4 commitment permissions follow the budget's own polymorphic
+            // scope: the grant must cover the budget (ORG/PROJECT/TEAM/
+            // COST_CENTER) the commitment belongs to. SYSTEM_ADMIN never
+            // inherits them (seed matrix).
+            Map.entry("COMMITMENT_REQUEST", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                    ScopeType.TEAM, ScopeType.COST_CENTER)),
+            Map.entry("COMMITMENT_APPROVE", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                    ScopeType.TEAM, ScopeType.COST_CENTER)),
+            Map.entry("COMMITMENT_RELEASE", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                    ScopeType.TEAM, ScopeType.COST_CENTER)));
 
     private M1AdminPermissionPolicy() {
     }

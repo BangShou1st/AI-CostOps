@@ -79,6 +79,46 @@ public interface BudgetMapper {
             @Param("budgetId") long budgetId);
 
     /**
+     * Atomic activation increment (AIC-044): the committed counter grows
+     * only when the budget is ACTIVE and the available headroom
+     * (total - actual - committed) covers the amount — one MySQL statement,
+     * never a Java check-then-act. Zero rows means the caller must classify
+     * the loser by re-reading: missing/invisible budget, non-ACTIVE status,
+     * insufficient available, or a concurrent loser.
+     */
+    @Update("""
+            UPDATE budget
+            SET committed_amount=committed_amount+#{amount},
+                version=version+1, updated_at=#{now}
+            WHERE id=#{budgetId} AND org_id=#{organizationId}
+              AND status='ACTIVE'
+              AND total_amount - actual_amount - committed_amount >= #{amount}
+            """)
+    int incrementCommitted(
+            @Param("organizationId") long organizationId,
+            @Param("budgetId") long budgetId,
+            @Param("amount") BigDecimal amount,
+            @Param("now") Instant now);
+
+    /**
+     * Atomic decrement of the committed counter (AIC-045 release/consume).
+     * The committed floor is re-checked inside MySQL, so the counter can
+     * never go negative even under concurrency.
+     */
+    @Update("""
+            UPDATE budget
+            SET committed_amount=committed_amount-#{amount},
+                version=version+1, updated_at=#{now}
+            WHERE id=#{budgetId} AND org_id=#{organizationId}
+              AND committed_amount >= #{amount}
+            """)
+    int decrementCommitted(
+            @Param("organizationId") long organizationId,
+            @Param("budgetId") long budgetId,
+            @Param("amount") BigDecimal amount,
+            @Param("now") Instant now);
+
+    /**
      * Optimistic version CAS for the manageable total. Affects exactly one
      * row on success; financial counters are never touched here. Any other
      * result means a stale version.
