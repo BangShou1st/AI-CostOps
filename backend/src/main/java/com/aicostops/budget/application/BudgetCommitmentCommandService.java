@@ -207,12 +207,16 @@ public class BudgetCommitmentCommandService {
 
             var now = clock.instant();
             // 1. BillingPeriod lock + OPEN guard inside the same transaction:
-            //    the OPEN check and the budget mutation cannot race with Close.
+            //    the OPEN check and the budget mutation cannot race with
+            //    Close. The frozen activation rule (04-transactions §8) gates
+            //    on the period STATUS only — the budget already binds the
+            //    commitment to this period, so the wall clock must not add a
+            //    second gate over the budget-determined period.
             var period = billingPeriodMapper.selectByIdForUpdate(
                     context.organizationId(), budget.billingPeriodId());
-            if (period == null || !period.covers(now)) {
-                throw stateConflict("No covering billing period",
-                        "The budget's billing period does not cover the transaction time.");
+            if (period == null) {
+                throw stateConflict("Billing period is missing",
+                        "The budget references no billing period; activation requires one.");
             }
             if (period.status() != BillingPeriodStatus.OPEN) {
                 throw periodNotOpen("The billing period of the budget is "
@@ -435,12 +439,14 @@ public class BudgetCommitmentCommandService {
             var budget = requireVisibleBudget(context, commitmentId,
                     PERMISSION_COMMITMENT_RELEASE);
             var now = clock.instant();
-            // BillingPeriod lock + OPEN guard inside the same transaction.
+            // BillingPeriod lock + OPEN guard inside the same transaction
+            // (frozen release rule: period STATUS only, never a second
+            // wall-clock gate over the budget-bound period).
             var period = billingPeriodMapper.selectByIdForUpdate(
                     context.organizationId(), budget.billingPeriodId());
-            if (period == null || !period.covers(now)) {
-                throw stateConflict("No covering billing period",
-                        "The budget's billing period does not cover the transaction time.");
+            if (period == null) {
+                throw stateConflict("Billing period is missing",
+                        "The budget references no billing period; release requires one.");
             }
             if (period.status() != BillingPeriodStatus.OPEN) {
                 throw periodNotOpen("The billing period of the budget is "

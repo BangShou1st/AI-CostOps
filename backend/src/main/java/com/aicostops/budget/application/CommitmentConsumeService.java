@@ -105,12 +105,16 @@ public class CommitmentConsumeService {
         }
         var now = clock.instant();
 
-        // Lock order: BillingPeriod → Budget → Commitment (frozen).
+        // Lock order: BillingPeriod → Budget → Commitment (frozen). The
+        // frozen rule (04-transactions §10) gates on the period STATUS only:
+        // the budget already binds this commitment to its period, so the
+        // primitive must not re-gate the Source-determined posting period
+        // with the current wall clock.
         var period = billingPeriodMapper.selectByIdForUpdate(command.organizationId(),
                 budget.billingPeriodId());
-        if (period == null || !period.covers(now)) {
-            throw stateConflict("No covering billing period",
-                    "The budget's billing period does not cover the transaction time.");
+        if (period == null) {
+            throw stateConflict("Billing period is missing",
+                    "The budget references no billing period; consumption requires one.");
         }
         if (period.status() != BillingPeriodStatus.OPEN) {
             throw periodNotOpen("The billing period of the budget is "
