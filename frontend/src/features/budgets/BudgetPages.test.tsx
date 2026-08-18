@@ -352,3 +352,88 @@ describe('BudgetDetailPage', () => {
     })
   })
 })
+describe('BudgetTotalEditor (total change is a sensitive action)', () => {
+  it('shows the total editor only with BUDGET_MANAGE', async () => {
+    renderDetailPage(['BUDGET_READ'])
+    await waitFor(() => expect(screen.getByText(/预算详情/)).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /修改总额/ })).not.toBeInTheDocument()
+
+    renderDetailPage(['BUDGET_READ', 'BUDGET_MANAGE'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /修改总额/ })).toBeInTheDocument())
+  })
+
+  it('shows current total, currency and the normalized new total in the confirm modal', async () => {
+    renderDetailPage(['BUDGET_READ', 'BUDGET_MANAGE'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /修改总额/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /修改总额/ }))
+
+    expect(screen.getByText('Current Total')).toBeInTheDocument()
+    // 'Currency' also labels the identity card, so presence is asserted loosely.
+    expect(screen.getAllByText('Currency').length).toBeGreaterThanOrEqual(1)
+    // Typing a short decimal shows the canonical scale-8 before/after preview.
+    fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '150.5' } })
+    expect(screen.getByText('150.50000000 CNY')).toBeInTheDocument()
+    // Nothing is sent before the confirm button.
+    expect(mockedBudgetApi.update).not.toHaveBeenCalled()
+  })
+
+  it('sends exactly totalAmount and expectedVersion on confirm', async () => {
+    renderDetailPage(['BUDGET_READ', 'BUDGET_MANAGE'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /修改总额/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /修改总额/ }))
+    fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '150.5' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /确认修改/ }))
+
+    await waitFor(() => {
+      expect(mockedBudgetApi.update).toHaveBeenCalledWith('7', {
+        totalAmount: '150.50000000',
+        expectedVersion: 4,
+      })
+    })
+    const body = mockedBudgetApi.update.mock.calls[0][1] as Record<string, unknown>
+    expect(Object.keys(body).sort()).toEqual(['expectedVersion', 'totalAmount'])
+  })
+
+  it('refreshes the budget detail and list after a successful total change', async () => {
+    mockedBudgetApi.update.mockResolvedValue({ ...SENTINEL_BUDGET, totalAmount: '150.50000000', version: 5 })
+    renderDetailPage(['BUDGET_READ', 'BUDGET_MANAGE'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /修改总额/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /修改总额/ }))
+    fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '150.5' } })
+    fireEvent.click(screen.getByRole('button', { name: /确认修改/ }))
+
+    await waitFor(() => {
+      expect(mockedBudgetApi.get.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  it('does not auto-retry a 409 state conflict and shows refresh guidance', async () => {
+    mockedBudgetApi.update.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: {
+          title: 'State conflict',
+          status: 409,
+          detail: 'The budget changed concurrently.',
+          code: 'STATE_CONFLICT',
+          traceId: 't-1',
+        },
+      },
+    })
+    renderDetailPage(['BUDGET_READ', 'BUDGET_MANAGE'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /修改总额/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /修改总额/ }))
+    fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '150.5' } })
+    fireEvent.click(screen.getByRole('button', { name: /确认修改/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Budget has changed. Refresh the latest version before retrying.')).toBeInTheDocument()
+    })
+    // The mutation is never re-sent; the latest version is refetched instead.
+    expect(mockedBudgetApi.update).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      expect(mockedBudgetApi.get.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+})
