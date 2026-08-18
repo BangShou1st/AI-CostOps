@@ -359,4 +359,24 @@ public abstract class CommitmentTestSupport extends AuthenticationContainersSupp
         return jdbc.queryForObject(
                 "SELECT COUNT(*) FROM audit_event WHERE event_type=?", Integer.class, eventType);
     }
+
+    protected int usageCount(long commitmentId) {
+        return jdbc.queryForObject("""
+                SELECT COUNT(*) FROM budget_commitment_usage
+                WHERE org_id=? AND budget_commitment_id=?
+                """, Integer.class, orgId, commitmentId);
+    }
+
+    protected String usageAmount(long commitmentId, long ledgerEntryId) {
+        return jdbc.queryForObject("""
+                SELECT consumed_amount FROM budget_commitment_usage
+                WHERE org_id=? AND budget_commitment_id=? AND ledger_entry_id=?
+                """, BigDecimal.class, orgId, commitmentId, ledgerEntryId).toPlainString();
+    }
+
+    protected String budgetActual(long budgetId) {
+        return jdbc.queryForObject(
+                "SELECT actual_amount FROM budget WHERE id=?", BigDecimal.class, budgetId)
+                .toPlainString();
+    }
 }
