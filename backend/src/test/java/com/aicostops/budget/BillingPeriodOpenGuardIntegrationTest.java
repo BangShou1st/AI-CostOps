@@ -99,6 +99,26 @@ class BillingPeriodOpenGuardIntegrationTest extends MySqlContainerSupport {
         assertOpenGuardRejected("2026-08-15T12:00:00Z", ProblemCode.STATE_CONFLICT);
     }
 
+    @Test
+    void rejectsAmbiguousOverlappingPeriods() {
+        insertPeriod(orgId, AUG_1, SEP_1, "OPEN");
+        insertPeriod(orgId, "2026-08-15 00:00:00.000000", "2026-09-15 00:00:00.000000", "OPEN");
+        // 2026-08-20 is covered by both periods: the guard must fail closed
+        // instead of returning a deterministic latest-starting/highest-id
+        // winner, because the period identity itself is ambiguous.
+        assertOpenGuardRejected("2026-08-20T00:00:00Z", ProblemCode.STATE_CONFLICT);
+    }
+
+    @Test
+    void rejectsAmbiguousOverlapEvenWhenOneCandidateIsClosed() {
+        insertPeriod(orgId, AUG_1, SEP_1, "OPEN");
+        insertPeriod(orgId, "2026-08-15 00:00:00.000000", "2026-09-15 00:00:00.000000", "CLOSED");
+        // The ambiguity is resolved before any status decision: picking the
+        // OPEN candidate because a CLOSED one happens to share the time
+        // window would silently legitimize an overlapping period identity.
+        assertOpenGuardRejected("2026-08-20T00:00:00Z", ProblemCode.STATE_CONFLICT);
+    }
+
     private void assertOpenGuardRejected(String at, ProblemCode expectedCode) {
         assertThatThrownBy(() -> guard.requireOpen(orgId, instant(at)))
                 .isInstanceOf(DomainException.class)

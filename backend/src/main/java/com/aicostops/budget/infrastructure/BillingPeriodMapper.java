@@ -2,6 +2,7 @@ package com.aicostops.budget.infrastructure;
 
 import com.aicostops.budget.domain.BillingPeriod;
 import java.time.Instant;
+import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -16,11 +17,14 @@ public interface BillingPeriodMapper {
             """;
 
     /**
-     * The billing period covering {@code at} in the half-open sense:
+     * Up to two billing periods covering {@code at} in the half-open sense:
      * {@code period_start <= at < period_end}. Lookups are organization
      * scoped, so a foreign period is never visible. Overlapping periods are
-     * not excluded by the schema; the latest-starting, highest-id period is
-     * selected deterministically.
+     * not excluded by the schema, so this returns at most two candidates and
+     * the caller decides: one candidate is a valid period identity, two mean
+     * the organization has ambiguous covering periods and the guard must fail
+     * closed. The deterministic ORDER BY only stabilizes which two rows come
+     * back; the guard never picks a winner among them.
      */
     @Select("""
             SELECT
@@ -30,9 +34,9 @@ public interface BillingPeriodMapper {
               AND bp.period_start <= #{at}
               AND bp.period_end > #{at}
             ORDER BY bp.period_start DESC, bp.id DESC
-            LIMIT 1
+            LIMIT 2
             """)
-    BillingPeriod selectCovering(
+    List<BillingPeriod> selectCoveringCandidates(
             @Param("organizationId") long organizationId,
             @Param("at") Instant at);
 

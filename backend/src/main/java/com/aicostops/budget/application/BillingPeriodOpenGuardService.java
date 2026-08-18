@@ -17,6 +17,10 @@ import org.springframework.stereotype.Service;
  * is included, the end boundary is excluded, and a wrong-organization query
  * behaves exactly like a query with no covering period — no existence leak
  * across organizations.
+ *
+ * <p>Overlapping periods are not excluded by the schema, so the guard fails
+ * closed: more than one covering candidate is an ambiguous period identity
+ * and is rejected with {@code STATE_CONFLICT} before any status decision.
  */
 @Service
 public class BillingPeriodOpenGuardService implements BillingPeriodOpenGuard {
@@ -29,14 +33,22 @@ public class BillingPeriodOpenGuardService implements BillingPeriodOpenGuard {
 
     @Override
     public BillingPeriod requireOpen(long organizationId, Instant transactionTime) {
-        var period = mapper.selectCovering(organizationId, transactionTime);
-        if (period == null) {
+        var candidates = mapper.selectCoveringCandidates(organizationId, transactionTime);
+        if (candidates.isEmpty()) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                     "No covering billing period",
                     "No billing period of the organization covers the transaction time "
                             + transactionTime
                             + "; open a covering period before writing financial data.");
         }
+        if (candidates.size() > 1) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Ambiguous covering billing periods",
+                    "The current organization has ambiguous (overlapping) billing periods "
+                            + "covering " + transactionTime
+                            + "; resolve the period overlap before writing financial data.");
+        }
+        var period = candidates.get(0);
         if (period.status() != BillingPeriodStatus.OPEN) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.PERIOD_NOT_OPEN,
                     "Billing period is not open",
