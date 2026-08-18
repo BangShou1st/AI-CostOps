@@ -154,12 +154,20 @@ public interface BudgetCommitmentMapper {
             SELECT
             """ + COMMITMENT_COLUMNS + """
             FROM budget_commitment bc
+            JOIN budget b ON b.id = bc.budget_id AND b.org_id = bc.org_id
             WHERE bc.org_id=#{organizationId}
             <if test="budgetId != null">
               AND bc.budget_id=#{budgetId}
             </if>
             <if test="status != null">
               AND bc.status=#{status}
+            </if>
+            <if test="!organizationWide">
+              AND (
+                <foreach collection="visibleScopes" item="scope" separator=" OR ">
+                  (b.scope_type=#{scope.scopeType} AND b.scope_id=#{scope.scopeId})
+                </foreach>
+              )
             </if>
             ORDER BY bc.created_at DESC, bc.id DESC
             LIMIT #{limit} OFFSET #{offset}
@@ -169,6 +177,8 @@ public interface BudgetCommitmentMapper {
             @Param("organizationId") long organizationId,
             @Param("budgetId") Long budgetId,
             @Param("status") String status,
+            @Param("organizationWide") boolean organizationWide,
+            @Param("visibleScopes") List<BudgetMapper.ScopeConstraint> visibleScopes,
             @Param("limit") int limit,
             @Param("offset") int offset);
 
@@ -176,6 +186,7 @@ public interface BudgetCommitmentMapper {
             <script>
             SELECT COUNT(*)
             FROM budget_commitment bc
+            JOIN budget b ON b.id = bc.budget_id AND b.org_id = bc.org_id
             WHERE bc.org_id=#{organizationId}
             <if test="budgetId != null">
               AND bc.budget_id=#{budgetId}
@@ -183,12 +194,21 @@ public interface BudgetCommitmentMapper {
             <if test="status != null">
               AND bc.status=#{status}
             </if>
+            <if test="!organizationWide">
+              AND (
+                <foreach collection="visibleScopes" item="scope" separator=" OR ">
+                  (b.scope_type=#{scope.scopeType} AND b.scope_id=#{scope.scopeId})
+                </foreach>
+              )
+            </if>
             </script>
             """)
     long count(
             @Param("organizationId") long organizationId,
             @Param("budgetId") Long budgetId,
-            @Param("status") String status);
+            @Param("status") String status,
+            @Param("organizationWide") boolean organizationWide,
+            @Param("visibleScopes") List<BudgetMapper.ScopeConstraint> visibleScopes);
 
     // -- commitment approval case (V12 shared shell, commitment subject) ------
 
