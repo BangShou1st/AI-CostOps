@@ -20,3 +20,20 @@ describe('visibleBusinessNav expense entries', () => {
     )
   })
 })
+describe('visibleBusinessNav budget entries', () => {
+  it('shows budgets only to users with BUDGET_READ', () => {
+    expect(visibleBusinessNav(['BUDGET_READ'])).toContainEqual(
+      { path: '/budgets', label: '预算', readPermission: 'BUDGET_READ' },
+    )
+  })
+
+  it('never shows budgets to manage/approve holders without BUDGET_READ', () => {
+    const nav = visibleBusinessNav(['BUDGET_MANAGE', 'COMMITMENT_APPROVE', 'COMMITMENT_RELEASE'])
+    expect(nav).not.toContainEqual(
+      { path: '/budgets', label: '预算', readPermission: 'BUDGET_READ' },
+    )
+    expect(visibleBusinessNav([])).not.toContainEqual(
+      { path: '/budgets', label: '预算', readPermission: 'BUDGET_READ' },
+    )
+  })
+})
