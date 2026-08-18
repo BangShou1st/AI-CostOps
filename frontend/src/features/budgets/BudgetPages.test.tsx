@@ -437,3 +437,148 @@ describe('BudgetTotalEditor (total change is a sensitive action)', () => {
     })
   })
 })
+describe('RequestCommitment (budget detail)', () => {
+  async function openRequestModal() {
+    await waitFor(() => expect(screen.getByRole('button', { name: /申请承诺/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /申请承诺/ }))
+    fireEvent.change(screen.getByLabelText('承诺金额'), { target: { value: '60.5' } })
+  }
+
+  it('shows the request action only with COMMITMENT_REQUEST', async () => {
+    renderDetailPage(['BUDGET_READ'])
+    await waitFor(() => expect(screen.getByText(/预算详情/)).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /申请承诺/ })).not.toBeInTheDocument()
+
+    renderDetailPage(['BUDGET_READ', 'COMMITMENT_REQUEST'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /申请承诺/ })).toBeInTheDocument())
+  })
+
+  it('sends the budget currency and a canonical scale-8 amount with an Idempotency-Key', async () => {
+    mockedCommitmentApi.create.mockResolvedValue({
+      id: '10',
+      budgetId: '7',
+      status: 'REQUESTED',
+      requestedAmount: '60.50000000',
+      approvedAmount: null,
+      remainingAmount: null,
+      version: 1,
+      createdAt: '2026-01-05T00:00:00Z',
+      updatedAt: '2026-01-05T00:00:00Z',
+      approvalCaseId: 'c-2',
+      approvalStatus: 'PENDING',
+      history: [],
+    })
+    renderDetailPage(['BUDGET_READ', 'COMMITMENT_REQUEST'])
+    await openRequestModal()
+
+    fireEvent.click(screen.getByRole('button', { name: /确认申请/ }))
+
+    await waitFor(() => {
+      expect(mockedCommitmentApi.create).toHaveBeenCalledWith('7', {
+        requestedAmount: '60.50000000',
+        currency: 'CNY',
+      }, expect.any(String))
+    })
+    const key = mockedCommitmentApi.create.mock.calls[0][2] as string
+    expect(key.length).toBeGreaterThan(0)
+  })
+
+  it('refreshes the commitment list after a successful request', async () => {
+    mockedCommitmentApi.create.mockResolvedValue({
+      id: '10',
+      budgetId: '7',
+      status: 'REQUESTED',
+      requestedAmount: '60.50000000',
+      approvedAmount: null,
+      remainingAmount: null,
+      version: 1,
+      createdAt: '2026-01-05T00:00:00Z',
+      updatedAt: '2026-01-05T00:00:00Z',
+      approvalCaseId: 'c-2',
+      approvalStatus: 'PENDING',
+      history: [],
+    })
+    renderDetailPage(['BUDGET_READ', 'COMMITMENT_REQUEST'])
+    await openRequestModal()
+    fireEvent.click(screen.getByRole('button', { name: /确认申请/ }))
+
+    await waitFor(() => {
+      expect(mockedCommitmentApi.list.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  it('never optimistically changes the budget metrics after a request', async () => {
+    mockedCommitmentApi.create.mockResolvedValue({
+      id: '10',
+      budgetId: '7',
+      status: 'REQUESTED',
+      requestedAmount: '60.50000000',
+      approvedAmount: null,
+      remainingAmount: null,
+      version: 1,
+      createdAt: '2026-01-05T00:00:00Z',
+      updatedAt: '2026-01-05T00:00:00Z',
+      approvalCaseId: 'c-2',
+      approvalStatus: 'PENDING',
+      history: [],
+    })
+    renderDetailPage(['BUDGET_READ', 'COMMITMENT_REQUEST'])
+    await openRequestModal()
+    fireEvent.click(screen.getByRole('button', { name: /确认申请/ }))
+
+    await waitFor(() => {
+      expect(mockedCommitmentApi.list.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
+    // Server truth is untouched: committed is still the server value and no
+    // requested amount ever appears as a budget metric.
+    expect(screen.getByText('20.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument()
+    expect(screen.queryByText('60.50000000 CNY')).not.toBeInTheDocument()
+  })
+
+  it('shows the explicit budget insufficient message on 409 without retrying', async () => {
+    mockedCommitmentApi.create.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: {
+          title: 'Insufficient budget',
+          status: 409,
+          detail: 'Not enough availability.',
+          code: 'BUDGET_INSUFFICIENT',
+          traceId: 't-2',
+        },
+      },
+    })
+    renderDetailPage(['BUDGET_READ', 'COMMITMENT_REQUEST'])
+    await openRequestModal()
+    fireEvent.click(screen.getByRole('button', { name: /确认申请/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Budget availability is insufficient.')).toBeInTheDocument()
+    })
+    expect(mockedCommitmentApi.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the explicit period-not-open message on 409 without retrying', async () => {
+    mockedCommitmentApi.create.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: {
+          title: 'Period closed',
+          status: 409,
+          detail: 'The financial period is closed.',
+          code: 'PERIOD_NOT_OPEN',
+          traceId: 't-3',
+        },
+      },
+    })
+    renderDetailPage(['BUDGET_READ', 'COMMITMENT_REQUEST'])
+    await openRequestModal()
+    fireEvent.click(screen.getByRole('button', { name: /确认申请/ }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Current financial period does not allow this action.')).toBeInTheDocument()
+    })
+    expect(mockedCommitmentApi.create).toHaveBeenCalledTimes(1)
+  })
+})
