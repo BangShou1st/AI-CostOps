@@ -75,7 +75,7 @@ export function TeamsPage() {
       </div>
       {listQuery.isLoading && <div role="status">正在加载团队…</div>}
       {listQuery.isError && (
-        <Alert type="error" role="alert" message={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
       )}
       {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无团队。</div>}
       {listQuery.data && listQuery.data.items.length > 0 && (

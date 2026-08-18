@@ -25,7 +25,7 @@ export function AllocationHistory({ chargeId }: { chargeId: string }) {
         <Alert
           type="error"
           showIcon
-          message="无法加载分摊历史"
+          title="无法加载分摊历史"
           description={(
             <>
               <div>{`${problem.title}（${problem.code}）`}</div>

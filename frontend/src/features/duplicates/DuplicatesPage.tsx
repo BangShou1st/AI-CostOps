@@ -58,7 +58,7 @@ export function DuplicatesPage() {
   const listProblem = list.error ? toProblemDetail(list.error) : null
 
   if (!canReview) {
-    return <main className="settings-page"><h1>重复审核</h1><Alert type="warning" showIcon message="缺少 DUPLICATE_REVIEW 权限" /></main>
+    return <main className="settings-page"><h1>重复审核</h1><Alert type="warning" showIcon title="缺少 DUPLICATE_REVIEW 权限" /></main>
   }
 
   return (
@@ -72,7 +72,7 @@ export function DuplicatesPage() {
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`${problem.title}（${problem.code}）`}
+          title={`${problem.title}（${problem.code}）`}
           description={problem.detail}
         />
       )}
@@ -81,7 +81,7 @@ export function DuplicatesPage() {
         <Alert
           type="error"
           showIcon
-          message="无法加载疑似重复候选"
+          title="无法加载疑似重复候选"
           description={(
             <>
               <div>{`${listProblem.title}（${listProblem.code}）`}</div>
@@ -109,7 +109,7 @@ export function DuplicatesPage() {
           {
             title: '证据摘要',
             render: (_, candidate) => (
-              <Space direction="vertical" size={2}>
+              <Space orientation="vertical" size={2}>
                 <Typography.Text>
                   #{candidate.chargeFact.id} {candidate.chargeFact.amount} {candidate.chargeFact.currency}
                   （{candidate.chargeFact.periodStart ?? '—'}）

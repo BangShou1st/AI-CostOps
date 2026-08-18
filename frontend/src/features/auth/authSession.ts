@@ -21,9 +21,38 @@ export interface AuthApi {
   me: () => Promise<AuthUser>
 }
 
-export async function bootstrapSession(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
+// One shared refresh flight across all initiators (bootstrap, 401 recovery).
+// Concurrent initiators present the same rotation cookie; without this they
+// would race the backend rotation and one of them would 409 with
+// AUTH_REFRESH_RACE on every page load (React StrictMode double-mounts the
+// session bootstrap in dev).
+let refreshFlight: Promise<AuthTokenResponse> | null = null
+
+export function refreshTokenOnce(refresh: () => Promise<AuthTokenResponse>): Promise<AuthTokenResponse> {
+  if (!refreshFlight) {
+    refreshFlight = refreshWithRaceRetry(refresh).finally(() => {
+      refreshFlight = null
+    })
+  }
+  return refreshFlight
+}
+
+// The whole bootstrap (refresh + me) is single-flighted too, so a StrictMode
+// double mount performs exactly one refresh and one me projection read.
+let bootstrapFlight: Promise<AuthUser> | null = null
+
+export function bootstrapSession(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
+  if (!bootstrapFlight) {
+    bootstrapFlight = doBootstrap(api, store).finally(() => {
+      bootstrapFlight = null
+    })
+  }
+  return bootstrapFlight
+}
+
+async function doBootstrap(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
   try {
-    const refreshed = await refreshWithRaceRetry(api.refresh)
+    const refreshed = await refreshTokenOnce(api.refresh)
     store.set(refreshed.accessToken)
     return await api.me()
   } catch (error) {

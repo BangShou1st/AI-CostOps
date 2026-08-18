@@ -128,7 +128,7 @@ export function ProviderAccountsPage() {
       </div>
       {listQuery.isLoading && <div role="status">正在加载云账号…</div>}
       {listQuery.isError && (
-        <Alert type="error" role="alert" message={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
       )}
       {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无云账号。</div>}
       {listQuery.data && listQuery.data.items.length > 0 && (
@@ -228,7 +228,7 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
       onCancel={onCancel}
     >
       <div style={{ display: 'grid', gap: 12 }}>
-        {error && <Alert type="error" role="alert" message={error.detail || error.title} showIcon />}
+        {error && <Alert type="error" role="alert" title={error.detail || error.title} showIcon />}
         <label>
           服务商编码
           <Input aria-label="服务商编码" value={providerCode} disabled={editing} onChange={(event) => setProviderCode(event.target.value)} placeholder="AWS、GCP、AZURE 等" />
@@ -262,7 +262,7 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
               type="warning"
               role="alert"
               style={{ marginTop: 8 }}
-              message={metadataProblem}
+              title={metadataProblem}
               showIcon
             />
           )}

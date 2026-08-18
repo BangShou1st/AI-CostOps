@@ -11,6 +11,7 @@ import {
   compareDecimal8,
   formatDecimal8,
   parseDecimal8,
+  parseUserDecimal8,
   subtractDecimal8,
   sumDecimal8,
 } from '../../../lib/money'
@@ -57,7 +58,9 @@ export function initialLines(lines: Array<{ allocatedAmount: string; projectId: 
 
 export function toLineInputs(lines: AllocationEditorLine[], currency: string): AllocationLineInput[] {
   return lines.map((line) => ({
-    allocatedAmount: formatDecimal8(parseDecimal8(line.allocatedAmount)),
+    // The API only accepts exact scale-8 strings; typed amounts such as 129.5
+    // are normalized here so a valid user entry never throws mid-submit.
+    allocatedAmount: formatDecimal8(parseUserDecimal8(line.allocatedAmount)),
     currency,
     projectId: line.targetType === 'project' ? line.targetId : null,
     costCenterId: line.targetType === 'costCenter' ? line.targetId : null,
@@ -123,6 +126,13 @@ export function AllocationLinesEditor({ sourceAmount, currency, lines, setLines,
             <input aria-label={`第 ${line.key + 1} 行金额`} value={line.allocatedAmount}
               disabled={!editable}
               onChange={(e) => updateLine(line.key, { allocatedAmount: e.target.value })}
+              onBlur={() => {
+                try {
+                  updateLine(line.key, { allocatedAmount: formatDecimal8(parseUserDecimal8(line.allocatedAmount)) })
+                } catch {
+                  // Keep the raw text; the submit path reports the format error.
+                }
+              }}
               placeholder="0.00000000" />
           )},
           { title: '币种', width: 90, render: () => currency },

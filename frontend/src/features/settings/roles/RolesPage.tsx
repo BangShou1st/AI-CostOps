@@ -47,7 +47,7 @@ export function RolesPage() {
       <Typography.Title level={4} style={{ marginTop: 24 }}>角色</Typography.Title>
       {rolesQuery.isLoading && <div role="status">正在加载角色…</div>}
       {rolesQuery.isError && (
-        <Alert type="error" role="alert" message={toProblemDetail(rolesQuery.error).detail || toProblemDetail(rolesQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={toProblemDetail(rolesQuery.error).detail || toProblemDetail(rolesQuery.error).title} showIcon />
       )}
       {rolesQuery.data && rolesQuery.data.length === 0 && <div className="settings-empty">尚未定义角色。</div>}
       {rolesQuery.data && rolesQuery.data.length > 0 && (
@@ -57,7 +57,7 @@ export function RolesPage() {
       <Typography.Title level={4} style={{ marginTop: 24 }}>权限</Typography.Title>
       {permissionsQuery.isLoading && <div role="status">正在加载权限…</div>}
       {permissionsQuery.isError && (
-        <Alert type="error" role="alert" message={toProblemDetail(permissionsQuery.error).detail || toProblemDetail(permissionsQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={toProblemDetail(permissionsQuery.error).detail || toProblemDetail(permissionsQuery.error).title} showIcon />
       )}
       {permissionsQuery.data && permissionsQuery.data.length === 0 && <div className="settings-empty">尚未定义权限。</div>}
       {permissionsQuery.data && permissionsQuery.data.length > 0 && (

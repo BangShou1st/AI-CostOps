@@ -49,7 +49,7 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
           // One emit per shared refresh attempt: every waiter observes the
           // same single-flight failure, so the session-expired event must not
           // fire once per waiting request.
-          if (isSessionExpired(refreshError)) {
+          if (isSessionTerminal(refreshError)) {
             authEvents.emit()
           }
           throw refreshError
@@ -62,11 +62,18 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
     try {
       await refreshInFlight
     } catch (refreshError) {
-      options.tokenStore.clear()
+      // Only a terminal failure (the backend revoked or expired the session)
+      // wipes the access token. A lost rotation race (409 AUTH_REFRESH_RACE)
+      // or a transport error leaves the session alive, so the old token is
+      // kept -- clearing it would force every following request through the
+      // refresh path for no reason.
+      if (isSessionTerminal(refreshError)) {
+        options.tokenStore.clear()
+      }
       return Promise.reject(refreshError)
     }
     return client.request(requestConfig).catch((retryError: unknown) => {
-      if (isSessionExpired(retryError)) {
+      if (isSessionTerminal(retryError)) {
         authEvents.emit()
       }
       return Promise.reject(retryError)
@@ -76,8 +83,13 @@ export function createApiClient(options: ApiClientOptions): AxiosInstance {
   return client
 }
 
-function isSessionExpired(error: unknown): boolean {
-  return axios.isAxiosError(error)
-    && error.response?.status === 401
-    && error.response?.data?.code === 'AUTH_SESSION_EXPIRED'
+function isSessionTerminal(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 401) {
+    return false
+  }
+  const code = error.response?.data?.code
+  // AUTH_SESSION_EXPIRED: the refresh session is gone. AUTH_REFRESH_REPLAY:
+  // the credential was already rotated out, so the session was revoked.
+  // Both are terminal -- the client must log out, never retry or swallow them.
+  return code === 'AUTH_SESSION_EXPIRED' || code === 'AUTH_REFRESH_REPLAY'
 }

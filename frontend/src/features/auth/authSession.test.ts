@@ -27,6 +27,23 @@ describe('authentication session', () => {
     expect(api.me).not.toHaveBeenCalled()
   })
 
+  it('shares one refresh flight between concurrent bootstrap sessions', async () => {
+    // React StrictMode double-mounts AuthSessionProvider in dev, which starts
+    // two bootstrap sessions with the same refresh cookie. They must share a
+    // single refresh request; a second concurrent rotation would 409 with
+    // AUTH_REFRESH_RACE on every page load.
+    const store = createAccessTokenStore()
+    const api: AuthApi = {
+      refresh: vi.fn().mockResolvedValue({ accessToken: 'access', expiresIn: 900, user }),
+      me: vi.fn().mockResolvedValue(user),
+    }
+
+    await Promise.all([bootstrapSession(api, store), bootstrapSession(api, store)])
+    expect(api.refresh).toHaveBeenCalledTimes(1)
+    expect(api.me).toHaveBeenCalledTimes(1)
+    expect(store.get()).toBe('access')
+  })
+
   it('waits and retries AUTH_REFRESH_RACE exactly once', async () => {
     const config = { headers: {} } as InternalAxiosRequestConfig
     const response = { config, data: { code: 'AUTH_REFRESH_RACE' }, headers: {}, status: 409,

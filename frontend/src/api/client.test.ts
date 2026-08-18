@@ -115,6 +115,75 @@ describe('API client', () => {
     expect(listener).toHaveBeenCalledTimes(1)
   })
 
+  it('treats a replayed refresh credential as a terminal session and logs out', async () => {
+    // AUTH_REFRESH_REPLAY (401) means the backend already revoked the refresh
+    // session (the presented credential was rotated out). It is NOT a benign
+    // race: the session is dead, so the client must clear auth and emit the
+    // session-expired event exactly once -- never retry or swallow it.
+    const store = createAccessTokenStore()
+    store.set('expired-token')
+    let attempts = 0
+    const adapter: AxiosAdapter = (config) => {
+      attempts += 1
+      return unauthorized(config)
+    }
+    const response: AxiosResponse = {
+      config: { headers: {} } as InternalAxiosRequestConfig,
+      data: { code: 'AUTH_REFRESH_REPLAY' },
+      headers: {},
+      status: 401,
+      statusText: 'Unauthorized',
+    }
+    const refreshAccessToken = vi.fn().mockRejectedValue(
+      new AxiosError('replay', 'ERR_BAD_REQUEST', undefined, undefined, response),
+    )
+    const client = createApiClient({ tokenStore: store, adapter, refreshAccessToken })
+    const listener = vi.fn()
+    const unsubscribe = authEvents.subscribe(listener)
+
+    await expect(client.get('/replayed-refresh')).rejects.toMatchObject({ response: { status: 401 } })
+    unsubscribe()
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(store.get()).toBeNull()
+    expect(attempts).toBe(1)
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the access token when refresh loses the rotation race after its single retry', async () => {
+    // The final 409 AUTH_REFRESH_RACE means another tab/device rotated the
+    // refresh credential; the session is still alive. The client must not
+    // wipe the (possibly still valid) access token or emit a logout event.
+    const store = createAccessTokenStore()
+    store.set('still-valid-token')
+    let attempts = 0
+    const adapter: AxiosAdapter = (config) => {
+      attempts += 1
+      return unauthorized(config)
+    }
+    const response: AxiosResponse = {
+      config: { headers: {} } as InternalAxiosRequestConfig,
+      data: { code: 'AUTH_REFRESH_RACE' },
+      headers: {},
+      status: 409,
+      statusText: 'Conflict',
+    }
+    const refreshAccessToken = vi.fn().mockRejectedValue(
+      new AxiosError('race', 'ERR_BAD_RESPONSE', undefined, undefined, response),
+    )
+    const client = createApiClient({ tokenStore: store, adapter, refreshAccessToken })
+    const listener = vi.fn()
+    const unsubscribe = authEvents.subscribe(listener)
+
+    await expect(client.get('/race-lost')).rejects.toMatchObject({ response: { status: 409 } })
+    unsubscribe()
+
+    expect(store.get()).toBe('still-valid-token')
+    expect(listener).not.toHaveBeenCalled()
+    expect(attempts).toBe(1)
+    expect(refreshAccessToken).toHaveBeenCalledTimes(1)
+  })
+
   it('emits session expired when the refresh itself expires', async () => {
     const store = createAccessTokenStore()
     store.set('expired-token')

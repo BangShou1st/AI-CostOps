@@ -200,6 +200,84 @@ describe('ExpensePages', () => {
     expect(screen.getByText('上传凭证')).toBeInTheDocument()
   })
 
+  it('shows the last submit time, derived from the approval history, instead of "-"', async () => {
+    // UAT: every SUBMITTED/NEEDS_INFO/CANCELED expense showed 提交时间 "-"
+    // although the history contained the SUBMIT instant. The frozen API has no
+    // submittedAt field (see openapi.yaml ExpenseResponse), so the detail page
+    // must derive it from the last SUBMIT/RESUBMIT action.
+    mockedExpenseApi.get.mockResolvedValue(makeExpense({
+      status: 'NEEDS_INFO',
+      evidenceId: 'ev-1',
+      canEdit: false,
+      version: 2,
+      history: [
+        {
+          id: 'a1', actionType: 'SUBMIT', actorMemberId: 'm-1',
+          fromState: 'DRAFT', toState: 'SUBMITTED', comment: null,
+          createdAt: '2026-08-17T10:30:00Z',
+        },
+        {
+          id: 'a2', actionType: 'REQUEST_INFO', actorMemberId: 'm-3',
+          fromState: 'SUBMITTED', toState: 'NEEDS_INFO', comment: '请补充发票',
+          createdAt: '2026-08-17T11:00:00Z',
+        },
+      ],
+    }))
+    mockedExpenseApi.downloadEvidence.mockResolvedValue(new Blob(['x']))
+
+    renderWithRouter(<ExpenseDetailPage />)
+
+    await waitFor(() => expect(screen.getByText('下载凭证')).toBeInTheDocument())
+    const row = screen.getByText('提交时间').closest('tr')
+    expect(row?.textContent).toContain(new Date('2026-08-17T10:30:00Z').toLocaleString())
+    expect(row?.textContent).not.toContain('-')
+  })
+
+  it('resubmission updates 提交时间 to the latest RESUBMIT action', async () => {
+    // The submit time is the LAST submit action: a NEEDS_INFO -> resubmit
+    // flow shows the resubmit instant, not the original SUBMIT.
+    mockedExpenseApi.get.mockResolvedValue(makeExpense({
+      status: 'SUBMITTED',
+      evidenceId: 'ev-1',
+      canEdit: false,
+      version: 3,
+      history: [
+        {
+          id: 'a1', actionType: 'SUBMIT', actorMemberId: 'm-1',
+          fromState: 'DRAFT', toState: 'SUBMITTED', comment: null,
+          createdAt: '2026-08-17T10:30:00Z',
+        },
+        {
+          id: 'a2', actionType: 'REQUEST_INFO', actorMemberId: 'm-3',
+          fromState: 'SUBMITTED', toState: 'NEEDS_INFO', comment: '请补充发票',
+          createdAt: '2026-08-17T11:00:00Z',
+        },
+        {
+          id: 'a3', actionType: 'RESUBMIT', actorMemberId: 'm-1',
+          fromState: 'NEEDS_INFO', toState: 'SUBMITTED', comment: null,
+          createdAt: '2026-08-17T14:20:00Z',
+        },
+      ],
+    }))
+    mockedExpenseApi.downloadEvidence.mockResolvedValue(new Blob(['x']))
+
+    renderWithRouter(<ExpenseDetailPage />)
+
+    await waitFor(() => expect(screen.getByText('下载凭证')).toBeInTheDocument())
+    const row = screen.getByText('提交时间').closest('tr')
+    expect(row?.textContent).toContain(new Date('2026-08-17T14:20:00Z').toLocaleString())
+  })
+
+  it('shows "-" for 提交时间 when the expense was never submitted', async () => {
+    mockedExpenseApi.get.mockResolvedValue(makeExpense({ status: 'DRAFT', evidenceId: null, history: [] }))
+
+    renderWithRouter(<ExpenseDetailPage />)
+
+    await waitFor(() => expect(screen.getByText('上传凭证')).toBeInTheDocument())
+    const row = screen.getByText('提交时间').closest('tr')
+    expect(row?.textContent).toContain('-')
+  })
+
   it('SUBMITTED employee can download evidence but cannot upload', async () => {
     mockedExpenseApi.get.mockResolvedValue(makeExpense({
       status: 'SUBMITTED',
@@ -398,6 +476,92 @@ describe('ExpensePages', () => {
     // through jsdom + antd; on slow CI runners it takes ~8s, so it gets an
     // explicit timeout instead of the 5s default.
   }, 15_000)
+
+  it('finance creates an expense manual draft from a short-decimal amount (real UAT flow)', async () => {
+    // The UAT operator typed 129.5 (not 129.50000000) for Expense 1. The
+    // request must still leave the browser with the canonical scale-8 amount.
+    currentUser = FINANCE
+    const draft = makeDecision({
+      id: 'dec-draft',
+      lines: [{ lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+    })
+    mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
+      status: 'APPROVED',
+      evidenceId: 'ev-1',
+      canEdit: false,
+      amount: '129.50000000',
+    }))
+    mockedAllocationApi.listDecisionsByExpense.mockResolvedValue([])
+    mockedAllocationApi.listTargets.mockResolvedValue([{ type: 'PROJECT', id: 'p-1', name: 'UAT Project' }])
+    mockedAllocationApi.createManualDraftForExpense.mockResolvedValue(draft)
+    mockedExpenseApi.downloadEvidence.mockResolvedValue(new Blob(['x']))
+
+    renderWithRouter(<ExpenseReviewDetailPage />, '/expense-reviews/exp-1')
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '创建分摊草稿' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '添加分摊行' }))
+    fireEvent.change(screen.getByLabelText('第 1 行金额'), { target: { value: '129.5' } })
+
+    await screen.findByRole('option', { name: 'UAT Project' })
+    fireEvent.change(screen.getByLabelText('第 1 行分摊对象'), { target: { value: 'PROJECT:p-1' } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '创建分摊草稿' })).toBeEnabled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '创建分摊草稿' }))
+
+    await waitFor(() => expect(mockedAllocationApi.createManualDraftForExpense).toHaveBeenCalledWith(
+      'exp-1',
+      [{ allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+      expect.any(String),
+    ))
+  })
+
+  it('finance sees the CONFIRMED manual allocation as read-only lines', async () => {
+    // Real UAT state: Expense 1 APPROVED, decision 1 MANUAL CONFIRMED,
+    // line 129.50000000 CNY -> project UAT-PROJECT (id p-1), postingReady.
+    // The 手动分摊 area must render the confirmed lines, never "尚无分摊行",
+    // and must not offer to create or confirm anything again.
+    currentUser = FINANCE
+    const confirmed = makeDecision({
+      id: 'dec-1',
+      source: 'MANUAL',
+      status: 'CONFIRMED',
+      lines: [{ lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+    })
+    mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
+      status: 'APPROVED',
+      evidenceId: 'ev-1',
+      canEdit: false,
+      amount: '129.50000000',
+      postingReady: true,
+      currentAllocationDecisionId: 'dec-1',
+    }))
+    mockedAllocationApi.listDecisionsByExpense.mockResolvedValue([confirmed])
+    mockedAllocationApi.listTargets.mockResolvedValue([{ type: 'PROJECT', id: 'p-1', name: 'UAT Project' }])
+    mockedExpenseApi.downloadEvidence.mockResolvedValue(new Blob(['x']))
+
+    renderWithRouter(<ExpenseReviewDetailPage />, '/expense-reviews/exp-1')
+
+    // The confirmed line is displayed and locked.
+    await waitFor(() => {
+      expect(screen.getByLabelText('第 1 行金额')).toHaveValue('129.50000000')
+    })
+    expect((screen.getByLabelText('第 1 行金额') as HTMLInputElement).disabled).toBe(true)
+    await screen.findByRole('option', { name: 'UAT Project' })
+    expect(screen.getByLabelText('第 1 行分摊对象')).toHaveValue('PROJECT:p-1')
+    // Not an empty allocation.
+    expect(screen.queryByText('尚无分摊行')).not.toBeInTheDocument()
+    // Sums read the confirmed lines, not an empty editor.
+    expect(screen.getByText(/已分配：129.50000000 CNY/)).toBeInTheDocument()
+    expect(screen.getByText(/精确分配/)).toBeInTheDocument()
+    // The confirmed state is final: no new draft, no confirm action.
+    expect(screen.queryByRole('button', { name: '创建分摊草稿' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '添加分摊行' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /确认分摊/ })).toBeDisabled()
+  })
 
   it('displays the backend problem detail on a 409 conflict', async () => {
     currentUser = FINANCE

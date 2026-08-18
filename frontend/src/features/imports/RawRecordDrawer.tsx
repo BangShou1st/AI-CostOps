@@ -29,7 +29,7 @@ export function RawRecordDrawer({
     <Drawer
       open={recordId !== null}
       onClose={onClose}
-      width={560}
+      size={560}
       title={record ? `原始记录 #${record.recordIndex}` : '原始记录'}
     >
       {detail.isLoading && <div role="status">正在加载原始记录…</div>}

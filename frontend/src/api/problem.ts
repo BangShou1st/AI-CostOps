@@ -34,6 +34,6 @@ function isProblemDetail(value: unknown): value is ProblemDetail {
   return typeof problem.title === 'string'
     && typeof problem.status === 'number'
     && typeof problem.code === 'string'
-    && typeof problem.traceId === 'string'
+    && (typeof problem.traceId === 'string' || problem.traceId === null)
     && (typeof problem.detail === 'string' || problem.detail === null)
 }
