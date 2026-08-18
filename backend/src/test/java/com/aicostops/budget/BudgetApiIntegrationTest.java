@@ -127,6 +127,32 @@ class BudgetApiIntegrationTest extends BudgetTestSupport {
     }
 
     @Test
+    void createSupportsOrgScopeOfTheOwnOrganization() throws Exception {
+        mockMvc.perform(post("/api/v1/budgets")
+                        .header("Authorization", managerBearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(createBody("ORG", orgId, "CNY", "5000.00000000")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.scopeType").value("ORG"))
+                .andExpect(jsonPath("$.scopeId").value(Long.toString(orgId)))
+                .andExpect(jsonPath("$.availableAmount").value("5000.00000000"));
+    }
+
+    @Test
+    void listRequiresScopeTypeAndScopeIdTogether() throws Exception {
+        mockMvc.perform(get("/api/v1/budgets")
+                        .header("Authorization", readerBearer())
+                        .param("scopeType", "PROJECT"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        mockMvc.perform(get("/api/v1/budgets")
+                        .header("Authorization", readerBearer())
+                        .param("scopeId", Long.toString(projectId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
     void readListAndPrivacy() throws Exception {
         var projectBudget = insertBudgetRow(orgId, periodId, "PROJECT", projectId, "CNY",
                 "1000.00000000", "100.00000000", "200.00000000");

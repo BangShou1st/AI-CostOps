@@ -43,6 +43,11 @@ public class BudgetQueryService {
             Long billingPeriodId, ScopeType scopeType, Long scopeId) {
         var context = authorizationContexts.current(user);
         requireReadGrant(context);
+        if ((scopeType == null) != (scopeId == null)) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Invalid budget filter",
+                    "scopeType and scopeId must be provided together.");
+        }
         var visibility = visibility(context);
         if (!visibility.organizationWide() && visibility.visibleScopes().isEmpty()) {
             return PageResponse.of(List.of(), page, 0);

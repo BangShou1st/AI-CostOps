@@ -2,7 +2,6 @@ package com.aicostops.budget.infrastructure;
 
 import com.aicostops.audit.application.AuditService;
 import com.aicostops.budget.application.BudgetAuditPort;
-import com.aicostops.iam.domain.ScopeType;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import org.springframework.stereotype.Component;
@@ -19,10 +18,10 @@ public class AuditBudgetAdapter implements BudgetAuditPort {
 
     @Override
     public void created(long organizationId, long actorUserId, long budgetId,
-            String currency, ScopeType scopeType, long scopeId, BigDecimal totalAmount) {
+            String currency, String scopeType, long scopeId, BigDecimal totalAmount) {
         var metadata = new HashMap<String, Object>();
         metadata.put("currency", currency);
-        metadata.put("scopeType", scopeType.name());
+        metadata.put("scopeType", scopeType);
         metadata.put("scopeId", scopeId);
         metadata.put("totalAmount", totalAmount.toPlainString());
         auditService.append("BUDGET_CREATED", organizationId, actorUserId,

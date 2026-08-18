@@ -1,6 +1,5 @@
 package com.aicostops.budget.application;
 
-import com.aicostops.iam.domain.ScopeType;
 import java.math.BigDecimal;
 
 /**
@@ -12,7 +11,7 @@ public interface BudgetAuditPort {
 
     /** Appends {@code BUDGET_CREATED} (subject = budget). */
     void created(long organizationId, long actorUserId, long budgetId, String currency,
-            ScopeType scopeType, long scopeId, BigDecimal totalAmount);
+            String scopeType, long scopeId, BigDecimal totalAmount);
 
     /** Appends {@code BUDGET_TOTAL_CHANGED} with the resulting version. */
     void totalChanged(long organizationId, long actorUserId, long budgetId,

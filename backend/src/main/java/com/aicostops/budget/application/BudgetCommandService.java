@@ -79,7 +79,7 @@ public class BudgetCommandService {
         }
         var created = requireReadable(context.organizationId(), mapper.lastInsertId());
         audit.created(context.organizationId(), context.userId(), created.id(),
-                created.currency(), created.scopeType(), created.scopeId(),
+                created.currency(), created.scopeType().name(), created.scopeId(),
                 created.totalAmount());
         return created;
     }
