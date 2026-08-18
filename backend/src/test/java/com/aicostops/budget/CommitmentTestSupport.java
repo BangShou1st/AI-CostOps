@@ -151,6 +151,29 @@ public abstract class CommitmentTestSupport extends AuthenticationContainersSupp
 
     // -- fixtures --------------------------------------------------------------
 
+    /**
+     * A billing period that covers the live clock: from yesterday to +30
+     * days. Financial commands resolve the period by the budget's period id
+     * and check the half-open window against the current time, so fixtures
+     * must never hard-code a window that expires.
+     */
+    protected long insertCurrentBillingPeriod(long org, String status) {
+        var start = java.time.LocalDateTime.now(java.time.Clock.systemUTC()).minusDays(1)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS"));
+        var end = java.time.LocalDateTime.now(java.time.Clock.systemUTC()).plusDays(30)
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS"));
+        jdbc.update("""
+                INSERT INTO billing_period(
+                    org_id,period_start,period_end,status,close_generation,
+                    closing_started_at,closed_at,reopened_at,version,created_at,updated_at)
+                VALUES (?,?,?,?,0,NULL,NULL,NULL,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, org, start, end, status);
+        return jdbc.queryForObject("""
+                SELECT id FROM billing_period
+                WHERE org_id=? AND period_start=? AND period_end=?
+                """, Long.class, org, start, end);
+    }
+
     protected long insertBillingPeriod(long org, String start, String end, String status) {
         jdbc.update("""
                 INSERT INTO billing_period(
