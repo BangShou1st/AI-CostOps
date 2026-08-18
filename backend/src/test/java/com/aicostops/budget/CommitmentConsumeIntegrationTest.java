@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -237,6 +238,23 @@ class CommitmentConsumeIntegrationTest extends CommitmentTestSupport {
         assertThat(commitmentRemaining(commitmentId)).isEqualTo("10.00000000");
         assertThat(budgetCommitted(budgetId)).isEqualTo("0.00000000");
         assertThat(usageCount(commitmentId)).isZero();
+    }
+
+    @Test
+    void consumeWithoutOuterTransactionIsRejectedBeforeAnyMutation() {
+        var setup = activatedBudget("100.00000000", "30.00000000");
+
+        // Direct primitive call with NO outer transaction: the MANDATORY
+        // propagation must reject it before any financial mutation.
+        assertThatThrownBy(() -> consumeService.consume(new ConsumeCommand(
+                orgId, setup.commitmentId(), new BigDecimal("10.00000000"), 9501L)))
+                .isInstanceOf(IllegalTransactionStateException.class);
+
+        assertThat(usageCount(setup.commitmentId())).isZero();
+        assertThat(budgetCommitted(setup.budgetId())).isEqualTo("30.00000000");
+        assertThat(commitmentRemaining(setup.commitmentId())).isEqualTo("30.00000000");
+        assertThat(commitmentStatus(setup.commitmentId())).isEqualTo("ACTIVE");
+        assertThat(auditCount("COMMITMENT_CONSUMED")).isZero();
     }
 
     // -- helpers --------------------------------------------------------------

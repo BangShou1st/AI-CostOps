@@ -15,6 +15,8 @@ import java.time.Clock;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * AIC-045 consume primitive: an application-level financial building block
@@ -24,7 +26,11 @@ import org.springframework.stereotype.Service;
  *
  * <p>The frozen formula is {@code consumed = min(entryAmount,
  * remainingAmount)}. The primitive moves exactly three things, all in the
- * caller's transaction (this service never opens its own transaction):
+ * caller's transaction: the public method is enforced with
+ * {@code @Transactional(propagation = MANDATORY)}, so a direct call without
+ * an existing transaction is rejected with
+ * {@code IllegalTransactionStateException} before any mutation — the
+ * consume primitive can never silently commit a half financial state.
  *
  * <pre>
  * commitment.remaining_amount -= consumed   (status → PARTIALLY_CONSUMED /
@@ -73,10 +79,15 @@ public class CommitmentConsumeService {
 
     /**
      * Consumes up to {@code entryAmount} of the commitment's remaining
-     * amount. Must run inside the caller's transaction; returns the exact
-     * consumed amount and the resulting state. A replayed ledgerEntry
-     * lineage returns the stored consumption without any side effect.
+     * amount. MANDATORY: an existing transaction is required, so a caller
+     * without one gets {@code IllegalTransactionStateException} before any
+     * mutation — this primitive is designed to run inside the AIC-048
+     * ledger posting transaction and must never open its own. Returns the
+     * exact consumed amount and the resulting state. A replayed
+     * ledgerEntry lineage returns the stored consumption without any side
+     * effect, even when the commitment reached a terminal state.
      */
+    @Transactional(propagation = Propagation.MANDATORY)
     public ConsumeResult consume(ConsumeCommand command) {
         var entryAmount = requireMoney(command.entryAmount(), "entryAmount");
         if (entryAmount.signum() <= 0) {
