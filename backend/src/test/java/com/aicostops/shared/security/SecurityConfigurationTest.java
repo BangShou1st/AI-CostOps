@@ -129,8 +129,10 @@ class SecurityConfigurationTest {
 
         // M2 Group 3 implemented /api/v1/evidence and /api/v1/imports; M3
         // implemented /api/v1/costs/charges (covered by the allocation API
-        // integration tests). These families stay unimplemented and denyAll.
-        for (var routeFamily : List.of("/api/v1/budgets", "/api/v1/ledger")) {
+        // integration tests); M4 Group 3 implemented /api/v1/budgets (covered
+        // by the budget API integration tests). Only the ledger family stays
+        // unimplemented and denyAll.
+        for (var routeFamily : List.of("/api/v1/ledger")) {
             for (var path : List.of(routeFamily, routeFamily + "/123")) {
                 for (var method : List.of(
                         HttpMethod.GET, HttpMethod.POST, HttpMethod.PATCH, HttpMethod.PUT, HttpMethod.DELETE)) {

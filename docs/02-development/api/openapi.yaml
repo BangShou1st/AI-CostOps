@@ -700,6 +700,45 @@ components:
         targetTeamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         effectiveFrom: { type: string, format: date-time }
         effectiveTo: { type: [string, 'null'], format: date-time }
+    BudgetResponse:
+      type: object
+      required: [id, billingPeriodId, scopeType, scopeId, currency, totalAmount, actualAmount, committedAmount, availableAmount, overBudget, status, version, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        billingPeriodId: { $ref: '#/components/schemas/Id' }
+        scopeType: { $ref: '#/components/schemas/ScopeType' }
+        scopeId: { $ref: '#/components/schemas/Id' }
+        currency: { type: string }
+        totalAmount: { $ref: '#/components/schemas/Money' }
+        actualAmount: { $ref: '#/components/schemas/Money' }
+        committedAmount: { $ref: '#/components/schemas/Money' }
+        availableAmount: { $ref: '#/components/schemas/Money', description: Server-computed total - actual - committed; never a second stored authority. }
+        overBudget: { type: boolean, description: availableAmount is negative. }
+        status: { type: string, enum: [ACTIVE] }
+        version: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PageResponseBudget:
+      allOf:
+        - { $ref: '#/components/schemas/PageResponse' }
+        - type: object
+          properties: { items: { type: array, items: { $ref: '#/components/schemas/BudgetResponse' } } }
+    CreateBudgetRequest:
+      type: object
+      required: [billingPeriodId, scopeType, scopeId, currency, totalAmount]
+      properties:
+        billingPeriodId: { $ref: '#/components/schemas/Id' }
+        scopeType: { $ref: '#/components/schemas/ScopeType' }
+        scopeId: { $ref: '#/components/schemas/Id' }
+        currency: { type: string }
+        totalAmount: { $ref: '#/components/schemas/Money' }
+    UpdateBudgetRequest:
+      description: Only manageable fields are accepted; financial counters (actualAmount / committedAmount) are never writable through the management API.
+      type: object
+      required: [totalAmount, expectedVersion]
+      properties:
+        totalAmount: { $ref: '#/components/schemas/Money' }
+        expectedVersion: { type: integer, minimum: 0 }
 
 paths:
   /auth/login:
@@ -1014,3 +1053,17 @@ paths:
     post:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       responses: { '200': { description: Rule version ARCHIVED (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationRuleResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+
+  /budgets:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: billingPeriodId, in: query, schema: { type: integer, format: int64 } }, { name: scopeType, in: query, schema: { $ref: '#/components/schemas/ScopeType' } }, { name: scopeId, in: query, schema: { type: integer, format: int64 } }]
+      responses: { '200': { description: Paged budgets with server-computed availability, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseBudget' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateBudgetRequest' } } } }
+      responses: { '201': { description: Budget created with a natural identity (org, period, scope, currency), content: { application/json: { schema: { $ref: '#/components/schemas/BudgetResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /budgets/{budgetId}:
+    get:
+      responses: { '200': { description: Budget detail with computed availability, content: { application/json: { schema: { $ref: '#/components/schemas/BudgetResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+    put:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateBudgetRequest' } } } }
+      responses: { '200': { description: Manageable fields replaced with an optimistic version CAS, content: { application/json: { schema: { $ref: '#/components/schemas/BudgetResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }

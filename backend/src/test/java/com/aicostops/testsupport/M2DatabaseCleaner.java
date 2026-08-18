@@ -17,6 +17,11 @@ public final class M2DatabaseCleaner {
     public static void clean(JdbcTemplate jdbc) {
         jdbc.update("DELETE FROM duplicate_candidate");
         jdbc.update("DELETE FROM allocation_line");
+        // V11 budget/period chain: usage -> commitment -> budget -> period.
+        jdbc.update("DELETE FROM budget_commitment_usage");
+        jdbc.update("DELETE FROM budget_commitment");
+        jdbc.update("DELETE FROM budget");
+        jdbc.update("DELETE FROM billing_period");
         // M4 pointers on expense_claim must be cleared before their referenced
         // approval_case / allocation_decision rows are deleted; allocation
         // decisions themselves reference expense_claim (V10 FK), so decisions
