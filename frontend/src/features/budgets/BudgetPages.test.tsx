@@ -1,0 +1,354 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { useAuth } from '../auth/AuthSessionProvider'
+import { budgetApi, type BudgetResponse } from './api/budgetApi'
+import { commitmentApi, type CommitmentResponse } from './api/commitmentApi'
+import { BudgetsListPage } from './BudgetsListPage'
+import { BudgetDetailPage } from './BudgetDetailPage'
+
+vi.mock('../auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
+vi.mock('./api/budgetApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api/budgetApi')>()
+  return {
+    ...actual,
+    budgetApi: { list: vi.fn(), get: vi.fn(), update: vi.fn() },
+  }
+})
+vi.mock('./api/commitmentApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api/commitmentApi')>()
+  return {
+    ...actual,
+    commitmentApi: {
+      list: vi.fn(),
+      get: vi.fn(),
+      create: vi.fn(),
+      approve: vi.fn(),
+      reject: vi.fn(),
+      cancel: vi.fn(),
+      release: vi.fn(),
+    },
+  }
+})
+
+const mockedUseAuth = vi.mocked(useAuth)
+const mockedBudgetApi = vi.mocked(budgetApi)
+const mockedCommitmentApi = vi.mocked(commitmentApi)
+
+/**
+ * Contract sentinel: the server reports total - actual - committed as
+ * 48.50000000 even though naive client arithmetic would compute 50. The
+ * page must display the server authority verbatim and never recompute.
+ */
+const SENTINEL_BUDGET: BudgetResponse = {
+  id: '7',
+  billingPeriodId: '3',
+  scopeType: 'PROJECT',
+  scopeId: '42',
+  currency: 'CNY',
+  totalAmount: '100.00000000',
+  actualAmount: '30.00000000',
+  committedAmount: '20.00000000',
+  availableAmount: '48.50000000',
+  overBudget: false,
+  status: 'ACTIVE',
+  version: 4,
+  createdAt: '2026-01-01T00:00:00Z',
+  updatedAt: '2026-01-02T00:00:00Z',
+}
+
+const COMMITMENT: CommitmentResponse = {
+  id: '9',
+  budgetId: '7',
+  status: 'REQUESTED',
+  requestedAmount: '50.00000000',
+  approvedAmount: null,
+  remainingAmount: null,
+  version: 1,
+  createdAt: '2026-01-03T00:00:00Z',
+  updatedAt: '2026-01-03T00:00:00Z',
+  approvalCaseId: 'c-1',
+  approvalStatus: 'PENDING',
+  history: [],
+}
+
+function renderPage(permissions: string[], element: React.ReactElement) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  mockedUseAuth.mockReturnValue({
+    status: 'authenticated',
+    user: {
+      id: '1',
+      email: 'admin@example.com',
+      displayName: 'Admin',
+      organizationId: '2',
+      organizationMemberId: '3',
+      permissions,
+    },
+    login: vi.fn(),
+    refreshMe: vi.fn(),
+    logout: vi.fn(),
+  } as ReturnType<typeof useAuth>)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/budgets']}>
+        <Routes>
+          <Route path="/budgets" element={<BudgetsListPage />} />
+          <Route path="/budgets/:budgetId" element={<BudgetDetailPage />} />
+          <Route path="/budget-commitments/:commitmentId" element={<h1>Commitment page</h1>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+function renderDetailPage(permissions: string[]) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  mockedUseAuth.mockReturnValue({
+    status: 'authenticated',
+    user: {
+      id: '1',
+      email: 'admin@example.com',
+      displayName: 'Admin',
+      organizationId: '2',
+      organizationMemberId: '3',
+      permissions,
+    },
+    login: vi.fn(),
+    refreshMe: vi.fn(),
+    logout: vi.fn(),
+  } as ReturnType<typeof useAuth>)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/budgets/7']}>
+        <Routes>
+          <Route path="/budgets/:budgetId" element={<BudgetDetailPage />} />
+          <Route path="/budget-commitments/:commitmentId" element={<h1>Commitment page</h1>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockedBudgetApi.list.mockResolvedValue({ items: [], page: 0, size: 50, totalElements: 0, totalPages: 0 })
+  mockedBudgetApi.get.mockResolvedValue(SENTINEL_BUDGET)
+  mockedCommitmentApi.list.mockResolvedValue({ items: [], page: 0, size: 10, totalElements: 0, totalPages: 0 })
+})
+
+describe('BudgetsListPage', () => {
+  it('renders the five frozen budget metrics', async () => {
+    mockedBudgetApi.list.mockResolvedValue({
+      items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 1, totalPages: 1,
+    })
+
+    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+
+    await waitFor(() => expect(screen.getByText('100.00000000 CNY')).toBeInTheDocument())
+    expect(screen.getByText('30.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('20.00000000 CNY')).toBeInTheDocument()
+    // scroll={{ x }} renders the header twice in jsdom; presence is the contract.
+    expect(screen.getAllByText('Total').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Actual').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Outstanding Commitment').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Available').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Over-budget').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('displays the server availableAmount sentinel without recomputing it', async () => {
+    // total 100 - actual 30 - committed 20 = 50 by naive arithmetic, but the
+    // server authority says 48.50000000. The page must show the server value.
+    mockedBudgetApi.list.mockResolvedValue({
+      items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 1, totalPages: 1,
+    })
+
+    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+
+    await waitFor(() => expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument())
+    expect(screen.queryByText('50.00000000 CNY')).not.toBeInTheDocument()
+  })
+
+  it('renders the typed scope and scope id', async () => {
+    mockedBudgetApi.list.mockResolvedValue({
+      items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 1, totalPages: 1,
+    })
+
+    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+
+    await waitFor(() => expect(screen.getByText('PROJECT · 42')).toBeInTheDocument())
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('CNY')).toBeInTheDocument()
+  })
+
+  it('shows the server overBudget flag as a visible tag', async () => {
+    mockedBudgetApi.list.mockResolvedValue({
+      items: [{ ...SENTINEL_BUDGET, availableAmount: '-1.00000000', overBudget: true }],
+      page: 0, size: 50, totalElements: 1, totalPages: 1,
+    })
+
+    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+
+    await waitFor(() => expect(screen.getByText('超支')).toBeInTheDocument())
+  })
+
+  it('paginates through the server', async () => {
+    mockedBudgetApi.list.mockResolvedValue({
+      items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 55, totalPages: 2,
+    })
+
+    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+
+    await screen.findByText('100.00000000 CNY')
+    fireEvent.click(screen.getByTitle('2'))
+
+    await waitFor(() => {
+      expect(mockedBudgetApi.list).toHaveBeenLastCalledWith({ page: 1, size: 50 })
+    })
+  })
+
+  it('navigates to the budget detail on row click', async () => {
+    mockedBudgetApi.list.mockResolvedValue({
+      items: [SENTINEL_BUDGET], page: 0, size: 50, totalElements: 1, totalPages: 1,
+    })
+
+    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+
+    await screen.findByText('100.00000000 CNY')
+    fireEvent.click(screen.getByText('7'))
+
+    await waitFor(() => expect(screen.getByText(/预算详情/)).toBeInTheDocument())
+  })
+
+  it('shows the normalized problem detail when the budget list fails', async () => {
+    mockedBudgetApi.list.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: {
+          title: 'Forbidden',
+          status: 403,
+          detail: 'Access to this resource is forbidden.',
+          code: 'FORBIDDEN',
+          traceId: 't-9',
+        },
+      },
+    })
+
+    renderPage(['BUDGET_READ'], <BudgetsListPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Forbidden（FORBIDDEN）/)).toBeInTheDocument()
+    })
+  })
+})
+
+describe('BudgetDetailPage', () => {
+  it('renders the five frozen metrics and the identity fields', async () => {
+    renderDetailPage(['BUDGET_READ'])
+
+    await waitFor(() => expect(screen.getByText(/预算详情/)).toBeInTheDocument())
+    expect(screen.getByText('100.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('30.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('20.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('Total')).toBeInTheDocument()
+    expect(screen.getByText('Actual')).toBeInTheDocument()
+    expect(screen.getByText('Outstanding Commitment')).toBeInTheDocument()
+    expect(screen.getByText('Available')).toBeInTheDocument()
+    expect(screen.getByText('Over-budget')).toBeInTheDocument()
+    expect(screen.getByText('PROJECT')).toBeInTheDocument()
+    expect(screen.getByText('42')).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByText('ACTIVE')).toBeInTheDocument()
+    expect(screen.getByText('v4')).toBeInTheDocument()
+  })
+
+  it('does not recompute the available sentinel on the detail page either', async () => {
+    renderDetailPage(['BUDGET_READ'])
+
+    await waitFor(() => expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument())
+    expect(screen.queryByText('50.00000000 CNY')).not.toBeInTheDocument()
+  })
+
+  it('flags over-budget from the server field with a visible alert', async () => {
+    mockedBudgetApi.get.mockResolvedValue({
+      ...SENTINEL_BUDGET,
+      availableAmount: '-2.00000000',
+      overBudget: true,
+    })
+
+    renderDetailPage(['BUDGET_READ'])
+
+    await waitFor(() => expect(screen.getByText('预算超支')).toBeInTheDocument())
+    expect(screen.queryByText('预算超支')).toBeInTheDocument()
+  })
+
+  it('renders the commitment list of the budget', async () => {
+    mockedCommitmentApi.list.mockResolvedValue({
+      items: [COMMITMENT], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    })
+
+    renderDetailPage(['BUDGET_READ'])
+
+    await waitFor(() => expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1))
+    expect(screen.getByText('9')).toBeInTheDocument()
+    expect(screen.getByText('50.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('2026-01-03T00:00:00Z')).toBeInTheDocument()
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('navigates to the commitment detail on row click', async () => {
+    mockedCommitmentApi.list.mockResolvedValue({
+      items: [COMMITMENT], page: 0, size: 10, totalElements: 1, totalPages: 1,
+    })
+
+    renderDetailPage(['BUDGET_READ'])
+
+    await waitFor(() => expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1))
+    fireEvent.click(screen.getByText('9'))
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Commitment page' })).toBeInTheDocument())
+  })
+
+  it('shows the normalized problem detail on a 404 budget', async () => {
+    mockedBudgetApi.get.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: {
+          title: 'Budget not found',
+          status: 404,
+          detail: 'The budget is not available in the current organization.',
+          code: 'RESOURCE_NOT_FOUND',
+          traceId: 't-5',
+        },
+      },
+    })
+
+    renderDetailPage(['BUDGET_READ'])
+
+    await waitFor(() => {
+      expect(screen.getByText(/Budget not found（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
+    })
+  })
+
+  it('shows an error instead of an empty commitment list when the list fails', async () => {
+    mockedCommitmentApi.list.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        data: {
+          title: 'Forbidden',
+          status: 403,
+          detail: 'Access to this resource is forbidden.',
+          code: 'FORBIDDEN',
+          traceId: 't-6',
+        },
+      },
+    })
+
+    renderDetailPage(['BUDGET_READ'])
+
+    await waitFor(() => {
+      expect(screen.getByText(/无法加载承诺/)).toBeInTheDocument()
+    })
+  })
+})
