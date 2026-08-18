@@ -1,7 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
-import { Alert, Button, Card, Descriptions, Space, Table, Tag } from 'antd'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Alert, Button, Card, Descriptions, Input, Modal, Space, Table, Tag } from 'antd'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toProblemDetail } from '../../api/problem'
+import { hasPermission } from '../settings/permissions'
+import { useAuth } from '../auth/AuthSessionProvider'
 import { budgetApi, budgetKeys } from './api/budgetApi'
 import {
   commitmentApi,
@@ -11,7 +14,7 @@ import {
   type CommitmentResponse,
   type CommitmentStatus,
 } from './api/commitmentApi'
-import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL } from './presentation'
+import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL, budgetCommandProblemMessage } from './presentation'
 
 const ACTION_LABEL: Record<ApprovalActionType, string> = {
   SUBMIT: '提交',
@@ -40,6 +43,15 @@ export function BudgetCommitmentDetailPage() {
     enabled: !!commitmentQuery.data?.budgetId,
   })
 
+  const auth = useAuth()
+  const qc = useQueryClient()
+  const [actionProblem, setActionProblem] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectComment, setRejectComment] = useState('')
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [releaseOpen, setReleaseOpen] = useState(false)
+
   const problem = commitmentQuery.error ? toProblemDetail(commitmentQuery.error) : null
 
   if (problem) {
@@ -65,6 +77,43 @@ export function BudgetCommitmentDetailPage() {
   const commitment = commitmentQuery.data
   const currency = budgetQuery.data?.currency ?? ''
 
+  const canApprove = hasPermission(auth.user?.permissions, 'COMMITMENT_APPROVE')
+  const canRelease = hasPermission(auth.user?.permissions, 'COMMITMENT_RELEASE')
+  const submitActor = commitment.history.find((action) => action.actionType === 'SUBMIT')?.actorMemberId ?? null
+  const isRequester = submitActor !== null && submitActor === (auth.user?.organizationMemberId ?? null)
+  const canReject = commitment.status === 'REQUESTED' && canApprove
+  const canApproveNow = commitment.status === 'REQUESTED' && canApprove
+  const canCancel = commitment.status === 'REQUESTED' && (isRequester || canApprove)
+  const canReleaseNow = canRelease && (commitment.status === 'ACTIVE' || commitment.status === 'PARTIALLY_CONSUMED')
+  const showActions = canReject || canApproveNow || canCancel || canReleaseNow
+
+  // After any financial command the server read model is the truth: the
+  // commitment detail, the budget's commitment list and the budget itself are
+  // all refetched. Nothing is patched optimistically.
+  const refreshAll = () => {
+    qc.invalidateQueries({ queryKey: commitmentKeys.detail(commitment.id) })
+    qc.invalidateQueries({ queryKey: commitmentKeys.byBudget(commitment.budgetId) })
+    qc.invalidateQueries({ queryKey: budgetKeys.detail(commitment.budgetId) })
+    qc.invalidateQueries({ queryKey: budgetKeys.lists() })
+  }
+
+  const runAction = async (action: () => Promise<unknown>) => {
+    setActionLoading(true)
+    setActionProblem(null)
+    try {
+      await action()
+      refreshAll()
+    } catch (e) {
+      const problemDetail = toProblemDetail(e)
+      setActionProblem(budgetCommandProblemMessage(problemDetail))
+      // A 409 means our version is stale: refresh the latest state, but never
+      // re-send the financial mutation automatically.
+      if (problemDetail.status === 409) refreshAll()
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   return (
     <main className="settings-page">
       <header className="page-header">
@@ -86,9 +135,108 @@ export function BudgetCommitmentDetailPage() {
             <Descriptions.Item label="Version">{`v${commitment.version}`}</Descriptions.Item>
           </Descriptions>
         </Card>
+        {showActions && (
+          <Card title="承诺操作" size="small">
+            <Space>
+              {canApproveNow && (
+                <Button
+                  type="primary"
+                  loading={actionLoading}
+                  onClick={() => void runAction(() => commitmentApi.approve(
+                    commitment.id,
+                    { expectedVersion: commitment.version },
+                    crypto.randomUUID(),
+                  ))}
+                >
+                  批准
+                </Button>
+              )}
+              {canReject && (
+                <Button loading={actionLoading} onClick={() => setRejectOpen(true)}>拒绝</Button>
+              )}
+              {canCancel && (
+                <Button loading={actionLoading} onClick={() => setCancelOpen(true)}>取消申请</Button>
+              )}
+              {canReleaseNow && (
+                <Button loading={actionLoading} onClick={() => setReleaseOpen(true)}>释放</Button>
+              )}
+            </Space>
+          </Card>
+        )}
+        {actionProblem && (
+          <Alert type="error" showIcon message={actionProblem} closable onClose={() => setActionProblem(null)} />
+        )}
         <Card title="审批历史" size="small">
           <HistoryTable history={commitment.history} />
         </Card>
+        <Modal
+          title="拒绝承诺申请"
+          open={rejectOpen}
+          onOk={() => void runAction(async () => {
+            await commitmentApi.reject(
+              commitment.id,
+              { expectedVersion: commitment.version, comment: rejectComment },
+              crypto.randomUUID(),
+            )
+            setRejectOpen(false)
+            setRejectComment('')
+          })}
+          onCancel={() => setRejectOpen(false)}
+          okText="确认拒绝"
+          cancelText="取消"
+          okButtonProps={{ loading: actionLoading, danger: true }}
+        >
+          <Input.TextArea
+            aria-label="拒绝原因"
+            rows={3}
+            maxLength={2000}
+            value={rejectComment}
+            placeholder="请输入拒绝原因"
+            onChange={(event) => setRejectComment(event.target.value)}
+          />
+        </Modal>
+        <Modal
+          title="取消承诺申请"
+          open={cancelOpen}
+          onOk={() => void runAction(async () => {
+            await commitmentApi.cancel(
+              commitment.id,
+              { expectedVersion: commitment.version },
+              crypto.randomUUID(),
+            )
+            setCancelOpen(false)
+          })}
+          onCancel={() => setCancelOpen(false)}
+          okText="确认取消"
+          cancelText="再想想"
+          okButtonProps={{ loading: actionLoading }}
+        >
+          <div>确认取消该承诺申请？此操作不会改变预算承诺金额。</div>
+        </Modal>
+        <Modal
+          title="释放承诺"
+          open={releaseOpen}
+          onOk={() => void runAction(async () => {
+            await commitmentApi.release(
+              commitment.id,
+              { expectedVersion: commitment.version },
+              crypto.randomUUID(),
+            )
+            setReleaseOpen(false)
+          })}
+          onCancel={() => setReleaseOpen(false)}
+          okText="确认释放"
+          cancelText="取消"
+          okButtonProps={{ loading: actionLoading, danger: true }}
+        >
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="Commitment ID">{commitment.id}</Descriptions.Item>
+            <Descriptions.Item label="Remaining Amount">
+              {commitment.remainingAmount === null ? '—' : `${commitment.remainingAmount} ${currency}`}
+            </Descriptions.Item>
+            <Descriptions.Item label="Currency">{currency}</Descriptions.Item>
+          </Descriptions>
+        </Modal>
       </Space>
     </main>
   )
