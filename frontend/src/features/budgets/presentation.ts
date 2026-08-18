@@ -27,3 +27,20 @@ export const APPROVAL_STATUS_LABEL: Record<ApprovalCaseStatus, string> = {
   REJECTED: '已拒绝',
   CANCELED: '已取消',
 }
+
+/**
+ * Business framing for known budget/commitment command failures. Unknown
+ * problems fall back to the server detail; the raw stack is never shown.
+ */
+export function budgetCommandProblemMessage(problem: { code: string; detail: string | null }): string {
+  switch (problem.code) {
+    case 'STATE_CONFLICT':
+      return 'Budget has changed. Refresh the latest version before retrying.'
+    case 'BUDGET_INSUFFICIENT':
+      return 'Budget availability is insufficient.'
+    case 'PERIOD_NOT_OPEN':
+      return 'Current financial period does not allow this action.'
+    default:
+      return problem.detail ?? '操作失败'
+  }
+}

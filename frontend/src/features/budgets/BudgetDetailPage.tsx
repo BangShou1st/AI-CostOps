@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom'
 import { toProblemDetail } from '../../api/problem'
 import { hasPermission } from '../settings/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
+import { RequestCommitmentButton } from './components/RequestCommitmentButton'
 import { budgetApi, budgetKeys } from './api/budgetApi'
 import { commitmentApi, commitmentKeys } from './api/commitmentApi'
 import { BudgetMetrics } from './components/BudgetMetrics'
@@ -17,6 +18,7 @@ export function BudgetDetailPage() {
   const { budgetId } = useParams<{ budgetId: string }>()
   const auth = useAuth()
   const canManage = hasPermission(auth.user?.permissions, 'BUDGET_MANAGE')
+  const canRequest = hasPermission(auth.user?.permissions, 'COMMITMENT_REQUEST')
   const qc = useQueryClient()
   const [commitmentPage, setCommitmentPage] = useState(0)
 
@@ -40,6 +42,13 @@ export function BudgetDetailPage() {
   const refreshBudget = useCallback(() => {
     qc.invalidateQueries({ queryKey: budgetKeys.detail(budgetId!) })
     qc.invalidateQueries({ queryKey: budgetKeys.lists() })
+  }, [qc, budgetId])
+
+  // A request only creates a REQUESTED row: the budget counters are unchanged,
+  // so only the commitment list needs a refresh; there is never an optimistic
+  // bump of committedAmount anywhere in the UI.
+  const refreshCommitments = useCallback(() => {
+    qc.invalidateQueries({ queryKey: commitmentKeys.byBudget(budgetId!) })
   }, [qc, budgetId])
 
   if (budgetProblem) {
@@ -89,7 +98,7 @@ export function BudgetDetailPage() {
             <Descriptions.Item label="Version">{`v${b.version}`}</Descriptions.Item>
           </Descriptions>
         </Card>
-        <Card title="承诺 (Commitments)" size="small">
+        <Card title="承诺 (Commitments)" size="small" extra={canRequest ? <RequestCommitmentButton budget={b} onCreated={refreshCommitments} /> : undefined}>
           {commitmentProblem ? (
             <Alert
               type="error"
