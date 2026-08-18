@@ -1,16 +1,16 @@
 package com.aicostops.budget.application;
 
 import com.aicostops.budget.application.BudgetCommitmentCommands.ApproveCommitmentCommand;
+import com.aicostops.budget.application.BudgetCommitmentCommands.CancelCommitmentCommand;
+import com.aicostops.budget.application.BudgetCommitmentCommands.RejectCommitmentCommand;
 import com.aicostops.budget.application.BudgetCommitmentCommands.RequestCommitmentCommand;
 import com.aicostops.budget.application.CommitmentIdempotencyStore.IdempotencyDecision;
 import com.aicostops.budget.application.CommitmentReadModels.CommitmentDetail;
 import com.aicostops.budget.domain.BillingPeriodStatus;
 import com.aicostops.budget.domain.Budget;
 import com.aicostops.budget.domain.BudgetCommitment;
-import com.aicostops.budget.domain.BudgetCommitmentStatus;
 import com.aicostops.budget.domain.BudgetDecimal;
 import com.aicostops.budget.domain.BudgetStatus;
-import com.aicostops.budget.domain.CommitmentApprovalCase;
 import com.aicostops.budget.domain.CommitmentApprovalCaseStatus;
 import com.aicostops.budget.infrastructure.BillingPeriodMapper;
 import com.aicostops.budget.infrastructure.BudgetCommitmentMapper;
@@ -19,6 +19,8 @@ import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.iam.domain.AuthorizationContext;
 import com.aicostops.iam.domain.M1AdminPermissionPolicy;
+import com.aicostops.iam.domain.ScopeType;
+import com.aicostops.iam.domain.ScopedPermissionGrant;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -284,6 +286,125 @@ public class BudgetCommitmentCommandService {
         }));
     }
 
+    /**
+     * Reviewer rejection (REQUESTED only): the commitment and its approval
+     * case move REQUESTED → REJECTED / PENDING → REJECTED in one
+     * transaction with exactly one REJECT action; the budget counter is
+     * never touched. Requires COMMITMENT_APPROVE at the budget scope.
+     */
+    public CommitmentDetail reject(AuthenticatedUser user, long commitmentId,
+            RejectCommitmentCommand command, String idempotencyKey) {
+        var context = authorizationContexts.fresh(user);
+        requireAnyApplicableGrant(context, PERMISSION_COMMITMENT_APPROVE);
+        idempotency.validateKey(idempotencyKey);
+        var requestHash = idempotency.rejectRequestHash(context.organizationId(),
+                context.organizationMemberId(), commitmentId, command.expectedVersion(),
+                command.comment());
+        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+            var decision = idempotency.reserve(context.organizationId(),
+                    context.organizationMemberId(),
+                    CommitmentIdempotency.OPERATION_COMMITMENT_REJECT,
+                    idempotencyKey, requestHash);
+            if (decision.replay()) {
+                return responseCodec.fromJson(decision.responseBody());
+            }
+            var budget = requireVisibleBudget(context, commitmentId,
+                    PERMISSION_COMMITMENT_APPROVE);
+            var now = clock.instant();
+            var commitmentLocked = commitmentMapper.selectByIdForUpdate(
+                    context.organizationId(), commitmentId);
+            if (commitmentLocked.version() != command.expectedVersion()) {
+                throw staleVersion();
+            }
+            if (!commitmentLocked.status().canRejectOrCancel()) {
+                throw stateConflict("Commitment cannot be rejected",
+                        "Only a REQUESTED commitment can be rejected; the commitment is "
+                                + commitmentLocked.status() + ".");
+            }
+            if (commitmentMapper.updateReject(context.organizationId(), commitmentId, now) != 1) {
+                throw stateConflict("Commitment rejection conflict",
+                        "The commitment was no longer REQUESTED when the rejection applied.");
+            }
+            var approvalCase = requirePendingCase(context.organizationId(), commitmentId);
+            commitmentMapper.updateApprovalCaseStatus(context.organizationId(),
+                    approvalCase.id(), "PENDING", "REJECTED", now);
+            commitmentMapper.insertApprovalAction(context.organizationId(), approvalCase.id(),
+                    context.organizationMemberId(), "REJECT", "REQUESTED", "REJECTED",
+                    command.comment(), now);
+            var detail = toDetail(commitmentMapper.selectByIdAndOrganization(
+                    context.organizationId(), commitmentId),
+                    commitmentMapper.selectApprovalCaseByCommitment(context.organizationId(),
+                            commitmentId));
+            audit.rejected(context.organizationId(), context.userId(), commitmentId,
+                    budget.id(), approvalCase.id(), "REQUESTED", "REJECTED");
+            idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
+            return detail;
+        }));
+    }
+
+    /**
+     * Cancellation (REQUESTED only) by the requester (the SUBMIT actor of the
+     * approval case) or by any COMMITMENT_APPROVE holder at the budget scope:
+     * an arbitrary organization member can never cancel someone else's
+     * commitment. Same single transaction as reject; the budget counter is
+     * never touched (an ACTIVE commitment's exits are consume and release).
+     */
+    public CommitmentDetail cancel(AuthenticatedUser user, long commitmentId,
+            CancelCommitmentCommand command, String idempotencyKey) {
+        var context = authorizationContexts.fresh(user);
+        requireRequestOrApproveGrant(context);
+        idempotency.validateKey(idempotencyKey);
+        var requestHash = idempotency.cancelRequestHash(context.organizationId(),
+                context.organizationMemberId(), commitmentId, command.expectedVersion());
+        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+            var decision = idempotency.reserve(context.organizationId(),
+                    context.organizationMemberId(),
+                    CommitmentIdempotency.OPERATION_COMMITMENT_CANCEL,
+                    idempotencyKey, requestHash);
+            if (decision.replay()) {
+                return responseCodec.fromJson(decision.responseBody());
+            }
+            var budget = requireVisibleBudgetForCancel(context, commitmentId);
+            var approveGranted = matchesBudgetScope(context, PERMISSION_COMMITMENT_APPROVE,
+                    budget);
+            var now = clock.instant();
+            var commitmentLocked = commitmentMapper.selectByIdForUpdate(
+                    context.organizationId(), commitmentId);
+            if (commitmentLocked.version() != command.expectedVersion()) {
+                throw staleVersion();
+            }
+            if (!commitmentLocked.status().canRejectOrCancel()) {
+                throw stateConflict("Commitment cannot be canceled",
+                        "Only a REQUESTED commitment can be canceled; the commitment is "
+                                + commitmentLocked.status() + ".");
+            }
+            var approvalCase = requirePendingCase(context.organizationId(), commitmentId);
+            if (!approveGranted) {
+                var submitActor = commitmentMapper.selectSubmitActor(
+                        context.organizationId(), approvalCase.id());
+                if (submitActor == null || submitActor != context.organizationMemberId()) {
+                    throw notFound("The commitment is not available to the current user.");
+                }
+            }
+            if (commitmentMapper.updateCancel(context.organizationId(), commitmentId, now) != 1) {
+                throw stateConflict("Commitment cancellation conflict",
+                        "The commitment was no longer REQUESTED when the cancellation applied.");
+            }
+            commitmentMapper.updateApprovalCaseStatus(context.organizationId(),
+                    approvalCase.id(), "PENDING", "CANCELED", now);
+            commitmentMapper.insertApprovalAction(context.organizationId(), approvalCase.id(),
+                    context.organizationMemberId(), "CANCEL", "REQUESTED", "CANCELED", null, now);
+            var detail = toDetail(commitmentMapper.selectByIdAndOrganization(
+                    context.organizationId(), commitmentId),
+                    commitmentMapper.selectApprovalCaseByCommitment(context.organizationId(),
+                            commitmentId));
+            audit.canceled(context.organizationId(), context.userId(), commitmentId,
+                    budget.id(), approvalCase.id(), "REQUESTED", "CANCELED");
+            idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
+            return detail;
+        }));
+    }
+
     // -- shared helpers --------------------------------------------------------
 
     protected CommitmentDetail toDetail(BudgetCommitment commitment,
@@ -297,15 +418,115 @@ public class BudgetCommitmentCommandService {
     /** 403 before any resource lookup: any applicable grant must exist. */
     protected static void requireAnyApplicableGrant(AuthorizationContext context,
             String permissionCode) {
+        if (!hasApplicableGrant(context, permissionCode)) {
+            throw forbidden();
+        }
+    }
+
+    /** Cancel is a requester (COMMITMENT_REQUEST) or reviewer action. */
+    private static void requireRequestOrApproveGrant(AuthorizationContext context) {
+        if (!hasApplicableGrant(context, PERMISSION_COMMITMENT_REQUEST)
+                && !hasApplicableGrant(context, PERMISSION_COMMITMENT_APPROVE)) {
+            throw forbidden();
+        }
+    }
+
+    private static boolean hasApplicableGrant(AuthorizationContext context,
+            String permissionCode) {
         var applicableScopes = M1AdminPermissionPolicy.applicableScopes(permissionCode);
-        var granted = context.grants().stream().anyMatch(grant ->
+        return context.grants().stream().anyMatch(grant ->
                 grant.permissionCode().equals(permissionCode)
                         && applicableScopes.contains(grant.scopeType()));
-        if (!granted) {
-            throw new DomainException(HttpStatus.FORBIDDEN, ProblemCode.FORBIDDEN,
-                    "Permission is required",
-                    "The required permission is not granted at an applicable scope.");
+    }
+
+    private static DomainException forbidden() {
+        return new DomainException(HttpStatus.FORBIDDEN, ProblemCode.FORBIDDEN,
+                "Permission is required",
+                "The required permission is not granted at an applicable scope.");
+    }
+
+    /**
+     * Organization-scoped lookup + grant-scope enforcement of a commitment's
+     * budget: a wrong organization or a budget outside the granted scope is a
+     * privacy-preserving 404.
+     */
+    protected Budget requireVisibleBudget(AuthorizationContext context, long commitmentId,
+            String permissionCode) {
+        var commitment = commitmentMapper.selectByIdAndOrganization(context.organizationId(),
+                commitmentId);
+        if (commitment == null) {
+            throw notFound("The commitment is not available in the current organization.");
         }
+        var budget = budgetMapper.selectByIdAndOrganization(context.organizationId(),
+                commitment.budgetId());
+        if (budget == null) {
+            throw notFound("The budget is not available in the current organization.");
+        }
+        authorization.requireResource(context, permissionCode,
+                budget.scopeType(), budget.scopeId());
+        return budget;
+    }
+
+    /**
+     * Cancel visibility: the requester's COMMITMENT_REQUEST grant or the
+     * reviewer's COMMITMENT_APPROVE grant, either matching the budget scope.
+     */
+    private Budget requireVisibleBudgetForCancel(AuthorizationContext context,
+            long commitmentId) {
+        var commitment = commitmentMapper.selectByIdAndOrganization(context.organizationId(),
+                commitmentId);
+        if (commitment == null) {
+            throw notFound("The commitment is not available in the current organization.");
+        }
+        var budget = budgetMapper.selectByIdAndOrganization(context.organizationId(),
+                commitment.budgetId());
+        if (budget == null) {
+            throw notFound("The budget is not available in the current organization.");
+        }
+        var requestGranted = matchesBudgetScope(context, PERMISSION_COMMITMENT_REQUEST, budget);
+        var approveGranted = matchesBudgetScope(context, PERMISSION_COMMITMENT_APPROVE, budget);
+        if (!requestGranted && !approveGranted) {
+            throw notFound("The commitment is not available in the current organization.");
+        }
+        return budget;
+    }
+
+    /**
+     * Grant matching for the combined cancel path: an ORG grant of the
+     * current organization covers every budget scope except ORG budgets of
+     * another organization; a typed grant matches exactly the same
+     * scope_type/scope_id (mirrors M1AuthorizationService.matchesResource).
+     */
+    private static boolean matchesBudgetScope(AuthorizationContext context,
+            String permissionCode, Budget budget) {
+        var applicableScopes = M1AdminPermissionPolicy.applicableScopes(permissionCode);
+        return context.grants().stream().anyMatch(grant ->
+                grant.permissionCode().equals(permissionCode)
+                        && applicableScopes.contains(grant.scopeType())
+                        && matchesResource(context, grant, budget));
+    }
+
+    private static boolean matchesResource(AuthorizationContext context,
+            ScopedPermissionGrant grant, Budget budget) {
+        var organizationGrantMatches = grant.scopeType() == ScopeType.ORG
+                && grant.scopeId() == context.organizationId()
+                && (budget.scopeType() != ScopeType.ORG
+                        || budget.scopeId() == context.organizationId());
+        var typedGrantMatches = grant.scopeType() == budget.scopeType()
+                && grant.scopeId() == budget.scopeId();
+        return organizationGrantMatches || typedGrantMatches;
+    }
+
+    private com.aicostops.budget.domain.CommitmentApprovalCase requirePendingCase(
+            long organizationId, long commitmentId) {
+        var approvalCase = commitmentMapper.selectApprovalCaseByCommitmentForUpdate(
+                organizationId, commitmentId);
+        if (approvalCase == null
+                || approvalCase.status() != CommitmentApprovalCaseStatus.PENDING) {
+            throw stateConflict("Approval case conflict",
+                    "The commitment's approval case must be PENDING for this transition.");
+        }
+        return approvalCase;
     }
 
     protected static BigDecimal requireMoney(BigDecimal value, String field) {

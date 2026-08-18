@@ -266,6 +266,18 @@ public interface BudgetCommitmentMapper {
             @Param("organizationId") long organizationId,
             @Param("approvalCaseId") long approvalCaseId);
 
+    /** The member who submitted the commitment (cancel ownership check). */
+    @Select("""
+            SELECT actor_member_id FROM approval_action
+            WHERE org_id=#{organizationId} AND approval_case_id=#{approvalCaseId}
+              AND action_type='SUBMIT'
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1
+            """)
+    Long selectSubmitActor(
+            @Param("organizationId") long organizationId,
+            @Param("approvalCaseId") long approvalCaseId);
+
     // -- usage lineage (append-only; ledger_entry FK arrives with AIC-047) -----
 
     @Insert("""
