@@ -18,10 +18,9 @@ public final class M2DatabaseCleaner {
         jdbc.update("DELETE FROM duplicate_candidate");
         jdbc.update("DELETE FROM allocation_line");
         // V11 budget/period chain: usage -> commitment -> budget -> period.
+        // V12 (AIC-044) added approval_case.budget_commitment_id, so approval
+        // cases must be deleted before their referenced commitments.
         jdbc.update("DELETE FROM budget_commitment_usage");
-        jdbc.update("DELETE FROM budget_commitment");
-        jdbc.update("DELETE FROM budget");
-        jdbc.update("DELETE FROM billing_period");
         // M4 pointers on expense_claim must be cleared before their referenced
         // approval_case / allocation_decision rows are deleted; allocation
         // decisions themselves reference expense_claim (V10 FK), so decisions
@@ -30,6 +29,9 @@ public final class M2DatabaseCleaner {
         jdbc.update(
                 "UPDATE expense_claim SET current_allocation_decision_id=NULL, approval_case_id=NULL");
         jdbc.update("DELETE FROM approval_case");
+        jdbc.update("DELETE FROM budget_commitment");
+        jdbc.update("DELETE FROM budget");
+        jdbc.update("DELETE FROM billing_period");
         // current decision and duplicate pointers on charge_fact must be cleared
         // before their referenced decision/charge rows are deleted.
         jdbc.update(
