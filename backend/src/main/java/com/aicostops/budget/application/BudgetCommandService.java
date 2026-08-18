@@ -59,6 +59,13 @@ public class BudgetCommandService {
         this.clock = clock;
     }
 
+    /**
+     * One MySQL transaction covers the INSERT, the generated-id readback, and
+     * the BUDGET_CREATED audit: an audit write failure rolls the just-inserted
+     * budget back, and the audit can never be missing for a committed budget.
+     * {@code LAST_INSERT_ID()} is connection-scoped, so it is only read inside
+     * the same Spring transaction that performed the insert.
+     */
     public Budget create(AuthenticatedUser user, CreateBudgetCommand command) {
         var context = authorizationContexts.fresh(user);
         authorization.requireOrg(context, PERMISSION_BUDGET_MANAGE);
@@ -68,20 +75,22 @@ public class BudgetCommandService {
         }
         var now = clock.instant();
         try {
-            mapper.insert(context.organizationId(), command.billingPeriodId(),
-                    command.scopeType().name(), command.scopeId(), command.currency(),
-                    command.totalAmount(), now);
+            return transactions.execute(status -> {
+                mapper.insert(context.organizationId(), command.billingPeriodId(),
+                        command.scopeType().name(), command.scopeId(), command.currency(),
+                        command.totalAmount(), now);
+                var created = requireReadable(context.organizationId(), mapper.lastInsertId());
+                audit.created(context.organizationId(), context.userId(), created.id(),
+                        created.currency(), created.scopeType().name(), created.scopeId(),
+                        created.totalAmount());
+                return created;
+            });
         } catch (DuplicateKeyException duplicateIdentity) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                     "Budget identity conflict",
                     "A budget for this organization, billing period, scope, and currency "
                             + "already exists.");
         }
-        var created = requireReadable(context.organizationId(), mapper.lastInsertId());
-        audit.created(context.organizationId(), context.userId(), created.id(),
-                created.currency(), created.scopeType().name(), created.scopeId(),
-                created.totalAmount());
-        return created;
     }
 
     public Budget update(AuthenticatedUser user, long budgetId, UpdateBudgetCommand command) {
