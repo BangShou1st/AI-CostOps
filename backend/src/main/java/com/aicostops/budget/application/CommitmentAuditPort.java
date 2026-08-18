@@ -32,8 +32,13 @@ public interface CommitmentAuditPort {
             long budgetId, BigDecimal releasedAmount, long approvalCaseId,
             String fromStatus, String toStatus);
 
-    /** Appends {@code COMMITMENT_CONSUMED} with the consumed amount. */
-    void consumed(long organizationId, long actorUserId, long commitmentId,
+    /**
+     * Appends {@code COMMITMENT_CONSUMED} with the consumed amount. The
+     * actor may be unknown inside the internal consume primitive (it is
+     * composed into the ledger posting transaction of AIC-048, which owns
+     * the posting actor).
+     */
+    void consumed(long organizationId, Long actorUserId, long commitmentId,
             long budgetId, BigDecimal consumedAmount, long ledgerEntryId,
             String fromStatus, String toStatus);
 }

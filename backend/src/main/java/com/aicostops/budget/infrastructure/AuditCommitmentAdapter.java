@@ -79,7 +79,7 @@ public class AuditCommitmentAdapter implements CommitmentAuditPort {
     }
 
     @Override
-    public void consumed(long organizationId, long actorUserId, long commitmentId,
+    public void consumed(long organizationId, Long actorUserId, long commitmentId,
             long budgetId, BigDecimal consumedAmount, long ledgerEntryId,
             String fromStatus, String toStatus) {
         var metadata = new HashMap<String, Object>();
