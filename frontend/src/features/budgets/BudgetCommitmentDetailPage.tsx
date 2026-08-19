@@ -12,7 +12,7 @@ import {
   type ApprovalActionResponse,
   type ApprovalActionType,
 } from './api/commitmentApi'
-import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL, budgetCommandProblemMessage } from './presentation'
+import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL, budgetCommandProblemMessage, commitmentStateLabel } from './presentation'
 
 const ACTION_LABEL: Record<ApprovalActionType, string> = {
   SUBMIT: '提交',
@@ -151,12 +151,12 @@ export function BudgetCommitmentDetailPage() {
           extra={<Tag color={COMMITMENT_STATUS_COLOR[commitment.status]}>{COMMITMENT_STATUS_LABEL[commitment.status]}</Tag>}
         >
           <Descriptions column={2} size="small">
-            <Descriptions.Item label="Requested">{`${commitment.requestedAmount} ${currency}`}</Descriptions.Item>
-            <Descriptions.Item label="Approved">{commitment.approvedAmount === null ? '—' : `${commitment.approvedAmount} ${currency}`}</Descriptions.Item>
-            <Descriptions.Item label="Remaining">{commitment.remainingAmount === null ? '—' : `${commitment.remainingAmount} ${currency}`}</Descriptions.Item>
-            <Descriptions.Item label="Budget ID">{commitment.budgetId}</Descriptions.Item>
-            <Descriptions.Item label="Approval Status">{commitment.approvalStatus === null ? '—' : APPROVAL_STATUS_LABEL[commitment.approvalStatus]}</Descriptions.Item>
-            <Descriptions.Item label="Version">{`v${commitment.version}`}</Descriptions.Item>
+            <Descriptions.Item label="申请金额">{`${commitment.requestedAmount} ${currency}`}</Descriptions.Item>
+            <Descriptions.Item label="批准金额">{commitment.approvedAmount === null ? '—' : `${commitment.approvedAmount} ${currency}`}</Descriptions.Item>
+            <Descriptions.Item label="剩余金额">{commitment.remainingAmount === null ? '—' : `${commitment.remainingAmount} ${currency}`}</Descriptions.Item>
+            <Descriptions.Item label="预算 ID">{commitment.budgetId}</Descriptions.Item>
+            <Descriptions.Item label="审批状态">{commitment.approvalStatus === null ? '—' : APPROVAL_STATUS_LABEL[commitment.approvalStatus]}</Descriptions.Item>
+            <Descriptions.Item label="版本">{`v${commitment.version}`}</Descriptions.Item>
           </Descriptions>
         </Card>
         {showActions && (
@@ -254,11 +254,11 @@ export function BudgetCommitmentDetailPage() {
           okButtonProps={{ loading: actionLoading, danger: true }}
         >
           <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="Commitment ID">{commitment.id}</Descriptions.Item>
-            <Descriptions.Item label="Remaining Amount">
+            <Descriptions.Item label="承诺 ID">{commitment.id}</Descriptions.Item>
+            <Descriptions.Item label="剩余金额">
               {commitment.remainingAmount === null ? '—' : `${commitment.remainingAmount} ${currency}`}
             </Descriptions.Item>
-            <Descriptions.Item label="Currency">{currency}</Descriptions.Item>
+            <Descriptions.Item label="币种">{currency}</Descriptions.Item>
           </Descriptions>
         </Modal>
       </Space>
@@ -276,8 +276,8 @@ function HistoryTable({ history }: { history: ApprovalActionResponse[] }) {
       columns={[
         { title: '时间', dataIndex: 'createdAt', width: 190 },
         { title: '动作', dataIndex: 'actionType', width: 110, render: (value: ApprovalActionType) => ACTION_LABEL[value] },
-        { title: '从', dataIndex: 'fromState', width: 130, render: (value: string | null) => value ?? '—' },
-        { title: '到', dataIndex: 'toState', width: 130, render: (value: string | null) => value ?? '—' },
+        { title: '从', dataIndex: 'fromState', width: 130, render: (value: string | null) => commitmentStateLabel(value) },
+        { title: '到', dataIndex: 'toState', width: 130, render: (value: string | null) => commitmentStateLabel(value) },
         { title: '操作人', dataIndex: 'actorMemberId', width: 110 },
         { title: '备注', dataIndex: 'comment', width: 160, render: (value: string | null) => value ?? '—' },
       ]}

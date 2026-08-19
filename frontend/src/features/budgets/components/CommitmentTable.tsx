@@ -42,23 +42,23 @@ export function CommitmentTable({
       columns={[
         { title: 'ID', dataIndex: 'id', width: 90 },
         {
-          title: 'Status',
+          title: '状态',
           dataIndex: 'status',
           width: 130,
           render: (value: CommitmentStatus) => (
             <Tag color={COMMITMENT_STATUS_COLOR[value]}>{COMMITMENT_STATUS_LABEL[value]}</Tag>
           ),
         },
-        { title: 'Requested', dataIndex: 'requestedAmount', width: 180, render: (value: string) => `${value} ${currency}` },
-        { title: 'Approved', dataIndex: 'approvedAmount', width: 180, render: (value: string | null) => value === null ? '—' : `${value} ${currency}` },
-        { title: 'Remaining', dataIndex: 'remainingAmount', width: 180, render: (value: string | null) => value === null ? '—' : `${value} ${currency}` },
+        { title: '申请金额', dataIndex: 'requestedAmount', width: 180, render: (value: string) => `${value} ${currency}` },
+        { title: '批准金额', dataIndex: 'approvedAmount', width: 180, render: (value: string | null) => value === null ? '—' : `${value} ${currency}` },
+        { title: '剩余金额', dataIndex: 'remainingAmount', width: 180, render: (value: string | null) => value === null ? '—' : `${value} ${currency}` },
         {
-          title: 'Approval Status',
+          title: '审批状态',
           dataIndex: 'approvalStatus',
           width: 140,
           render: (value: ApprovalCaseStatus | null) => (value === null ? '—' : APPROVAL_STATUS_LABEL[value]),
         },
-        { title: 'Created At', dataIndex: 'createdAt', width: 200 },
+        { title: '创建时间', dataIndex: 'createdAt', width: 200 },
       ]}
     />
   )

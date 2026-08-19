@@ -9,11 +9,11 @@ import type { BudgetResponse } from '../api/budgetApi'
 export function BudgetMetrics({ budget }: { budget: BudgetResponse }) {
   return (
     <Descriptions column={2} size="small" bordered>
-      <Descriptions.Item label="Total">{budget.totalAmount} {budget.currency}</Descriptions.Item>
-      <Descriptions.Item label="Actual">{budget.actualAmount} {budget.currency}</Descriptions.Item>
-      <Descriptions.Item label="Outstanding Commitment">{budget.committedAmount} {budget.currency}</Descriptions.Item>
-      <Descriptions.Item label="Available">{budget.availableAmount} {budget.currency}</Descriptions.Item>
-      <Descriptions.Item label="Over-budget">
+      <Descriptions.Item label="总额">{budget.totalAmount} {budget.currency}</Descriptions.Item>
+      <Descriptions.Item label="实际发生">{budget.actualAmount} {budget.currency}</Descriptions.Item>
+      <Descriptions.Item label="未结承诺">{budget.committedAmount} {budget.currency}</Descriptions.Item>
+      <Descriptions.Item label="可用额度">{budget.availableAmount} {budget.currency}</Descriptions.Item>
+      <Descriptions.Item label="超支状态">
         {budget.overBudget ? <Tag color="error">超支</Tag> : <Tag>未超支</Tag>}
       </Descriptions.Item>
     </Descriptions>

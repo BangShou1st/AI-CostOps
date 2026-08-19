@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toProblemDetail } from '../../api/problem'
 import { budgetApi, budgetKeys, type BudgetResponse } from './api/budgetApi'
+import { BUDGET_SCOPE_LABEL } from './presentation'
 
 const PAGE_SIZE = 50
 
@@ -53,18 +54,18 @@ export function BudgetsListPage() {
         columns={[
           { title: 'ID', dataIndex: 'id', width: 90 },
           {
-            title: 'Scope',
+            title: '范围',
             width: 130,
-            render: (_: unknown, row: BudgetResponse) => `${row.scopeType} · ${row.scopeId}`,
+            render: (_: unknown, row: BudgetResponse) => `${BUDGET_SCOPE_LABEL[row.scopeType]} · ${row.scopeId}`,
           },
-          { title: 'Billing Period', dataIndex: 'billingPeriodId', width: 120 },
-          { title: 'Currency', dataIndex: 'currency', width: 90 },
-          { title: 'Total', dataIndex: 'totalAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
-          { title: 'Actual', dataIndex: 'actualAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
-          { title: 'Outstanding Commitment', dataIndex: 'committedAmount', width: 210, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
-          { title: 'Available', dataIndex: 'availableAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
+          { title: '账期', dataIndex: 'billingPeriodId', width: 120 },
+          { title: '币种', dataIndex: 'currency', width: 90 },
+          { title: '总额', dataIndex: 'totalAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
+          { title: '实际发生', dataIndex: 'actualAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
+          { title: '未结承诺', dataIndex: 'committedAmount', width: 210, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
+          { title: '可用额度', dataIndex: 'availableAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
           {
-            title: 'Over-budget',
+            title: '超支状态',
             dataIndex: 'overBudget',
             width: 120,
             render: (value: boolean) => (value ? <Tag color="error">超支</Tag> : <Tag>未超支</Tag>),

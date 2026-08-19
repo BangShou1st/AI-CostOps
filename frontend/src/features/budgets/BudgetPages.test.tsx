@@ -149,11 +149,11 @@ describe('BudgetsListPage', () => {
     expect(screen.getByText('30.00000000 CNY')).toBeInTheDocument()
     expect(screen.getByText('20.00000000 CNY')).toBeInTheDocument()
     // scroll={{ x }} renders the header twice in jsdom; presence is the contract.
-    expect(screen.getAllByText('Total').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Actual').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Outstanding Commitment').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Available').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Over-budget').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('总额').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('实际发生').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('未结承诺').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('可用额度').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('超支状态').length).toBeGreaterThanOrEqual(1)
   })
 
   it('displays the server availableAmount sentinel without recomputing it', async () => {
@@ -176,7 +176,7 @@ describe('BudgetsListPage', () => {
 
     renderPage(['BUDGET_READ'])
 
-    await waitFor(() => expect(screen.getByText('PROJECT · 42')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('项目 · 42')).toBeInTheDocument())
     expect(screen.getByText('3')).toBeInTheDocument()
     expect(screen.getByText('CNY')).toBeInTheDocument()
   })
@@ -251,15 +251,19 @@ describe('BudgetDetailPage', () => {
     expect(screen.getByText('30.00000000 CNY')).toBeInTheDocument()
     expect(screen.getByText('20.00000000 CNY')).toBeInTheDocument()
     expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument()
-    expect(screen.getByText('Total')).toBeInTheDocument()
-    expect(screen.getByText('Actual')).toBeInTheDocument()
-    expect(screen.getByText('Outstanding Commitment')).toBeInTheDocument()
-    expect(screen.getByText('Available')).toBeInTheDocument()
-    expect(screen.getByText('Over-budget')).toBeInTheDocument()
-    expect(screen.getByText('PROJECT')).toBeInTheDocument()
+    expect(screen.getByText('总额')).toBeInTheDocument()
+    expect(screen.getByText('实际发生')).toBeInTheDocument()
+    expect(screen.getByText('未结承诺')).toBeInTheDocument()
+    expect(screen.getByText('可用额度')).toBeInTheDocument()
+    expect(screen.getByText('超支状态')).toBeInTheDocument()
+    expect(screen.getByText('项目')).toBeInTheDocument()
     expect(screen.getByText('42')).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
-    expect(screen.getByText('ACTIVE')).toBeInTheDocument()
+    expect(screen.getByText('生效')).toBeInTheDocument()
+    expect(screen.getAllByText('状态').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('范围 ID')).toBeInTheDocument()
+    expect(screen.getByText('账期 ID')).toBeInTheDocument()
+    expect(screen.getByText('版本')).toBeInTheDocument()
     expect(screen.getByText('v4')).toBeInTheDocument()
   })
 
@@ -295,6 +299,13 @@ describe('BudgetDetailPage', () => {
     expect(screen.getByText('50.00000000 CNY')).toBeInTheDocument()
     expect(screen.getByText('2026-01-03T00:00:00Z')).toBeInTheDocument()
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
+    // Commitment table headers are localized ('状态' also labels the identity card).
+    expect(screen.getAllByText('状态').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('申请金额').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('批准金额').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('剩余金额').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('审批状态').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('创建时间').length).toBeGreaterThanOrEqual(1)
   })
 
   it('navigates to the commitment detail on row click', async () => {
@@ -403,9 +414,9 @@ describe('BudgetTotalEditor (total change is a sensitive action)', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /修改总额/ })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /修改总额/ }))
 
-    expect(screen.getByText('Current Total')).toBeInTheDocument()
-    // 'Currency' also labels the identity card, so presence is asserted loosely.
-    expect(screen.getAllByText('Currency').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('当前总额')).toBeInTheDocument()
+    // '币种' also labels the identity card, so presence is asserted loosely.
+    expect(screen.getAllByText('币种').length).toBeGreaterThanOrEqual(1)
     // Typing a short decimal shows the canonical scale-8 before/after preview.
     fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '150.5' } })
     expect(screen.getByText('150.50000000 CNY')).toBeInTheDocument()
@@ -464,7 +475,7 @@ describe('BudgetTotalEditor (total change is a sensitive action)', () => {
     fireEvent.click(screen.getByRole('button', { name: /确认修改/ }))
 
     await waitFor(() => {
-      expect(screen.getByText('Budget has changed. Refresh the latest version before retrying.')).toBeInTheDocument()
+      expect(screen.getByText('预算已发生变化，请刷新最新版本后重试。')).toBeInTheDocument()
     })
     // The mutation is never re-sent; the latest version is refetched instead.
     expect(mockedBudgetApi.update).toHaveBeenCalledTimes(1)
@@ -590,7 +601,7 @@ describe('RequestCommitment (budget detail)', () => {
     fireEvent.click(screen.getByRole('button', { name: /确认申请/ }))
 
     await waitFor(() => {
-      expect(screen.getByText('Budget availability is insufficient.')).toBeInTheDocument()
+      expect(screen.getByText('预算可用额度不足。')).toBeInTheDocument()
     })
     expect(mockedCommitmentApi.create).toHaveBeenCalledTimes(1)
   })
@@ -613,7 +624,7 @@ describe('RequestCommitment (budget detail)', () => {
     fireEvent.click(screen.getByRole('button', { name: /确认申请/ }))
 
     await waitFor(() => {
-      expect(screen.getByText('Current financial period does not allow this action.')).toBeInTheDocument()
+      expect(screen.getByText('当前账期不允许执行此操作。')).toBeInTheDocument()
     })
     expect(mockedCommitmentApi.create).toHaveBeenCalledTimes(1)
   })
