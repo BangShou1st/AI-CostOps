@@ -5,6 +5,7 @@ import com.aicostops.ledger.domain.LedgerEntry;
 import com.aicostops.ledger.domain.LedgerPosting;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -137,6 +138,17 @@ public interface LedgerPostingMapper {
     LedgerEntry selectEntryByIdForUpdate(
             @Param("organizationId") long organizationId,
             @Param("entryId") long entryId);
+
+    @Select("""
+            SELECT
+            """ + ENTRY_COLUMNS + """
+            FROM ledger_entry le
+            WHERE le.org_id=#{organizationId} AND le.posting_id=#{postingId}
+            ORDER BY le.entry_index ASC, le.id ASC
+            """)
+    List<LedgerEntry> selectEntriesByPostingId(
+            @Param("organizationId") long organizationId,
+            @Param("postingId") long postingId);
 
     @Insert("""
             INSERT INTO correction_group(
