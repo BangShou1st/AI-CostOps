@@ -26,8 +26,10 @@ export function BudgetTotalEditor({ budget, onChanged }: { budget: BudgetRespons
     }
   }
   const inputInvalid = input.trim() !== '' && newAmount === null
-  const nonPositive = newAmount !== null && newAmount <= 0n
-  const canSubmit = newAmount !== null && !nonPositive
+  // Backend contract: total_amount >= 0 rejects only negatives, so 0 is a
+  // legal total and only newAmount < 0n is invalid.
+  const negative = newAmount !== null && newAmount < 0n
+  const canSubmit = newAmount !== null && !negative
 
   const close = () => {
     setOpen(false)
@@ -84,7 +86,7 @@ export function BudgetTotalEditor({ budget, onChanged }: { budget: BudgetRespons
             onChange={(event) => setInput(event.target.value)}
           />
           {inputInvalid && <div style={{ color: '#cf1322' }}>请输入有效金额（最多 8 位小数）</div>}
-          {nonPositive && <div style={{ color: '#cf1322' }}>总额必须大于 0</div>}
+          {negative && <div style={{ color: '#cf1322' }}>总额不能为负数</div>}
           {error && <Alert type="error" showIcon message={error} />}
         </Space>
       </Modal>

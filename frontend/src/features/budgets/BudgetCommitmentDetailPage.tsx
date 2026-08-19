@@ -73,7 +73,33 @@ export function BudgetCommitmentDetailPage() {
 
   if (commitmentQuery.isLoading || !commitmentQuery.data) return <Card loading={commitmentQuery.isLoading} />
   const commitment = commitmentQuery.data
-  const currency = budgetQuery.data?.currency ?? ''
+
+  // Every financial surface here (Requested/Approved/Remaining amounts and
+  // the release confirmation) renders the owning budget's currency. The
+  // commitment payload itself carries none, so the lifecycle action UI only
+  // appears once the owning budget read model is available; a confirm dialog
+  // with an empty currency must never be reachable (Sensitive Action UX).
+  const budgetProblem = budgetQuery.error ? toProblemDetail(budgetQuery.error) : null
+  if (budgetProblem) {
+    return (
+      <main className="settings-page">
+        <header className="page-header"><h1>承诺详情</h1></header>
+        <Alert
+          type="error"
+          showIcon
+          title="无法加载关联预算"
+          description={(
+            <>
+              <div>{`${budgetProblem.title}（${budgetProblem.code}）`}</div>
+              {budgetProblem.detail && <div>{budgetProblem.detail}</div>}
+            </>
+          )}
+        />
+      </main>
+    )
+  }
+  if (budgetQuery.isLoading || !budgetQuery.data) return <Card loading={budgetQuery.isLoading} />
+  const currency = budgetQuery.data.currency
 
   const canApprove = hasPermission(auth.user?.permissions, 'COMMITMENT_APPROVE')
   const canRelease = hasPermission(auth.user?.permissions, 'COMMITMENT_RELEASE')

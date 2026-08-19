@@ -490,4 +490,84 @@ describe('Commitment lifecycle actions', () => {
       })
     })
   })
+
+  describe('release requires the owning budget read model', () => {
+    it('keeps release unavailable while the owning budget is still loading', async () => {
+      // Commitment ACTIVE with a remaining amount, and BUDGET_READ +
+      // COMMITMENT_RELEASE: the financial action depends on the owning
+      // budget's currency, so while that GET is unresolved the page must not
+      // offer Release with an empty currency.
+      mockedCommitmentApi.get.mockResolvedValue({
+        ...COMMITMENT,
+        remainingAmount: '50.00000000',
+      })
+      mockedBudgetApi.get.mockReturnValue(new Promise(() => {})) // never resolves
+
+      renderAs(['BUDGET_READ', 'COMMITMENT_RELEASE'])
+
+      await waitFor(() => expect(mockedCommitmentApi.get).toHaveBeenCalledTimes(1))
+      // The owning budget query has started and the page is gated on it.
+      await waitFor(() => expect(mockedBudgetApi.get).toHaveBeenCalled())
+      expect(screen.queryByRole('button', { name: /释s*放/ })).not.toBeInTheDocument()
+      expect(screen.queryByText('释放承诺')).not.toBeInTheDocument()
+      expect(mockedCommitmentApi.release).not.toHaveBeenCalled()
+    })
+
+    it('shows 无法加载关联预算 and hides release when the owning budget fails', async () => {
+      mockedCommitmentApi.get.mockResolvedValue(COMMITMENT)
+      mockedBudgetApi.get.mockRejectedValue({
+        isAxiosError: true,
+        response: {
+          data: {
+            title: 'Forbidden',
+            status: 403,
+            detail: 'Access to this resource is forbidden.',
+            code: 'FORBIDDEN',
+            traceId: 't-9',
+          },
+        },
+      })
+
+      renderAs(['BUDGET_READ', 'COMMITMENT_RELEASE'])
+
+      await waitFor(() => expect(screen.getByText('无法加载关联预算')).toBeInTheDocument())
+      expect(screen.queryByRole('button', { name: /释s*放/ })).not.toBeInTheDocument()
+      expect(screen.queryByText('Currency')).not.toBeInTheDocument()
+      expect(mockedCommitmentApi.release).not.toHaveBeenCalled()
+    })
+
+    it('hides every financial lifecycle action when the owning budget fails', async () => {
+      // Approve/Reject/Cancel need no currency payload, but the page's money
+      // display depends on the owning budget read model; the action UI waits
+      // for it too (UX consistency with the commitment amounts).
+      mockedCommitmentApi.get.mockResolvedValue({
+        ...COMMITMENT,
+        status: 'REQUESTED',
+        approvedAmount: null,
+        remainingAmount: null,
+        approvalStatus: 'PENDING',
+        version: 1,
+      })
+      mockedBudgetApi.get.mockRejectedValue({
+        isAxiosError: true,
+        response: {
+          data: {
+            title: 'Budget not found',
+            status: 404,
+            detail: 'The budget is not available in the current organization.',
+            code: 'RESOURCE_NOT_FOUND',
+            traceId: 't-5',
+          },
+        },
+      })
+
+      renderAs(['BUDGET_READ', 'COMMITMENT_APPROVE'])
+
+      await waitFor(() => expect(screen.getByText('无法加载关联预算')).toBeInTheDocument())
+      expect(screen.queryByRole('button', { name: /批s*准/ })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /拒s*绝/ })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /取消申请/ })).not.toBeInTheDocument()
+      expect(mockedCommitmentApi.approve).not.toHaveBeenCalled()
+    })
+  })
 })

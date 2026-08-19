@@ -353,6 +353,42 @@ describe('BudgetDetailPage', () => {
   })
 })
 describe('BudgetTotalEditor (total change is a sensitive action)', () => {
+  it('budget total can be changed to zero', async () => {
+    // Backend contract: total_amount >= 0 rejects only negatives, so
+    // 0.00000000 is a legal total. The editor must not treat zero as invalid.
+    mockedBudgetApi.get.mockResolvedValue({ ...SENTINEL_BUDGET, version: 7 })
+    renderDetailPage(['BUDGET_READ', 'BUDGET_MANAGE'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /修改总额/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /修改总额/ }))
+    fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '0' } })
+
+    expect(screen.getByText('0.00000000 CNY')).toBeInTheDocument()
+    const confirm = screen.getByRole('button', { name: /确认修改/ })
+    expect(confirm).toBeEnabled()
+
+    fireEvent.click(confirm)
+
+    await waitFor(() => {
+      expect(mockedBudgetApi.update).toHaveBeenCalledWith('7', {
+        totalAmount: '0.00000000',
+        expectedVersion: 7,
+      })
+    })
+    expect(mockedBudgetApi.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('still rejects a negative total', async () => {
+    mockedBudgetApi.get.mockResolvedValue({ ...SENTINEL_BUDGET, version: 7 })
+    renderDetailPage(['BUDGET_READ', 'BUDGET_MANAGE'])
+    await waitFor(() => expect(screen.getByRole('button', { name: /修改总额/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /修改总额/ }))
+    fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '-1' } })
+
+    expect(screen.getByText('总额不能为负数')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /确认修改/ })).toBeDisabled()
+    expect(mockedBudgetApi.update).not.toHaveBeenCalled()
+  })
+
   it('shows the total editor only with BUDGET_MANAGE', async () => {
     renderDetailPage(['BUDGET_READ'])
     await waitFor(() => expect(screen.getByText(/预算详情/)).toBeInTheDocument())
