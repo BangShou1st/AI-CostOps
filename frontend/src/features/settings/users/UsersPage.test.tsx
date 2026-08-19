@@ -78,7 +78,7 @@ describe('UsersPage', () => {
       response: { data: { title: 'Not found', status: 404, detail: 'The resource does not exist.', code: 'RESOURCE_NOT_FOUND', traceId: 't1' } },
     })
     renderUsersPage(['USER_READ'])
-    expect(await screen.findByText('The resource does not exist.')).toBeInTheDocument()
+    expect(await screen.findByText('请求的资源不存在或已被移除。')).toBeInTheDocument()
 
     mockedSettingsApi.listUsers.mockResolvedValue(pageOf([]))
     renderUsersPage(['USER_READ'])
@@ -163,7 +163,7 @@ describe('UsersPage', () => {
     renderUsersPage(['USER_READ', 'USER_MANAGE'])
     fireEvent.click(await screen.findByRole('button', { name: '停 用' }))
 
-    expect(await screen.findByText('The user was changed by another actor.')).toBeInTheDocument()
+    expect(await screen.findByText('当前资源状态已变化，请刷新后重试。')).toBeInTheDocument()
     await waitFor(() => {
       expect(mockedSettingsApi.updateUserStatus).toHaveBeenCalledTimes(1)
       expect(mockedSettingsApi.listUsers).toHaveBeenCalledTimes(2)

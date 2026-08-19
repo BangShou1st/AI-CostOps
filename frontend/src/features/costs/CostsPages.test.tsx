@@ -212,7 +212,7 @@ describe('CostDetailPage', () => {
     renderDetailPage(['COST_READ'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Charge not found（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
+      expect(screen.getByText(/资源不存在（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
     })
   })
 
@@ -233,7 +233,7 @@ describe('CostDetailPage', () => {
     })
     const expectedSummary = problem.code === 'FORBIDDEN'
       ? '访问被拒绝（FORBIDDEN）'
-      : `${problem.title}（${problem.code}）`
+      : '资源不存在（RESOURCE_NOT_FOUND）'
     expect(screen.getByText(expectedSummary)).toBeInTheDocument()
     // The failure must not silently render as an empty allocation history.
     expect(screen.queryByText('尚无分摊记录')).not.toBeInTheDocument()

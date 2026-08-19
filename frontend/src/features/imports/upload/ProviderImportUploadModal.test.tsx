@@ -134,7 +134,7 @@ describe('ProviderImportUploadModal', () => {
     attachFile()
     fireEvent.click(screen.getByRole('button', { name: /上\s*传/ }))
 
-    expect(await screen.findByText('Conflict')).toBeInTheDocument()
-    expect(screen.getByText('Import cannot be retried.')).toBeInTheDocument()
+    expect(await screen.findByText('状态冲突')).toBeInTheDocument()
+    expect(screen.getByText('当前资源状态已变化，请刷新后重试。')).toBeInTheDocument()
   })
 })

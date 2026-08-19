@@ -257,7 +257,7 @@ describe('BudgetCommitmentDetailPage', () => {
     renderAs(['BUDGET_READ'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Commitment not found（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
+      expect(screen.getByText(/资源不存在（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
     })
   })
 })

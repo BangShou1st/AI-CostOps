@@ -246,7 +246,7 @@ describe('ImportDetailPage', () => {
     await screen.findByRole('button', { name: /重\s*试/ })
     fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }))
 
-    expect(await screen.findByText('Import cannot be retried.')).toBeInTheDocument()
+    expect(await screen.findByText('当前资源状态已变化，请刷新后重试。')).toBeInTheDocument()
     await waitFor(() => {
       // Detail invalidated (fresh state), but no second mutation with a new key.
       expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(2)
@@ -470,7 +470,7 @@ describe('ImportDetailPage cache lifecycle', () => {
     renderPage(['IMPORT_READ'], 'detail')
 
     expect(await screen.findByText('加载失败')).toBeInTheDocument()
-    expect(screen.getByText('The import is not available in the current organization.')).toBeInTheDocument()
+    expect(screen.getByText('请求的资源不存在或已被移除。')).toBeInTheDocument()
     expect(screen.queryByText(/正在加载导入/)).not.toBeInTheDocument()
   })
 })

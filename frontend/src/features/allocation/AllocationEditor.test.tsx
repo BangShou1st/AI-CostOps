@@ -153,9 +153,9 @@ describe('AllocationEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认分摊' }))
 
     await waitFor(() => {
-      expect(screen.getByText(/Allocation sum mismatch（ALLOCATION_SUM_MISMATCH）/)).toBeInTheDocument()
+      expect(screen.getByText(/分摊金额不一致（ALLOCATION_SUM_MISMATCH）/)).toBeInTheDocument()
     })
-    expect(screen.getByText('The lines must exactly sum to the charge amount.')).toBeInTheDocument()
+    expect(screen.getByText('分摊明细合计与费用金额不一致，请检查后重试。')).toBeInTheDocument()
   })
 
   it('loads targets from the allocation-targets directory endpoint', async () => {

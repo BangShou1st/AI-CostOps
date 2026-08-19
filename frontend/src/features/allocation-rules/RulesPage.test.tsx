@@ -231,9 +231,9 @@ describe('RulesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '创 建' }))
 
     await waitFor(() => {
-      expect(screen.getByText(/Invalid rule definition（VALIDATION_FAILED）/)).toBeInTheDocument()
+      expect(screen.getByText(/输入信息无效（VALIDATION_FAILED）/)).toBeInTheDocument()
     })
-    expect(screen.getByText('priority must be between 1 and 9999.')).toBeInTheDocument()
+    expect(screen.getByText('提交的信息未通过校验，请检查后重试。')).toBeInTheDocument()
   })
 
   it('shows the normalized problem detail when the rule list fails instead of an empty list', async () => {
