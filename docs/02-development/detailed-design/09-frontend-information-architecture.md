@@ -420,3 +420,19 @@ Mutation Cache Invalidation
 ```
 
 不把主要精力放在 Ant Design Snapshot。
+
+## M5 Ledger Workflow
+
+`/ledger` is a permission-gated read-only posting/entry list with posting and
+lineage detail routes. Cost and expense detail pages expose `记账` only after
+their source, confirmed allocation, review, and posting permissions are ready.
+The mutation sends no client-generated money calculation: the backend resolves
+the OPEN period, exact-target → ORG budget fallback, actuals, and commitment
+consumption under locks.
+
+For each positive allocation line, the UI may show one optional commitment
+selector from the existing budget and commitment reads. Negative/zero lines and
+lines without a visible budget have no selector. Correction is a reasoned modal
+with an OPEN correction-period selector and REVERSAL_ONLY/REPLACE modes; all
+mutation queries disable automatic retry and invalidate source, allocation, and
+ledger lists on success.

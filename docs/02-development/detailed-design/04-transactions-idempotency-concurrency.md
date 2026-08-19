@@ -557,3 +557,28 @@ Conditional Update
 | Duplicate Post | 返回同一 Posting |
 | Budget Race | 只有合法 Commitment Active |
 | Close Race | CLOSING 阻止普通写 |
+
+## M5 Posting / Correction Rules
+
+Posting transactions use the fixed order:
+
+```text
+OPEN BillingPeriod
+→ Budget sorted by id
+→ Commitment sorted by id
+→ Source
+→ Confirmed AllocationDecision
+→ AllocationLine
+```
+
+Provider natural key is `CHARGE:{chargeFactId}:ALLOCATION:{allocationDecisionId}`;
+expense natural key is `EXPENSE:{expenseClaimId}`. The first committed posting
+wins a concurrent race and the loser reads that posting in a fresh transaction.
+Budget absence never blocks posting; selection is exact target first, then ORG,
+and commitment links are optional, one per positive allocation line.
+
+Corrections reserve `Idempotency-Key` with a canonical request hash, lock the
+chosen OPEN correction period by id, and append a REVERSAL entry plus an optional
+REPLACE adjustment. Historical entries and postings are never updated or
+deleted. Deadlock retry is bounded and financial mutations are never retried by
+the browser.
