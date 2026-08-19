@@ -53,7 +53,7 @@ describe('CommitmentLinkPicker', () => {
       ], page: 0, size: 200, totalElements: 2, totalPages: 1,
     })
     mockedCommitments.list.mockImplementation(async ({ budgetId }) => ({
-      items: [{ id: budgetId === '801' ? '901' : '902', budgetId, status: 'ACTIVE', requestedAmount: '10', approvedAmount: '10', remainingAmount: '10', version: 1, createdAt: '', updatedAt: '', approvalCaseId: null, approvalStatus: null, history: [] }],
+      items: [{ id: budgetId === '801' ? '901' : '902', budgetId: budgetId ?? '', status: 'ACTIVE', requestedAmount: '10', approvedAmount: '10', remainingAmount: '10', version: 1, createdAt: '', updatedAt: '', approvalCaseId: null, approvalStatus: null, history: [] }],
       page: 0, size: 100, totalElements: 1, totalPages: 1,
     }))
     const onChange = vi.fn()
