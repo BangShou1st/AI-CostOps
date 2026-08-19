@@ -49,6 +49,12 @@ public final class M1AdminPermissionPolicy {
             Map.entry("BUDGET_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                     ScopeType.TEAM, ScopeType.COST_CENTER)),
             Map.entry("BUDGET_MANAGE", Set.of(ScopeType.ORG)),
+            // M5 ledger read follows the entry target scope. Posting and
+            // correction are organization-wide financial-admin operations.
+            Map.entry("LEDGER_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                    ScopeType.TEAM, ScopeType.COST_CENTER)),
+            Map.entry("LEDGER_POST", Set.of(ScopeType.ORG)),
+            Map.entry("LEDGER_CORRECT", Set.of(ScopeType.ORG)),
             // M4 commitment permissions follow the budget's own polymorphic
             // scope: the grant must cover the budget (ORG/PROJECT/TEAM/
             // COST_CENTER) the commitment belongs to. SYSTEM_ADMIN never

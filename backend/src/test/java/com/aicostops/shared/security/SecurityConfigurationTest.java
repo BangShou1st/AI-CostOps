@@ -161,6 +161,22 @@ class SecurityConfigurationTest {
     }
 
     @Test
+    void everyM5LedgerRouteRequiresAuthentication() throws Exception {
+        for (var request : java.util.List.of(
+                post("/api/v1/costs/charges/123/post"),
+                post("/api/v1/expenses/123/post"),
+                get("/api/v1/ledger/postings"),
+                get("/api/v1/ledger/postings/123"),
+                get("/api/v1/ledger/entries"),
+                get("/api/v1/ledger/entries/123"),
+                post("/api/v1/ledger/corrections"))) {
+            mockMvc.perform(request)
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value("AUTH_ACCESS_EXPIRED"));
+        }
+    }
+
+    @Test
     void invalidBearerUsesTheSameProblemDetailContract() throws Exception {
         mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer not-a-jwt"))
                 .andExpect(status().isUnauthorized())

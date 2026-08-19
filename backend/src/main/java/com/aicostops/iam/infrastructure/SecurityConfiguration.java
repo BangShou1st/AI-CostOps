@@ -121,6 +121,17 @@ public class SecurityConfiguration {
                                 "/api/v1/commitments/{commitmentId}/reject",
                                 "/api/v1/commitments/{commitmentId}/cancel",
                                 "/api/v1/commitments/{commitmentId}/release").authenticated()
+                        // M5 immutable ledger routes. Business permission and
+                        // scope checks remain in Ledger application services.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/costs/charges/{chargeFactId}/post",
+                                "/api/v1/expenses/{expenseId}/post",
+                                "/api/v1/ledger/corrections").authenticated()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/ledger/postings",
+                                "/api/v1/ledger/postings/{postingId}",
+                                "/api/v1/ledger/entries",
+                                "/api/v1/ledger/entries/{entryId}").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }
