@@ -159,7 +159,7 @@ describe('CostDetailPage', () => {
         allocationRule: null,
         createdByMemberId: '3',
         createdAt: '2026-01-05T00:00:00Z',
-        lines: [{ lineIndex: 0, allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null }],
+  lines: [{ id: '601', lineIndex: 0, allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null }],
       },
     ])
 
@@ -263,7 +263,7 @@ describe('CostDetailPage', () => {
         allocationRule: { id: '41', ruleKey: 'glm-key', version: 1, priority: 10 },
         createdByMemberId: '3',
         createdAt: '2026-01-05T00:00:00Z',
-        lines: [{ lineIndex: 0, allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null }],
+  lines: [{ id: '602', lineIndex: 0, allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null }],
       },
     ])
 
@@ -292,7 +292,7 @@ describe('CostDetailPage', () => {
         allocationRule: null,
         createdByMemberId: '3',
         createdAt: '2026-01-05T00:00:00Z',
-        lines: [{ lineIndex: 0, allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null }],
+  lines: [{ id: '603', lineIndex: 0, allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null }],
       },
     ])
 

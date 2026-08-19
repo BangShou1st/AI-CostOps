@@ -166,7 +166,7 @@ function makeDecision(overrides: Partial<AllocationDecision> = {}): AllocationDe
     createdByMemberId: 'm-3',
     createdAt: '2026-08-01T00:00:00Z',
     lines: [
-      { lineIndex: 0, allocatedAmount: '100.00000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null },
+  { id: '701', lineIndex: 0, allocatedAmount: '100.00000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null },
     ],
     ...overrides,
   }
@@ -494,7 +494,7 @@ describe('ExpensePages', () => {
     currentUser = FINANCE
     const draft = makeDecision({
       id: 'dec-draft',
-      lines: [{ lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+  lines: [{ id: '702', lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
     })
     mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
       status: 'APPROVED',
@@ -540,7 +540,7 @@ describe('ExpensePages', () => {
       id: 'dec-1',
       source: 'MANUAL',
       status: 'CONFIRMED',
-      lines: [{ lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+  lines: [{ id: '703', lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
     })
     mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
       status: 'APPROVED',

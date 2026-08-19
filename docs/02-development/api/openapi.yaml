@@ -529,8 +529,9 @@ components:
         priority: { type: integer }
     AllocationLineResponse:
       type: object
-      required: [lineIndex, allocatedAmount, currency]
+      required: [id, lineIndex, allocatedAmount, currency]
       properties:
+        id: { $ref: '#/components/schemas/Id' }
         lineIndex: { type: integer }
         allocatedAmount: { $ref: '#/components/schemas/Money' }
         currency: { type: string }

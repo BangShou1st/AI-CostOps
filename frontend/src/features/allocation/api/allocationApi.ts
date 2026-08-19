@@ -14,6 +14,7 @@ export interface AllocationRuleTrace {
 }
 
 export interface AllocationLine {
+  id: string
   lineIndex: number
   allocatedAmount: string
   currency: string
