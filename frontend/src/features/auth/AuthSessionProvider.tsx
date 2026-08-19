@@ -55,6 +55,13 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
     setState({ status: 'anonymous', user: null })
   }
 
+  const beginLocalReplacementProjection = () => {
+    accessTokenStore.clear()
+    void queryClient.cancelQueries()
+    queryClient.clear()
+    setState({ status: 'loading', user: null })
+  }
+
   const handleLocalTerminal = () => {
     const firstTerminalTransition = !terminalTransition.current
     if (firstTerminalTransition) {
@@ -171,8 +178,17 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
     login: async (email, password) => {
       const generation = beginLifecycle()
       replacementRequested.current = false
+      let cookieMutationSucceeded = false
       try {
-        const result = await coordinator.withCookieLock(() => authApi.login(email, password))
+        const result = await coordinator.withCookieLock(async () => {
+          const loginResult = await authApi.login(email, password)
+          cookieMutationSucceeded = true
+          // This event describes the completed shared-cookie mutation. It must
+          // not depend on this lifecycle still being current or on /auth/me.
+          coordinator.publish('SESSION_REPLACED')
+          if (isCurrentLifecycle(generation.epoch)) beginLocalReplacementProjection()
+          return loginResult
+        })
         if (!isCurrentLifecycle(generation.epoch)) return
         accessTokenStore.set(result.accessToken)
         const user = await authApi.me()
@@ -181,9 +197,11 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
         queryClient.clear()
         terminalTransition.current = false
         setState({ status: 'authenticated', user })
-        coordinator.publish('SESSION_REPLACED')
       } catch (error: unknown) {
-        if (isCurrentLifecycle(generation.epoch)) accessTokenStore.clear()
+        if (isCurrentLifecycle(generation.epoch)) {
+          accessTokenStore.clear()
+          if (cookieMutationSucceeded) clearLocalSession()
+        }
         throw error
       }
     },

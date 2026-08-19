@@ -221,6 +221,53 @@ describe('AuthSessionProvider session expiry', () => {
     expect(accessTokenStore.get()).toBe('new-login-access')
   })
 
+  it('publishes replacement before me and hides the old projection when me fails', async () => {
+    const coordinator = createTestCoordinator()
+    const queryClient = renderProvider(<SessionActionsProbe />, coordinator)
+    await screen.findByText('authenticated')
+    queryClient.setQueryData(['settings', 'users'], { oldAccount: true })
+    const meFailure = deferred<typeof user>()
+    mockedAuthApi.login.mockResolvedValue({ accessToken: 'new-login-access', expiresIn: 900, user: { id: '2', displayName: 'Finance' } })
+    mockedAuthApi.me.mockClear()
+    mockedAuthApi.me.mockReturnValue(meFailure.promise)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
+
+    await waitFor(() => expect(coordinator.publish).toHaveBeenCalledWith('SESSION_REPLACED'))
+    expect(screen.getByRole('status')).toHaveTextContent('loading')
+    expect(queryClient.getQueryData(['settings', 'users'])).toBeUndefined()
+    expect(accessTokenStore.get()).toBe('new-login-access')
+
+    meFailure.reject(new Error('transport failure'))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('anonymous'))
+    expect(accessTokenStore.get()).toBeNull()
+    expect(coordinator.publish).toHaveBeenCalledTimes(1)
+  })
+
+  it('publishes replacement even when a remote lifecycle event supersedes local login', async () => {
+    const coordinator = createTestCoordinator()
+    renderProvider(<SessionActionsProbe />, coordinator)
+    await screen.findByText('authenticated')
+    const login = deferred<{ accessToken: string; expiresIn: number; user: { id: string; displayName: string } }>()
+    mockedAuthApi.login.mockReturnValue(login.promise)
+    mockedAuthApi.me.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
+    await waitFor(() => expect(mockedAuthApi.login).toHaveBeenCalledTimes(1))
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_CLEARED',
+      eventId: 'remote-clear-during-login',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+
+    login.resolve({ accessToken: 'new-login-access', expiresIn: 900, user: { id: '2', displayName: 'Finance' } })
+    await waitFor(() => expect(coordinator.publish).toHaveBeenCalledWith('SESSION_REPLACED'))
+    expect(mockedAuthApi.me).not.toHaveBeenCalled()
+    expect(coordinator.publish).toHaveBeenCalledTimes(1)
+  })
+
   it('loginInTabBReplacesSessionInTabA', async () => {
     const coordinator = createTestCoordinator()
     const queryClient = renderProvider(<SessionActionsProbe />, coordinator)
