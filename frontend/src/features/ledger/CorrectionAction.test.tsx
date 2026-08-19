@@ -28,8 +28,8 @@ function renderAction() {
 beforeEach(() => {
   vi.clearAllMocks()
   mockedBillingPeriodApi.list.mockResolvedValue([
-    { id: '55', periodStart: '2026-08-01', periodEnd: '2026-09-01', status: 'OPEN' },
-    { id: '56', periodStart: '2026-09-01', periodEnd: '2026-10-01', status: 'CLOSED' },
+    { id: '55', periodStart: '2026-08-01', periodEnd: '2026-09-01', status: 'OPEN', version: 0 },
+    { id: '56', periodStart: '2026-09-01', periodEnd: '2026-10-01', status: 'CLOSED', version: 0 },
   ])
   mockedLedgerApi.correct.mockResolvedValue({ correctionGroupId: '5', posting: {} as never })
 })

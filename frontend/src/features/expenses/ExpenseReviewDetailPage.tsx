@@ -15,6 +15,8 @@ import { AllocationEditor } from '../allocation/AllocationEditor'
 import { PostingAction } from '../ledger/PostingAction'
 import { ledgerApi } from '../ledger/api/ledgerApi'
 import { ledgerKeys } from '../ledger/api/ledgerKeys'
+import type { CommitmentLinkRequest } from '../ledger/api/ledgerApi'
+import { CommitmentLinkPicker } from '../ledger/CommitmentLinkPicker'
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', POSTED: '已记账', REJECTED: '已拒绝', CANCELED: '已取消',
@@ -37,6 +39,7 @@ export function ExpenseReviewDetailPage() {
   const [comment, setComment] = useState('')
   const [rejectModal, setRejectModal] = useState(false)
   const [requestInfoModal, setRequestInfoModal] = useState(false)
+  const [commitmentLinks, setCommitmentLinks] = useState<CommitmentLinkRequest[]>([])
 
   const { data: expense, isLoading } = useQuery({
     queryKey: expenseKeys.reviewDetail(expenseId!),
@@ -108,7 +111,15 @@ export function ExpenseReviewDetailPage() {
         <Space>
           <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
           {expense.status === 'APPROVED' && expense.postingReady && canPost && (
-            <PostingAction label="记账" onPost={() => ledgerApi.postExpense(expense.id)} onCompleted={refetch} />
+            <>
+              <CommitmentLinkPicker
+                lines={confirmedDecision?.lines ?? []}
+                effectiveAt={expense.expenseDate}
+                value={commitmentLinks}
+                onChange={setCommitmentLinks}
+              />
+              <PostingAction label="记账" onPost={() => ledgerApi.postExpense(expense.id, commitmentLinks)} onCompleted={refetch} />
+            </>
           )}
         </Space>
       }>

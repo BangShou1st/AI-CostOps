@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Alert, Descriptions, Tag, Typography } from 'antd'
 import { Link, useParams } from 'react-router-dom'
 import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
@@ -14,12 +15,15 @@ import { AllocationHistory } from '../allocation/AllocationHistory'
 import { formatBusinessDateRange } from '../../lib/dateTime'
 import { PostingAction } from '../ledger/PostingAction'
 import { ledgerApi } from '../ledger/api/ledgerApi'
+import type { CommitmentLinkRequest } from '../ledger/api/ledgerApi'
+import { CommitmentLinkPicker } from '../ledger/CommitmentLinkPicker'
 
 export function CostDetailPage() {
   const params = useParams()
   const chargeId = params.id ?? ''
   const auth = useAuth()
   const queryClient = useQueryClient()
+  const [commitmentLinks, setCommitmentLinks] = useState<CommitmentLinkRequest[]>([])
 
   const permissions = auth.user?.permissions
   const canReadAllocation = hasPermission(permissions, 'ALLOCATION_READ')
@@ -92,7 +96,15 @@ export function CostDetailPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {canManageRules && <Link to="/allocation-rules">分摊规则管理</Link>}
           {canPost && detail.confirmedImport && detail.reviewStatus === 'CLEAN' && detail.currentAllocationDecisionId && (
-            <PostingAction onPost={() => ledgerApi.postCharge(chargeId)} onCompleted={refresh} />
+            <>
+              <CommitmentLinkPicker
+                lines={confirmedDecision?.lines ?? []}
+                effectiveAt={detail.periodStart}
+                value={commitmentLinks}
+                onChange={setCommitmentLinks}
+              />
+              <PostingAction onPost={() => ledgerApi.postCharge(chargeId, commitmentLinks)} onCompleted={refresh} />
+            </>
           )}
         </div>
       </header>
