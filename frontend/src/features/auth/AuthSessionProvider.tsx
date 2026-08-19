@@ -9,6 +9,7 @@ import {
   crossTabAuthCoordinator,
   logoutWithCookieLock,
   refreshMe,
+  AuthLifecycleSupersededError,
   RefreshRaceUnresolvedError,
   type AuthUser,
 } from './authSession'
@@ -32,7 +33,20 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
   const [state, setState] = useState<AuthState>({ status: 'loading', user: null })
   const queryClient = useQueryClient()
   const terminalTransition = useRef(false)
-  const remoteReplacementFlight = useRef<Promise<void> | null>(null)
+  const lifecycleEpoch = useRef(0)
+  const lifecycleKey = useRef<object>({})
+  const mounted = useRef(false)
+  const replacementRequested = useRef(false)
+  const replacementRunning = useRef(false)
+
+  const beginLifecycle = () => {
+    lifecycleEpoch.current += 1
+    lifecycleKey.current = {}
+    terminalTransition.current = false
+    return { epoch: lifecycleEpoch.current, key: lifecycleKey.current }
+  }
+
+  const isCurrentLifecycle = (epoch: number) => mounted.current && lifecycleEpoch.current === epoch
 
   const clearLocalSession = () => {
     accessTokenStore.clear()
@@ -42,36 +56,58 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
   }
 
   const handleLocalTerminal = () => {
-    clearLocalSession()
-    if (!terminalTransition.current) {
+    const firstTerminalTransition = !terminalTransition.current
+    if (firstTerminalTransition) {
+      beginLifecycle()
       terminalTransition.current = true
+      replacementRequested.current = false
+    }
+    clearLocalSession()
+    if (firstTerminalTransition) {
       coordinator.publish('SESSION_INVALIDATED')
     }
     message.warning('您的权限已变更或会话已过期，请重新登录。')
   }
 
-  const handleRemoteReplacement = () => {
-    if (remoteReplacementFlight.current) return
-    const replacement = (async () => {
-      terminalTransition.current = false
-      accessTokenStore.clear()
-      setState({ status: 'loading', user: null })
-      void queryClient.cancelQueries()
-      queryClient.clear()
-      try {
-        const user = await bootstrapSession(authApi, accessTokenStore)
-        setState({ status: 'authenticated', user })
-      } catch (error: unknown) {
-        if (error instanceof RefreshRaceUnresolvedError) {
-          message.warning('会话刷新冲突暂未解决，请稍后刷新页面重试。')
+  const drainRemoteReplacements = async () => {
+    if (replacementRunning.current) return
+    replacementRunning.current = true
+    try {
+      while (replacementRequested.current) {
+        replacementRequested.current = false
+        const epoch = lifecycleEpoch.current
+        const key = lifecycleKey.current
+        try {
+          const user = await bootstrapSession(authApi, accessTokenStore, {
+            key,
+            isCurrent: () => isCurrentLifecycle(epoch),
+          })
+          if (!isCurrentLifecycle(epoch)) continue
+          terminalTransition.current = false
+          setState({ status: 'authenticated', user })
+        } catch (error: unknown) {
+          if (!isCurrentLifecycle(epoch)) continue
+          if (error instanceof AuthLifecycleSupersededError) continue
+          if (error instanceof RefreshRaceUnresolvedError) {
+            message.warning('会话刷新冲突暂未解决，请稍后刷新页面重试。')
+          }
+          clearLocalSession()
         }
-        clearLocalSession()
       }
-    })()
-    remoteReplacementFlight.current = replacement
-    void replacement.finally(() => {
-      if (remoteReplacementFlight.current === replacement) remoteReplacementFlight.current = null
-    })
+    } finally {
+      replacementRunning.current = false
+      if (replacementRequested.current) void drainRemoteReplacements()
+    }
+  }
+
+  const handleRemoteReplacement = () => {
+    beginLifecycle()
+    replacementRequested.current = true
+    accessTokenStore.clear()
+    setState({ status: 'loading', user: null })
+    void queryClient.cancelQueries()
+    queryClient.clear()
+    void drainRemoteReplacements()
   }
 
   const handleRemoteEvent = (event: CrossTabAuthEvent) => {
@@ -80,10 +116,14 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
       return
     }
     if (event.type === 'SESSION_CLEARED') {
+      beginLifecycle()
+      replacementRequested.current = false
       clearLocalSession()
       return
     }
     if (event.type === 'SESSION_INVALIDATED') {
+      beginLifecycle()
+      replacementRequested.current = false
       terminalTransition.current = true
       clearLocalSession()
     }
@@ -91,16 +131,22 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
   }
 
   useEffect(() => {
-    let active = true
-    bootstrapSession(authApi, accessTokenStore)
+    mounted.current = true
+    const epoch = lifecycleEpoch.current
+    const key = lifecycleKey.current
+    bootstrapSession(authApi, accessTokenStore, {
+      key,
+      isCurrent: () => isCurrentLifecycle(epoch),
+    })
       .then((user) => {
-        if (active) {
+        if (isCurrentLifecycle(epoch)) {
           terminalTransition.current = false
           setState({ status: 'authenticated', user })
         }
       })
       .catch((error: unknown) => {
-        if (!active) return
+        if (!isCurrentLifecycle(epoch)) return
+        if (error instanceof AuthLifecycleSupersededError) return
         if (error instanceof RefreshRaceUnresolvedError) {
           // Another window/device is rotating the session; the session itself
           // is intact and must not be revoked by a stale-credential retry.
@@ -109,7 +155,7 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
         if (isTerminalSessionError(error)) handleLocalTerminal()
         else setState({ status: 'anonymous', user: null })
       })
-    return () => { active = false }
+    return () => { mounted.current = false }
   }, [])
 
   useEffect(() => {
@@ -123,32 +169,43 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
 
   const value = useMemo<AuthContextValue>(() => ({ ...state,
     login: async (email, password) => {
-      const result = await coordinator.withCookieLock(() => authApi.login(email, password))
-      accessTokenStore.set(result.accessToken)
+      const generation = beginLifecycle()
+      replacementRequested.current = false
       try {
+        const result = await coordinator.withCookieLock(() => authApi.login(email, password))
+        if (!isCurrentLifecycle(generation.epoch)) return
+        accessTokenStore.set(result.accessToken)
         const user = await authApi.me()
+        if (!isCurrentLifecycle(generation.epoch)) return
         void queryClient.cancelQueries()
         queryClient.clear()
         terminalTransition.current = false
         setState({ status: 'authenticated', user })
         coordinator.publish('SESSION_REPLACED')
       } catch (error: unknown) {
-        accessTokenStore.clear()
+        if (isCurrentLifecycle(generation.epoch)) accessTokenStore.clear()
         throw error
       }
     },
     logout: async () => {
+      const generation = beginLifecycle()
+      replacementRequested.current = false
       let succeeded = false
       try {
         await logoutWithCookieLock(authApi.logout, authApi.refresh, accessTokenStore, coordinator)
+        if (!isCurrentLifecycle(generation.epoch)) return
         succeeded = true
       } finally {
-        clearLocalSession()
-        if (succeeded) coordinator.publish('SESSION_CLEARED')
+        if (isCurrentLifecycle(generation.epoch)) {
+          clearLocalSession()
+          if (succeeded) coordinator.publish('SESSION_CLEARED')
+        }
       }
     },
     refreshMe: async () => {
+      const epoch = lifecycleEpoch.current
       const user = await refreshMe(authApi)
+      if (!isCurrentLifecycle(epoch)) throw new AuthLifecycleSupersededError()
       setState({ status: 'authenticated', user })
       return user
     },

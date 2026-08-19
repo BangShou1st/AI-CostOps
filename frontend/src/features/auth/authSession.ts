@@ -74,26 +74,56 @@ export async function logoutWithCookieLock(
   })
 }
 
-// The whole bootstrap (refresh + me) is single-flighted too, so a StrictMode
-// double mount performs exactly one refresh and one me projection read.
-let bootstrapFlight: Promise<AuthUser> | null = null
+// The whole bootstrap (refresh + me) is single-flighted per lifecycle key, so
+// a StrictMode double mount shares one refresh and one me read while a newer
+// lifecycle can supersede an older in-flight bootstrap.
+const defaultBootstrapKey = {}
+const bootstrapFlights = new Map<object, Promise<AuthUser>>()
 
-export function bootstrapSession(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
-  if (!bootstrapFlight) {
-    bootstrapFlight = doBootstrap(api, store).finally(() => {
-      bootstrapFlight = null
-    })
-  }
-  return bootstrapFlight
+export interface BootstrapSessionOptions {
+  key?: object
+  isCurrent?: () => boolean
 }
 
-async function doBootstrap(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
+export class AuthLifecycleSupersededError extends Error {
+  constructor() {
+    super('Authentication lifecycle was superseded')
+    this.name = 'AuthLifecycleSupersededError'
+  }
+}
+
+export function bootstrapSession(
+  api: AuthApi,
+  store: AccessTokenStore,
+  options: BootstrapSessionOptions = {},
+): Promise<AuthUser> {
+  const key = options.key ?? defaultBootstrapKey
+  const existing = bootstrapFlights.get(key)
+  if (existing) return existing
+
+  const isCurrent = options.isCurrent ?? (() => true)
+  const flight = doBootstrap(api, store, isCurrent)
+  const tracked = flight.finally(() => {
+    if (bootstrapFlights.get(key) === tracked) bootstrapFlights.delete(key)
+  })
+  bootstrapFlights.set(key, tracked)
+  return tracked
+}
+
+async function doBootstrap(
+  api: AuthApi,
+  store: AccessTokenStore,
+  isCurrent: () => boolean,
+): Promise<AuthUser> {
   try {
     const refreshed = await refreshTokenOnce(api.refresh)
+    if (!isCurrent()) throw new AuthLifecycleSupersededError()
     store.set(refreshed.accessToken)
-    return await api.me()
+    const user = await api.me()
+    if (!isCurrent()) throw new AuthLifecycleSupersededError()
+    return user
   } catch (error) {
-    store.clear()
+    if (isCurrent()) store.clear()
     throw error
   }
 }

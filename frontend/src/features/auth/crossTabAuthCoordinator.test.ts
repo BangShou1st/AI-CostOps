@@ -73,6 +73,48 @@ class FakeChannel implements CrossTabAuthChannel {
   }
 }
 
+class FakeStorageEventTarget {
+  private readonly listeners = new Set<(event: StorageEvent) => void>()
+
+  addEventListener(_type: 'storage', listener: (event: StorageEvent) => void) {
+    this.listeners.add(listener)
+  }
+
+  removeEventListener(_type: 'storage', listener: (event: StorageEvent) => void) {
+    this.listeners.delete(listener)
+  }
+
+  emit(event: StorageEvent) {
+    for (const listener of this.listeners) listener(event)
+  }
+}
+
+class FakeStorageNetwork {
+  readonly writes: Array<{ key: string; value: string | null }> = []
+  private readonly targets = new Set<FakeStorageEventTarget>()
+  readonly storage = {
+    setItem: (key: string, value: string) => {
+      this.writes.push({ key, value })
+      this.emit(key, value)
+    },
+    removeItem: (key: string) => {
+      this.writes.push({ key, value: null })
+      this.emit(key, null)
+    },
+  } as unknown as Storage
+
+  createTarget() {
+    const target = new FakeStorageEventTarget()
+    this.targets.add(target)
+    return target
+  }
+
+  private emit(key: string, newValue: string | null) {
+    const event = { key, newValue, storageArea: this.storage } as StorageEvent
+    for (const target of this.targets) target.emit(event)
+  }
+}
+
 describe('CrossTabAuthCoordinator', () => {
   it('serializes cookie auth operations across two tabs and releases after failure', async () => {
     const locks = new FakeLockManager()
@@ -189,5 +231,65 @@ describe('CrossTabAuthCoordinator', () => {
     await Promise.all([firstOperation, secondOperation])
     expect(secondStarted).toBe(true)
     tab.close()
+  })
+
+  it('uses storage-event notification fallback across tabs without persisting auth state or creating a mutex', async () => {
+    const network = new FakeStorageNetwork()
+    const targetA = network.createTarget()
+    const targetB = network.createTarget()
+    const tabA = createCrossTabAuthCoordinator({
+      broadcastChannelSupported: false,
+      lockManager: null,
+      storage: network.storage,
+      storageEventTarget: targetA,
+      tabId: 'tab-a',
+    })
+    const tabB = createCrossTabAuthCoordinator({
+      broadcastChannelSupported: false,
+      lockManager: null,
+      storage: network.storage,
+      storageEventTarget: targetB,
+      tabId: 'tab-b',
+    })
+    const receivedA: unknown[] = []
+    const receivedB: unknown[] = []
+    tabA.subscribe((event) => receivedA.push(event))
+    tabB.subscribe((event) => receivedB.push(event))
+
+    tabA.publish('SESSION_REPLACED')
+
+    expect(receivedA).toEqual([])
+    expect(receivedB).toHaveLength(1)
+    expect(Object.keys(receivedB[0] as object).sort()).toEqual([
+      'eventId', 'occurredAt', 'sourceTabId', 'type', 'version',
+    ])
+    expect(JSON.stringify(receivedB[0])).not.toMatch(/accessToken|refreshToken|token|password|credential|jwt|reset/i)
+    expect(network.writes).toEqual([
+      { key: 'aicostops:auth:event', value: expect.any(String) },
+      { key: 'aicostops:auth:event', value: null },
+    ])
+    expect(network.storage.getItem?.('aicostops:auth:event')).toBeUndefined()
+
+    const first = deferred<void>()
+    let concurrent = 0
+    let maxConcurrent = 0
+    const enter = async (operation: Promise<void>) => {
+      concurrent += 1
+      maxConcurrent = Math.max(maxConcurrent, concurrent)
+      try {
+        await operation
+      } finally {
+        concurrent -= 1
+      }
+    }
+    const owner = tabA.withCookieLock(() => enter(first.promise))
+    const follower = tabB.withCookieLock(() => enter(Promise.resolve()))
+    await Promise.resolve()
+    expect(maxConcurrent).toBe(2)
+    first.resolve()
+    await Promise.all([owner, follower])
+
+    tabA.close()
+    tabB.close()
   })
 })

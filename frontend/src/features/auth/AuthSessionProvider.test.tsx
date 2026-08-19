@@ -37,6 +37,16 @@ const user = {
   organizationId: '2', organizationMemberId: '11', permissions: ['USER_READ'],
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
+}
+
 function AuthProbe() {
   const auth = useAuth()
   if (auth.status === 'loading') return <div role="status">Restoring session</div>
@@ -105,6 +115,112 @@ beforeEach(() => {
 })
 
 describe('AuthSessionProvider session expiry', () => {
+  it('sessionClearedSupersedesInitialBootstrap', async () => {
+    const coordinator = createTestCoordinator()
+    const refresh = deferred<{ accessToken: string; expiresIn: number; user: { id: string; displayName: string } }>()
+    mockedAuthApi.refresh.mockReturnValue(refresh.promise)
+    const queryClient = renderProvider(<AuthProbe />, coordinator)
+    await waitFor(() => expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1))
+
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_CLEARED',
+      eventId: 'clear-during-bootstrap',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+    await screen.findByText('Sign in')
+    refresh.resolve({ accessToken: 'stale-access', expiresIn: 900, user: { id: '1', displayName: 'Admin' } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    await waitFor(() => expect(queryClient.getQueryCache().getAll()).toHaveLength(0))
+    expect(screen.queryByText('Settings home')).not.toBeInTheDocument()
+    expect(accessTokenStore.get()).toBeNull()
+  })
+
+  it('sessionInvalidatedSupersedesRemoteReplacement', async () => {
+    const coordinator = createTestCoordinator()
+    const queryClient = renderProvider(<AuthProbe />, coordinator)
+    await screen.findByText('Settings home')
+    const refresh = deferred<{ accessToken: string; expiresIn: number; user: { id: string; displayName: string } }>()
+    mockedAuthApi.refresh.mockClear()
+    mockedAuthApi.refresh.mockReturnValue(refresh.promise)
+
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_REPLACED',
+      eventId: 'replacement-before-invalidation',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+    await waitFor(() => expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1))
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_INVALIDATED',
+      eventId: 'invalidation-during-replacement',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+    await screen.findByText('Sign in')
+    refresh.resolve({ accessToken: 'stale-replacement-access', expiresIn: 900, user: { id: '1', displayName: 'Admin' } })
+    await waitFor(() => expect(mockedAuthApi.me).toHaveBeenCalledTimes(1))
+
+    await waitFor(() => expect(queryClient.getQueryCache().getAll()).toHaveLength(0))
+    expect(screen.queryByText('Settings home')).not.toBeInTheDocument()
+    expect(accessTokenStore.get()).toBeNull()
+  })
+
+  it('latestSessionReplacedEventTriggersFreshReconciliation', async () => {
+    const coordinator = createTestCoordinator()
+    renderProvider(<AuthProbe />, coordinator)
+    await screen.findByText('Settings home')
+    const firstRefresh = deferred<{ accessToken: string; expiresIn: number; user: { id: string; displayName: string } }>()
+    const latestRefresh = deferred<{ accessToken: string; expiresIn: number; user: { id: string; displayName: string } }>()
+    mockedAuthApi.refresh.mockClear()
+    mockedAuthApi.me.mockClear()
+    mockedAuthApi.refresh
+      .mockReturnValueOnce(firstRefresh.promise)
+      .mockReturnValueOnce(latestRefresh.promise)
+
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_REPLACED',
+      eventId: 'replacement-one',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+    await waitFor(() => expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1))
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_REPLACED',
+      eventId: 'replacement-two',
+      sourceTabId: 'tab-c',
+      occurredAt: Date.now(),
+    })
+    firstRefresh.resolve({ accessToken: 'stale-replacement-access', expiresIn: 900, user: { id: '1', displayName: 'Admin' } })
+    latestRefresh.resolve({ accessToken: 'latest-replacement-access', expiresIn: 900, user: { id: '2', displayName: 'Finance' } })
+
+    await waitFor(() => expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(accessTokenStore.get()).toBe('latest-replacement-access'))
+    expect(mockedAuthApi.me).toHaveBeenCalledTimes(1)
+  })
+
+  it('localLoginSupersedesAnInitialBootstrapInFlight', async () => {
+    const coordinator = createTestCoordinator()
+    const oldRefresh = deferred<{ accessToken: string; expiresIn: number; user: { id: string; displayName: string } }>()
+    mockedAuthApi.refresh.mockReturnValue(oldRefresh.promise)
+    mockedAuthApi.login.mockResolvedValue({ accessToken: 'new-login-access', expiresIn: 900, user: { id: '2', displayName: 'Finance' } })
+    const queryClient = renderProvider(<SessionActionsProbe />, coordinator)
+    await waitFor(() => expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
+    await waitFor(() => expect(accessTokenStore.get()).toBe('new-login-access'))
+    oldRefresh.resolve({ accessToken: 'stale-bootstrap-access', expiresIn: 900, user: { id: '1', displayName: 'Admin' } })
+
+    await waitFor(() => expect(queryClient.getQueryCache().getAll()).toHaveLength(0))
+    expect(accessTokenStore.get()).toBe('new-login-access')
+  })
+
   it('loginInTabBReplacesSessionInTabA', async () => {
     const coordinator = createTestCoordinator()
     const queryClient = renderProvider(<SessionActionsProbe />, coordinator)
