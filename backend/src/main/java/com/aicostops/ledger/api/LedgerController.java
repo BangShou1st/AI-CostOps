@@ -1,13 +1,16 @@
 package com.aicostops.ledger.api;
 
 import com.aicostops.ledger.api.LedgerRequests.PostSourceRequest;
+import com.aicostops.ledger.api.LedgerRequests.CorrectionRequest;
 import com.aicostops.ledger.api.LedgerResponses.LedgerPostingDetailResponse;
 import com.aicostops.ledger.application.ProviderChargePostingService;
 import com.aicostops.ledger.application.ExpensePostingService;
 import com.aicostops.ledger.application.LedgerQueryService;
+import com.aicostops.ledger.application.LedgerCorrectionService;
 import com.aicostops.ledger.domain.LedgerSourceType;
 import com.aicostops.shared.web.PageRequest;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.aicostops.shared.security.AuthenticatedUser;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -25,12 +28,15 @@ public class LedgerController {
     private final ProviderChargePostingService providerCharges;
     private final ExpensePostingService expenses;
     private final LedgerQueryService queries;
+    private final LedgerCorrectionService corrections;
 
     public LedgerController(ProviderChargePostingService providerCharges,
-            ExpensePostingService expenses, LedgerQueryService queries) {
+            ExpensePostingService expenses, LedgerQueryService queries,
+            LedgerCorrectionService corrections) {
         this.providerCharges = providerCharges;
         this.expenses = expenses;
         this.queries = queries;
+        this.corrections = corrections;
     }
 
     @PostMapping("/costs/charges/{chargeFactId}/post")
@@ -49,6 +55,15 @@ public class LedgerController {
             @RequestBody(required = false) PostSourceRequest request) {
         return LedgerPostingDetailResponse.from(expenses.post(authenticatedUser, expenseId,
                 LedgerRequests.parsePost(request)));
+    }
+
+    @PostMapping("/ledger/corrections")
+    public LedgerResponses.LedgerCorrectionResponse correct(
+            @AuthenticationPrincipal AuthenticatedUser authenticatedUser,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody CorrectionRequest request) {
+        return LedgerResponses.LedgerCorrectionResponse.from(corrections.correct(authenticatedUser,
+                LedgerRequests.parseCorrection(request), idempotencyKey));
     }
 
     @GetMapping("/ledger/postings")

@@ -14,6 +14,8 @@ public interface LedgerBudgetPort {
 
     BillingPeriod lockOpenPeriodAt(long organizationId, Instant effectiveAt);
 
+    BillingPeriod lockOpenPeriod(long organizationId, long billingPeriodId);
+
     List<BudgetSelection> resolveSelections(
             long organizationId, long billingPeriodId, List<EntryScopeAmount> entries);
 

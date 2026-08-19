@@ -38,4 +38,18 @@ public class AuditLedgerAdapter implements LedgerAuditPort {
         auditService.append("LEDGER_EXPENSE_POSTED", organizationId, actorUserId,
                 "LEDGER_POSTING", postingId, metadata);
     }
+
+    @Override
+    public void correctionPosted(long organizationId, long actorUserId, long postingId,
+            long correctionGroupId, long targetEntryId, String mode, int entryCount,
+            String currency) {
+        var metadata = new LinkedHashMap<String, Object>();
+        metadata.put("correctionGroupId", Long.toString(correctionGroupId));
+        metadata.put("targetEntryId", Long.toString(targetEntryId));
+        metadata.put("mode", mode);
+        metadata.put("entryCount", entryCount);
+        metadata.put("currency", currency);
+        auditService.append("LEDGER_CORRECTION_POSTED", organizationId, actorUserId,
+                "LEDGER_POSTING", postingId, metadata);
+    }
 }

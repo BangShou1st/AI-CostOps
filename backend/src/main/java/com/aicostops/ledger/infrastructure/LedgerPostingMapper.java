@@ -180,4 +180,15 @@ public interface LedgerPostingMapper {
     CorrectionGroup selectCorrectionGroupByIdAndOrganization(
             @Param("organizationId") long organizationId,
             @Param("correctionGroupId") long correctionGroupId);
+
+    @Select("""
+            SELECT
+            """ + CORRECTION_COLUMNS + """
+            FROM correction_group cg
+            WHERE cg.org_id=#{organizationId} AND cg.target_entry_id=#{targetEntryId}
+            FOR UPDATE
+            """)
+    CorrectionGroup selectCorrectionGroupByTargetForUpdate(
+            @Param("organizationId") long organizationId,
+            @Param("targetEntryId") long targetEntryId);
 }

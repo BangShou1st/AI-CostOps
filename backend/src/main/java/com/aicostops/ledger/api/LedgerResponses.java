@@ -1,6 +1,7 @@
 package com.aicostops.ledger.api;
 
 import com.aicostops.ledger.application.LedgerReadModels.LedgerPostingDetail;
+import com.aicostops.ledger.application.LedgerReadModels.CorrectionResult;
 import com.aicostops.ledger.application.LedgerReadModels.LedgerPostingView;
 import com.aicostops.ledger.application.LedgerReadModels.LedgerEntryView;
 import com.aicostops.ledger.application.LedgerReadModels.LedgerLineage;
@@ -71,6 +72,16 @@ public final class LedgerResponses {
                     ApiId.of(posting.billingPeriodId()), posting.status(),
                     ApiId.of(posting.postedByMemberId()), posting.postedAt(), posting.createdAt(),
                     detail.entries().stream().map(LedgerEntryResponse::from).toList());
+        }
+    }
+
+    public record LedgerCorrectionResponse(
+            ApiId correctionGroupId,
+            LedgerPostingDetailResponse posting) {
+
+        static LedgerCorrectionResponse from(CorrectionResult result) {
+            return new LedgerCorrectionResponse(ApiId.of(result.correctionGroup().id()),
+                    LedgerPostingDetailResponse.from(result.posting()));
         }
     }
 

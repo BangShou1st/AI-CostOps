@@ -58,6 +58,22 @@ public class LedgerBudgetService implements LedgerBudgetPort {
     }
 
     @Override
+    public BillingPeriod lockOpenPeriod(long organizationId, long billingPeriodId) {
+        var locked = periodMapper.selectByIdForUpdate(organizationId, billingPeriodId);
+        if (locked == null) {
+            throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
+                    "Billing period not found",
+                    "The billing period is not available in the current organization.");
+        }
+        if (locked.status() != BillingPeriodStatus.OPEN) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.PERIOD_NOT_OPEN,
+                    "Billing period is not open",
+                    "The correction billing period is " + locked.status() + ".");
+        }
+        return locked;
+    }
+
+    @Override
     public List<BudgetSelection> resolveSelections(long organizationId, long billingPeriodId,
             List<EntryScopeAmount> entries) {
         return entries.stream().map(entry -> {

@@ -2,6 +2,7 @@ package com.aicostops.ledger.application;
 
 import com.aicostops.ledger.domain.LedgerEntry;
 import com.aicostops.ledger.domain.LedgerPosting;
+import com.aicostops.ledger.domain.CorrectionGroup;
 import java.util.List;
 import java.util.Map;
 
@@ -15,6 +16,9 @@ public final class LedgerReadModels {
         public LedgerPostingDetail {
             entries = List.copyOf(entries);
         }
+    }
+
+    public record CorrectionResult(CorrectionGroup correctionGroup, LedgerPostingDetail posting) {
     }
 
     public record LedgerPostingView(LedgerPosting posting, List<LedgerEntry> visibleEntries) {

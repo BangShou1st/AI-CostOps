@@ -8,4 +8,8 @@ public interface LedgerAuditPort {
 
     void expensePosted(long organizationId, long actorUserId, long postingId,
             long expenseClaimId, long allocationDecisionId, int entryCount, String currency);
+
+    void correctionPosted(long organizationId, long actorUserId, long postingId,
+            long correctionGroupId, long targetEntryId, String mode, int entryCount,
+            String currency);
 }
