@@ -292,4 +292,52 @@ describe('CrossTabAuthCoordinator', () => {
     tabA.close()
     tabB.close()
   })
+
+  it('falls back to storage when BroadcastChannel postMessage fails at runtime and deduplicates the envelope', () => {
+    const channels = new FakeBroadcastNetwork()
+    const storage = new FakeStorageNetwork()
+    const targetA = storage.createTarget()
+    const targetB = storage.createTarget()
+    const tabA = createCrossTabAuthCoordinator({
+      channelFactory: () => {
+        const channel = channels.createChannel() as FakeChannel
+        channel.postMessage = () => { throw new Error('channel send failed') }
+        return channel
+      },
+      storage: storage.storage,
+      storageEventTarget: targetA,
+      tabId: 'tab-a',
+    })
+    const tabB = createCrossTabAuthCoordinator({
+      channelFactory: () => channels.createChannel(),
+      storage: storage.storage,
+      storageEventTarget: targetB,
+      tabId: 'tab-b',
+    })
+    const receivedA: unknown[] = []
+    const receivedB: unknown[] = []
+    tabA.subscribe((event) => receivedA.push(event))
+    tabB.subscribe((event) => receivedB.push(event))
+
+    tabA.publish('SESSION_REPLACED')
+
+    expect(receivedA).toEqual([])
+    expect(receivedB).toHaveLength(1)
+    expect(networkEnvelopeKeys(receivedB[0])).toEqual([
+      'eventId', 'occurredAt', 'sourceTabId', 'type', 'version',
+    ])
+    expect(JSON.stringify(receivedB[0])).not.toMatch(/accessToken|refreshToken|token|password|credential|jwt|reset/i)
+    expect(storage.writes).toHaveLength(2)
+
+    const serialized = storage.writes[0].value
+    targetB.emit({ key: 'aicostops:auth:event', newValue: serialized, storageArea: storage.storage } as StorageEvent)
+    expect(receivedB).toHaveLength(1)
+
+    tabA.close()
+    tabB.close()
+  })
 })
+
+function networkEnvelopeKeys(value: unknown): string[] {
+  return Object.keys(value as object).sort()
+}

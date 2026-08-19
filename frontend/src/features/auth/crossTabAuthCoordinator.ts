@@ -74,10 +74,11 @@ export function createCrossTabAuthCoordinator(
     ? undefined
     : options.lockManager ?? getBrowserLockManager()
   const channel = createChannel(options)
-  const storage = channel ? undefined : (options.storage ?? getBrowserStorage())
-  const storageEventTarget = channel
-    ? undefined
-    : (options.storageEventTarget ?? getBrowserStorageEventTarget())
+  // Storage is notification-only. Keep it available even when BroadcastChannel
+  // was created successfully so a runtime postMessage failure can fall back to
+  // the same non-secret envelope without changing the lock implementation.
+  const storage = options.storage ?? getBrowserStorage()
+  const storageEventTarget = options.storageEventTarget ?? getBrowserStorageEventTarget()
   let localLockTail = Promise.resolve()
   let closed = false
 
