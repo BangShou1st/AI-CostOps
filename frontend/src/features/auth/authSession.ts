@@ -63,6 +63,7 @@ export async function logoutWithCookieLock(
   await coordinator.withCookieLock(async () => {
     try {
       await logout()
+      coordinator.publish('SESSION_CLEARED')
       return
     } catch (error) {
       if (!isAccessTokenExpired(error)) throw error
@@ -70,6 +71,7 @@ export async function logoutWithCookieLock(
       store.set(refreshed.accessToken)
       coordinator.publish('REFRESH_COMPLETED')
       await logout()
+      coordinator.publish('SESSION_CLEARED')
     }
   })
 }

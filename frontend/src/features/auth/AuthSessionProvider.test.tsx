@@ -47,6 +47,17 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
+function authError(code: string, status = 401) {
+  const config = { headers: {} } as InternalAxiosRequestConfig
+  return new AxiosError(
+    code,
+    'ERR_BAD_RESPONSE',
+    config,
+    undefined,
+    { config, data: { code }, headers: {}, status, statusText: 'Auth failure' } as AxiosResponse,
+  )
+}
+
 function AuthProbe() {
   const auth = useAuth()
   if (auth.status === 'loading') return <div role="status">Restoring session</div>
@@ -72,7 +83,7 @@ function SessionActionsProbe() {
   return (
     <>
       <div role="status">{auth.status}</div>
-      <button onClick={() => void auth.login('finance@example.com', 'password')}>Login</button>
+      <button onClick={() => void auth.login('finance@example.com', 'password').catch(() => undefined)}>Login</button>
       <button onClick={() => void auth.logout().catch(() => undefined)}>Logout</button>
     </>
   )
@@ -302,15 +313,71 @@ describe('AuthSessionProvider session expiry', () => {
 
   it('logoutTransportFailureDoesNotPublishSessionCleared', async () => {
     const coordinator = createTestCoordinator()
-    renderProvider(<SessionActionsProbe />, coordinator)
+    const queryClient = renderProvider(<SessionActionsProbe />, coordinator)
     await screen.findByText('authenticated')
+    queryClient.setQueryData(['settings', 'users'], { stillValid: true })
+    const tokenBefore = accessTokenStore.get()
     mockedAuthApi.logout.mockRejectedValue(new Error('redis unavailable'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('anonymous'))
+    await waitFor(() => expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('status')).toHaveTextContent('authenticated')
+    expect(accessTokenStore.get()).toBe(tokenBefore)
+    expect(queryClient.getQueryData(['settings', 'users'])).toEqual({ stillValid: true })
     expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1)
     expect(coordinator.publish).not.toHaveBeenCalled()
+  })
+
+  it('publishes cleared after logout even when a remote lifecycle event supersedes it', async () => {
+    const coordinator = createTestCoordinator()
+    renderProvider(<SessionActionsProbe />, coordinator)
+    await screen.findByText('authenticated')
+    const logout = deferred<void>()
+    mockedAuthApi.logout.mockReturnValue(logout.promise)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+    await waitFor(() => expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1))
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_REPLACED',
+      eventId: 'remote-replacement-during-logout',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+
+    logout.resolve()
+    await waitFor(() => expect(coordinator.publish).toHaveBeenCalledWith('SESSION_CLEARED'))
+    expect(coordinator.publish).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['AUTH_SESSION_EXPIRED', 'first request', true],
+    ['AUTH_REFRESH_REPLAY', 'refresh after access expiry', false],
+    ['AUTH_SESSION_EXPIRED', 'refresh after access expiry', false],
+  ])('propagates %s during logout exactly once without SESSION_CLEARED (%s)', async (terminalCode, _path, firstRequest) => {
+    const coordinator = createTestCoordinator()
+    renderProvider(<SessionActionsProbe />, coordinator)
+    await screen.findByText('authenticated')
+    mockedAuthApi.refresh.mockClear()
+    const accessExpired = authError('AUTH_ACCESS_EXPIRED')
+    const terminal = authError(terminalCode)
+    if (firstRequest) {
+      mockedAuthApi.logout.mockRejectedValueOnce(terminal)
+    } else {
+      mockedAuthApi.logout.mockRejectedValueOnce(accessExpired)
+      mockedAuthApi.refresh.mockRejectedValueOnce(terminal)
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('anonymous'))
+    expect(accessTokenStore.get()).toBeNull()
+    expect(coordinator.publish).toHaveBeenCalledTimes(1)
+    expect(coordinator.publish).toHaveBeenCalledWith('SESSION_INVALIDATED')
+    expect(coordinator.publish).not.toHaveBeenCalledWith('SESSION_CLEARED')
+    expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1)
+    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(firstRequest ? 0 : 1)
   })
 
   it('remoteLogoutClearsSiblingWithoutCallingBackendLogout', async () => {

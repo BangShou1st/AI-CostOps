@@ -41,6 +41,22 @@ describe('authentication session', () => {
     expect(logout).toHaveBeenCalledTimes(2)
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(store.get()).toBe('fresh-access')
+    expect(coordinator.publish).toHaveBeenCalledWith('SESSION_CLEARED')
+  })
+
+  it('rejects non-terminal logout failures without clearing the local session or broadcasting', async () => {
+    const coordinator = {
+      withCookieLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+      publish: vi.fn(),
+    } as unknown as CrossTabAuthCoordinator
+    const store = createAccessTokenStore()
+    store.set('still-valid')
+    const logout = vi.fn().mockRejectedValue(new Error('network failure'))
+
+    await expect(logoutWithCookieLock(logout, vi.fn(), store, coordinator)).rejects.toThrow('network failure')
+
+    expect(store.get()).toBe('still-valid')
+    expect(coordinator.publish).not.toHaveBeenCalled()
   })
 
   it('runs the complete refresh race lifecycle inside the cross-tab cookie lock', async () => {

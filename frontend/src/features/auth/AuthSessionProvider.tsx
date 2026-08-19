@@ -211,12 +211,13 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
       let succeeded = false
       try {
         await logoutWithCookieLock(authApi.logout, authApi.refresh, accessTokenStore, coordinator)
-        if (!isCurrentLifecycle(generation.epoch)) return
         succeeded = true
+      } catch (error: unknown) {
+        if (isTerminalSessionError(error)) handleLocalTerminal()
+        throw error
       } finally {
-        if (isCurrentLifecycle(generation.epoch)) {
+        if (succeeded && isCurrentLifecycle(generation.epoch)) {
           clearLocalSession()
-          if (succeeded) coordinator.publish('SESSION_CLEARED')
         }
       }
     },
