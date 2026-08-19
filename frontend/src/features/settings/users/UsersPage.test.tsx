@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../../auth/AuthSessionProvider'
@@ -110,6 +110,35 @@ describe('UsersPage', () => {
     renderUsersPage(['USER_READ', 'ROLE_ASSIGN'])
     expect(await screen.findByRole('button', { name: /分配角色/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '停 用' })).not.toBeInTheDocument()
+  })
+
+  it('roleAssignmentShowsFullLocalizedRoleLabelAndSubmitsRoleId', async () => {
+    mockedSettingsApi.listRoles.mockResolvedValue([
+      { id: 'finance-admin-id', code: 'FINANCE_ADMIN', name: 'Finance admin', permissions: [] },
+    ])
+    mockedSettingsApi.createRoleAssignment.mockResolvedValue({} as never)
+    renderUsersPage(['USER_READ', 'ROLE_ASSIGN'])
+
+    fireEvent.click(await screen.findByRole('button', { name: /分配角色/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /添加角色分配/i }))
+
+    const dialogs = await screen.findAllByRole('dialog')
+    const assignmentDialog = dialogs[dialogs.length - 1]
+    const roleCombobox = within(assignmentDialog).getAllByRole('combobox')[0]
+    expect(roleCombobox.closest('.ant-select')).toHaveStyle({ width: '100%' })
+
+    fireEvent.mouseDown(roleCombobox)
+    fireEvent.click(await screen.findByText('财务管理员（FINANCE_ADMIN）'))
+
+    const scopeCombobox = within(assignmentDialog).getAllByRole('combobox')[1]
+    fireEvent.mouseDown(scopeCombobox)
+    fireEvent.click(await screen.findByText('ORG', { selector: '.ant-select-item-option-content' }))
+    fireEvent.change(within(assignmentDialog).getByPlaceholderText('组织、项目、团队或成本中心 ID'), { target: { value: '2' } })
+    fireEvent.click(within(assignmentDialog).getByRole('button', { name: /分\s*配/ }))
+
+    await waitFor(() => {
+      expect(mockedSettingsApi.createRoleAssignment).toHaveBeenCalledWith('11', 'finance-admin-id', 'ORG', '2')
+    })
   })
 
   it('userStatusSendsExpectedVersion', async () => {

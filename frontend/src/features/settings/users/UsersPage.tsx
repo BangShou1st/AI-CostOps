@@ -249,6 +249,7 @@ function AssignRoleModal({ memberId, onClose, onDone }: { memberId: string; onCl
         <label>
           角色
           <Select
+            style={{ width: '100%' }}
             value={roleId}
             placeholder="选择角色"
             options={(rolesQuery.data ?? []).map((role: Role) => ({ value: role.id, label: roleLabel(role.code) }))}
@@ -259,6 +260,7 @@ function AssignRoleModal({ memberId, onClose, onDone }: { memberId: string; onCl
         <label>
           范围类型
           <Select
+            style={{ width: '100%' }}
             value={scopeType}
             placeholder="选择范围"
             options={validScopes.map((scope) => ({ value: scope, label: scope }))}
