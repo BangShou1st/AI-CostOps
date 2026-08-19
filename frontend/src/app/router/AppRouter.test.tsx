@@ -28,6 +28,18 @@ vi.mock('../../features/duplicates/DuplicatesPage', () => ({
 vi.mock('../../features/allocation-rules/RulesPage', () => ({
   RulesPage: () => <h1>Rules page</h1>,
 }))
+vi.mock('../../features/expenses/ExpensesListPage', () => ({
+  ExpensesListPage: () => <h1>Expenses list page</h1>,
+}))
+vi.mock('../../features/budgets/BudgetsListPage', () => ({
+  BudgetsListPage: () => <h1>Budgets list page</h1>,
+}))
+vi.mock('../../features/budgets/BudgetDetailPage', () => ({
+  BudgetDetailPage: () => <h1>Budget detail page</h1>,
+}))
+vi.mock('../../features/budgets/BudgetCommitmentDetailPage', () => ({
+  BudgetCommitmentDetailPage: () => <h1>Commitment detail page</h1>,
+}))
 vi.mock('../../features/settings/users/UsersPage', () => ({
   UsersPage: () => <h1>Users page</h1>,
 }))
@@ -169,5 +181,57 @@ describe('AppRouter application landing', () => {
     renderRouter(['EVIDENCE_READ'], '/unknown-route')
 
     expect(screen.getByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
+  })
+})
+describe('AppRouter budget gates', () => {
+  it('budgetsRouteWithoutBudgetReadRendersForbiddenAndNeverMountsChildPage', () => {
+    renderRouter([], '/budgets/5')
+
+    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Budget detail page' })).not.toBeInTheDocument()
+  })
+
+  it('budgetsRouteWithoutBudgetReadStillForbiddenWithManagePermissionsOnly', () => {
+    renderRouter(['BUDGET_MANAGE', 'COMMITMENT_APPROVE'], '/budgets')
+
+    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Budgets list page' })).not.toBeInTheDocument()
+  })
+
+  it('budgetsListMountsWithBudgetRead', () => {
+    renderRouter(['BUDGET_READ'], '/budgets')
+
+    expect(screen.getByRole('heading', { name: 'Budgets list page' })).toBeInTheDocument()
+  })
+
+  it('budgetDetailMountsWithBudgetRead', () => {
+    renderRouter(['BUDGET_READ'], '/budgets/5')
+
+    expect(screen.getByRole('heading', { name: 'Budget detail page' })).toBeInTheDocument()
+  })
+
+  it('commitmentDetailRouteWithoutBudgetReadRendersForbidden', () => {
+    renderRouter([], '/budget-commitments/9')
+
+    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Commitment detail page' })).not.toBeInTheDocument()
+  })
+
+  it('commitmentDetailMountsWithBudgetRead', () => {
+    renderRouter(['BUDGET_READ'], '/budget-commitments/9')
+
+    expect(screen.getByRole('heading', { name: 'Commitment detail page' })).toBeInTheDocument()
+  })
+
+  it('appRootLandsOnBudgetsForBudgetReadOnlyUser', () => {
+    renderRouter(['BUDGET_READ'], '/app')
+
+    expect(screen.getByRole('heading', { name: 'Budgets list page' })).toBeInTheDocument()
+  })
+
+  it('appRootLandsOnExpensesBeforeBudgetsWhenBothReadable', () => {
+    renderRouter(['BUDGET_READ', 'EXPENSE_READ_OWN'], '/app')
+
+    expect(screen.getByRole('heading', { name: 'Expenses list page' })).toBeInTheDocument()
   })
 })

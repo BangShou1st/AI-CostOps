@@ -30,6 +30,9 @@ export function ApplicationLanding() {
   if (hasPermission(permissions, 'EXPENSE_READ_OWN')) {
     return <Navigate to="/expenses" replace />
   }
+  if (hasPermission(permissions, 'BUDGET_READ')) {
+    return <Navigate to="/budgets" replace />
+  }
   const first = SETTINGS_NAV.find((entry) => hasPermission(permissions, entry.readPermission))
   if (!first) return <ForbiddenPage />
   return <Navigate to={first.path} replace />

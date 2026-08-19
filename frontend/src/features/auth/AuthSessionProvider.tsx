@@ -4,7 +4,7 @@ import { message } from 'antd'
 import { accessTokenStore } from './accessTokenStore'
 import { authApi } from './authApi'
 import { authEvents } from './authEvents'
-import { bootstrapSession, refreshMe, type AuthUser } from './authSession'
+import { bootstrapSession, refreshMe, RefreshRaceUnresolvedError, type AuthUser } from './authSession'
 
 type AuthState = { status: 'loading' | 'anonymous' | 'authenticated'; user: AuthUser | null }
 
@@ -24,7 +24,15 @@ export function AuthSessionProvider({ children }: PropsWithChildren) {
     let active = true
     bootstrapSession(authApi, accessTokenStore)
       .then((user) => { if (active) setState({ status: 'authenticated', user }) })
-      .catch(() => { if (active) setState({ status: 'anonymous', user: null }) })
+      .catch((error: unknown) => {
+        if (!active) return
+        if (error instanceof RefreshRaceUnresolvedError) {
+          // Another window/device is rotating the session; the session itself
+          // is intact and must not be revoked by a stale-credential retry.
+          message.warning('会话刷新冲突暂未解决，请稍后刷新页面重试。')
+        }
+        setState({ status: 'anonymous', user: null })
+      })
     return () => { active = false }
   }, [])
 

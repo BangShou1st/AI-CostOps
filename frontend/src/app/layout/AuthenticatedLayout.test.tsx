@@ -220,3 +220,12 @@ describe('AuthenticatedLayout mobile navigation', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
+describe('AuthenticatedLayout budget navigation', () => {
+  it('shows the budget menu item only with BUDGET_READ', () => {
+    renderLayout(['BUDGET_MANAGE', 'USER_READ'])
+    expect(screen.queryByRole('menuitem', { name: '预算' })).not.toBeInTheDocument()
+
+    renderLayout(['BUDGET_READ', 'USER_READ'])
+    expect(screen.getByRole('menuitem', { name: '预算' })).toBeInTheDocument()
+  })
+})

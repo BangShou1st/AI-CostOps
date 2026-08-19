@@ -13,6 +13,7 @@ import {
   SafetyOutlined,
   TeamOutlined,
   UserOutlined,
+  WalletOutlined,
 } from '@ant-design/icons'
 import { Button, Drawer, Layout, Menu, Tooltip } from 'antd'
 import { useState, type ReactNode } from 'react'
@@ -31,6 +32,7 @@ const NAV_ICONS: Record<string, ReactNode> = {
   '/imports': <ImportOutlined />,
   '/costs': <PayCircleOutlined />,
   '/allocation-rules': <DeploymentUnitOutlined />,
+  '/budgets': <WalletOutlined />,
   '/settings/users': <UserOutlined />,
   '/settings/roles': <SafetyOutlined />,
   '/settings/projects': <FolderOutlined />,

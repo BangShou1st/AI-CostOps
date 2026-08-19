@@ -20,6 +20,9 @@ import { ExpensesNewPage } from '../../features/expenses/ExpensesNewPage'
 import { ExpenseDetailPage } from '../../features/expenses/ExpenseDetailPage'
 import { ExpenseReviewQueuePage } from '../../features/expenses/ExpenseReviewQueuePage'
 import { ExpenseReviewDetailPage } from '../../features/expenses/ExpenseReviewDetailPage'
+import { BudgetsListPage } from '../../features/budgets/BudgetsListPage'
+import { BudgetDetailPage } from '../../features/budgets/BudgetDetailPage'
+import { BudgetCommitmentDetailPage } from '../../features/budgets/BudgetCommitmentDetailPage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ApplicationLanding } from './ApplicationLanding'
 import { ProtectedRoute } from './ProtectedRoute'
@@ -64,6 +67,13 @@ export function AppRouter() {
         <Route path="/expense-reviews" element={<PermissionRoute permission="EXPENSE_REVIEW" />}>
           <Route index element={<ExpenseReviewQueuePage />} />
           <Route path=":expenseId" element={<ExpenseReviewDetailPage />} />
+        </Route>
+        <Route path="/budgets" element={<PermissionRoute permission="BUDGET_READ" />}>
+          <Route index element={<BudgetsListPage />} />
+          <Route path=":budgetId" element={<BudgetDetailPage />} />
+        </Route>
+        <Route path="/budget-commitments/:commitmentId" element={<PermissionRoute permission="BUDGET_READ" />}>
+          <Route index element={<BudgetCommitmentDetailPage />} />
         </Route>
         <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
           <Route index element={<UsersPage />} />

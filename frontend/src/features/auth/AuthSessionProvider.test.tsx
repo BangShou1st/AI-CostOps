@@ -1,3 +1,4 @@
+import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
@@ -25,6 +26,7 @@ vi.mock('antd', async (importOriginal) => {
   return { ...actual, message: { warning: vi.fn(), error: vi.fn(), info: vi.fn(), success: vi.fn() } }
 })
 
+import { message } from 'antd'
 import { authApi } from './authApi'
 
 const mockedAuthApi = vi.mocked(authApi)
@@ -118,6 +120,27 @@ describe('AuthSessionProvider session expiry', () => {
     expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1)
     expect(mockedAuthApi.me).toHaveBeenCalledTimes(1)
   })
+  it('bootstrapRefreshRaceShowsGuidanceInsteadOfSilentLogin', async () => {
+    // A racing rotation never resolves: the bootstrap performs the single
+    // retry the backend contract allows (first 409, brief wait, one more
+    // attempt) and then stops. There is no automatic recovery -- the retry
+    // lifecycle must not be extended with a second horizon, so exactly two
+    // refresh calls happen, never a third or fourth.
+    const config = { headers: {} } as InternalAxiosRequestConfig
+    const race = () => new AxiosError(
+      'race', 'ERR_BAD_RESPONSE', config, undefined,
+      { config, data: { code: 'AUTH_REFRESH_RACE' }, headers: {}, status: 409, statusText: 'Conflict' } as AxiosResponse,
+    )
+    mockedAuthApi.refresh.mockRejectedValue(race())
+
+    renderProvider()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument(), { timeout: 8000 })
+    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(2)
+    expect(mockedAuthApi.me).not.toHaveBeenCalled()
+    expect(message.warning).toHaveBeenCalledWith(expect.stringMatching(/会话刷新冲突/))
+  }, 10_000)
+
 
   it('bootstraps exactly one refresh under StrictMode double effects', async () => {
     // The app mounts under <StrictMode>; in dev this double-runs the bootstrap
