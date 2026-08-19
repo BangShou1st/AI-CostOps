@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Drawer, Input, Select, Table, Tag } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
-import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
+import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail, type ProblemDetail } from '../../../api/problem'
 import { useAuth } from '../../auth/AuthSessionProvider'
 import { settingsApi } from '../api/settingsApi'
 import { authMeKey, settingsKeys } from '../api/settingsKeys'
@@ -11,6 +11,7 @@ import type { MasterDataRecord, OrganizationMemberRecord, User } from '../api/se
 import { hasPermission } from '../permissions'
 import { statusLabel } from '../presentation'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
+import { READABLE_SELECT_PROPS, readableOption } from '../../../lib/selectPresentation'
 
 export function TeamMembersDrawer({ team, onClose }: { team: MasterDataRecord; onClose: () => void }) {
   const auth = useAuth()
@@ -73,16 +74,15 @@ export function TeamMembersDrawer({ team, onClose }: { team: MasterDataRecord; o
   ]
 
   const memberOptions = (usersQuery.data?.items ?? []).map((user: User) => ({
-    value: user.organizationMember.id,
-    label: `${user.displayName} (${user.email})`,
+    ...readableOption(user.organizationMember.id, `${user.displayName} (${user.email})`),
   }))
 
   return (
     <Drawer open title={`${team.name} 的成员`} onClose={onClose} size={520}>
-      {problem && <Alert type="error" role="alert" title={problem.detail || problem.title} showIcon style={{ marginBottom: 12 }} />}
+      {problem && <Alert type="error" role="alert" title={presentProblemDetail(problem) || problemTitle(problem)} showIcon style={{ marginBottom: 12 }} />}
       {membersQuery.isLoading && <div role="status">正在加载成员…</div>}
       {membersQuery.isError && (
-        <Alert type="error" role="alert" title={toProblemDetail(membersQuery.error).detail || toProblemDetail(membersQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={presentProblemDetail(toProblemDetail(membersQuery.error)) || problemTitle(toProblemDetail(membersQuery.error))} showIcon />
       )}
       {membersQuery.data && membersQuery.data.items.length === 0 && <div className="settings-empty">该团队暂无成员。</div>}
       {membersQuery.data && membersQuery.data.items.length > 0 && (
@@ -104,9 +104,10 @@ export function TeamMembersDrawer({ team, onClose }: { team: MasterDataRecord; o
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           {canLoadUsers ? (
             <Select
+              {...READABLE_SELECT_PROPS}
               aria-label="组织成员"
               placeholder="选择组织成员"
-              style={{ flex: 1 }}
+              style={{ flex: '1 1 auto', minWidth: 0 }}
               value={selectedMemberId}
               options={memberOptions}
               loading={usersQuery.isLoading}

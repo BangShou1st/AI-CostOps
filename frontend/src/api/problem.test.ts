@@ -1,6 +1,6 @@
 import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios'
 import { describe, expect, it } from 'vitest'
-import { toProblemDetail } from './problem'
+import { problemDetail, problemSummary, problemTitle, toProblemDetail } from './problem'
 
 describe('toProblemDetail', () => {
   it('preserves a complete server ProblemDetail', () => {
@@ -48,11 +48,24 @@ describe('toProblemDetail', () => {
 
   it('returns a stable fallback for network and unknown errors', () => {
     expect(toProblemDetail(new Error('socket closed'))).toEqual({
-      title: 'Request failed',
+      title: '请求失败',
       status: 0,
-      detail: 'The service could not be reached.',
+      detail: '服务暂时无法连接，请稍后重试。',
       code: 'NETWORK_ERROR',
       traceId: null,
     })
+  })
+
+  it('localizes known forbidden prose while preserving the technical code', () => {
+    const forbidden = {
+      title: 'Forbidden',
+      status: 403,
+      detail: 'Access to this resource is forbidden.',
+      code: 'FORBIDDEN',
+      traceId: null,
+    }
+    expect(problemTitle(forbidden)).toBe('访问被拒绝')
+    expect(problemDetail(forbidden)).toContain('没有访问此资源的权限')
+    expect(problemSummary(forbidden)).toBe('访问被拒绝（FORBIDDEN）')
   })
 })

@@ -5,6 +5,7 @@ import { importKeys } from './api/importKeys'
 import { importsApi } from './api/importsApi'
 import type { AttemptSummary, IssueSeverity, IssueSummary, RawRecordNormalizeStatus, RawRecordSummary } from './api/importTypes'
 import { RawRecordDrawer } from './RawRecordDrawer'
+import { formatEventDateTime } from '../../lib/dateTime'
 
 const PAGE_SIZE = 50
 
@@ -95,7 +96,7 @@ export function AttemptReview({ importId }: { importId: string }) {
             { title: '状态', dataIndex: 'status' },
             { title: '触发', dataIndex: 'triggerType' },
             { title: '错误', dataIndex: 'errorCode' },
-            { title: '完成时间', dataIndex: 'finishedAt' },
+            { title: '完成时间', dataIndex: 'finishedAt', render: (value: string | null) => formatEventDateTime(value) },
           ]}
         />
       </section>

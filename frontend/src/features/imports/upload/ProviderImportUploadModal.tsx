@@ -1,13 +1,14 @@
 import { Alert, Form, Modal, Select, Upload, type UploadFile } from 'antd'
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { toProblemDetail } from '../../../api/problem'
+import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail } from '../../../api/problem'
 import { settingsApi } from '../../settings/api/settingsApi'
 import { settingsKeys } from '../../settings/api/settingsKeys'
 import type { ProviderAccount } from '../../settings/api/settingsTypes'
 import { importsApi } from '../api/importsApi'
 import type { ImportSourceType, ProviderImportResult } from '../api/importTypes'
 import { providerSourceTypes } from './providerSourceTypes'
+import { READABLE_SELECT_PROPS, readableOption } from '../../../lib/selectPresentation'
 
 export interface ProviderImportUploadResult extends ProviderImportResult {
   duplicateEvidence: boolean
@@ -97,10 +98,11 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
           rules={[{ required: true, message: '请选择 Provider 账号' }]}
         >
           <Select
+            {...READABLE_SELECT_PROPS}
+            style={{ width: '100%' }}
             placeholder="选择 Provider 账号"
             options={(accountsQuery.data ?? []).map((account: ProviderAccount) => ({
-              value: account.id,
-              label: account.displayName,
+              ...readableOption(account.id, account.displayName),
             }))}
             onChange={handleAccountChange}
             loading={accountsQuery.isLoading}
@@ -108,9 +110,11 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
         </Form.Item>
         <Form.Item name="sourceType" label="来源类型" rules={[{ required: true, message: '请选择来源类型' }]}>
           <Select
+            {...READABLE_SELECT_PROPS}
+            style={{ width: '100%' }}
             placeholder="选择来源类型"
             disabled={unsupported || !selectedProviderCode}
-            options={(availableTypes ?? []).map((type) => ({ value: type, label: SOURCE_TYPE_LABELS[type] }))}
+            options={(availableTypes ?? []).map((type) => readableOption(type, SOURCE_TYPE_LABELS[type]))}
           />
         </Form.Item>
         <Form.Item label="文件" required>
@@ -143,8 +147,8 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
             <Alert
               type="error"
               showIcon
-              title={problem.title}
-              description={problem.detail ?? '请稍后重试。'}
+              title={problemTitle(problem)}
+              description={presentProblemDetail(problem) ?? '请稍后重试。'}
             />
           )
         })()}

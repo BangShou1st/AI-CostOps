@@ -1,8 +1,9 @@
 import { Alert, Table, Tag } from 'antd'
 import { useQuery } from '@tanstack/react-query'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
 import { allocationKeys } from './api/allocationKeys'
 import { allocationApi, type AllocationDecision } from './api/allocationApi'
+import { formatEventDateTime } from '../../lib/dateTime'
 
 const SOURCE_LABELS: Record<string, string> = { MANUAL: '手动', RULE: '规则' }
 const STATUS_COLORS: Record<string, string> = {
@@ -28,8 +29,8 @@ export function AllocationHistory({ chargeId }: { chargeId: string }) {
           title="无法加载分摊历史"
           description={(
             <>
-              <div>{`${problem.title}（${problem.code}）`}</div>
-              {problem.detail && <div>{problem.detail}</div>}
+              <div>{problemSummary(problem)}</div>
+              {presentProblemDetail(problem) && <div>{presentProblemDetail(problem)}</div>}
             </>
           )}
         />
@@ -69,7 +70,7 @@ export function AllocationHistory({ chargeId }: { chargeId: string }) {
             render: (_, decision) =>
               decision.lines.map((line) => `${line.allocatedAmount} ${line.currency}`).join(' + ') || '—',
           },
-          { title: '创建时间', dataIndex: 'createdAt', width: 190 },
+          { title: '创建时间', dataIndex: 'createdAt', width: 170, render: (value: string) => formatEventDateTime(value) },
         ]}
       />
       )}

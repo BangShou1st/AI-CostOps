@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Alert, Card } from 'antd'
 import { expenseApi } from './api/expenseApi'
 import { ExpenseForm } from './components/ExpenseForm'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
 import type { CreateExpenseBody } from './api/expenseApi'
 
 export function ExpensesNewPage() {
@@ -17,7 +17,7 @@ export function ExpensesNewPage() {
       const result = await expenseApi.create(body, crypto.randomUUID())
       navigate(`/expenses/${result.id}`)
     } catch (e) {
-      setProblem(toProblemDetail(e).detail ?? '创建失败')
+      setProblem(presentProblemDetail(toProblemDetail(e)) ?? '创建失败')
     } finally {
       setLoading(false)
     }

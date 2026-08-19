@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Input, Modal, Select, Table, Tag } from 'antd'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
 import { billingPeriodApi, billingPeriodKeys } from './api/billingPeriodApi'
 import { budgetApi, budgetKeys, type BudgetResponse, type BudgetScopeType } from './api/budgetApi'
 import { BUDGET_SCOPE_LABEL } from './presentation'
+import { formatBillingPeriodLabel } from '../../lib/dateTime'
+import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
 
 const PAGE_SIZE = 50
 
@@ -73,8 +75,8 @@ export function BudgetsListPage() {
           title="无法加载预算"
           description={(
             <>
-              <div>{`${problem.title}（${problem.code}）`}</div>
-              {problem.detail && <div>{problem.detail}</div>}
+              <div>{problemSummary(problem)}</div>
+              {presentProblemDetail(problem) && <div>{presentProblemDetail(problem)}</div>}
             </>
           )}
         />
@@ -129,8 +131,8 @@ export function BudgetsListPage() {
               type="error"
               role="alert"
               showIcon
-              title={`${periodsProblem.title}（${periodsProblem.code}）`}
-              description={periodsProblem.detail ?? undefined}
+              title={problemSummary(periodsProblem)}
+              description={presentProblemDetail(periodsProblem) ?? undefined}
             />
           )}
           {createProblem && (
@@ -138,19 +140,19 @@ export function BudgetsListPage() {
               type="error"
               role="alert"
               showIcon
-              title={`${createProblem.title}（${createProblem.code}）`}
-              description={createProblem.detail ?? undefined}
+              title={problemSummary(createProblem)}
+              description={presentProblemDetail(createProblem) ?? undefined}
             />
           )}
           <label>
             账期
             <Select
+              {...READABLE_SELECT_PROPS}
               style={{ width: '100%' }}
               value={billingPeriodId}
               placeholder="选择账期"
               options={(periods.data ?? []).map((period) => ({
-                value: period.id,
-                label: `${period.periodStart} → ${period.periodEnd}（${period.status}）`,
+                ...readableOption(period.id, formatBillingPeriodLabel(period.periodStart, period.periodEnd, period.status)),
               }))}
               loading={periods.isLoading}
               onChange={setBillingPeriodId}
@@ -159,13 +161,13 @@ export function BudgetsListPage() {
           <label>
             范围类型
             <Select
+              {...READABLE_SELECT_PROPS}
               style={{ width: '100%' }}
               value={scopeType}
               placeholder="选择范围类型"
-              options={(['ORG', 'PROJECT', 'TEAM', 'COST_CENTER'] as const).map((type) => ({
-                value: type,
-                label: BUDGET_SCOPE_LABEL[type],
-              }))}
+              options={(['ORG', 'PROJECT', 'TEAM', 'COST_CENTER'] as const).map((type) => (
+                readableOption(type, BUDGET_SCOPE_LABEL[type])
+              ))}
               onChange={setScopeType}
             />
           </label>

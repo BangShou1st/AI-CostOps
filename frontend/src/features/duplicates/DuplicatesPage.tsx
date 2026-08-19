@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Space, Table, Tag, Typography } from 'antd'
 import { useState } from 'react'
-import { toProblemDetail, type ProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail, type ProblemDetail } from '../../api/problem'
+import { formatBusinessDate } from '../../lib/dateTime'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
 import { duplicateKeys } from './api/duplicateKeys'
@@ -72,8 +73,8 @@ export function DuplicatesPage() {
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          title={`${problem.title}（${problem.code}）`}
-          description={problem.detail}
+          title={problemSummary(problem)}
+          description={presentProblemDetail(problem)}
         />
       )}
 
@@ -84,8 +85,8 @@ export function DuplicatesPage() {
           title="无法加载疑似重复候选"
           description={(
             <>
-              <div>{`${listProblem.title}（${listProblem.code}）`}</div>
-              {listProblem.detail && <div>{listProblem.detail}</div>}
+              <div>{problemSummary(listProblem)}</div>
+              {presentProblemDetail(listProblem) && <div>{presentProblemDetail(listProblem)}</div>}
             </>
           )}
         />
@@ -112,11 +113,11 @@ export function DuplicatesPage() {
               <Space orientation="vertical" size={2}>
                 <Typography.Text>
                   #{candidate.chargeFact.id} {candidate.chargeFact.amount} {candidate.chargeFact.currency}
-                  （{candidate.chargeFact.periodStart ?? '—'}）
+                  （{formatBusinessDate(candidate.chargeFact.periodStart)}）
                 </Typography.Text>
                 <Typography.Text type="secondary">
                   #{candidate.matchedChargeFact.id} {candidate.matchedChargeFact.amount} {candidate.matchedChargeFact.currency}
-                  （{candidate.matchedChargeFact.periodStart ?? '—'}）
+                  （{formatBusinessDate(candidate.matchedChargeFact.periodStart)}）
                 </Typography.Text>
               </Space>
             ),

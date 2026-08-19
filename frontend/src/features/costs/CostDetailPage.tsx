@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Descriptions, Tag, Typography } from 'antd'
 import { Link, useParams } from 'react-router-dom'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
 import { costKeys } from './api/costKeys'
@@ -11,6 +11,7 @@ import { allocationKeys } from '../allocation/api/allocationKeys'
 import { allocationApi } from '../allocation/api/allocationApi'
 import { AllocationEditor } from '../allocation/AllocationEditor'
 import { AllocationHistory } from '../allocation/AllocationHistory'
+import { formatBusinessDateRange } from '../../lib/dateTime'
 
 export function CostDetailPage() {
   const params = useParams()
@@ -56,8 +57,8 @@ export function CostDetailPage() {
           title="无法加载成本详情"
           description={problem && (
             <>
-              <div>{`${problem.title}（${problem.code}）`}</div>
-              {problem.detail && <div>{problem.detail}</div>}
+               <div>{problemSummary(problem)}</div>
+               {presentProblemDetail(problem) && <div>{presentProblemDetail(problem)}</div>}
             </>
           )}
         />
@@ -95,7 +96,7 @@ export function CostDetailPage() {
           <Typography.Text strong>{detail.amount} {detail.currency}</Typography.Text>
         </Descriptions.Item>
         <Descriptions.Item label="周期">
-          {detail.periodStart ?? '—'} 至 {detail.periodEnd ?? '—'}
+          {formatBusinessDateRange(detail.periodStart, detail.periodEnd)}
         </Descriptions.Item>
         <Descriptions.Item label="审核状态">
           <Tag color={reviewStatusColor(detail.reviewStatus)}>{REVIEW_STATUS_LABELS[detail.reviewStatus]}</Tag>
@@ -124,8 +125,8 @@ export function CostDetailPage() {
                 const problem = toProblemDetail(decisions.error)
                 return (
                   <>
-                    <div>{`${problem.title}（${problem.code}）`}</div>
-                    {problem.detail && <div>{problem.detail}</div>}
+                    <div>{problemSummary(problem)}</div>
+                    {presentProblemDetail(problem) && <div>{presentProblemDetail(problem)}</div>}
                   </>
                 )
               })()}

@@ -2,10 +2,11 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Table, Tag } from 'antd'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
 import { costKeys } from './api/costKeys'
 import { costsApi, type ChargeReviewStatus, type ChargeCostSummary } from './api/costsApi'
 import { REVIEW_STATUS_LABELS, reviewStatusColor } from './presentation'
+import { formatBusinessDate } from '../../lib/dateTime'
 
 const PAGE_SIZE = 50
 
@@ -51,8 +52,8 @@ export function CostsListPage() {
           title="无法加载成本明细"
           description={(
             <>
-              <div>{`${problem.title}（${problem.code}）`}</div>
-              {problem.detail && <div>{problem.detail}</div>}
+              <div>{problemSummary(problem)}</div>
+              {presentProblemDetail(problem) && <div>{presentProblemDetail(problem)}</div>}
             </>
           )}
         />
@@ -75,8 +76,8 @@ export function CostsListPage() {
           { title: '供应商', dataIndex: 'providerCode', width: 110 },
           { title: '金额', dataIndex: 'amount', width: 140 },
           { title: '币种', dataIndex: 'currency', width: 80 },
-          { title: '开始时间', dataIndex: 'periodStart', width: 190, render: (value: string | null) => value ?? '—' },
-          { title: '结束时间', dataIndex: 'periodEnd', width: 190, render: (value: string | null) => value ?? '—' },
+          { title: '开始时间', dataIndex: 'periodStart', width: 130, render: (value: string | null) => formatBusinessDate(value) },
+          { title: '结束时间', dataIndex: 'periodEnd', width: 130, render: (value: string | null) => formatBusinessDate(value) },
           {
             title: '审核状态',
             dataIndex: 'reviewStatus',

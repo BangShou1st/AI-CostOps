@@ -1,5 +1,6 @@
 import {
   AccountBookOutlined,
+  AuditOutlined,
   CloudOutlined,
   DeploymentUnitOutlined,
   FileTextOutlined,
@@ -9,6 +10,7 @@ import {
   LogoutOutlined,
   MenuOutlined,
   PayCircleOutlined,
+  FileDoneOutlined,
   RightOutlined,
   SafetyOutlined,
   TeamOutlined,
@@ -27,12 +29,14 @@ import { useMediaQuery } from './useMediaQuery'
 const SIDEBAR_COLLAPSED_KEY = 'aicostops:settings-sidebar-collapsed'
 const DESKTOP_QUERY = '(min-width: 1024px)'
 
-const NAV_ICONS: Record<string, ReactNode> = {
+export const NAV_ICONS: Record<string, ReactNode> = {
   '/evidence': <FileTextOutlined />,
   '/imports': <ImportOutlined />,
   '/costs': <PayCircleOutlined />,
   '/allocation-rules': <DeploymentUnitOutlined />,
+  '/expenses': <FileDoneOutlined />,
   '/budgets': <WalletOutlined />,
+  '/expense-reviews': <AuditOutlined />,
   '/settings/users': <UserOutlined />,
   '/settings/roles': <SafetyOutlined />,
   '/settings/projects': <FolderOutlined />,

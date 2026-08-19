@@ -59,6 +59,17 @@ vi.mock('../allocation/api/allocationApi', async (importOriginal) => {
 })
 
 vi.mock('../../api/problem', () => ({
+  problemDetail: vi.fn((problem: { code: string; detail: string | null; status: number }) => (
+    problem.code === 'FORBIDDEN'
+      ? '您没有访问此资源的权限。如您认为这是误判，请联系管理员。'
+      : problem.detail
+  )),
+  problemTitle: vi.fn((problem: { code: string; title: string; status: number }) => (
+    problem.code === 'FORBIDDEN' || problem.status === 403 ? '访问被拒绝' : problem.title
+  )),
+  problemSummary: vi.fn((problem: { code: string; title: string; status: number }) => (
+    `${problem.code === 'FORBIDDEN' || problem.status === 403 ? '访问被拒绝' : problem.title}（${problem.code}）`
+  )),
   toProblemDetail: vi.fn((error: unknown) => {
     if (error && typeof error === 'object' && 'response' in error) {
       const axiosError = error as { response: { data: unknown } }
@@ -79,7 +90,7 @@ vi.mock('../../api/problem', () => ({
         traceId: string | null
       }
     }
-    return { title: 'Request failed', status: 0, detail: null, code: 'NETWORK_ERROR', traceId: null }
+    return { title: '请求失败', status: 0, detail: '服务暂时无法连接，请稍后重试。', code: 'NETWORK_ERROR', traceId: null }
   }),
 }))
 
@@ -229,8 +240,8 @@ describe('ExpensePages', () => {
 
     await waitFor(() => expect(screen.getByText('下载凭证')).toBeInTheDocument())
     const row = screen.getByText('提交时间').closest('tr')
-    expect(row?.textContent).toContain(new Date('2026-08-17T10:30:00Z').toLocaleString())
-    expect(row?.textContent).not.toContain('-')
+    expect(row?.textContent).toContain('2026-08-17 18:30')
+    expect(row?.textContent).not.toContain('—')
   })
 
   it('resubmission updates 提交时间 to the latest RESUBMIT action', async () => {
@@ -265,17 +276,17 @@ describe('ExpensePages', () => {
 
     await waitFor(() => expect(screen.getByText('下载凭证')).toBeInTheDocument())
     const row = screen.getByText('提交时间').closest('tr')
-    expect(row?.textContent).toContain(new Date('2026-08-17T14:20:00Z').toLocaleString())
+    expect(row?.textContent).toContain('2026-08-17 22:20')
   })
 
-  it('shows "-" for 提交时间 when the expense was never submitted', async () => {
+  it('shows an em dash for 提交时间 when the expense was never submitted', async () => {
     mockedExpenseApi.get.mockResolvedValue(makeExpense({ status: 'DRAFT', evidenceId: null, history: [] }))
 
     renderWithRouter(<ExpenseDetailPage />)
 
     await waitFor(() => expect(screen.getByText('上传凭证')).toBeInTheDocument())
     const row = screen.getByText('提交时间').closest('tr')
-    expect(row?.textContent).toContain('-')
+    expect(row?.textContent).toContain('—')
   })
 
   it('SUBMITTED employee can download evidence but cannot upload', async () => {
@@ -632,9 +643,9 @@ describe('ExpensePages', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认分摊' }))
 
     await waitFor(() => {
-      expect(screen.getByText(/Permission is required/)).toBeInTheDocument()
+      expect(screen.getByText(/访问被拒绝（FORBIDDEN）/)).toBeInTheDocument()
     })
-    expect(screen.getByText('EXPENSE_REVIEW is required to review expense allocations.')).toBeInTheDocument()
+    expect(screen.getByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
   })
 })
 

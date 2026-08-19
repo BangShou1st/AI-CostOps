@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Input, Modal, Space, Table, Tag } from 'antd'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
 import { hasPermission } from '../settings/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { budgetApi, budgetKeys } from './api/budgetApi'
@@ -13,6 +13,7 @@ import {
   type ApprovalActionType,
 } from './api/commitmentApi'
 import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL, budgetCommandProblemMessage, commitmentStateLabel } from './presentation'
+import { formatEventDateTime } from '../../lib/dateTime'
 
 const ACTION_LABEL: Record<ApprovalActionType, string> = {
   SUBMIT: '提交',
@@ -62,8 +63,8 @@ export function BudgetCommitmentDetailPage() {
           title="无法加载承诺"
           description={(
             <>
-              <div>{`${problem.title}（${problem.code}）`}</div>
-              {problem.detail && <div>{problem.detail}</div>}
+              <div>{problemSummary(problem)}</div>
+              {presentProblemDetail(problem) && <div>{presentProblemDetail(problem)}</div>}
             </>
           )}
         />
@@ -90,8 +91,8 @@ export function BudgetCommitmentDetailPage() {
           title="无法加载关联预算"
           description={(
             <>
-              <div>{`${budgetProblem.title}（${budgetProblem.code}）`}</div>
-              {budgetProblem.detail && <div>{budgetProblem.detail}</div>}
+              <div>{problemSummary(budgetProblem)}</div>
+              {presentProblemDetail(budgetProblem) && <div>{presentProblemDetail(budgetProblem)}</div>}
             </>
           )}
         />
@@ -274,7 +275,7 @@ function HistoryTable({ history }: { history: ApprovalActionResponse[] }) {
       pagination={false}
       scroll={{ x: 760 }}
       columns={[
-        { title: '时间', dataIndex: 'createdAt', width: 190 },
+        { title: '时间', dataIndex: 'createdAt', width: 170, render: (value: string) => formatEventDateTime(value) },
         { title: '动作', dataIndex: 'actionType', width: 110, render: (value: ApprovalActionType) => ACTION_LABEL[value] },
         { title: '从', dataIndex: 'fromState', width: 130, render: (value: string | null) => commitmentStateLabel(value) },
         { title: '到', dataIndex: 'toState', width: 130, render: (value: string | null) => commitmentStateLabel(value) },

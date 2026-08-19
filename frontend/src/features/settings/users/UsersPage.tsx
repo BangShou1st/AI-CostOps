@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Drawer, Input, InputNumber, Modal, Select, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
-import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, problemTitle, toProblemDetail, type ProblemDetail } from '../../../api/problem'
 import { useAuth } from '../../auth/AuthSessionProvider'
 import { settingsApi } from '../api/settingsApi'
 import { authMeKey, settingsKeys } from '../api/settingsKeys'
@@ -11,6 +11,7 @@ import type { Role, ScopeType, User } from '../api/settingsTypes'
 import { hasPermission, ROLE_SCOPE_APPLICABILITY } from '../permissions'
 import { roleLabel, scopeLabel, statusLabel, USER_STATUS_ACTIONS } from '../presentation'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
+import { READABLE_SELECT_PROPS, readableOption } from '../../../lib/selectPresentation'
 
 function refreshUsersAndMe(queryClient: ReturnType<typeof useQueryClient>) {
   void queryClient.invalidateQueries({ queryKey: settingsKeys.usersAll() })
@@ -55,11 +56,11 @@ export function UsersPage() {
         {canInvite && <Button type="primary" onClick={() => setInviteOpen(true)}>邀请成员</Button>}
       </div>
       {inviteProblem && (
-        <Alert type="error" role="alert" title={inviteProblem.detail || inviteProblem.title} showIcon style={{ marginBottom: 16 }} />
+        <Alert type="error" role="alert" title={problemSummary(inviteProblem)} description={presentProblemDetail(inviteProblem)} showIcon style={{ marginBottom: 16 }} />
       )}
       {usersQuery.isLoading && <div role="status">正在加载用户…</div>}
       {usersQuery.isError && (
-        <Alert type="error" role="alert" title={toProblemDetail(usersQuery.error).detail || toProblemDetail(usersQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={presentProblemDetail(toProblemDetail(usersQuery.error)) || problemTitle(toProblemDetail(usersQuery.error))} showIcon />
       )}
       {usersQuery.data && usersQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无用户。</div>}
       {usersQuery.data && usersQuery.data.items.length > 0 && (
@@ -103,7 +104,7 @@ function InviteMemberModal({ onClose, onError }: { onClose: () => void; onError:
   // (frozen RoleScopePolicy); never offer a guaranteed-failing option.
   const roleOptions = (rolesQuery.data ?? [])
     .filter((role: Role) => role.code !== 'PROJECT_OWNER')
-    .map((role: Role) => ({ value: role.code, label: roleLabel(role.code) }))
+    .map((role: Role) => readableOption(role.code, roleLabel(role.code)))
 
   return (
     <Modal
@@ -122,6 +123,8 @@ function InviteMemberModal({ onClose, onError }: { onClose: () => void; onError:
         <label>
           初始角色
           <Select
+            {...READABLE_SELECT_PROPS}
+            style={{ width: '100%' }}
             value={initialRoleCode}
             placeholder="选择角色"
             options={roleOptions}
@@ -158,7 +161,7 @@ function UserActions({ user }: { user: User }) {
 
   return (
     <>
-      {problem && <Alert type="error" role="alert" title={problem.detail || problem.title} showIcon style={{ marginBottom: 8 }} />}
+      {problem && <Alert type="error" role="alert" title={presentProblemDetail(problem) || problemTitle(problem)} showIcon style={{ marginBottom: 8 }} />}
       <div className="settings-actions">
         {canManage && (
           <Button
@@ -192,7 +195,7 @@ function RoleAssignmentDrawer({ user, onClose }: { user: User; onClose: () => vo
 
   return (
     <Drawer open title={`${user.displayName} 的角色`} onClose={onClose} size={460}>
-      {problem && <Alert type="error" role="alert" title={problem.detail || problem.title} showIcon style={{ marginBottom: 12 }} />}
+      {problem && <Alert type="error" role="alert" title={presentProblemDetail(problem) || problemTitle(problem)} showIcon style={{ marginBottom: 12 }} />}
       <Table<User['roleAssignments'][number]>
         rowKey="id"
         size="small"
@@ -245,14 +248,15 @@ function AssignRoleModal({ memberId, onClose, onDone }: { memberId: string; onCl
       onCancel={onClose}
     >
       <div style={{ display: 'grid', gap: 12 }}>
-        {problem && <Alert type="error" role="alert" title={problem.detail || problem.title} showIcon />}
+        {problem && <Alert type="error" role="alert" title={presentProblemDetail(problem) || problemTitle(problem)} showIcon />}
         <label>
           角色
           <Select
+            {...READABLE_SELECT_PROPS}
             style={{ width: '100%' }}
             value={roleId}
             placeholder="选择角色"
-            options={(rolesQuery.data ?? []).map((role: Role) => ({ value: role.id, label: roleLabel(role.code) }))}
+            options={(rolesQuery.data ?? []).map((role: Role) => readableOption(role.id, roleLabel(role.code)))}
             loading={rolesQuery.isLoading}
             onChange={(value) => { setRoleId(value); setScopeType(undefined) }}
           />
@@ -260,10 +264,11 @@ function AssignRoleModal({ memberId, onClose, onDone }: { memberId: string; onCl
         <label>
           范围类型
           <Select
+            {...READABLE_SELECT_PROPS}
             style={{ width: '100%' }}
             value={scopeType}
             placeholder="选择范围"
-            options={validScopes.map((scope) => ({ value: scope, label: scope }))}
+            options={validScopes.map((scope) => readableOption(scope, scope))}
             onChange={setScopeType}
           />
         </label>

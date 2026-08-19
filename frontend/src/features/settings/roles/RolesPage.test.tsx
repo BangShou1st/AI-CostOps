@@ -75,7 +75,7 @@ describe('RolesPage', () => {
       response: { data: { title: 'Forbidden', status: 403, detail: 'You are not allowed to view roles.', code: 'FORBIDDEN', traceId: 't3' } },
     })
     renderRolesPage()
-    expect(await screen.findByText('You are not allowed to view roles.')).toBeInTheDocument()
+    expect(await screen.findByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
 
     mockedSettingsApi.listRoles.mockResolvedValue([])
     mockedSettingsApi.listPermissions.mockResolvedValue([])

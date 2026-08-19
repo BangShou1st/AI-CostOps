@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Card, Descriptions, Space } from 'antd'
 import { useCallback, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
 import { hasPermission } from '../settings/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { RequestCommitmentButton } from './components/RequestCommitmentButton'
@@ -62,8 +62,8 @@ export function BudgetDetailPage() {
           title="无法加载预算"
           description={(
             <>
-              <div>{`${budgetProblem.title}（${budgetProblem.code}）`}</div>
-              {budgetProblem.detail && <div>{budgetProblem.detail}</div>}
+              <div>{problemSummary(budgetProblem)}</div>
+              {presentProblemDetail(budgetProblem) && <div>{presentProblemDetail(budgetProblem)}</div>}
             </>
           )}
         />
@@ -107,8 +107,8 @@ export function BudgetDetailPage() {
               title="无法加载承诺"
               description={(
                 <>
-                  <div>{`${commitmentProblem.title}（${commitmentProblem.code}）`}</div>
-                  {commitmentProblem.detail && <div>{commitmentProblem.detail}</div>}
+                  <div>{problemSummary(commitmentProblem)}</div>
+                  {presentProblemDetail(commitmentProblem) && <div>{presentProblemDetail(commitmentProblem)}</div>}
                 </>
               )}
             />

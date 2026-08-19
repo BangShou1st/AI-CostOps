@@ -243,6 +243,15 @@ button:disabled { opacity: .55; cursor: wait; }
 /* Compact action rows inside tables */
 .settings-actions { display: flex; gap: 8px; flex-wrap: nowrap; white-space: nowrap; }
 
+/* Long Select labels remain readable in the popup while the max width keeps
+   the portal inside a narrow viewport. The option title also covers the
+   selected-value case when the closed control has no room to show every char. */
+.readable-select-popup { max-width: calc(100vw - 24px) !important; box-sizing: border-box; }
+.readable-select-popup .ant-select-item-option-content {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* =========================
    Responsive tweaks
    ========================= */

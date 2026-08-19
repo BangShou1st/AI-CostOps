@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Space } from 'antd'
-import { toProblemDetail, type ProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail, type ProblemDetail } from '../../api/problem'
 import {
   allocationApi,
   type AllocationDecision,
@@ -159,8 +159,8 @@ export function AllocationEditor({
         )}
         {problem && (
           <Alert type="error" showIcon
-            title={`${problem.title}（${problem.code}）`}
-            description={problem.detail} />
+            title={problemSummary(problem)}
+            description={presentProblemDetail(problem)} />
         )}
         <AllocationLinesEditor
           sourceAmount={subjectAmount}

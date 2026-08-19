@@ -163,10 +163,16 @@ describe('DuplicatesPage', () => {
     })
     renderPage(['COST_READ', 'DUPLICATE_REVIEW'])
 
+    const expectedSummary = problem.code === 'FORBIDDEN'
+      ? '访问被拒绝（FORBIDDEN）'
+      : `${problem.title}（${problem.code}）`
+    const expectedDetail = problem.code === 'FORBIDDEN'
+      ? '您没有访问此资源的权限。如您认为这是误判，请联系管理员。'
+      : problem.detail
     await waitFor(() => {
-      expect(screen.getByText(new RegExp(`${problem.title}（${problem.code}）`))).toBeInTheDocument()
+      expect(screen.getByText(expectedSummary)).toBeInTheDocument()
     })
-    expect(screen.getByText(problem.detail)).toBeInTheDocument()
+    expect(screen.getByText(expectedDetail)).toBeInTheDocument()
     // The failure must not silently render as "no pending candidates".
     expect(screen.queryByText('没有待处理的疑似重复候选')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '保留正常' })).not.toBeInTheDocument()

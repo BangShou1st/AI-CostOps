@@ -98,7 +98,7 @@ describe('TeamsPage', () => {
       response: { data: { title: 'Forbidden', status: 403, detail: 'You cannot view teams.', code: 'FORBIDDEN', traceId: 't5' } },
     })
     renderTeamsPage(['TEAM_READ'])
-    expect(await screen.findByText('You cannot view teams.')).toBeInTheDocument()
+    expect(await screen.findByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
 
     mockedSettingsApi.listTeams.mockResolvedValue(pageOf([]))
     renderTeamsPage(['TEAM_READ'])

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
-import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
+import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail, type ProblemDetail } from '../../../api/problem'
 import { useAuth } from '../../auth/AuthSessionProvider'
 import { settingsApi } from '../api/settingsApi'
 import { settingsKeys } from '../api/settingsKeys'
@@ -12,6 +12,7 @@ import { hasPermission } from '../permissions'
 import { statusLabel } from '../presentation'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { LifecycleEditorModal, type LifecycleFormValues } from '../shared/LifecycleEditorModal'
+import { formatEventDateTime } from '../../../lib/dateTime'
 
 export function CostCentersPage() {
   const auth = useAuth()
@@ -50,7 +51,7 @@ export function CostCentersPage() {
       title: '状态', dataIndex: 'status', key: 'status', width: 110,
       render: (status: string) => <Tag color={status === 'ACTIVE' ? 'green' : status === 'ARCHIVED' ? 'orange' : 'default'}>{statusLabel(status as MasterDataRecord['status'])}</Tag>,
     },
-    { title: '更新时间', dataIndex: 'updatedAt', key: 'updatedAt', width: 130, render: (value: string) => new Date(value).toLocaleDateString() },
+    { title: '更新时间', dataIndex: 'updatedAt', key: 'updatedAt', width: 170, render: (value: string) => formatEventDateTime(value) },
     {
       title: '操作', key: 'actions', width: 120,
       render: (_, record) => canManage ? (
@@ -70,7 +71,7 @@ export function CostCentersPage() {
       </div>
       {listQuery.isLoading && <div role="status">正在加载成本中心…</div>}
       {listQuery.isError && (
-        <Alert type="error" role="alert" title={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={presentProblemDetail(toProblemDetail(listQuery.error)) || problemTitle(toProblemDetail(listQuery.error))} showIcon />
       )}
       {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无成本中心。</div>}
       {listQuery.data && listQuery.data.items.length > 0 && (

@@ -252,7 +252,7 @@ describe('BudgetsListPage', () => {
     renderPage(['BUDGET_READ'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Forbidden（FORBIDDEN）/)).toBeInTheDocument()
+      expect(screen.getByText(/访问被拒绝（FORBIDDEN）/)).toBeInTheDocument()
     })
   })
 
@@ -274,7 +274,7 @@ describe('BudgetsListPage', () => {
 
     const periodCombobox = within(dialog).getAllByRole('combobox')[0]
     fireEvent.mouseDown(periodCombobox)
-    fireEvent.click(await screen.findByText(/2026-08-01T00:00:00Z.*2026-09-01T00:00:00Z/, { selector: '.ant-select-item-option-content' }))
+    fireEvent.click(await screen.findByText(/2026-08-01 ～ 2026-09-01（开放 · OPEN）/, { selector: '.ant-select-item-option-content' }))
 
     const scopeCombobox = within(dialog).getAllByRole('combobox')[1]
     fireEvent.mouseDown(scopeCombobox)
@@ -353,7 +353,7 @@ describe('BudgetDetailPage', () => {
     await waitFor(() => expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1))
     expect(screen.getByText('9')).toBeInTheDocument()
     expect(screen.getByText('50.00000000 CNY')).toBeInTheDocument()
-    expect(screen.getByText('2026-01-03T00:00:00Z')).toBeInTheDocument()
+    expect(screen.getByText('2026-01-03 08:00')).toBeInTheDocument()
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
     // Commitment table headers are localized ('状态' also labels the identity card).
     expect(screen.getAllByText('状态').length).toBeGreaterThanOrEqual(1)

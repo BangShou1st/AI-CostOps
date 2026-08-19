@@ -1,5 +1,6 @@
 import { Timeline, Typography } from 'antd'
 import type { ApprovalActionResponse } from '../api/expenseApi'
+import { formatEventDateTime } from '../../../lib/dateTime'
 
 const ACTION_LABELS: Record<string, string> = {
   SUBMIT: '提交',
@@ -29,7 +30,7 @@ export function ApprovalHistory({ history }: ApprovalHistoryProps) {
               </Typography.Paragraph>
             )}
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {new Date(action.createdAt).toLocaleString()}
+              {formatEventDateTime(action.createdAt)}
             </Typography.Text>
           </>
         ),

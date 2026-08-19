@@ -115,6 +115,7 @@ describe('UsersPage', () => {
   it('roleAssignmentShowsFullLocalizedRoleLabelAndSubmitsRoleId', async () => {
     mockedSettingsApi.listRoles.mockResolvedValue([
       { id: 'finance-admin-id', code: 'FINANCE_ADMIN', name: 'Finance admin', permissions: [] },
+      { id: 'finance-reviewer-id', code: 'FINANCE_REVIEWER', name: 'Finance reviewer', permissions: [] },
     ])
     mockedSettingsApi.createRoleAssignment.mockResolvedValue({} as never)
     renderUsersPage(['USER_READ', 'ROLE_ASSIGN'])
@@ -128,7 +129,9 @@ describe('UsersPage', () => {
     expect(roleCombobox.closest('.ant-select')).toHaveStyle({ width: '100%' })
 
     fireEvent.mouseDown(roleCombobox)
+    expect(await screen.findByText('财务复核员（FINANCE_REVIEWER）')).toBeInTheDocument()
     fireEvent.click(await screen.findByText('财务管理员（FINANCE_ADMIN）'))
+    expect(within(assignmentDialog).getByTitle('财务管理员（FINANCE_ADMIN）')).toBeInTheDocument()
 
     const scopeCombobox = within(assignmentDialog).getAllByRole('combobox')[1]
     fireEvent.mouseDown(scopeCombobox)
@@ -176,7 +179,9 @@ describe('UsersPage', () => {
     renderUsersPage(['USER_READ', 'USER_INVITE'])
 
     fireEvent.click(await screen.findByRole('button', { name: '邀请成员' }))
-    fireEvent.mouseDown(screen.getByRole('combobox'))
+    const inviteRoleCombobox = screen.getByRole('combobox')
+    expect(inviteRoleCombobox.closest('.ant-select')).toHaveStyle({ width: '100%' })
+    fireEvent.mouseDown(inviteRoleCombobox)
 
     // The generic ORG invitation must never offer PROJECT_OWNER.
     expect(await screen.findByText('员工（EMPLOYEE）')).toBeInTheDocument()
