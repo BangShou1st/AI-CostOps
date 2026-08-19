@@ -582,7 +582,7 @@ components:
         lines: { type: array, minItems: 1, items: { $ref: '#/components/schemas/AllocationLineRequest' } }
     ExpenseClaimStatus: { type: string, enum: [DRAFT, SUBMITTED, NEEDS_INFO, APPROVED, REJECTED, CANCELED] }
     ApprovalActionType: { type: string, enum: [SUBMIT, REQUEST_INFO, RESUBMIT, APPROVE, REJECT, CANCEL] }
-    ApprovalActionResponse:
+    ExpenseApprovalActionResponse:
       type: object
       required: [id, actionType, actorMemberId, fromState, toState, createdAt]
       properties:
@@ -612,7 +612,7 @@ components:
         version: { type: integer, minimum: 0 }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-        history: { type: array, items: { $ref: '#/components/schemas/ApprovalActionResponse' } }
+        history: { type: array, items: { $ref: '#/components/schemas/ExpenseApprovalActionResponse' } }
     ExpenseSummaryResponse:
       type: object
       required: [id, status, expenseDate, amount, currency, postingReady, version, createdAt]
@@ -640,7 +640,7 @@ components:
       properties:
         expectedVersion: { type: integer, minimum: 0 }
         comment: { type: string, maxLength: 2000 }
-    ApprovalActionResponse:
+    CommitmentApprovalActionResponse:
       type: object
       required: [id, approvalCaseId, actorMemberId, actionType, fromState, toState, createdAt]
       properties:
@@ -667,7 +667,7 @@ components:
         updatedAt: { type: string, format: date-time }
         approvalCaseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         approvalStatus: { oneOf: [{ $ref: '#/components/schemas/ApprovalCaseStatus' }, { type: 'null' }] }
-        history: { type: array, items: { $ref: '#/components/schemas/ApprovalActionResponse' } }
+        history: { type: array, items: { $ref: '#/components/schemas/CommitmentApprovalActionResponse' } }
     PageResponseCommitment: { type: object, required: [items, page, size, totalElements, totalPages], properties: { items: { type: array, items: { $ref: '#/components/schemas/CommitmentResponse' } }, page: { type: integer }, size: { type: integer }, totalElements: { type: integer }, totalPages: { type: integer } } }
     ApprovalCaseStatus: { type: string, enum: [PENDING, NEEDS_INFO, APPROVED, REJECTED, CANCELED] }
     PageResponseExpense: { type: object, required: [items, page, size, totalElements, totalPages], properties: { items: { type: array, items: { $ref: '#/components/schemas/ExpenseSummaryResponse' } }, page: { type: integer }, size: { type: integer }, totalElements: { type: integer }, totalPages: { type: integer } } }
