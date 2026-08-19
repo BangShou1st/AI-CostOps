@@ -1,5 +1,9 @@
 import axios from 'axios'
 import type { AccessTokenStore } from './accessTokenStore'
+import {
+  createCrossTabAuthCoordinator,
+  type CrossTabAuthCoordinator,
+} from './crossTabAuthCoordinator'
 
 export interface AuthUser {
   id: string
@@ -27,36 +31,101 @@ export interface AuthApi {
 // AUTH_REFRESH_RACE on every page load (React StrictMode double-mounts the
 // session bootstrap in dev).
 let refreshFlight: Promise<AuthTokenResponse> | null = null
+export const crossTabAuthCoordinator = createCrossTabAuthCoordinator()
 
-export function refreshTokenOnce(refresh: () => Promise<AuthTokenResponse>): Promise<AuthTokenResponse> {
+export function refreshTokenOnce(
+  refresh: () => Promise<AuthTokenResponse>,
+  coordinator: CrossTabAuthCoordinator = crossTabAuthCoordinator,
+): Promise<AuthTokenResponse> {
   if (!refreshFlight) {
-    refreshFlight = refreshWithRaceRetry(refresh).finally(() => {
-      refreshFlight = null
-    })
+    refreshFlight = coordinator.withCookieLock(() => refreshWithRaceRetry(refresh))
+      .then((result) => {
+        coordinator.publish('REFRESH_COMPLETED')
+        return result
+      })
+      .finally(() => { refreshFlight = null })
   }
   return refreshFlight
 }
 
-// The whole bootstrap (refresh + me) is single-flighted too, so a StrictMode
-// double mount performs exactly one refresh and one me projection read.
-let bootstrapFlight: Promise<AuthUser> | null = null
-
-export function bootstrapSession(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
-  if (!bootstrapFlight) {
-    bootstrapFlight = doBootstrap(api, store).finally(() => {
-      bootstrapFlight = null
-    })
-  }
-  return bootstrapFlight
+/**
+ * Logout must stay inside the cookie lock, but its first request can fail
+ * because only the access token expired. In that case refresh the cookie
+ * directly while already holding the lock; calling refreshTokenOnce here
+ * would try to acquire the same non-reentrant Web Lock again.
+ */
+export async function logoutWithCookieLock(
+  logout: () => Promise<void>,
+  refresh: () => Promise<AuthTokenResponse>,
+  store: AccessTokenStore,
+  coordinator: CrossTabAuthCoordinator = crossTabAuthCoordinator,
+): Promise<void> {
+  await coordinator.withCookieLock(async () => {
+    try {
+      await logout()
+      coordinator.publish('SESSION_CLEARED')
+      return
+    } catch (error) {
+      if (!isAccessTokenExpired(error)) throw error
+      const refreshed = await refreshWithRaceRetry(refresh)
+      store.set(refreshed.accessToken)
+      coordinator.publish('REFRESH_COMPLETED')
+      await logout()
+      coordinator.publish('SESSION_CLEARED')
+    }
+  })
 }
 
-async function doBootstrap(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
+// The whole bootstrap (refresh + me) is single-flighted per lifecycle key, so
+// a StrictMode double mount shares one refresh and one me read while a newer
+// lifecycle can supersede an older in-flight bootstrap.
+const defaultBootstrapKey = {}
+const bootstrapFlights = new Map<object, Promise<AuthUser>>()
+
+export interface BootstrapSessionOptions {
+  key?: object
+  isCurrent?: () => boolean
+}
+
+export class AuthLifecycleSupersededError extends Error {
+  constructor() {
+    super('Authentication lifecycle was superseded')
+    this.name = 'AuthLifecycleSupersededError'
+  }
+}
+
+export function bootstrapSession(
+  api: AuthApi,
+  store: AccessTokenStore,
+  options: BootstrapSessionOptions = {},
+): Promise<AuthUser> {
+  const key = options.key ?? defaultBootstrapKey
+  const existing = bootstrapFlights.get(key)
+  if (existing) return existing
+
+  const isCurrent = options.isCurrent ?? (() => true)
+  const flight = doBootstrap(api, store, isCurrent)
+  const tracked = flight.finally(() => {
+    if (bootstrapFlights.get(key) === tracked) bootstrapFlights.delete(key)
+  })
+  bootstrapFlights.set(key, tracked)
+  return tracked
+}
+
+async function doBootstrap(
+  api: AuthApi,
+  store: AccessTokenStore,
+  isCurrent: () => boolean,
+): Promise<AuthUser> {
   try {
     const refreshed = await refreshTokenOnce(api.refresh)
+    if (!isCurrent()) throw new AuthLifecycleSupersededError()
     store.set(refreshed.accessToken)
-    return await api.me()
+    const user = await api.me()
+    if (!isCurrent()) throw new AuthLifecycleSupersededError()
+    return user
   } catch (error) {
-    store.clear()
+    if (isCurrent()) store.clear()
     throw error
   }
 }
@@ -91,6 +160,12 @@ const RACE_RETRY_HORIZON_MS = 3000
 
 function isRefreshRace(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.data?.code === 'AUTH_REFRESH_RACE'
+}
+
+function isAccessTokenExpired(error: unknown): boolean {
+  return axios.isAxiosError(error)
+    && error.response?.status === 401
+    && error.response.data?.code === 'AUTH_ACCESS_EXPIRED'
 }
 
 export async function refreshWithRaceRetry(

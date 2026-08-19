@@ -3,15 +3,75 @@ import { describe, expect, it, vi } from 'vitest'
 import { createAccessTokenStore } from './accessTokenStore'
 import {
   bootstrapSession,
+  logoutWithCookieLock,
   RefreshRaceUnresolvedError,
   refreshMe,
+  refreshTokenOnce,
   refreshWithRaceRetry,
   type AuthApi,
 } from './authSession'
+import type { CrossTabAuthCoordinator } from './crossTabAuthCoordinator'
 
 const user = { id: '1', email: 'user@example.com', displayName: 'User', organizationId: '2', organizationMemberId: '3', permissions: [] }
 
 describe('authentication session', () => {
+  it('refreshes an expired access token during logout without nesting the cookie lock', async () => {
+    const config = { headers: {} } as InternalAxiosRequestConfig
+    const response = {
+      config,
+      data: { code: 'AUTH_ACCESS_EXPIRED' },
+      headers: {},
+      status: 401,
+      statusText: 'Unauthorized',
+    } as AxiosResponse
+    const coordinator = {
+      withCookieLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+      publish: vi.fn(),
+    } as unknown as CrossTabAuthCoordinator
+    const store = createAccessTokenStore()
+    store.set('expired-access')
+    const logout = vi.fn()
+      .mockRejectedValueOnce(new AxiosError('expired', 'ERR_BAD_REQUEST', config, undefined, response))
+      .mockResolvedValueOnce(undefined)
+    const refresh = vi.fn().mockResolvedValue({ accessToken: 'fresh-access', expiresIn: 900, user })
+
+    await expect(logoutWithCookieLock(logout, refresh, store, coordinator)).resolves.toBeUndefined()
+
+    expect(coordinator.withCookieLock).toHaveBeenCalledTimes(1)
+    expect(logout).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(store.get()).toBe('fresh-access')
+    expect(coordinator.publish).toHaveBeenCalledWith('SESSION_CLEARED')
+  })
+
+  it('rejects non-terminal logout failures without clearing the local session or broadcasting', async () => {
+    const coordinator = {
+      withCookieLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+      publish: vi.fn(),
+    } as unknown as CrossTabAuthCoordinator
+    const store = createAccessTokenStore()
+    store.set('still-valid')
+    const logout = vi.fn().mockRejectedValue(new Error('network failure'))
+
+    await expect(logoutWithCookieLock(logout, vi.fn(), store, coordinator)).rejects.toThrow('network failure')
+
+    expect(store.get()).toBe('still-valid')
+    expect(coordinator.publish).not.toHaveBeenCalled()
+  })
+
+  it('runs the complete refresh race lifecycle inside the cross-tab cookie lock', async () => {
+    const coordinator = {
+      withCookieLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+      publish: vi.fn(),
+    } as unknown as CrossTabAuthCoordinator
+    const refresh = vi.fn().mockResolvedValue({ accessToken: 'access', expiresIn: 900, user })
+
+    await expect(refreshTokenOnce(refresh, coordinator)).resolves.toMatchObject({ accessToken: 'access' })
+
+    expect(coordinator.withCookieLock).toHaveBeenCalledTimes(1)
+    expect(coordinator.publish).toHaveBeenCalledWith('REFRESH_COMPLETED')
+  })
+
   it('bootstraps through refresh then me without persisting the refresh secret', async () => {
     const store = createAccessTokenStore()
     const api: AuthApi = {
