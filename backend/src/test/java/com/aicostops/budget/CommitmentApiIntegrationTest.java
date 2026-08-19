@@ -51,6 +51,10 @@ class CommitmentApiIntegrationTest extends CommitmentTestSupport {
                 .andExpect(jsonPath("$.approvedAmount").doesNotExist())
                 .andExpect(jsonPath("$.approvalStatus").value("PENDING"))
                 .andExpect(jsonPath("$.history[0].actionType").value("SUBMIT"))
+                // M4 contract: approval action ids are JSON strings (ApiId), not numbers.
+                .andExpect(jsonPath("$.history[0].id").isString())
+                .andExpect(jsonPath("$.history[0].approvalCaseId").isString())
+                .andExpect(jsonPath("$.history[0].actorMemberId").isString())
                 .andReturn().getResponse().getContentAsString();
 
         // Replay with the same key returns the stored commitment, no new row.
@@ -61,6 +65,9 @@ class CommitmentApiIntegrationTest extends CommitmentTestSupport {
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").isString())
+                .andExpect(jsonPath("$.history[0].id").isString())
+                .andExpect(jsonPath("$.history[0].approvalCaseId").isString())
+                .andExpect(jsonPath("$.history[0].actorMemberId").isString())
                 .andReturn().getResponse().getContentAsString();
         assertThat(replay).isEqualTo(requestedJson);
         var rows = jdbc.queryForObject(
@@ -90,7 +97,8 @@ class CommitmentApiIntegrationTest extends CommitmentTestSupport {
                         .header("Authorization", readerBearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
-                .andExpect(jsonPath("$.history[1].actionType").value("APPROVE"));
+                .andExpect(jsonPath("$.history[1].actionType").value("APPROVE"))
+                .andExpect(jsonPath("$.history[1].id").isString());
 
         // Release frees the remainder.
         mockMvc.perform(post("/api/v1/commitments/{commitmentId}/release", commitmentId)

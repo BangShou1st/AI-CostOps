@@ -88,6 +88,16 @@ class M1OpenApiContractTest {
     }
 
     @Test
+    void approvalActionIdsUseCanonicalIdSchema() {
+        // ApprovalActionResponse is shared between Expense and Commitment;
+        // the action id must be the canonical string Id schema, not a long.
+        assertThat(propertyRef("ApprovalActionResponse", "id"))
+                .isEqualTo("#/components/schemas/Id");
+        assertThat(propertyRef("ApprovalActionResponse", "actorMemberId"))
+                .isEqualTo("#/components/schemas/Id");
+    }
+
+    @Test
     void problemResponsesUseProblemSchema() {
         var problem = map(map(map(document, "components"), "responses"), "Problem");
         var content = map(problem, "content");

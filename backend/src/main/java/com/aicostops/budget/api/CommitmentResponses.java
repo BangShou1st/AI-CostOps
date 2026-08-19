@@ -47,7 +47,7 @@ public final class CommitmentResponses {
     }
 
     public record ApprovalActionResponse(
-            long id,
+            ApiId id,
             ApiId approvalCaseId,
             ApiId actorMemberId,
             String actionType,
@@ -58,7 +58,7 @@ public final class CommitmentResponses {
 
         static ApprovalActionResponse from(CommitmentApprovalAction action) {
             return new ApprovalActionResponse(
-                    action.id(),
+                    ApiId.of(action.id()),
                     ApiId.of(action.approvalCaseId()),
                     ApiId.of(action.actorMemberId()),
                     action.actionType().name(),
