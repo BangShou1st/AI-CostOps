@@ -95,6 +95,10 @@ public class LedgerCorrectionService {
         if (historicalTarget == null) {
             throw notFound("Ledger entry");
         }
+        if (command.replacement() != null
+                && !historicalTarget.currency().equals(command.replacement().currency())) {
+            throw validation("Replacement currency must match the historical entry currency.");
+        }
         var historicalPosting = ledger.selectPostingByIdAndOrganization(organizationId,
                 historicalTarget.postingId());
         if (historicalPosting == null) {

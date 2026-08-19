@@ -119,6 +119,21 @@ class LedgerCorrectionIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
+    void replaceRejectsCurrencyChangeBeforeWritingCorrectionRows() {
+        var command = new CorrectionCommand(targetEntryId, correctionPeriodId,
+                CorrectionMode.REPLACE, "CURRENCY_ERROR", null,
+                new Replacement(new BigDecimal("10.00000000"), "USD", null, null, teamId));
+
+        assertThatThrownBy(() -> corrections.correct(new AuthenticatedUser(actorUserId, 7), command,
+                "corr-currency")).isInstanceOf(DomainException.class)
+                .hasMessageContaining("Replacement currency must match");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM correction_group WHERE org_id=?",
+                Integer.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
+                Integer.class, orgId)).isEqualTo(1);
+    }
+
+    @Test
     void closedPeriodAndDoubleReversalRejectWithoutMutatingHistory() {
         jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", correctionPeriodId);
         var command = new CorrectionCommand(targetEntryId, correctionPeriodId,
