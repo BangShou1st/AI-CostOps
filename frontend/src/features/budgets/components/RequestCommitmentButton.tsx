@@ -70,8 +70,8 @@ export function RequestCommitmentButton({ budget, onCreated }: { budget: BudgetR
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="Budget">{budget.id}</Descriptions.Item>
-            <Descriptions.Item label="Currency">{budget.currency}</Descriptions.Item>
+            <Descriptions.Item label="预算">{budget.id}</Descriptions.Item>
+            <Descriptions.Item label="币种">{budget.currency}</Descriptions.Item>
           </Descriptions>
           <Input
             aria-label="承诺金额"

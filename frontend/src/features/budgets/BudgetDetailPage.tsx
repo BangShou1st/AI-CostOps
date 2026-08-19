@@ -11,6 +11,7 @@ import { commitmentApi, commitmentKeys } from './api/commitmentApi'
 import { BudgetMetrics } from './components/BudgetMetrics'
 import { BudgetTotalEditor } from './components/BudgetTotalEditor'
 import { CommitmentTable } from './components/CommitmentTable'
+import { BUDGET_SCOPE_LABEL, BUDGET_STATUS_LABEL } from './presentation'
 
 const COMMITMENT_PAGE_SIZE = 10
 
@@ -90,15 +91,15 @@ export function BudgetDetailPage() {
         </Card>
         <Card title="基本信息" size="small">
           <Descriptions column={2} size="small">
-            <Descriptions.Item label="Scope">{b.scopeType}</Descriptions.Item>
-            <Descriptions.Item label="Scope ID">{b.scopeId}</Descriptions.Item>
-            <Descriptions.Item label="Billing Period ID">{b.billingPeriodId}</Descriptions.Item>
-            <Descriptions.Item label="Currency">{b.currency}</Descriptions.Item>
-            <Descriptions.Item label="Status">{b.status}</Descriptions.Item>
-            <Descriptions.Item label="Version">{`v${b.version}`}</Descriptions.Item>
+            <Descriptions.Item label="范围">{BUDGET_SCOPE_LABEL[b.scopeType]}</Descriptions.Item>
+            <Descriptions.Item label="范围 ID">{b.scopeId}</Descriptions.Item>
+            <Descriptions.Item label="账期 ID">{b.billingPeriodId}</Descriptions.Item>
+            <Descriptions.Item label="币种">{b.currency}</Descriptions.Item>
+            <Descriptions.Item label="状态">{BUDGET_STATUS_LABEL[b.status] ?? b.status}</Descriptions.Item>
+            <Descriptions.Item label="版本">{`v${b.version}`}</Descriptions.Item>
           </Descriptions>
         </Card>
-        <Card title="承诺 (Commitments)" size="small" extra={canRequest ? <RequestCommitmentButton budget={b} onCreated={refreshCommitments} /> : undefined}>
+        <Card title="承诺" size="small" extra={canRequest ? <RequestCommitmentButton budget={b} onCreated={refreshCommitments} /> : undefined}>
           {commitmentProblem ? (
             <Alert
               type="error"

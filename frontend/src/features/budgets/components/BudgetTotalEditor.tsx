@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { toProblemDetail } from '../../../api/problem'
 import { formatDecimal8, parseUserDecimal8 } from '../../../lib/money'
 import { budgetApi, type BudgetResponse } from '../api/budgetApi'
+import { budgetCommandProblemMessage } from '../presentation'
 
 /**
  * Budget total change is a sensitive financial action: the user sees the
@@ -50,9 +51,7 @@ export function BudgetTotalEditor({ budget, onChanged }: { budget: BudgetRespons
       onChanged()
     } catch (e) {
       const problem = toProblemDetail(e)
-      setError(problem.code === 'STATE_CONFLICT'
-        ? 'Budget has changed. Refresh the latest version before retrying.'
-        : (problem.detail ?? '操作失败'))
+      setError(budgetCommandProblemMessage(problem))
       // A conflict means our version is stale: refresh the latest version,
       // but never re-send the mutation automatically.
       if (problem.status === 409) onChanged()
@@ -75,9 +74,9 @@ export function BudgetTotalEditor({ budget, onChanged }: { budget: BudgetRespons
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           <Descriptions column={1} size="small" bordered>
-            <Descriptions.Item label="Current Total">{`${budget.totalAmount} ${budget.currency}`}</Descriptions.Item>
-            <Descriptions.Item label="Currency">{budget.currency}</Descriptions.Item>
-            <Descriptions.Item label="New Total">{newAmount === null ? '—' : `${formatDecimal8(newAmount)} ${budget.currency}`}</Descriptions.Item>
+            <Descriptions.Item label="当前总额">{`${budget.totalAmount} ${budget.currency}`}</Descriptions.Item>
+            <Descriptions.Item label="币种">{budget.currency}</Descriptions.Item>
+            <Descriptions.Item label="新总额">{newAmount === null ? '—' : `${formatDecimal8(newAmount)} ${budget.currency}`}</Descriptions.Item>
           </Descriptions>
           <Input
             aria-label="新的总额"

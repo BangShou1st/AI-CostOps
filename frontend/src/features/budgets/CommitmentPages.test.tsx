@@ -131,11 +131,18 @@ describe('BudgetCommitmentDetailPage', () => {
     await waitFor(() => expect(screen.getByText('承诺详情 #9')).toBeInTheDocument())
     // The currency comes from the owning budget query; wait for it to resolve.
     await waitFor(() => expect(screen.getAllByText('50.00000000 CNY').length).toBeGreaterThanOrEqual(2))
-    expect(screen.getByText('已生效')).toBeInTheDocument()
+    expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('40.00000000 CNY')).toBeInTheDocument()
     expect(screen.getByText('7')).toBeInTheDocument()
     expect(screen.getByText('已批准')).toBeInTheDocument()
     expect(screen.getByText('v3')).toBeInTheDocument()
+    // Detail labels are localized.
+    expect(screen.getByText('申请金额')).toBeInTheDocument()
+    expect(screen.getByText('批准金额')).toBeInTheDocument()
+    expect(screen.getByText('剩余金额')).toBeInTheDocument()
+    expect(screen.getByText('预算 ID')).toBeInTheDocument()
+    expect(screen.getByText('审批状态')).toBeInTheDocument()
+    expect(screen.getByText('版本')).toBeInTheDocument()
   })
 
   it('renders the full append-only history with action, from, to, actor and comment', async () => {
@@ -145,11 +152,47 @@ describe('BudgetCommitmentDetailPage', () => {
     expect(screen.getByText('批准')).toBeInTheDocument()
     expect(screen.getByText('2026-01-03T00:00:00Z')).toBeInTheDocument()
     expect(screen.getByText('2026-01-04T00:00:00Z')).toBeInTheDocument()
-    expect(screen.getAllByText('REQUESTED').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('ACTIVE')).toBeInTheDocument()
+    expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('5')).toBeInTheDocument()
     expect(screen.getByText('ok')).toBeInTheDocument()
+  })
+
+  it('localizes history states with a safe fallback for unknown states', async () => {
+    mockedCommitmentApi.get.mockResolvedValue({
+      ...COMMITMENT,
+      history: [
+        {
+          id: '1',
+          approvalCaseId: 'c-1',
+          actorMemberId: '3',
+          actionType: 'SUBMIT',
+          fromState: 'NONE',
+          toState: 'REQUESTED',
+          comment: null,
+          createdAt: '2026-01-03T00:00:00Z',
+        },
+        {
+          id: '2',
+          approvalCaseId: 'c-1',
+          actorMemberId: '5',
+          actionType: 'SUBMIT',
+          fromState: 'REQUESTED',
+          toState: 'MYSTERY_STATE',
+          comment: null,
+          createdAt: '2026-01-04T00:00:00Z',
+        },
+      ],
+    })
+    renderAs(['BUDGET_READ'])
+
+    await waitFor(() => expect(screen.getByText('无')).toBeInTheDocument())
+    // Unknown future enum values render verbatim instead of throwing.
+    expect(screen.getByText('MYSTERY_STATE')).toBeInTheDocument()
+    expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('NONE')).not.toBeInTheDocument()
+    expect(screen.queryByText('REQUESTED')).not.toBeInTheDocument()
   })
 
   it('keeps a terminal state read-only without any action', async () => {
@@ -292,7 +335,7 @@ describe('Commitment lifecycle actions', () => {
       fireEvent.click(screen.getByRole('button', { name: /批\s*准/ }))
 
       await waitFor(() => {
-        expect(screen.getByText('Budget availability is insufficient.')).toBeInTheDocument()
+        expect(screen.getByText('预算可用额度不足。')).toBeInTheDocument()
       })
       expect(mockedCommitmentApi.approve).toHaveBeenCalledTimes(1)
     })
@@ -317,7 +360,7 @@ describe('Commitment lifecycle actions', () => {
       fireEvent.click(screen.getByRole('button', { name: /批\s*准/ }))
 
       await waitFor(() => {
-        expect(screen.getByText('Current financial period does not allow this action.')).toBeInTheDocument()
+        expect(screen.getByText('当前账期不允许执行此操作。')).toBeInTheDocument()
       })
       expect(mockedCommitmentApi.approve).toHaveBeenCalledTimes(1)
     })
@@ -461,8 +504,10 @@ describe('Commitment lifecycle actions', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /释\s*放/ }))
 
-      expect(screen.getByText('Commitment ID')).toBeInTheDocument()
-      expect(screen.getByText('Remaining Amount')).toBeInTheDocument()
+      expect(screen.getByText('承诺 ID')).toBeInTheDocument()
+      // '剩余金额' labels both the info card and the release confirmation.
+      expect(screen.getAllByText('剩余金额').length).toBeGreaterThanOrEqual(2)
+      expect(screen.getAllByText('币种').length).toBeGreaterThanOrEqual(1)
       expect(screen.getAllByText('CNY').length).toBeGreaterThanOrEqual(1)
       expect(screen.getAllByText('40.00000000 CNY').length).toBeGreaterThanOrEqual(2)
       // Nothing is released before the confirm button.
@@ -532,7 +577,7 @@ describe('Commitment lifecycle actions', () => {
 
       await waitFor(() => expect(screen.getByText('无法加载关联预算')).toBeInTheDocument())
       expect(screen.queryByRole('button', { name: /释s*放/ })).not.toBeInTheDocument()
-      expect(screen.queryByText('Currency')).not.toBeInTheDocument()
+      expect(screen.queryByText('币种')).not.toBeInTheDocument()
       expect(mockedCommitmentApi.release).not.toHaveBeenCalled()
     })
 
