@@ -241,6 +241,32 @@ class M1OpenApiContractTest {
         assertThat(operations()).doesNotContainKey("POST /commitments/{commitmentId}/consume");
     }
 
+    @Test
+    void m5LedgerContractsUseStableKeysStringIdsAndImmutableResponseShapes() {
+        var commands = Set.of(
+                "POST /costs/charges/{chargeFactId}/post",
+                "POST /expenses/{expenseId}/post",
+                "POST /ledger/corrections");
+        for (var operation : commands) {
+            assertThat(successSchemaRef(operation)).isEqualTo(operation.startsWith("POST /ledger/corrections")
+                    ? "#/components/schemas/LedgerCorrectionResponse"
+                    : "#/components/schemas/LedgerPostingDetailResponse");
+        }
+        assertThat(parameterRefs("POST /ledger/corrections"))
+                .contains("#/components/parameters/IdempotencyKey");
+        for (var operation : Set.of("GET /ledger/postings", "GET /ledger/entries")) {
+            assertThat(parameterRefs(operation)).contains(
+                    "#/components/parameters/Page", "#/components/parameters/Size");
+            assertThat(successSchemaRef(operation)).startsWith("#/components/schemas/PageResponseLedger");
+        }
+        assertThat(propertyRef("LedgerEntryResponse", "id")).isEqualTo("#/components/schemas/Id");
+        assertThat(propertyRef("LedgerEntryResponse", "amount")).isEqualTo("#/components/schemas/Money");
+        assertThat(schema("ExpenseClaimStatus").get("enum"))
+                .isEqualTo(List.of("DRAFT", "SUBMITTED", "NEEDS_INFO", "APPROVED", "POSTED", "REJECTED", "CANCELED"));
+        assertThat(schema("CorrectionMode").get("enum"))
+                .isEqualTo(List.of("REVERSAL_ONLY", "REPLACE"));
+    }
+
     private static void assertStringSchema(String name) {
         assertThat(schema(name).get("type")).isEqualTo("string");
         assertThat(schema(name).get("pattern")).isEqualTo("^[0-9]+$");
@@ -390,6 +416,14 @@ class M1OpenApiContractTest {
         add(operations, "POST /expenses/{expenseId}/reject", "200", "400", "401", "403", "404", "409");
         add(operations, "GET /expenses/{expenseId}/allocation-decisions", "200", "400", "401", "403", "404");
         add(operations, "POST /expenses/{expenseId}/allocation-decisions/manual", "200", "400", "401", "403", "404", "409");
+        // M5 immutable ledger posting, query, and correction commands.
+        add(operations, "POST /costs/charges/{chargeFactId}/post", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /expenses/{expenseId}/post", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /ledger/postings", "200", "400", "401", "403");
+        add(operations, "GET /ledger/postings/{postingId}", "200", "400", "401", "403", "404");
+        add(operations, "GET /ledger/entries", "200", "400", "401", "403");
+        add(operations, "GET /ledger/entries/{entryId}", "200", "400", "401", "403", "404");
+        add(operations, "POST /ledger/corrections", "200", "400", "401", "403", "404", "409");
         add(operations, "GET /allocation-rules", "200", "400", "401", "403");
         add(operations, "GET /allocation-targets", "200", "400", "401", "403");
         add(operations, "GET /allocation-rules/{ruleId}", "200", "400", "401", "403", "404");

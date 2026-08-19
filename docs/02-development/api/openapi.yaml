@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: AI CostOps API
   version: 1.0.0
-  description: Authentication, organization administration, explicit-scope authorization, evidence/import workflow, and the M3 canonical cost foundation API.
+  description: Authentication, organization administration, evidence/import workflow, canonical costs, budget commitments, and the M5 immutable ledger API.
 servers:
   - url: /api/v1
 security:
@@ -580,7 +580,7 @@ components:
       required: [lines]
       properties:
         lines: { type: array, minItems: 1, items: { $ref: '#/components/schemas/AllocationLineRequest' } }
-    ExpenseClaimStatus: { type: string, enum: [DRAFT, SUBMITTED, NEEDS_INFO, APPROVED, REJECTED, CANCELED] }
+    ExpenseClaimStatus: { type: string, enum: [DRAFT, SUBMITTED, NEEDS_INFO, APPROVED, POSTED, REJECTED, CANCELED] }
     ApprovalActionType: { type: string, enum: [SUBMIT, REQUEST_INFO, RESUBMIT, APPROVE, REJECT, CANCEL] }
     ExpenseApprovalActionResponse:
       type: object
@@ -627,6 +627,127 @@ components:
         postingReady: { type: boolean }
         version: { type: integer, minimum: 0 }
         createdAt: { type: string, format: date-time }
+    LedgerSourceType: { type: string, enum: [PROVIDER_CHARGE, EXPENSE_CLAIM, CORRECTION] }
+    LedgerEntryType: { type: string, enum: [COST, CREDIT, ADJUSTMENT, REVERSAL] }
+    CorrectionMode: { type: string, enum: [REVERSAL_ONLY, REPLACE] }
+    CommitmentLinkRequest:
+      type: object
+      required: [allocationLineId, commitmentId]
+      properties:
+        allocationLineId: { $ref: '#/components/schemas/Id' }
+        commitmentId: { $ref: '#/components/schemas/Id' }
+    PostSourceRequest:
+      type: object
+      required: [commitmentLinks]
+      properties:
+        commitmentLinks: { type: array, items: { $ref: '#/components/schemas/CommitmentLinkRequest' } }
+    LedgerEntryResponse:
+      type: object
+      required: [id, postingId, entryIndex, entryType, amount, currency, targetType, targetId, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        postingId: { $ref: '#/components/schemas/Id' }
+        entryIndex: { type: integer, minimum: 0 }
+        entryType: { $ref: '#/components/schemas/LedgerEntryType' }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        targetType: { $ref: '#/components/schemas/ScopeType' }
+        targetId: { $ref: '#/components/schemas/Id' }
+        budgetId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        sourceChargeFactId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        sourceExpenseClaimId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        allocationLineId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        correctionGroupId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        reversesEntryId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+    LedgerPostingSummaryResponse:
+      type: object
+      required: [id, postingKey, sourceType, sourceId, billingPeriodId, status, postedByMemberId, postedAt, createdAt, visibleEntryCount, visibleTotals, entries]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        postingKey: { type: string }
+        sourceType: { $ref: '#/components/schemas/LedgerSourceType' }
+        sourceId: { $ref: '#/components/schemas/Id' }
+        allocationDecisionId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        billingPeriodId: { $ref: '#/components/schemas/Id' }
+        status: { type: string, enum: [POSTED] }
+        postedByMemberId: { $ref: '#/components/schemas/Id' }
+        postedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        visibleEntryCount: { type: integer, minimum: 0 }
+        visibleTotalAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        visibleCurrency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
+        visibleTotals: { type: object, additionalProperties: { $ref: '#/components/schemas/Money' } }
+        entries: { type: array, items: { $ref: '#/components/schemas/LedgerEntryResponse' } }
+    LedgerPostingDetailResponse:
+      type: object
+      required: [id, postingKey, sourceType, sourceId, billingPeriodId, status, postedByMemberId, postedAt, createdAt, entries]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        postingKey: { type: string }
+        sourceType: { $ref: '#/components/schemas/LedgerSourceType' }
+        sourceId: { $ref: '#/components/schemas/Id' }
+        allocationDecisionId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        billingPeriodId: { $ref: '#/components/schemas/Id' }
+        status: { type: string, enum: [POSTED] }
+        postedByMemberId: { $ref: '#/components/schemas/Id' }
+        postedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        entries: { type: array, items: { $ref: '#/components/schemas/LedgerEntryResponse' } }
+    LedgerLineageResponse:
+      type: object
+      properties:
+        allocationLineId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        allocationDecisionId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        allocationDecisionStatus: { type: [string, 'null'] }
+        chargeFactId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        chargeProviderCode: { type: [string, 'null'] }
+        chargeReviewStatus: { type: [string, 'null'] }
+        rawProviderRecordId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        importAttemptId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        importBatchId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        providerEvidenceId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        expenseClaimId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        expenseStatus: { type: [string, 'null'] }
+        expenseEvidenceId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        correctionGroupId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        reversesEntryId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+    LedgerEntryDetailResponse:
+      type: object
+      required: [entry, posting, lineage]
+      properties:
+        entry: { $ref: '#/components/schemas/LedgerEntryResponse' }
+        posting: { $ref: '#/components/schemas/LedgerPostingSummaryResponse' }
+        lineage: { $ref: '#/components/schemas/LedgerLineageResponse' }
+    LedgerCorrectionResponse:
+      type: object
+      required: [correctionGroupId, posting]
+      properties:
+        correctionGroupId: { $ref: '#/components/schemas/Id' }
+        posting: { $ref: '#/components/schemas/LedgerPostingDetailResponse' }
+    PageResponseLedgerPosting:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/LedgerPostingSummaryResponse' } } } }]
+    PageResponseLedgerEntry:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/LedgerEntryResponse' } } } }]
+    CorrectionReplacementRequest:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        projectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        costCenterId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        teamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+    CorrectionRequest:
+      type: object
+      required: [targetEntryId, correctionPeriodId, mode, reasonCode]
+      properties:
+        targetEntryId: { $ref: '#/components/schemas/Id' }
+        correctionPeriodId: { $ref: '#/components/schemas/Id' }
+        mode: { $ref: '#/components/schemas/CorrectionMode' }
+        reasonCode: { type: string, minLength: 1, maxLength: 64 }
+        reasonText: { type: [string, 'null'], maxLength: 2000 }
+        replacement: { oneOf: [{ $ref: '#/components/schemas/CorrectionReplacementRequest' }, { type: 'null' }] }
     BudgetCommitmentStatus: { type: string, enum: [REQUESTED, ACTIVE, PARTIALLY_CONSUMED, CONSUMED, RELEASED, REJECTED, CANCELED] }
     CreateCommitmentRequest:
       type: object
@@ -1001,6 +1122,10 @@ paths:
   /costs/charges/{chargeFactId}:
     get:
       responses: { '200': { description: Charge detail with allocation/duplicate state, content: { application/json: { schema: { $ref: '#/components/schemas/ChargeCostDetailResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /costs/charges/{chargeFactId}/post:
+    post:
+      requestBody: { required: false, content: { application/json: { schema: { $ref: '#/components/schemas/PostSourceRequest' } } } }
+      responses: { '200': { description: "Provider charge posted using the natural CHARGE:{chargeFactId}:ALLOCATION:{allocationDecisionId} key (or the existing posting)", content: { application/json: { schema: { $ref: '#/components/schemas/LedgerPostingDetailResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /costs/charges/{chargeFactId}/allocation-decisions:
     get:
       responses: { '200': { description: Every allocation decision of one charge, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
@@ -1038,6 +1163,10 @@ paths:
     put:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/EditExpenseRequest' } } } }
       responses: { '200': { description: DRAFT/NEEDS_INFO body replaced with version CAS, content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /expenses/{expenseId}/post:
+    post:
+      requestBody: { required: false, content: { application/json: { schema: { $ref: '#/components/schemas/PostSourceRequest' } } } }
+      responses: { '200': { description: "APPROVED expense posted and transitioned to POSTED using EXPENSE:{expenseClaimId} (or the existing posting)", content: { application/json: { schema: { $ref: '#/components/schemas/LedgerPostingDetailResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /expenses/{expenseId}/evidence:
     post:
       requestBody: { required: true, content: { multipart/form-data: { schema: { type: object, required: [expectedVersion, file], properties: { expectedVersion: { type: integer }, file: { type: string, format: binary } } } } } }
@@ -1085,6 +1214,41 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ManualDraftRequest' } } } }
       responses: { '200': { description: Manual DRAFT created for the expense (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /ledger/postings:
+    get:
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { name: billingPeriodId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: sourceType, in: query, schema: { $ref: '#/components/schemas/LedgerSourceType' } }
+        - { name: projectId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: costCenterId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: teamId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: sort, in: query, schema: { type: string, enum: ['postedAt,asc', 'postedAt,desc'], default: 'postedAt,desc' } }
+      responses: { '200': { description: Caller-scoped immutable posting summaries with visible-entry totals only, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseLedgerPosting' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /ledger/postings/{postingId}:
+    get:
+      responses: { '200': { description: One caller-scoped immutable posting summary, content: { application/json: { schema: { $ref: '#/components/schemas/LedgerPostingSummaryResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /ledger/entries:
+    get:
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+        - { name: billingPeriodId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: sourceType, in: query, schema: { $ref: '#/components/schemas/LedgerSourceType' } }
+        - { name: projectId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: costCenterId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: teamId, in: query, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: sort, in: query, schema: { type: string, enum: ['postedAt,asc', 'postedAt,desc'], default: 'postedAt,desc' } }
+      responses: { '200': { description: Caller-scoped immutable entries, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseLedgerEntry' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /ledger/entries/{entryId}:
+    get:
+      responses: { '200': { description: Caller-scoped immutable entry with source and evidence lineage, content: { application/json: { schema: { $ref: '#/components/schemas/LedgerEntryDetailResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /ledger/corrections:
+    post:
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CorrectionRequest' } } } }
+      responses: { '200': { description: 'Append-only reversal or replacement correction in a new OPEN period (or the stored idempotent replay)', content: { application/json: { schema: { $ref: '#/components/schemas/LedgerCorrectionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /allocation-rules:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
