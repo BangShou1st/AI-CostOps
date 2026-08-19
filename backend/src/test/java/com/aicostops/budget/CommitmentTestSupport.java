@@ -249,6 +249,36 @@ public abstract class CommitmentTestSupport extends AuthenticationContainersSupp
                 "SELECT id FROM " + table + " WHERE org_id=? AND code=?", Long.class, org, code);
     }
 
+    /**
+     * Creates the minimal immutable ledger lineage required by the M5
+     * budget_commitment_usage foreign key. Older commitment tests intentionally
+     * used synthetic ledger ids; keeping those ids makes their idempotency
+     * assertions readable while this fixture supplies the now-real parent row.
+     */
+    protected void insertSyntheticLedgerEntry(long ledgerEntryId) {
+        insertSyntheticLedgerEntry(ledgerEntryId, periodId);
+    }
+
+    protected void insertSyntheticLedgerEntry(long ledgerEntryId, long billingPeriodId) {
+        jdbc.update("""
+                INSERT INTO ledger_posting(
+                    org_id,posting_key,source_type,source_id,allocation_decision_id,
+                    billing_period_id,status,posted_by_member_id,posted_at,created_at)
+                VALUES (?,?,'CORRECTION',?,NULL,?,'POSTED',?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, "TEST_COMMITMENT:" + ledgerEntryId + ":" + System.nanoTime(),
+                ledgerEntryId, billingPeriodId, requesterMemberId);
+        var postingId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO ledger_entry(
+                    id,org_id,posting_id,entry_index,entry_type,amount,currency,
+                    project_id,cost_center_id,team_id,budget_id,source_charge_fact_id,
+                    source_expense_claim_id,allocation_line_id,correction_group_id,
+                    reverses_entry_id,created_at)
+                VALUES (?, ?, ?, 0, 'COST', '1.00000000', 'CNY', ?, NULL, NULL,
+                        NULL, NULL, NULL, NULL, NULL, NULL, UTC_TIMESTAMP(6))
+                """, ledgerEntryId, orgId, postingId, projectId);
+    }
+
     protected void deleteCustomRoles() {
         var roles = List.of("COMMIT_REQUESTER", "COMMIT_REVIEWER", "COMMIT_READER",
                 "COMMIT_SCOPED", "COMMIT_FOREIGN", "COMMIT_NONE");

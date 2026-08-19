@@ -48,6 +48,7 @@ class CommitmentOpenPeriodSemanticsIntegrationTest extends CommitmentTestSupport
         var commitmentId = insertCommitmentRow(orgId, budgetId, "ACTIVE",
                 "30.00000000", "30.00000000", "30.00000000", 1);
         insertCommitmentCase(orgId, commitmentId, "APPROVED");
+        insertSyntheticLedgerEntry(9701L, periodId);
 
         var result = inTransaction(() -> consumeService.consume(new ConsumeCommand(
                 orgId, commitmentId, new BigDecimal("10.00000000"), 9701L)));
