@@ -23,6 +23,9 @@ import { ExpenseReviewDetailPage } from '../../features/expenses/ExpenseReviewDe
 import { BudgetsListPage } from '../../features/budgets/BudgetsListPage'
 import { BudgetDetailPage } from '../../features/budgets/BudgetDetailPage'
 import { BudgetCommitmentDetailPage } from '../../features/budgets/BudgetCommitmentDetailPage'
+import { LedgerListPage } from '../../features/ledger/LedgerListPage'
+import { LedgerPostingDetailPage } from '../../features/ledger/LedgerPostingDetailPage'
+import { LedgerEntryDetailPage } from '../../features/ledger/LedgerEntryDetailPage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ApplicationLanding } from './ApplicationLanding'
 import { ProtectedRoute } from './ProtectedRoute'
@@ -74,6 +77,11 @@ export function AppRouter() {
         </Route>
         <Route path="/budget-commitments/:commitmentId" element={<PermissionRoute permission="BUDGET_READ" />}>
           <Route index element={<BudgetCommitmentDetailPage />} />
+        </Route>
+        <Route path="/ledger" element={<PermissionRoute permission="LEDGER_READ" />}>
+          <Route index element={<LedgerListPage />} />
+          <Route path="postings/:id" element={<LedgerPostingDetailPage />} />
+          <Route path="entries/:id" element={<LedgerEntryDetailPage />} />
         </Route>
         <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
           <Route index element={<UsersPage />} />

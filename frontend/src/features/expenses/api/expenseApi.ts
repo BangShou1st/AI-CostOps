@@ -2,7 +2,7 @@ import { apiClient } from '../../auth/authApi'
 import type { PageResponse } from '../../../api/pagination'
 
 // -- Status types --
-export type ExpenseClaimStatus = 'DRAFT' | 'SUBMITTED' | 'NEEDS_INFO' | 'APPROVED' | 'REJECTED' | 'CANCELED'
+export type ExpenseClaimStatus = 'DRAFT' | 'SUBMITTED' | 'NEEDS_INFO' | 'APPROVED' | 'POSTED' | 'REJECTED' | 'CANCELED'
 export type ApprovalCaseStatus = 'PENDING' | 'NEEDS_INFO' | 'APPROVED' | 'REJECTED' | 'CANCELED'
 export type ApprovalActionType = 'SUBMIT' | 'REQUEST_INFO' | 'RESUBMIT' | 'APPROVE' | 'REJECT' | 'CANCEL'
 export type ExpenseReviewStatusFilter = 'ALL' | 'SUBMITTED' | 'NEEDS_INFO' | 'APPROVED'

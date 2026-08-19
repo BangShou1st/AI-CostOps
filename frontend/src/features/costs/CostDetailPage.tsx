@@ -12,6 +12,8 @@ import { allocationApi } from '../allocation/api/allocationApi'
 import { AllocationEditor } from '../allocation/AllocationEditor'
 import { AllocationHistory } from '../allocation/AllocationHistory'
 import { formatBusinessDateRange } from '../../lib/dateTime'
+import { PostingAction } from '../ledger/PostingAction'
+import { ledgerApi } from '../ledger/api/ledgerApi'
 
 export function CostDetailPage() {
   const params = useParams()
@@ -25,6 +27,7 @@ export function CostDetailPage() {
   const canConfirmAllocation = hasPermission(permissions, 'ALLOCATION_CONFIRM')
   const canReviewDuplicates = hasPermission(permissions, 'DUPLICATE_REVIEW')
   const canManageRules = hasPermission(permissions, 'ALLOCATION_RULE_MANAGE')
+  const canPost = hasPermission(permissions, 'LEDGER_POST')
 
   const charge = useQuery({
     queryKey: costKeys.detail(chargeId),
@@ -86,7 +89,12 @@ export function CostDetailPage() {
     <main className="settings-page">
       <header className="page-header">
         <h1>成本详情 #{detail.id}</h1>
-        {canManageRules && <Link to="/allocation-rules">分摊规则管理</Link>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {canManageRules && <Link to="/allocation-rules">分摊规则管理</Link>}
+          {canPost && detail.confirmedImport && detail.reviewStatus === 'CLEAN' && detail.currentAllocationDecisionId && (
+            <PostingAction onPost={() => ledgerApi.postCharge(chargeId)} onCompleted={refresh} />
+          )}
+        </div>
       </header>
 
       <Descriptions column={1} bordered size="small">

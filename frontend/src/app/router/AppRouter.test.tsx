@@ -40,6 +40,15 @@ vi.mock('../../features/budgets/BudgetDetailPage', () => ({
 vi.mock('../../features/budgets/BudgetCommitmentDetailPage', () => ({
   BudgetCommitmentDetailPage: () => <h1>Commitment detail page</h1>,
 }))
+vi.mock('../../features/ledger/LedgerListPage', () => ({
+  LedgerListPage: () => <h1>Ledger list page</h1>,
+}))
+vi.mock('../../features/ledger/LedgerPostingDetailPage', () => ({
+  LedgerPostingDetailPage: () => <h1>Ledger posting page</h1>,
+}))
+vi.mock('../../features/ledger/LedgerEntryDetailPage', () => ({
+  LedgerEntryDetailPage: () => <h1>Ledger entry page</h1>,
+}))
 vi.mock('../../features/settings/users/UsersPage', () => ({
   UsersPage: () => <h1>Users page</h1>,
 }))
@@ -233,5 +242,18 @@ describe('AppRouter budget gates', () => {
     renderRouter(['BUDGET_READ', 'EXPENSE_READ_OWN'], '/app')
 
     expect(screen.getByRole('heading', { name: 'Expenses list page' })).toBeInTheDocument()
+  })
+})
+
+describe('AppRouter ledger gates', () => {
+  it('ledgerRouteWithoutLedgerReadRendersForbidden', () => {
+    renderRouter([], '/ledger')
+    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Ledger list page' })).not.toBeInTheDocument()
+  })
+
+  it('ledgerRoutesMountWithLedgerRead', () => {
+    renderRouter(['LEDGER_READ'], '/ledger/postings/900')
+    expect(screen.getByRole('heading', { name: 'Ledger posting page' })).toBeInTheDocument()
   })
 })

@@ -44,3 +44,14 @@ describe('visibleBusinessNav budget entries', () => {
     )
   })
 })
+
+describe('visibleBusinessNav ledger entry', () => {
+  it('shows the ledger only with LEDGER_READ', () => {
+    expect(visibleBusinessNav(['LEDGER_READ'])).toContainEqual(
+      { path: '/ledger', label: '账本', readPermission: 'LEDGER_READ' },
+    )
+    expect(visibleBusinessNav([])).not.toContainEqual(
+      { path: '/ledger', label: '账本', readPermission: 'LEDGER_READ' },
+    )
+  })
+})
