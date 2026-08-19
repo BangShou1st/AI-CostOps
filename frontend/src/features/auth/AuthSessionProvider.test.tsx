@@ -89,6 +89,19 @@ function SessionActionsProbe() {
   )
 }
 
+function LoginResultProbe({ onRejected }: { onRejected: (error: unknown) => void }) {
+  const auth = useAuth()
+  return (
+    <>
+      <div role="status">{auth.status}</div>
+      <div data-testid="auth-user">{auth.user?.email}</div>
+      <button onClick={() => void auth.login('finance@example.com', 'wrong-password').catch(onRejected)}>
+        Switch account
+      </button>
+    </>
+  )
+}
+
 function createTestCoordinator() {
   let listener: ((event: CrossTabAuthEvent) => void) | undefined
   const coordinator = {
@@ -230,6 +243,28 @@ describe('AuthSessionProvider session expiry', () => {
 
     await waitFor(() => expect(queryClient.getQueryCache().getAll()).toHaveLength(0))
     expect(accessTokenStore.get()).toBe('new-login-access')
+  })
+
+  it('authenticatedSessionSurvivesFailedAccountSwitchLogin', async () => {
+    const coordinator = createTestCoordinator()
+    const onRejected = vi.fn()
+    const queryClient = renderProvider(<LoginResultProbe onRejected={onRejected} />, coordinator)
+    await screen.findByText('admin@example.com')
+    queryClient.setQueryData(['settings', 'users'], { existingSession: true })
+    const tokenBefore = accessTokenStore.get()
+    const loginError = new Error('wrong password')
+    mockedAuthApi.login.mockRejectedValue(loginError)
+    mockedAuthApi.me.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Switch account' }))
+
+    await waitFor(() => expect(onRejected).toHaveBeenCalledWith(loginError))
+    expect(screen.getByRole('status')).toHaveTextContent('authenticated')
+    expect(screen.getByTestId('auth-user')).toHaveTextContent('admin@example.com')
+    expect(accessTokenStore.get()).toBe(tokenBefore)
+    expect(queryClient.getQueryData(['settings', 'users'])).toEqual({ existingSession: true })
+    expect(mockedAuthApi.me).not.toHaveBeenCalled()
+    expect(coordinator.publish).not.toHaveBeenCalled()
   })
 
   it('publishes replacement before me and hides the old projection when me fails', async () => {

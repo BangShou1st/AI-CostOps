@@ -198,10 +198,7 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
         terminalTransition.current = false
         setState({ status: 'authenticated', user })
       } catch (error: unknown) {
-        if (isCurrentLifecycle(generation.epoch)) {
-          accessTokenStore.clear()
-          if (cookieMutationSucceeded) clearLocalSession()
-        }
+        if (cookieMutationSucceeded && isCurrentLifecycle(generation.epoch)) clearLocalSession()
         throw error
       }
     },
