@@ -191,9 +191,9 @@ class ExpenseLifecycleIntegrationTest extends ExpenseTestSupport {
         // finance can read any same-org detail without owner comparison
         var viaReview = reviewQueries.getForReview(financeUser(), needsInfoId);
         assertThat(viaReview.status().name()).isEqualTo("NEEDS_INFO");
-        // the owner still sees history via their own view
+        // the owner still sees the immutable posted state via their own view
         var owned = queries.getOwned(employeeUser(), approvedId);
-        assertThat(owned.status().name()).isEqualTo("APPROVED");
+        assertThat(owned.status().name()).isEqualTo("POSTED");
     }
 
     private void assertConflict(Throwable thrown) {
