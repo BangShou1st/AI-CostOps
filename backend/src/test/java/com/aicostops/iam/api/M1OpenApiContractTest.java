@@ -12,7 +12,9 @@ import java.util.Set;
 import java.util.TreeSet;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
 
 class M1OpenApiContractTest {
 
@@ -22,8 +24,10 @@ class M1OpenApiContractTest {
 
     @BeforeAll
     static void loadDocument() throws IOException {
+        var options = new LoaderOptions();
+        options.setAllowDuplicateKeys(false);
         try (var input = Files.newInputStream(Path.of("..", "docs", "02-development", "api", "openapi.yaml"))) {
-            document = new Yaml().load(input);
+            document = new Yaml(new SafeConstructor(options)).load(input);
         }
     }
 
@@ -89,11 +93,50 @@ class M1OpenApiContractTest {
 
     @Test
     void approvalActionIdsUseCanonicalIdSchema() {
-        // ApprovalActionResponse is shared between Expense and Commitment;
-        // the action id must be the canonical string Id schema, not a long.
-        assertThat(propertyRef("ApprovalActionResponse", "id"))
+        // Both approval action schemas must use the canonical string Id schema,
+        // not a long.
+        for (var schemaName : List.of("ExpenseApprovalActionResponse", "CommitmentApprovalActionResponse")) {
+            assertThat(propertyRef(schemaName, "id"))
+                    .isEqualTo("#/components/schemas/Id");
+            assertThat(propertyRef(schemaName, "actorMemberId"))
+                    .isEqualTo("#/components/schemas/Id");
+        }
+        assertThat(propertyRef("CommitmentApprovalActionResponse", "approvalCaseId"))
                 .isEqualTo("#/components/schemas/Id");
-        assertThat(propertyRef("ApprovalActionResponse", "actorMemberId"))
+    }
+
+    @Test
+    void approvalHistoriesUseDistinctRuntimeAccurateSchemas() {
+        assertThat(historyItemRef("ExpenseResponse"))
+                .isEqualTo("#/components/schemas/ExpenseApprovalActionResponse");
+        assertThat(historyItemRef("CommitmentResponse"))
+                .isEqualTo("#/components/schemas/CommitmentApprovalActionResponse");
+    }
+
+    @Test
+    void expenseApprovalActionResponseMatchesExpenseRuntimeShape() {
+        assertThat(schema("ExpenseApprovalActionResponse").get("required"))
+                .isEqualTo(List.of("id", "actionType", "actorMemberId", "fromState", "toState", "createdAt"));
+        assertThat(propertyRef("ExpenseApprovalActionResponse", "id"))
+                .isEqualTo("#/components/schemas/Id");
+        assertThat(propertyRef("ExpenseApprovalActionResponse", "actionType"))
+                .isEqualTo("#/components/schemas/ApprovalActionType");
+        assertThat(propertyRef("ExpenseApprovalActionResponse", "actorMemberId"))
+                .isEqualTo("#/components/schemas/Id");
+        // The Expense runtime DTO has no approvalCaseId; the schema must not either.
+        assertThat(properties("ExpenseApprovalActionResponse"))
+                .doesNotContainKey("approvalCaseId");
+    }
+
+    @Test
+    void commitmentApprovalActionResponseMatchesCommitmentRuntimeShape() {
+        assertThat(schema("CommitmentApprovalActionResponse").get("required"))
+                .isEqualTo(List.of("id", "approvalCaseId", "actorMemberId", "actionType", "fromState", "toState", "createdAt"));
+        assertThat(propertyRef("CommitmentApprovalActionResponse", "id"))
+                .isEqualTo("#/components/schemas/Id");
+        assertThat(propertyRef("CommitmentApprovalActionResponse", "approvalCaseId"))
+                .isEqualTo("#/components/schemas/Id");
+        assertThat(propertyRef("CommitmentApprovalActionResponse", "actorMemberId"))
                 .isEqualTo("#/components/schemas/Id");
     }
 
@@ -205,6 +248,15 @@ class M1OpenApiContractTest {
 
     private static String propertyRef(String schemaName, String propertyName) {
         return (String) map(map(schema(schemaName), "properties"), propertyName).get("$ref");
+    }
+
+    private static Map<String, Object> properties(String schemaName) {
+        return map(schema(schemaName), "properties");
+    }
+
+    private static String historyItemRef(String schemaName) {
+        var history = map(properties(schemaName), "history");
+        return (String) map(history, "items").get("$ref");
     }
 
     private static Set<String> parameterRefs(String operation) {
