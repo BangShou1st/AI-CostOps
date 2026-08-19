@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Alert, Table, Typography } from 'antd'
 import type { TableProps } from 'antd'
-import { toProblemDetail } from '../../../api/problem'
+import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail } from '../../../api/problem'
 import { settingsApi } from '../api/settingsApi'
 import { settingsKeys } from '../api/settingsKeys'
 import type { Permission, Role } from '../api/settingsTypes'
@@ -47,7 +47,7 @@ export function RolesPage() {
       <Typography.Title level={4} style={{ marginTop: 24 }}>角色</Typography.Title>
       {rolesQuery.isLoading && <div role="status">正在加载角色…</div>}
       {rolesQuery.isError && (
-        <Alert type="error" role="alert" title={toProblemDetail(rolesQuery.error).detail || toProblemDetail(rolesQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={presentProblemDetail(toProblemDetail(rolesQuery.error)) || problemTitle(toProblemDetail(rolesQuery.error))} showIcon />
       )}
       {rolesQuery.data && rolesQuery.data.length === 0 && <div className="settings-empty">尚未定义角色。</div>}
       {rolesQuery.data && rolesQuery.data.length > 0 && (
@@ -57,7 +57,7 @@ export function RolesPage() {
       <Typography.Title level={4} style={{ marginTop: 24 }}>权限</Typography.Title>
       {permissionsQuery.isLoading && <div role="status">正在加载权限…</div>}
       {permissionsQuery.isError && (
-        <Alert type="error" role="alert" title={toProblemDetail(permissionsQuery.error).detail || toProblemDetail(permissionsQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={presentProblemDetail(toProblemDetail(permissionsQuery.error)) || problemTitle(toProblemDetail(permissionsQuery.error))} showIcon />
       )}
       {permissionsQuery.data && permissionsQuery.data.length === 0 && <div className="settings-empty">尚未定义权限。</div>}
       {permissionsQuery.data && permissionsQuery.data.length > 0 && (

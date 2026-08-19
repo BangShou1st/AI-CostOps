@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 import { authApi } from './authApi'
 import { useAuth } from './AuthSessionProvider'
 
@@ -10,7 +10,7 @@ function AuthLayout({ title, children }: { title: string; children: ReactNode })
 function ErrorMessage({ error }: { error: unknown }) {
   if (!error) return null
   const problem = toProblemDetail(error)
-  return <p className="form-error" role="alert">{problem.detail || problem.title}</p>
+  return <p className="form-error" role="alert">{presentProblemDetail(problem) || problemTitle(problem)}</p>
 }
 export function LoginPage() {
   const auth = useAuth(); const navigate = useNavigate(); const [email, setEmail] = useState(''); const [password, setPassword] = useState('')
@@ -46,5 +46,5 @@ export function InvitationPage() {
 }
 export function AppPage() {
   const auth = useAuth(); if (!auth.user) return <Navigate to="/login" replace />
-  return <main className="app-shell"><p className="eyebrow">Authenticated workspace</p><h1>AI CostOps</h1><p>已登录：{auth.user.displayName}</p><button onClick={() => void auth.logout()}>退出登录</button></main>
+  return <main className="app-shell"><p className="eyebrow">工作区</p><h1>AI CostOps</h1><p>已登录：{auth.user.displayName}</p><button onClick={() => void auth.logout()}>退出登录</button></main>
 }

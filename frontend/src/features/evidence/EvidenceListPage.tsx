@@ -8,6 +8,7 @@ import { evidenceApi } from './api/evidenceApi'
 import { evidenceKeys } from './api/evidenceKeys'
 import type { EvidenceSummary } from './api/evidenceTypes'
 import { ProviderImportUploadModal, type ProviderImportUploadResult } from '../imports/upload/ProviderImportUploadModal'
+import { formatEventDateTime } from '../../lib/dateTime'
 
 const PAGE_SIZE = 50
 
@@ -61,7 +62,7 @@ export function EvidenceListPage() {
           { title: '类型', dataIndex: 'mediaType' },
           { title: '大小 (bytes)', dataIndex: 'sizeBytes' },
           { title: '状态', dataIndex: 'storageStatus' },
-          { title: '上传时间', dataIndex: 'createdAt' },
+          { title: '上传时间', dataIndex: 'createdAt', render: (value: string) => formatEventDateTime(value) },
         ]}
       />
       <ProviderImportUploadModal

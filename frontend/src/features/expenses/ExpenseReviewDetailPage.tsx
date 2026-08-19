@@ -5,7 +5,8 @@ import { Alert, Button, Card, Descriptions, Input, Modal, Space, Tag } from 'ant
 import { expenseApi, expenseKeys } from './api/expenseApi'
 import { ApprovalHistory } from './components/ApprovalHistory'
 import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
+import { formatBusinessDate } from '../../lib/dateTime'
 import { hasPermission } from '../settings/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { allocationApi } from '../allocation/api/allocationApi'
@@ -73,7 +74,7 @@ export function ExpenseReviewDetailPage() {
     try {
       await expenseApi.approve(expense.id, { expectedVersion: expense.version }, crypto.randomUUID())
       refetch()
-    } catch (e) { setProblem(toProblemDetail(e).detail ?? '操作失败') }
+    } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '操作失败') }
     finally { setLoading(false) }
   }
 
@@ -82,7 +83,7 @@ export function ExpenseReviewDetailPage() {
     try {
       await expenseApi.reject(expense.id, { expectedVersion: expense.version, comment }, crypto.randomUUID())
       refetch(); setRejectModal(false); setComment('')
-    } catch (e) { setProblem(toProblemDetail(e).detail ?? '操作失败') }
+    } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '操作失败') }
     finally { setLoading(false) }
   }
 
@@ -91,7 +92,7 @@ export function ExpenseReviewDetailPage() {
     try {
       await expenseApi.requestInfo(expense.id, { expectedVersion: expense.version, comment }, crypto.randomUUID())
       refetch(); setRequestInfoModal(false); setComment('')
-    } catch (e) { setProblem(toProblemDetail(e).detail ?? '操作失败') }
+    } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '操作失败') }
     finally { setLoading(false) }
   }
 
@@ -102,7 +103,7 @@ export function ExpenseReviewDetailPage() {
         <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
       }>
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="日期">{expense.expenseDate}</Descriptions.Item>
+          <Descriptions.Item label="日期">{formatBusinessDate(expense.expenseDate)}</Descriptions.Item>
           <Descriptions.Item label="金额">{expense.amount} {expense.currency}</Descriptions.Item>
           <Descriptions.Item label="版本">v{expense.version}</Descriptions.Item>
           <Descriptions.Item label="发布就绪">{expense.postingReady ? '✓' : '否'}</Descriptions.Item>

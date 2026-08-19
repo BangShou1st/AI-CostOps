@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { visibleBusinessNav } from './appNavigation'
+import { NAV_ICONS } from './AuthenticatedLayout'
+import { BUSINESS_NAV, visibleBusinessNav } from './appNavigation'
+
+describe('business navigation presentation', () => {
+  it('has a non-empty icon for every business navigation item', () => {
+    expect(BUSINESS_NAV.every((entry) => Boolean(NAV_ICONS[entry.path]))).toBe(true)
+  })
+})
 
 describe('visibleBusinessNav expense entries', () => {
   it('shows my expenses only to users with EXPENSE_READ_OWN', () => {

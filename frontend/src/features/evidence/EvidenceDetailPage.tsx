@@ -9,6 +9,7 @@ import { evidenceApi } from './api/evidenceApi'
 import { importsApi } from '../imports/api/importsApi'
 import { evidenceKeys } from './api/evidenceKeys'
 import type { ImportSummary } from '../imports/api/importTypes'
+import { formatEventDateTime } from '../../lib/dateTime'
 
 const IMPORTS_PAGE_SIZE = 50
 
@@ -76,8 +77,8 @@ export function EvidenceDetailPage({ evidenceId: propEvidenceId }: { evidenceId?
         <Descriptions.Item label="SHA-256">{evidence.sha256}</Descriptions.Item>
         <Descriptions.Item label="存储状态">{evidence.storageStatus}</Descriptions.Item>
         <Descriptions.Item label="上传人">{evidence.uploadedByMemberId}</Descriptions.Item>
-        <Descriptions.Item label="创建时间">{evidence.createdAt}</Descriptions.Item>
-        <Descriptions.Item label="更新时间">{evidence.updatedAt}</Descriptions.Item>
+        <Descriptions.Item label="创建时间">{formatEventDateTime(evidence.createdAt)}</Descriptions.Item>
+        <Descriptions.Item label="更新时间">{formatEventDateTime(evidence.updatedAt)}</Descriptions.Item>
       </Descriptions>
       {canReadImports && (
         <section className="evidence-imports">

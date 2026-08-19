@@ -74,7 +74,7 @@ describe('CostCentersPage', () => {
       response: { data: { title: 'Forbidden', status: 403, detail: 'You cannot view cost centers.', code: 'FORBIDDEN', traceId: 't6' } },
     })
     renderCostCentersPage(['COST_CENTER_READ'])
-    expect(await screen.findByText('You cannot view cost centers.')).toBeInTheDocument()
+    expect(await screen.findByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
 
     mockedSettingsApi.listCostCenters.mockResolvedValue(pageOf([]))
     renderCostCentersPage(['COST_CENTER_READ'])

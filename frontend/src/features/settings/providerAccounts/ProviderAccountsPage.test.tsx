@@ -73,7 +73,7 @@ describe('ProviderAccountsPage', () => {
       response: { data: { title: 'Forbidden', status: 403, detail: 'You cannot view provider accounts.', code: 'FORBIDDEN', traceId: 't7' } },
     })
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ'])
-    expect(await screen.findByText('You cannot view provider accounts.')).toBeInTheDocument()
+    expect(await screen.findByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
 
     mockedSettingsApi.listProviderAccounts.mockResolvedValue(pageOf([]))
     renderProviderAccountsPage(['PROVIDER_ACCOUNT_READ'])

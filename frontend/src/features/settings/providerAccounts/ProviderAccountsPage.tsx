@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Button, Input, Modal, Select, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { useState } from 'react'
-import { toProblemDetail, type ProblemDetail } from '../../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, problemTitle, toProblemDetail, type ProblemDetail } from '../../../api/problem'
 import { useAuth } from '../../auth/AuthSessionProvider'
 import { settingsApi } from '../api/settingsApi'
 import { settingsKeys } from '../api/settingsKeys'
@@ -12,6 +12,7 @@ import { hasPermission } from '../permissions'
 import { statusLabel } from '../presentation'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { MASTER_DATA_STATUS_OPTIONS } from '../shared/LifecycleEditorModal'
+import { READABLE_SELECT_PROPS } from '../../../lib/selectPresentation'
 
 const SECRET_KEY_PATTERN = /password|token|secret|apikey/
 
@@ -128,7 +129,7 @@ export function ProviderAccountsPage() {
       </div>
       {listQuery.isLoading && <div role="status">正在加载云账号…</div>}
       {listQuery.isError && (
-        <Alert type="error" role="alert" title={toProblemDetail(listQuery.error).detail || toProblemDetail(listQuery.error).title} showIcon />
+        <Alert type="error" role="alert" title={presentProblemDetail(toProblemDetail(listQuery.error)) || problemTitle(toProblemDetail(listQuery.error))} showIcon />
       )}
       {listQuery.data && listQuery.data.items.length === 0 && <div className="settings-empty">该组织暂无云账号。</div>}
       {listQuery.data && listQuery.data.items.length > 0 && (
@@ -228,7 +229,7 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
       onCancel={onCancel}
     >
       <div style={{ display: 'grid', gap: 12 }}>
-        {error && <Alert type="error" role="alert" title={error.detail || error.title} showIcon />}
+        {error && <Alert type="error" role="alert" title={problemSummary(error)} description={presentProblemDetail(error)} showIcon />}
         <label>
           服务商编码
           <Input aria-label="服务商编码" value={providerCode} disabled={editing} onChange={(event) => setProviderCode(event.target.value)} placeholder="AWS、GCP、AZURE 等" />
@@ -244,7 +245,14 @@ function ProviderAccountEditorModal({ title, submitting, error, initial, onCance
         {editing && (
           <label>
             状态
-            <Select aria-label="状态" value={status} options={[...MASTER_DATA_STATUS_OPTIONS]} onChange={setStatus} />
+            <Select
+              {...READABLE_SELECT_PROPS}
+              aria-label="状态"
+              style={{ width: '100%' }}
+              value={status}
+              options={[...MASTER_DATA_STATUS_OPTIONS]}
+              onChange={setStatus}
+            />
           </label>
         )}
 

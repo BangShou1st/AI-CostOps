@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { budgetApi, type BudgetResponse } from './api/budgetApi'
+import { billingPeriodApi } from './api/billingPeriodApi'
 import { commitmentApi, type CommitmentResponse } from './api/commitmentApi'
 import { BudgetsListPage } from './BudgetsListPage'
 import { BudgetDetailPage } from './BudgetDetailPage'
@@ -13,8 +14,12 @@ vi.mock('./api/budgetApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api/budgetApi')>()
   return {
     ...actual,
-    budgetApi: { list: vi.fn(), get: vi.fn(), update: vi.fn() },
+    budgetApi: { list: vi.fn(), get: vi.fn(), update: vi.fn(), create: vi.fn() },
   }
+})
+vi.mock('./api/billingPeriodApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api/billingPeriodApi')>()
+  return { ...actual, billingPeriodApi: { list: vi.fn() } }
 })
 vi.mock('./api/commitmentApi', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api/commitmentApi')>()
@@ -34,6 +39,7 @@ vi.mock('./api/commitmentApi', async (importOriginal) => {
 
 const mockedUseAuth = vi.mocked(useAuth)
 const mockedBudgetApi = vi.mocked(budgetApi)
+const mockedBillingPeriodApi = vi.mocked(billingPeriodApi)
 const mockedCommitmentApi = vi.mocked(commitmentApi)
 
 /**
@@ -57,6 +63,14 @@ const SENTINEL_BUDGET: BudgetResponse = {
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-02T00:00:00Z',
 }
+
+const BILLING_PERIODS = [{
+  id: '3',
+  periodStart: '2026-08-01T00:00:00Z',
+  periodEnd: '2026-09-01T00:00:00Z',
+  status: 'OPEN' as const,
+  version: 0,
+}]
 
 const COMMITMENT: CommitmentResponse = {
   id: '9',
@@ -133,6 +147,7 @@ function renderDetailPage(permissions: string[]) {
 beforeEach(() => {
   vi.clearAllMocks()
   mockedBudgetApi.list.mockResolvedValue({ items: [], page: 0, size: 50, totalElements: 0, totalPages: 0 })
+  mockedBillingPeriodApi.list.mockResolvedValue([])
   mockedBudgetApi.get.mockResolvedValue(SENTINEL_BUDGET)
   mockedCommitmentApi.list.mockResolvedValue({ items: [], page: 0, size: 10, totalElements: 0, totalPages: 0 })
 })
@@ -237,8 +252,49 @@ describe('BudgetsListPage', () => {
     renderPage(['BUDGET_READ'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Forbidden（FORBIDDEN）/)).toBeInTheDocument()
+      expect(screen.getByText(/访问被拒绝（FORBIDDEN）/)).toBeInTheDocument()
     })
+  })
+
+  it('hides budget create without BUDGET_MANAGE', async () => {
+    renderPage(['BUDGET_READ'])
+    await screen.findByRole('heading', { name: '预算' })
+    expect(screen.queryByRole('button', { name: '创建预算' })).not.toBeInTheDocument()
+  })
+
+  it('creates budget from backend billing period options using exact decimal string', async () => {
+    mockedBillingPeriodApi.list.mockResolvedValue(BILLING_PERIODS)
+    mockedBudgetApi.create.mockResolvedValue(SENTINEL_BUDGET)
+    renderPage(['BUDGET_READ', 'BUDGET_MANAGE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: '创建预算' }))
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() => expect(mockedBillingPeriodApi.list).toHaveBeenCalledTimes(1))
+    expect(within(dialog).queryByLabelText(/账期 ID/i)).not.toBeInTheDocument()
+
+    const periodCombobox = within(dialog).getAllByRole('combobox')[0]
+    fireEvent.mouseDown(periodCombobox)
+    fireEvent.click(await screen.findByText(/2026-08-01 ～ 2026-09-01（开放 · OPEN）/, { selector: '.ant-select-item-option-content' }))
+
+    const scopeCombobox = within(dialog).getAllByRole('combobox')[1]
+    fireEvent.mouseDown(scopeCombobox)
+    fireEvent.click(await screen.findByText('项目', { selector: '.ant-select-item-option-content' }))
+    fireEvent.change(within(dialog).getByLabelText('范围 ID'), { target: { value: '42' } })
+    fireEvent.change(within(dialog).getByLabelText('币种'), { target: { value: 'CNY' } })
+    fireEvent.change(within(dialog).getByLabelText('总额'), { target: { value: '1000.00000000' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: /创\s*建/ }))
+
+    await waitFor(() => {
+      expect(mockedBudgetApi.create).toHaveBeenCalledWith({
+        billingPeriodId: '3',
+        scopeType: 'PROJECT',
+        scopeId: '42',
+        currency: 'CNY',
+        totalAmount: '1000.00000000',
+      })
+    })
+    expect(mockedBillingPeriodApi.list).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(mockedBudgetApi.list.mock.calls.length).toBeGreaterThan(1))
   })
 })
 
@@ -297,7 +353,7 @@ describe('BudgetDetailPage', () => {
     await waitFor(() => expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1))
     expect(screen.getByText('9')).toBeInTheDocument()
     expect(screen.getByText('50.00000000 CNY')).toBeInTheDocument()
-    expect(screen.getByText('2026-01-03T00:00:00Z')).toBeInTheDocument()
+    expect(screen.getByText('2026-01-03 08:00')).toBeInTheDocument()
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
     // Commitment table headers are localized ('状态' also labels the identity card).
     expect(screen.getAllByText('状态').length).toBeGreaterThanOrEqual(1)
@@ -338,7 +394,7 @@ describe('BudgetDetailPage', () => {
     renderDetailPage(['BUDGET_READ'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Budget not found（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
+      expect(screen.getByText(/资源不存在（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
     })
   })
 

@@ -1,3 +1,4 @@
+import { problemDetail as presentProblemDetail, type ProblemDetail } from '../../api/problem'
 import type { ApprovalCaseStatus, CommitmentStatus } from './api/commitmentApi'
 import type { BudgetScopeType } from './api/budgetApi'
 
@@ -61,7 +62,7 @@ export function commitmentStateLabel(state: string | null): string {
  * Business framing for known budget/commitment command failures. Unknown
  * problems fall back to the server detail; the raw stack is never shown.
  */
-export function budgetCommandProblemMessage(problem: { code: string; detail: string | null }): string {
+export function budgetCommandProblemMessage(problem: ProblemDetail): string {
   switch (problem.code) {
     case 'STATE_CONFLICT':
       return '预算已发生变化，请刷新最新版本后重试。'
@@ -70,6 +71,6 @@ export function budgetCommandProblemMessage(problem: { code: string; detail: str
     case 'PERIOD_NOT_OPEN':
       return '当前账期不允许执行此操作。'
     default:
-      return problem.detail ?? '操作失败'
+      return presentProblemDetail(problem) ?? '操作失败'
   }
 }

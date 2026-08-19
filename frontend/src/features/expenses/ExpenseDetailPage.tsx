@@ -6,7 +6,8 @@ import { expenseApi, expenseKeys, type ApprovalActionResponse } from './api/expe
 import { ExpenseForm } from './components/ExpenseForm'
 import { ApprovalHistory } from './components/ApprovalHistory'
 import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
+import { formatBusinessDate, formatEventDateTime } from '../../lib/dateTime'
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', REJECTED: '已拒绝', CANCELED: '已取消',
@@ -53,7 +54,7 @@ export function ExpenseDetailPage() {
     try {
       await expenseApi.submit(expense.id, { expectedVersion: expense.version }, crypto.randomUUID())
       refetch()
-    } catch (e) { setProblem(toProblemDetail(e).detail ?? '提交失败') }
+    } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '提交失败') }
     finally { setLoading(false) }
   }
 
@@ -62,7 +63,7 @@ export function ExpenseDetailPage() {
     try {
       await expenseApi.edit(expense.id, { ...body, expectedVersion: expense.version })
       refetch()
-    } catch (e) { setProblem(toProblemDetail(e).detail ?? '保存失败') }
+    } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '保存失败') }
     finally { setLoading(false) }
   }
 
@@ -71,7 +72,7 @@ export function ExpenseDetailPage() {
     try {
       await expenseApi.cancel(expense.id, { expectedVersion: expense.version }, crypto.randomUUID())
       refetch(); setCancelModal(false)
-    } catch (e) { setProblem(toProblemDetail(e).detail ?? '取消失败') }
+    } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '取消失败') }
     finally { setLoading(false) }
   }
 
@@ -82,7 +83,7 @@ export function ExpenseDetailPage() {
         <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
       }>
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="日期">{expense.expenseDate}</Descriptions.Item>
+          <Descriptions.Item label="日期">{formatBusinessDate(expense.expenseDate)}</Descriptions.Item>
           <Descriptions.Item label="金额">{expense.amount} {expense.currency}</Descriptions.Item>
           <Descriptions.Item label="版本">v{expense.version}</Descriptions.Item>
           <Descriptions.Item label="审核状态">{expense.approvalStatus ?? '-'}</Descriptions.Item>
@@ -90,7 +91,7 @@ export function ExpenseDetailPage() {
           <Descriptions.Item label="提交时间">
             {(() => {
               const submittedAt = lastSubmittedAt(expense.history)
-              return submittedAt ? new Date(submittedAt).toLocaleString() : '-'
+              return formatEventDateTime(submittedAt)
             })()}
           </Descriptions.Item>
         </Descriptions>

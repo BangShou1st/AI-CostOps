@@ -88,7 +88,7 @@ describe('ProjectsPage', () => {
       response: { data: { title: 'Forbidden', status: 403, detail: 'You cannot view projects.', code: 'FORBIDDEN', traceId: 't4' } },
     })
     renderProjectsPage(['PROJECT_READ'])
-    expect(await screen.findByText('You cannot view projects.')).toBeInTheDocument()
+    expect(await screen.findByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
 
     mockedSettingsApi.listProjects.mockResolvedValue(pageOf([]))
     renderProjectsPage(['PROJECT_READ'])

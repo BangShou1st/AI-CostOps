@@ -163,10 +163,16 @@ describe('DuplicatesPage', () => {
     })
     renderPage(['COST_READ', 'DUPLICATE_REVIEW'])
 
+    const expectedSummary = problem.code === 'FORBIDDEN'
+      ? '访问被拒绝（FORBIDDEN）'
+      : '资源不存在（RESOURCE_NOT_FOUND）'
+    const expectedDetail = problem.code === 'FORBIDDEN'
+      ? '您没有访问此资源的权限。如您认为这是误判，请联系管理员。'
+      : '请求的资源不存在或已被移除。'
     await waitFor(() => {
-      expect(screen.getByText(new RegExp(`${problem.title}（${problem.code}）`))).toBeInTheDocument()
+      expect(screen.getByText(expectedSummary)).toBeInTheDocument()
     })
-    expect(screen.getByText(problem.detail)).toBeInTheDocument()
+    expect(screen.getByText(expectedDetail)).toBeInTheDocument()
     // The failure must not silently render as "no pending candidates".
     expect(screen.queryByText('没有待处理的疑似重复候选')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '保留正常' })).not.toBeInTheDocument()
@@ -191,9 +197,9 @@ describe('DuplicatesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '保留正常' }))
 
     await waitFor(() => {
-      expect(screen.getByText(/Candidate is not open（STATE_CONFLICT）/)).toBeInTheDocument()
+      expect(screen.getByText(/状态冲突（STATE_CONFLICT）/)).toBeInTheDocument()
     })
-    expect(screen.getByText('The candidate was already resolved.')).toBeInTheDocument()
+    expect(screen.getByText('当前资源状态已变化，请刷新后重试。')).toBeInTheDocument()
   })
 
   it('without DUPLICATE_REVIEW shows the permission warning', () => {

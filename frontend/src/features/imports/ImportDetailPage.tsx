@@ -2,13 +2,14 @@ import { Alert, Button, Descriptions, Tabs } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { toProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
 import { AttemptReview } from './AttemptReview'
 import { importKeys } from './api/importKeys'
 import { importsApi } from './api/importsApi'
 import type { ImportSummary } from './api/importTypes'
+import { formatBusinessDate, formatEventDateTime } from '../../lib/dateTime'
 
 /** Only the lightweight Import detail polls; Issues/Raw Records never do. */
 const ACTIVE_POLL_INTERVAL_MS = 3000
@@ -73,7 +74,7 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
       invalidateEvidenceImports(result.evidence.id)
     },
     onError: (error: unknown) => {
-      setCommandError(toProblemDetail(error).detail ?? toProblemDetail(error).title)
+      setCommandError(presentProblemDetail(toProblemDetail(error)) ?? problemTitle(toProblemDetail(error)))
       // State changed under us: refresh current state, never auto-replay.
       void queryClient.invalidateQueries({ queryKey: importKeys.detail(importId) })
     },
@@ -90,7 +91,7 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
       invalidateEvidenceImports(result.evidence.id)
     },
     onError: (error: unknown) => {
-      setCommandError(toProblemDetail(error).detail ?? toProblemDetail(error).title)
+      setCommandError(presentProblemDetail(toProblemDetail(error)) ?? problemTitle(toProblemDetail(error)))
       void queryClient.invalidateQueries({ queryKey: importKeys.detail(importId) })
     },
   })
@@ -103,7 +104,7 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
           type="error"
           showIcon
           title="加载失败"
-          description={problem.detail ?? problem.title}
+          description={presentProblemDetail(problem) ?? problemTitle(problem)}
         />
         <Button onClick={() => void queryClient.invalidateQueries({ queryKey: importKeys.detail(importId) })}>
           重试
@@ -158,15 +159,15 @@ function Overview({ data }: { data: ImportSummary }) {
       <Descriptions.Item label="期望 Provider">{data.expectedProviderCode}</Descriptions.Item>
       <Descriptions.Item label="来源类型">{data.sourceType ?? '—'}</Descriptions.Item>
       <Descriptions.Item label="解析器版本">{data.parserVersion}</Descriptions.Item>
-      <Descriptions.Item label="周期开始">{data.periodStart ?? '—'}</Descriptions.Item>
-      <Descriptions.Item label="周期结束">{data.periodEnd ?? '—'}</Descriptions.Item>
+      <Descriptions.Item label="周期开始">{formatBusinessDate(data.periodStart)}</Descriptions.Item>
+      <Descriptions.Item label="周期结束">{formatBusinessDate(data.periodEnd)}</Descriptions.Item>
       <Descriptions.Item label="最近尝试">
         {data.latestAttempt
           ? `#${data.latestAttempt.attemptNo} ${data.latestAttempt.status ?? '—'}`
           : '—'}
       </Descriptions.Item>
-      <Descriptions.Item label="创建时间">{data.createdAt}</Descriptions.Item>
-      <Descriptions.Item label="更新时间">{data.updatedAt}</Descriptions.Item>
+      <Descriptions.Item label="创建时间">{formatEventDateTime(data.createdAt)}</Descriptions.Item>
+      <Descriptions.Item label="更新时间">{formatEventDateTime(data.updatedAt)}</Descriptions.Item>
     </Descriptions>
   )
 }

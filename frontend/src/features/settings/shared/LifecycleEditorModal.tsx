@@ -1,8 +1,9 @@
 import { Alert, Input, Modal, Select } from 'antd'
 import { useState } from 'react'
-import type { ProblemDetail } from '../../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, type ProblemDetail } from '../../../api/problem'
 import type { MasterDataStatus } from '../api/settingsTypes'
 import { statusLabel } from '../presentation'
+import { READABLE_SELECT_PROPS } from '../../../lib/selectPresentation'
 
 export interface LifecycleFormValues {
   code: string
@@ -39,7 +40,7 @@ export function LifecycleEditorModal({ title, submitting, error, initial, onCanc
       onCancel={onCancel}
     >
       <div style={{ display: 'grid', gap: 12 }}>
-        {error && <Alert type="error" role="alert" title={error.detail || error.title} showIcon />}
+        {error && <Alert type="error" role="alert" title={problemSummary(error)} description={presentProblemDetail(error)} showIcon />}
         <label>
           编码
           <Input aria-label="编码" value={code} disabled={editing} onChange={(event) => setCode(event.target.value)} placeholder="组织内唯一编码" />
@@ -51,7 +52,14 @@ export function LifecycleEditorModal({ title, submitting, error, initial, onCanc
         {editing && (
           <label>
             状态
-            <Select aria-label="状态" value={status} options={[...MASTER_DATA_STATUS_OPTIONS]} onChange={setStatus} />
+            <Select
+              {...READABLE_SELECT_PROPS}
+              aria-label="状态"
+              style={{ width: '100%' }}
+              value={status}
+              options={[...MASTER_DATA_STATUS_OPTIONS]}
+              onChange={setStatus}
+            />
           </label>
         )}
       </div>

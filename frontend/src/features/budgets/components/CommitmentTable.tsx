@@ -2,6 +2,7 @@ import { Table, Tag } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import type { ApprovalCaseStatus, CommitmentResponse, CommitmentStatus } from '../api/commitmentApi'
 import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL } from '../presentation'
+import { formatEventDateTime } from '../../../lib/dateTime'
 
 interface CommitmentTableProps {
   items: CommitmentResponse[]
@@ -58,7 +59,7 @@ export function CommitmentTable({
           width: 140,
           render: (value: ApprovalCaseStatus | null) => (value === null ? '—' : APPROVAL_STATUS_LABEL[value]),
         },
-        { title: '创建时间', dataIndex: 'createdAt', width: 200 },
+        { title: '创建时间', dataIndex: 'createdAt', width: 170, render: (value: string) => formatEventDateTime(value) },
       ]}
     />
   )

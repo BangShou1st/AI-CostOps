@@ -159,8 +159,8 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
           // is intact and must not be revoked by a stale-credential retry.
           message.warning('会话刷新冲突暂未解决，请稍后刷新页面重试。')
         }
-        if (isTerminalSessionError(error)) handleLocalTerminal()
-        else setState({ status: 'anonymous', user: null })
+        if (isRefreshReplayError(error)) handleLocalTerminal()
+        else clearLocalSession()
       })
     return () => { mounted.current = false }
   }, [])
@@ -235,6 +235,12 @@ function isTerminalSessionError(error: unknown): boolean {
   const response = (error as { response?: { status?: number; data?: { code?: unknown } } }).response
   return response?.status === 401
     && (response.data?.code === 'AUTH_SESSION_EXPIRED' || response.data?.code === 'AUTH_REFRESH_REPLAY')
+}
+
+function isRefreshReplayError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const response = (error as { response?: { status?: number; data?: { code?: unknown } } }).response
+  return response?.status === 401 && response.data?.code === 'AUTH_REFRESH_REPLAY'
 }
 
 export function useAuth() {

@@ -150,8 +150,8 @@ describe('BudgetCommitmentDetailPage', () => {
 
     await waitFor(() => expect(screen.getByText('提交')).toBeInTheDocument())
     expect(screen.getByText('批准')).toBeInTheDocument()
-    expect(screen.getByText('2026-01-03T00:00:00Z')).toBeInTheDocument()
-    expect(screen.getByText('2026-01-04T00:00:00Z')).toBeInTheDocument()
+    expect(screen.getByText('2026-01-03 08:00')).toBeInTheDocument()
+    expect(screen.getByText('2026-01-04 08:00')).toBeInTheDocument()
     expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(1)
@@ -257,7 +257,7 @@ describe('BudgetCommitmentDetailPage', () => {
     renderAs(['BUDGET_READ'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Commitment not found（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
+      expect(screen.getByText(/资源不存在（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
     })
   })
 })

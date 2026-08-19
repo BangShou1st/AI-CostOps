@@ -50,6 +50,15 @@ public interface BillingPeriodMapper {
             @Param("organizationId") long organizationId,
             @Param("periodId") long periodId);
 
+    @Select("""
+            SELECT
+            """ + PERIOD_COLUMNS + """
+            FROM billing_period bp
+            WHERE bp.org_id=#{organizationId}
+            ORDER BY bp.period_start DESC, bp.id DESC
+            """)
+    List<BillingPeriod> selectByOrganization(@Param("organizationId") long organizationId);
+
     /** Row lock for callers that must serialize against Close (AIC-058+). */
     @Select("""
             SELECT

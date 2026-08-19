@@ -231,9 +231,9 @@ describe('RulesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '创 建' }))
 
     await waitFor(() => {
-      expect(screen.getByText(/Invalid rule definition（VALIDATION_FAILED）/)).toBeInTheDocument()
+      expect(screen.getByText(/输入信息无效（VALIDATION_FAILED）/)).toBeInTheDocument()
     })
-    expect(screen.getByText('priority must be between 1 and 9999.')).toBeInTheDocument()
+    expect(screen.getByText('提交的信息未通过校验，请检查后重试。')).toBeInTheDocument()
   })
 
   it('shows the normalized problem detail when the rule list fails instead of an empty list', async () => {
@@ -252,9 +252,9 @@ describe('RulesPage', () => {
     renderPage(['ALLOCATION_RULE_MANAGE'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Forbidden（FORBIDDEN）/)).toBeInTheDocument()
+      expect(screen.getByText(/访问被拒绝（FORBIDDEN）/)).toBeInTheDocument()
     })
-    expect(screen.getByText('Access to this resource is forbidden.')).toBeInTheDocument()
+    expect(screen.getByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
     // The failure must not silently render as an empty rule list.
     expect(screen.queryByText('openai-key')).not.toBeInTheDocument()
     expect(screen.queryByText('暂无数据')).not.toBeInTheDocument()

@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react'
 import { Button, Upload, Typography } from 'antd'
 import { UploadOutlined, DownloadOutlined } from '@ant-design/icons'
 import { expenseApi } from '../api/expenseApi'
-import { toProblemDetail } from '../../../api/problem'
+import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail } from '../../../api/problem'
 
 interface ExpenseEvidenceSectionProps {
   /** Employee pages show upload/replace; finance review pages never do. */
@@ -41,7 +41,7 @@ export function ExpenseEvidenceSection({
       onChanged()
     } catch (error) {
       const detail = toProblemDetail(error)
-      setProblem(`${detail.title}：${detail.detail ?? detail.code}`)
+      setProblem(`${problemTitle(detail)}：${presentProblemDetail(detail) ?? detail.code}`)
     } finally {
       setUploading(false)
     }
@@ -62,7 +62,7 @@ export function ExpenseEvidenceSection({
       URL.revokeObjectURL(url)
     } catch (error) {
       const detail = toProblemDetail(error)
-      setProblem(`${detail.title}：${detail.detail ?? detail.code}`)
+      setProblem(`${problemTitle(detail)}：${presentProblemDetail(detail) ?? detail.code}`)
     }
   }, [expenseId])
 

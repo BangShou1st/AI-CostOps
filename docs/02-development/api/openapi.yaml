@@ -742,6 +742,15 @@ components:
         targetTeamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         effectiveFrom: { type: string, format: date-time }
         effectiveTo: { type: [string, 'null'], format: date-time }
+    BillingPeriodResponse:
+      type: object
+      required: [id, periodStart, periodEnd, status, version]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        periodStart: { type: string, format: date-time }
+        periodEnd: { type: string, format: date-time }
+        status: { type: string, enum: [OPEN, CLOSING, CLOSED] }
+        version: { type: integer, minimum: 0 }
     BudgetResponse:
       type: object
       required: [id, billingPeriodId, scopeType, scopeId, currency, totalAmount, actualAmount, committedAmount, availableAmount, overBudget, status, version, createdAt, updatedAt]
@@ -1129,6 +1138,9 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
       responses: { '200': { description: Released commitment frees the committed remainder (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /billing-periods:
+    get:
+      responses: { '200': { description: Current-organization billing periods ordered by period start descending and id descending, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/BillingPeriodResponse' } } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
   /budgets:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: billingPeriodId, in: query, schema: { type: integer, format: int64 } }, { name: scopeType, in: query, schema: { $ref: '#/components/schemas/ScopeType' } }, { name: scopeId, in: query, schema: { type: integer, format: int64 } }]

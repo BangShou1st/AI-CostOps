@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd'
 import { useState } from 'react'
-import { toProblemDetail, type ProblemDetail } from '../../api/problem'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail, type ProblemDetail } from '../../api/problem'
+import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
 import { settingsApi } from '../settings/api/settingsApi'
@@ -43,10 +44,10 @@ export function RulesPage() {
     queryFn: () => settingsApi.listProviderAccounts(0, 200, 'ACTIVE'),
     retry: false,
   })
-  const accountOptions = (providerAccounts.data?.items ?? []).map((account) => ({
-    value: account.id,
-    label: `${account.displayName}（${account.providerCode}）`,
-  }))
+  const accountOptions = (providerAccounts.data?.items ?? []).map((account) => readableOption(
+    account.id,
+    `${account.displayName}（${account.providerCode}）`,
+  ))
 
   const refresh = () => {
     setProblem(null)
@@ -88,8 +89,8 @@ export function RulesPage() {
           type="error"
           showIcon
           style={{ marginBottom: 16 }}
-          title={`${problem.title}（${problem.code}）`}
-          description={problem.detail}
+          title={problemSummary(problem)}
+          description={presentProblemDetail(problem)}
         />
       )}
 
@@ -101,8 +102,8 @@ export function RulesPage() {
           title="无法加载分摊规则"
           description={(
             <>
-              <div>{`${listProblem.title}（${listProblem.code}）`}</div>
-              {listProblem.detail && <div>{listProblem.detail}</div>}
+              <div>{problemSummary(listProblem)}</div>
+              {presentProblemDetail(listProblem) && <div>{presentProblemDetail(listProblem)}</div>}
             </>
           )}
         />
@@ -220,11 +221,12 @@ export function RulesPage() {
             </Form.Item>
             <Form.Item name="matchHintType" label="匹配类型" initialValue="PROVIDER_PROJECT" rules={[{ required: true }]}>
               <Select
-                style={{ minWidth: 160 }}
+                {...READABLE_SELECT_PROPS}
+                style={{ width: '100%', minWidth: 160 }}
                 options={[
-                  { value: 'PROVIDER_API_KEY', label: 'API Key' },
-                  { value: 'PROVIDER_PROJECT', label: '项目' },
-                  { value: 'PROVIDER_USER', label: '用户' },
+                  readableOption('PROVIDER_API_KEY', 'API Key'),
+                  readableOption('PROVIDER_PROJECT', '项目'),
+                  readableOption('PROVIDER_USER', '用户'),
                 ]}
               />
             </Form.Item>
@@ -239,8 +241,9 @@ export function RulesPage() {
               extra="留空表示该规则适用于所有账号。"
             >
               <Select
+                {...READABLE_SELECT_PROPS}
                 allowClear
-                style={{ minWidth: 220 }}
+                style={{ width: '100%' }}
                 placeholder="全部账号"
                 options={accountOptions}
               />
@@ -252,11 +255,12 @@ export function RulesPage() {
             </Form.Item>
             <Form.Item name="targetType" label="目标类型" initialValue="project">
               <Select
-                style={{ minWidth: 120 }}
+                {...READABLE_SELECT_PROPS}
+                style={{ width: '100%', minWidth: 120 }}
                 options={[
-                  { value: 'project', label: '项目' },
-                  { value: 'costCenter', label: '成本中心' },
-                  { value: 'team', label: '团队' },
+                  readableOption('project', '项目'),
+                  readableOption('costCenter', '成本中心'),
+                  readableOption('team', '团队'),
                 ]}
               />
             </Form.Item>
@@ -266,10 +270,10 @@ export function RulesPage() {
           </Space>
           <Space style={{ display: 'flex' }} align="start">
             <Form.Item name="effectiveFrom" label="生效时间" rules={[{ required: true, message: '生效时间必填' }]}>
-              <Input placeholder="2026-01-01T00:00:00Z" />
+              <Input placeholder="YYYY-MM-DDTHH:mm:ssZ" />
             </Form.Item>
             <Form.Item name="effectiveTo" label="失效时间（可选）">
-              <Input placeholder="2027-01-01T00:00:00Z" />
+              <Input placeholder="YYYY-MM-DDTHH:mm:ssZ" />
             </Form.Item>
           </Space>
         </Form>

@@ -131,9 +131,9 @@ describe('CostsListPage', () => {
     renderPage(['COST_READ'], <CostsListPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/Forbidden（FORBIDDEN）/)).toBeInTheDocument()
+      expect(screen.getByText(/访问被拒绝（FORBIDDEN）/)).toBeInTheDocument()
     })
-    expect(screen.getByText('Access to this resource is forbidden.')).toBeInTheDocument()
+      expect(screen.getByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
   })
 
   it('without COST_READ the page is not reachable through the permission gate', () => {
@@ -189,9 +189,9 @@ describe('CostDetailPage', () => {
     renderDetailPage(['COST_READ'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Forbidden（FORBIDDEN）/)).toBeInTheDocument()
+      expect(screen.getByText(/访问被拒绝（FORBIDDEN）/)).toBeInTheDocument()
     })
-    expect(screen.getByText('Access to this resource is forbidden.')).toBeInTheDocument()
+      expect(screen.getByText('您没有访问此资源的权限。如您认为这是误判，请联系管理员。')).toBeInTheDocument()
     expect(screen.queryByText(/AxiosError/)).not.toBeInTheDocument()
   })
 
@@ -212,7 +212,7 @@ describe('CostDetailPage', () => {
     renderDetailPage(['COST_READ'])
 
     await waitFor(() => {
-      expect(screen.getByText(/Charge not found（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
+      expect(screen.getByText(/资源不存在（RESOURCE_NOT_FOUND）/)).toBeInTheDocument()
     })
   })
 
@@ -231,7 +231,10 @@ describe('CostDetailPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/无法加载分摊信息/)).toBeInTheDocument()
     })
-    expect(screen.getByText(new RegExp(`${problem.title}（${problem.code}）`))).toBeInTheDocument()
+    const expectedSummary = problem.code === 'FORBIDDEN'
+      ? '访问被拒绝（FORBIDDEN）'
+      : '资源不存在（RESOURCE_NOT_FOUND）'
+    expect(screen.getByText(expectedSummary)).toBeInTheDocument()
     // The failure must not silently render as an empty allocation history.
     expect(screen.queryByText('尚无分摊记录')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('分摊编辑')).not.toBeInTheDocument()

@@ -1,28 +1,71 @@
-import { useQuery } from '@tanstack/react-query'
-import { Alert, Table, Tag } from 'antd'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Alert, Button, Input, Modal, Select, Table, Tag } from 'antd'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { toProblemDetail } from '../../api/problem'
-import { budgetApi, budgetKeys, type BudgetResponse } from './api/budgetApi'
+import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
+import { useAuth } from '../auth/AuthSessionProvider'
+import { hasPermission } from '../settings/permissions'
+import { billingPeriodApi, billingPeriodKeys } from './api/billingPeriodApi'
+import { budgetApi, budgetKeys, type BudgetResponse, type BudgetScopeType } from './api/budgetApi'
 import { BUDGET_SCOPE_LABEL } from './presentation'
+import { formatBillingPeriodLabel } from '../../lib/dateTime'
+import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
 
 const PAGE_SIZE = 50
 
 export function BudgetsListPage() {
+  const auth = useAuth()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [page, setPage] = useState(0)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [billingPeriodId, setBillingPeriodId] = useState<string>()
+  const [scopeType, setScopeType] = useState<BudgetScopeType>()
+  const [scopeId, setScopeId] = useState('')
+  const [currency, setCurrency] = useState('CNY')
+  const [totalAmount, setTotalAmount] = useState('')
+
+  const canManage = hasPermission(auth.user?.permissions, 'BUDGET_MANAGE')
 
   const list = useQuery({
     queryKey: budgetKeys.list({ page, size: PAGE_SIZE }),
     queryFn: () => budgetApi.list({ page, size: PAGE_SIZE }),
   })
 
+  const periods = useQuery({
+    queryKey: billingPeriodKeys.list(),
+    queryFn: () => billingPeriodApi.list(),
+    enabled: canManage && createOpen,
+  })
+
+  const createBudget = useMutation({
+    mutationFn: () => budgetApi.create({
+      billingPeriodId: billingPeriodId!,
+      scopeType: scopeType!,
+      scopeId,
+      currency: currency.toUpperCase(),
+      totalAmount,
+    }),
+    retry: false,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: budgetKeys.lists() })
+      setCreateOpen(false)
+    },
+  })
+
   const problem = list.error ? toProblemDetail(list.error) : null
+  const createProblem = createBudget.error ? toProblemDetail(createBudget.error) : null
+  const periodsProblem = periods.error ? toProblemDetail(periods.error) : null
+  const openCreateModal = () => {
+    createBudget.reset()
+    setCreateOpen(true)
+  }
 
   return (
     <main className="settings-page">
       <header className="page-header">
         <h1>预算</h1>
+        {canManage && <Button type="primary" onClick={openCreateModal}>创建预算</Button>}
       </header>
       {problem && (
         <Alert
@@ -32,8 +75,8 @@ export function BudgetsListPage() {
           title="无法加载预算"
           description={(
             <>
-              <div>{`${problem.title}（${problem.code}）`}</div>
-              {problem.detail && <div>{problem.detail}</div>}
+              <div>{problemSummary(problem)}</div>
+              {presentProblemDetail(problem) && <div>{presentProblemDetail(problem)}</div>}
             </>
           )}
         />
@@ -72,6 +115,76 @@ export function BudgetsListPage() {
           },
         ]}
       />
+      <Modal
+        open={createOpen}
+        title="创建预算"
+        okText={createBudget.isPending ? '正在创建…' : '创建'}
+        okButtonProps={{
+          disabled: !billingPeriodId || !scopeType || !scopeId || !currency || !totalAmount || createBudget.isPending,
+        }}
+        onOk={() => createBudget.mutate()}
+        onCancel={() => setCreateOpen(false)}
+      >
+        <div style={{ display: 'grid', gap: 12 }}>
+          {periodsProblem && (
+            <Alert
+              type="error"
+              role="alert"
+              showIcon
+              title={problemSummary(periodsProblem)}
+              description={presentProblemDetail(periodsProblem) ?? undefined}
+            />
+          )}
+          {createProblem && (
+            <Alert
+              type="error"
+              role="alert"
+              showIcon
+              title={problemSummary(createProblem)}
+              description={presentProblemDetail(createProblem) ?? undefined}
+            />
+          )}
+          <label>
+            账期
+            <Select
+              {...READABLE_SELECT_PROPS}
+              style={{ width: '100%' }}
+              value={billingPeriodId}
+              placeholder="选择账期"
+              options={(periods.data ?? []).map((period) => ({
+                ...readableOption(period.id, formatBillingPeriodLabel(period.periodStart, period.periodEnd, period.status)),
+              }))}
+              loading={periods.isLoading}
+              onChange={setBillingPeriodId}
+            />
+          </label>
+          <label>
+            范围类型
+            <Select
+              {...READABLE_SELECT_PROPS}
+              style={{ width: '100%' }}
+              value={scopeType}
+              placeholder="选择范围类型"
+              options={(['ORG', 'PROJECT', 'TEAM', 'COST_CENTER'] as const).map((type) => (
+                readableOption(type, BUDGET_SCOPE_LABEL[type])
+              ))}
+              onChange={setScopeType}
+            />
+          </label>
+          <label>
+            范围 ID
+            <Input value={scopeId} onChange={(event) => setScopeId(event.target.value)} />
+          </label>
+          <label>
+            币种
+            <Input value={currency} maxLength={3} onChange={(event) => setCurrency(event.target.value)} />
+          </label>
+          <label>
+            总额
+            <Input value={totalAmount} placeholder="1000.00000000" onChange={(event) => setTotalAmount(event.target.value)} />
+          </label>
+        </div>
+      </Modal>
     </main>
   )
 }

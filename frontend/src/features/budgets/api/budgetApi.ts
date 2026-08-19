@@ -37,12 +37,23 @@ export interface UpdateBudgetBody {
   expectedVersion: number
 }
 
+export interface CreateBudgetBody {
+  billingPeriodId: string
+  scopeType: BudgetScopeType
+  scopeId: string
+  currency: string
+  totalAmount: string
+}
+
 export const budgetApi = {
   async list(params: BudgetListParams): Promise<PageResponse<BudgetResponse>> {
     return (await apiClient.get<PageResponse<BudgetResponse>>('/budgets', { params })).data
   },
   async get(budgetId: string): Promise<BudgetResponse> {
     return (await apiClient.get<BudgetResponse>('/budgets/' + encodeURIComponent(budgetId))).data
+  },
+  async create(body: CreateBudgetBody): Promise<BudgetResponse> {
+    return (await apiClient.post<BudgetResponse>('/budgets', body)).data
   },
   /** Total-only CAS update; financial counters are never writable here. */
   async update(budgetId: string, body: UpdateBudgetBody): Promise<BudgetResponse> {

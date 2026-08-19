@@ -10,6 +10,8 @@ import { importKeys } from './api/importKeys'
 import { importsApi } from './api/importsApi'
 import type { ImportBatchStatus, ImportSummary } from './api/importTypes'
 import { ProviderImportUploadModal, type ProviderImportUploadResult } from './upload/ProviderImportUploadModal'
+import { formatEventDateTime } from '../../lib/dateTime'
+import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
 
 const PAGE_SIZE = 50
 
@@ -74,6 +76,7 @@ export function ImportListPage() {
         />
         {canFilterByAccount && (
           <Select
+            {...READABLE_SELECT_PROPS}
             allowClear
             placeholder="Provider 账号"
             aria-label="Provider 账号"
@@ -82,10 +85,7 @@ export function ImportListPage() {
               setProviderAccountId(value)
               setPage(0)
             }}
-            options={(accounts.data ?? []).map((account) => ({
-              value: account.id,
-              label: account.displayName,
-            }))}
+            options={(accounts.data ?? []).map((account) => readableOption(account.id, account.displayName))}
             loading={accounts.isLoading}
             style={{ width: 220 }}
           />
@@ -109,7 +109,7 @@ export function ImportListPage() {
           { title: 'Provider 账号', render: (_, row) => row.providerAccount.displayName },
           { title: '来源类型', render: (_, row) => row.sourceType ?? '—' },
           { title: '状态', dataIndex: 'status' },
-          { title: '创建时间', dataIndex: 'createdAt' },
+          { title: '创建时间', dataIndex: 'createdAt', render: (value: string) => formatEventDateTime(value) },
         ]}
       />
       <ProviderImportUploadModal
