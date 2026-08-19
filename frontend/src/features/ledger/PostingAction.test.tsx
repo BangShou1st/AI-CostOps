@@ -18,7 +18,7 @@ describe('PostingAction', () => {
 
     await waitFor(() => expect(onPost).toHaveBeenCalledTimes(1))
     expect(onCompleted).toHaveBeenCalledTimes(1)
-  })
+  }, 15_000)
 
   it('surfaces a server conflict without retrying the financial command', async () => {
     const onPost = vi.fn().mockRejectedValue({

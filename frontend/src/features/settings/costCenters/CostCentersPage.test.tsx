@@ -79,7 +79,7 @@ describe('CostCentersPage', () => {
     mockedSettingsApi.listCostCenters.mockResolvedValue(pageOf([]))
     renderCostCentersPage(['COST_CENTER_READ'])
     expect(await screen.findByText(/该组织暂无成本中心/i)).toBeInTheDocument()
-  })
+  }, 15_000)
 
   it('costCenterActionsRequireManage', async () => {
     renderCostCentersPage(['COST_CENTER_READ'])

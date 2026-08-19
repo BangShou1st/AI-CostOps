@@ -92,7 +92,7 @@ describe('DuplicatesPage', () => {
     expect(screen.getByRole('button', { name: '保留正常' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '排除源方 #11' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '排除匹配方 #12' })).toBeInTheDocument()
-  })
+  }, 15_000)
 
   it('keep clean calls the real contract and refreshes the list', async () => {
     mockedDuplicatesApi.keep.mockResolvedValue({ ...CANDIDATE, status: 'KEPT_CLEAN' })

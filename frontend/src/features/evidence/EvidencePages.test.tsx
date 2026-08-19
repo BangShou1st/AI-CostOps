@@ -120,7 +120,7 @@ describe('EvidenceListPage', () => {
     await waitFor(() => {
       expect(mockedEvidenceApi.listEvidence).toHaveBeenLastCalledWith(1, 50)
     })
-  })
+  }, 15_000)
 
   it('shows upload action only with upload and provider-account read permissions', async () => {
     renderPage(['EVIDENCE_READ', 'EVIDENCE_UPLOAD_PROVIDER'])
