@@ -7,6 +7,7 @@ import { authEvents } from './authEvents'
 import {
   bootstrapSession,
   crossTabAuthCoordinator,
+  logoutWithCookieLock,
   refreshMe,
   RefreshRaceUnresolvedError,
   type AuthUser,
@@ -139,7 +140,7 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
     logout: async () => {
       let succeeded = false
       try {
-        await coordinator.withCookieLock(() => authApi.logout())
+        await logoutWithCookieLock(authApi.logout, authApi.refresh, accessTokenStore, coordinator)
         succeeded = true
       } finally {
         clearLocalSession()

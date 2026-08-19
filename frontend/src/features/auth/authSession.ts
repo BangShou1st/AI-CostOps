@@ -48,6 +48,32 @@ export function refreshTokenOnce(
   return refreshFlight
 }
 
+/**
+ * Logout must stay inside the cookie lock, but its first request can fail
+ * because only the access token expired. In that case refresh the cookie
+ * directly while already holding the lock; calling refreshTokenOnce here
+ * would try to acquire the same non-reentrant Web Lock again.
+ */
+export async function logoutWithCookieLock(
+  logout: () => Promise<void>,
+  refresh: () => Promise<AuthTokenResponse>,
+  store: AccessTokenStore,
+  coordinator: CrossTabAuthCoordinator = crossTabAuthCoordinator,
+): Promise<void> {
+  await coordinator.withCookieLock(async () => {
+    try {
+      await logout()
+      return
+    } catch (error) {
+      if (!isAccessTokenExpired(error)) throw error
+      const refreshed = await refreshWithRaceRetry(refresh)
+      store.set(refreshed.accessToken)
+      coordinator.publish('REFRESH_COMPLETED')
+      await logout()
+    }
+  })
+}
+
 // The whole bootstrap (refresh + me) is single-flighted too, so a StrictMode
 // double mount performs exactly one refresh and one me projection read.
 let bootstrapFlight: Promise<AuthUser> | null = null
@@ -102,6 +128,12 @@ const RACE_RETRY_HORIZON_MS = 3000
 
 function isRefreshRace(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.data?.code === 'AUTH_REFRESH_RACE'
+}
+
+function isAccessTokenExpired(error: unknown): boolean {
+  return axios.isAxiosError(error)
+    && error.response?.status === 401
+    && error.response.data?.code === 'AUTH_ACCESS_EXPIRED'
 }
 
 export async function refreshWithRaceRetry(

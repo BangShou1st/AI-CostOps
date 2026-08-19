@@ -9,6 +9,13 @@ async function refreshRequest(): Promise<AuthTokenResponse> {
   return (await cookieClient.post<AuthTokenResponse>('/auth/refresh')).data
 }
 
+async function logoutRequest(): Promise<void> {
+  const accessToken = accessTokenStore.get()
+  await cookieClient.post('/auth/logout', undefined, accessToken
+    ? { headers: { Authorization: `Bearer ${accessToken}` } }
+    : undefined)
+}
+
 export const apiClient = createApiClient({
   tokenStore: accessTokenStore,
   refreshAccessToken: async () => (await refreshTokenOnce(refreshRequest)).accessToken,
@@ -30,5 +37,5 @@ export const authApi = {
   async resetPassword(token: string, newPassword: string) {
     await cookieClient.post('/auth/password/reset', { token, newPassword })
   },
-  async logout() { await apiClient.post('/auth/logout') },
+  logout: logoutRequest,
 }

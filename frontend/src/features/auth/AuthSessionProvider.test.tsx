@@ -63,7 +63,7 @@ function SessionActionsProbe() {
     <>
       <div role="status">{auth.status}</div>
       <button onClick={() => void auth.login('finance@example.com', 'password')}>Login</button>
-      <button onClick={() => void auth.logout()}>Logout</button>
+      <button onClick={() => void auth.logout().catch(() => undefined)}>Logout</button>
     </>
   )
 }
@@ -135,6 +135,19 @@ describe('AuthSessionProvider session expiry', () => {
     expect(queryClient.getQueryData(['settings', 'users'])).toBeUndefined()
     expect(coordinator.withCookieLock).toHaveBeenCalledTimes(1)
     expect(coordinator.publish).toHaveBeenCalledWith('SESSION_CLEARED')
+  })
+
+  it('logoutTransportFailureDoesNotPublishSessionCleared', async () => {
+    const coordinator = createTestCoordinator()
+    renderProvider(<SessionActionsProbe />, coordinator)
+    await screen.findByText('authenticated')
+    mockedAuthApi.logout.mockRejectedValue(new Error('redis unavailable'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('anonymous'))
+    expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1)
+    expect(coordinator.publish).not.toHaveBeenCalled()
   })
 
   it('remoteLogoutClearsSiblingWithoutCallingBackendLogout', async () => {
