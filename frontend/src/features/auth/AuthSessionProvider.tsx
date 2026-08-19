@@ -159,8 +159,7 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
           // is intact and must not be revoked by a stale-credential retry.
           message.warning('会话刷新冲突暂未解决，请稍后刷新页面重试。')
         }
-        if (isTerminalSessionError(error)) handleLocalTerminal()
-        else setState({ status: 'anonymous', user: null })
+        clearLocalSession()
       })
     return () => { mounted.current = false }
   }, [])

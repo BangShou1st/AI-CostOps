@@ -139,6 +139,19 @@ beforeEach(() => {
 })
 
 describe('AuthSessionProvider session expiry', () => {
+  it('anonymousBootstrapExpiryIsSilent', async () => {
+    const coordinator = createTestCoordinator()
+    mockedAuthApi.refresh.mockRejectedValue(authError('AUTH_SESSION_EXPIRED'))
+
+    renderProvider(<SessionActionsProbe />, coordinator)
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('anonymous'))
+    expect(accessTokenStore.get()).toBeNull()
+    expect(mockedAuthApi.me).not.toHaveBeenCalled()
+    expect(coordinator.publish).not.toHaveBeenCalled()
+    expect(message.warning).not.toHaveBeenCalled()
+  })
+
   it('sessionClearedSupersedesInitialBootstrap', async () => {
     const coordinator = createTestCoordinator()
     const refresh = deferred<{ accessToken: string; expiresIn: number; user: { id: string; displayName: string } }>()
