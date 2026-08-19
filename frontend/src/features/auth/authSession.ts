@@ -43,20 +43,11 @@ let bootstrapFlight: Promise<AuthUser> | null = null
 
 export function bootstrapSession(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
   if (!bootstrapFlight) {
-    bootstrapFlight = doBootstrapWithRaceRecovery(api, store).finally(() => {
+    bootstrapFlight = doBootstrap(api, store).finally(() => {
       bootstrapFlight = null
     })
   }
   return bootstrapFlight
-}
-
-async function doBootstrapWithRaceRecovery(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
-  try {
-    return await doBootstrap(api, store)
-  } catch (error) {
-    if (!(error instanceof RefreshRaceUnresolvedError)) throw error
-    return recoverBootstrapRace(error, () => doBootstrap(api, store))
-  }
 }
 
 async function doBootstrap(api: AuthApi, store: AccessTokenStore): Promise<AuthUser> {
@@ -71,14 +62,15 @@ async function doBootstrap(api: AuthApi, store: AccessTokenStore): Promise<AuthU
 }
 
 /**
- * A refresh race means another window/device just rotated this session. The
- * backend tolerates the now-previous credential only within its own
- * refresh-race-window (10s by default, aicostops.auth.refresh-race-window);
- * presenting it after that window is classified as REPLAY and REVOKES the
- * session. The client therefore never re-sends the stale credential unless
- * the retry is still inside a safe horizon -- a timer delayed by tab
- * throttling, a busy main thread or OS sleep must not turn a recoverable
- * 409 into a fatal 401.
+ * A refresh race (409 AUTH_REFRESH_RACE) means another window/device is
+ * rotating this session. The backend owns replay/race authority: presenting
+ * the now-previous credential beyond its own refresh-race-window (10s by
+ * default, aicostops.auth.refresh-race-window) is classified as REPLAY and
+ * revokes the session. The client observes the 409 only when the backend
+ * already answered -- that moment is not the start of the backend rotation
+ * window -- so the client never asserts any global timeout on its own.
+ * Instead it performs only the single retry the backend contract explicitly
+ * allows, and a repeated race stops automatically (no second retry horizon).
  */
 export class RefreshRaceUnresolvedError extends Error {
   constructor(readonly raceObservedAt: number) {
@@ -88,11 +80,14 @@ export class RefreshRaceUnresolvedError extends Error {
 }
 
 const RACE_RETRY_WAIT_MS = 500
-/** Must stay well below the backend refresh-race-window (10s default). */
+/**
+ * Elapsed-time guard for the single allowed retry: while the backend is the
+ * replay/race authority, a browser timer severely delayed by tab throttling,
+ * a busy main thread or OS sleep must not blindly issue that retry much
+ * later, when the race may long be over. It bounds how late the retry may
+ * fire; it is not a client-side replica of the backend window.
+ */
 const RACE_RETRY_HORIZON_MS = 3000
-const RACE_RECOVERY_WAIT_MS = 1200
-/** Second line of defense; still below the backend race window. */
-const RACE_RECOVERY_HORIZON_MS = 5000
 
 function isRefreshRace(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.data?.code === 'AUTH_REFRESH_RACE'
@@ -117,31 +112,13 @@ export async function refreshWithRaceRetry(
       return await refresh()
     } catch (retryError) {
       // A second race means the sibling rotation is still winning: stop
-      // here; the bootstrap recovery re-reads the cookie jar shortly.
+      // here. The session goes anonymous with guidance; only a user-initiated
+      // page reload (a new lifecycle) may bootstrap again.
       if (isRefreshRace(retryError)) throw new RefreshRaceUnresolvedError(raceObservedAt)
       throw retryError
     }
   }
 }
-
-/**
- * One bounded recovery attempt after a race: the sibling rotation has had
- * time to reach the shared cookie jar, and the refresh re-reads the cookie
- * at request time. The horizon check still prevents any stale-credential
- * resend past the backend race window.
- */
-export async function recoverBootstrapRace(
-  error: RefreshRaceUnresolvedError,
-  retry: () => Promise<AuthUser>,
-  wait: (milliseconds: number) => Promise<void> = (milliseconds) =>
-    new Promise((resolve) => window.setTimeout(resolve, milliseconds)),
-  now: () => number = Date.now,
-): Promise<AuthUser> {
-  await wait(RACE_RECOVERY_WAIT_MS)
-  if (now() - error.raceObservedAt > RACE_RECOVERY_HORIZON_MS) throw error
-  return retry()
-}
-
 
 export async function refreshMe(api: AuthApi): Promise<AuthUser> {
   return api.me()

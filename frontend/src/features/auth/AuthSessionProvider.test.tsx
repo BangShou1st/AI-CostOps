@@ -121,10 +121,11 @@ describe('AuthSessionProvider session expiry', () => {
     expect(mockedAuthApi.me).toHaveBeenCalledTimes(1)
   })
   it('bootstrapRefreshRaceShowsGuidanceInsteadOfSilentLogin', async () => {
-    // A racing rotation never resolves: every refresh attempt (two in the
-    // bootstrap, two in the bounded recovery) returns 409 AUTH_REFRESH_RACE.
-    // The provider must explain instead of silently dropping onto /login,
-    // and must never clear the session by re-sending a stale credential.
+    // A racing rotation never resolves: the bootstrap performs the single
+    // retry the backend contract allows (first 409, brief wait, one more
+    // attempt) and then stops. There is no automatic recovery -- the retry
+    // lifecycle must not be extended with a second horizon, so exactly two
+    // refresh calls happen, never a third or fourth.
     const config = { headers: {} } as InternalAxiosRequestConfig
     const race = () => new AxiosError(
       'race', 'ERR_BAD_RESPONSE', config, undefined,
@@ -135,7 +136,7 @@ describe('AuthSessionProvider session expiry', () => {
     renderProvider()
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument(), { timeout: 8000 })
-    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(4)
+    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(2)
     expect(mockedAuthApi.me).not.toHaveBeenCalled()
     expect(message.warning).toHaveBeenCalledWith(expect.stringMatching(/会话刷新冲突/))
   }, 10_000)

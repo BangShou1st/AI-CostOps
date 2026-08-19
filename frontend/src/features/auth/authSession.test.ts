@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { createAccessTokenStore } from './accessTokenStore'
 import {
   bootstrapSession,
-  recoverBootstrapRace,
   RefreshRaceUnresolvedError,
   refreshMe,
   refreshWithRaceRetry,
@@ -128,15 +127,30 @@ describe('refresh race horizon', () => {
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(wait).not.toHaveBeenCalled()
   })
+
+  it('throws 401 AUTH_SESSION_EXPIRED straight through without a race retry', async () => {
+    const config = { headers: {} } as InternalAxiosRequestConfig
+    const response = { config, data: { code: 'AUTH_SESSION_EXPIRED' }, headers: {}, status: 401,
+      statusText: 'Unauthorized' } as AxiosResponse
+    const refresh = vi.fn().mockRejectedValueOnce(new AxiosError('expired', 'ERR_BAD_RESPONSE', config, undefined, response))
+    const wait = vi.fn()
+
+    await expect(refreshWithRaceRetry(refresh, wait)).rejects.toMatchObject({ message: 'expired' })
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(wait).not.toHaveBeenCalled()
+  })
 })
 
 
-describe('bootstrap race recovery', () => {
-  it('re-bootstraps once when both attempts race and the sibling rotation lands', async () => {
-    // First bootstrap: the refresh raced twice (another window was rotating
-    // the session). The recovery re-reads the shared cookie jar at request
-    // time, which by then carries the rotated credential.
-    const store = createAccessTokenStore()
+describe('bootstrap stops after the allowed race retry', () => {
+  it('never opens a second retry horizon after two raced refresh attempts', async () => {
+    // The backend contract allows exactly one refresh retry after
+    // AUTH_REFRESH_RACE (brief wait, one more attempt). A repeated race must
+    // terminate the bootstrap: an automatic recovery that waited and ran
+    // refreshWithRaceRetry again would arm a fresh raceObservedAt and extend
+    // the retry lifecycle beyond the single retry the backend permits.
+    // The third mock below would succeed -- it must never be consumed.
+    const store = createAccessTokenStore(); store.set('stale')
     const api: AuthApi = {
       refresh: vi.fn()
         .mockRejectedValueOnce(raceError())
@@ -145,27 +159,23 @@ describe('bootstrap race recovery', () => {
       me: vi.fn().mockResolvedValue(user),
     }
 
-    await expect(bootstrapSession(api, store)).resolves.toEqual(user)
-    expect(api.refresh).toHaveBeenCalledTimes(3)
-    expect(store.get()).toBe('fresh2')
+    await expect(bootstrapSession(api, store)).rejects.toBeInstanceOf(RefreshRaceUnresolvedError)
+    expect(api.refresh).toHaveBeenCalledTimes(2)
+    expect(api.me).not.toHaveBeenCalled()
+    expect(store.get()).toBeNull()
   }, 10_000)
 
-  it('retries the recovery once inside the horizon', async () => {
-    const error = new RefreshRaceUnresolvedError(Date.now())
-    const retry = vi.fn().mockResolvedValue(user)
+  it('bootstraps successfully when the single allowed retry wins', async () => {
+    const store = createAccessTokenStore()
+    const api: AuthApi = {
+      refresh: vi.fn()
+        .mockRejectedValueOnce(raceError())
+        .mockResolvedValueOnce({ accessToken: 'fresh2', expiresIn: 900, user }),
+      me: vi.fn().mockResolvedValue(user),
+    }
 
-    await expect(recoverBootstrapRace(error, retry, async () => {}, () => Date.now())).resolves.toEqual(user)
-    expect(retry).toHaveBeenCalledTimes(1)
-  })
-
-  it('skips the recovery when it would fire beyond the safe horizon', async () => {
-    // The recovery fired 60s after the race observation: re-sending the
-    // stale credential could now be classified as REPLAY and revoke the
-    // session, so the recovery must not run at all.
-    const error = new RefreshRaceUnresolvedError(Date.now() - 60_000)
-    const retry = vi.fn()
-
-    await expect(recoverBootstrapRace(error, retry, async () => {}, () => Date.now())).rejects.toBe(error)
-    expect(retry).not.toHaveBeenCalled()
-  })
+    await expect(bootstrapSession(api, store)).resolves.toEqual(user)
+    expect(api.refresh).toHaveBeenCalledTimes(2)
+    expect(store.get()).toBe('fresh2')
+  }, 10_000)
 })
