@@ -8,6 +8,7 @@ import { ProtectedRoute } from '../../app/router/ProtectedRoute'
 import { accessTokenStore } from './accessTokenStore'
 import { authEvents } from './authEvents'
 import { AuthSessionProvider, useAuth } from './AuthSessionProvider'
+import type { CrossTabAuthCoordinator, CrossTabAuthEvent } from './crossTabAuthCoordinator'
 
 vi.mock('./authApi', () => ({
   authApi: {
@@ -56,11 +57,41 @@ function RefreshProbe() {
   return <button onClick={() => void auth.refreshMe()}>Refresh me</button>
 }
 
-function renderProvider(children: React.ReactNode = <AuthProbe />) {
+function SessionActionsProbe() {
+  const auth = useAuth()
+  return (
+    <>
+      <div role="status">{auth.status}</div>
+      <button onClick={() => void auth.login('finance@example.com', 'password')}>Login</button>
+      <button onClick={() => void auth.logout()}>Logout</button>
+    </>
+  )
+}
+
+function createTestCoordinator() {
+  let listener: ((event: CrossTabAuthEvent) => void) | undefined
+  const coordinator = {
+    tabId: 'test-tab',
+    withCookieLock: vi.fn(async (operation: () => Promise<unknown>) => operation()),
+    publish: vi.fn(),
+    subscribe: vi.fn((next: (event: CrossTabAuthEvent) => void) => {
+      listener = next
+      return () => { listener = undefined }
+    }),
+    close: vi.fn(),
+    deliver: (event: CrossTabAuthEvent) => listener?.(event),
+  }
+  return coordinator as CrossTabAuthCoordinator & { deliver: (event: CrossTabAuthEvent) => void }
+}
+
+function renderProvider(
+  children: React.ReactNode = <AuthProbe />,
+  coordinator?: CrossTabAuthCoordinator,
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
-      <AuthSessionProvider>{children}</AuthSessionProvider>
+      <AuthSessionProvider coordinator={coordinator}>{children}</AuthSessionProvider>
     </QueryClientProvider>,
   )
   return queryClient
@@ -74,6 +105,109 @@ beforeEach(() => {
 })
 
 describe('AuthSessionProvider session expiry', () => {
+  it('loginInTabBReplacesSessionInTabA', async () => {
+    const coordinator = createTestCoordinator()
+    const queryClient = renderProvider(<SessionActionsProbe />, coordinator)
+    await screen.findByText('authenticated')
+    queryClient.setQueryData(['settings', 'users'], { stale: true })
+    mockedAuthApi.login.mockResolvedValue({ accessToken: 'finance-access', expiresIn: 900, user: { id: '2', displayName: 'Finance' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Login' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('authenticated'))
+    expect(accessTokenStore.get()).toBe('finance-access')
+    expect(queryClient.getQueryData(['settings', 'users'])).toBeUndefined()
+    expect(coordinator.withCookieLock).toHaveBeenCalledTimes(1)
+    expect(coordinator.publish).toHaveBeenCalledWith('SESSION_REPLACED')
+  })
+
+  it('logoutInOneTabLogsOutSiblings', async () => {
+    const coordinator = createTestCoordinator()
+    const queryClient = renderProvider(<SessionActionsProbe />, coordinator)
+    await screen.findByText('authenticated')
+    queryClient.setQueryData(['settings', 'users'], { stale: true })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('anonymous'))
+    expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1)
+    expect(accessTokenStore.get()).toBeNull()
+    expect(queryClient.getQueryData(['settings', 'users'])).toBeUndefined()
+    expect(coordinator.withCookieLock).toHaveBeenCalledTimes(1)
+    expect(coordinator.publish).toHaveBeenCalledWith('SESSION_CLEARED')
+  })
+
+  it('remoteLogoutClearsSiblingWithoutCallingBackendLogout', async () => {
+    const coordinator = createTestCoordinator()
+    const queryClient = renderProvider(<AuthProbe />, coordinator)
+    await screen.findByText('Settings home')
+    queryClient.setQueryData(['settings', 'users'], { stale: true })
+    mockedAuthApi.logout.mockClear()
+
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_CLEARED',
+      eventId: 'remote-logout',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument())
+    expect(mockedAuthApi.logout).not.toHaveBeenCalled()
+    expect(accessTokenStore.get()).toBeNull()
+    expect(queryClient.getQueryData(['settings', 'users'])).toBeUndefined()
+    expect(coordinator.publish).not.toHaveBeenCalled()
+  })
+
+  it('remoteEventsDoNotRebroadcast', async () => {
+    const coordinator = createTestCoordinator()
+    const queryClient = renderProvider(<AuthProbe />, coordinator)
+    await screen.findByText('Settings home')
+    queryClient.setQueryData(['settings', 'users'], { stale: true })
+    accessTokenStore.set('clean-smoke-access')
+    mockedAuthApi.refresh.mockClear()
+    mockedAuthApi.me.mockClear()
+
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_REPLACED',
+      eventId: 'remote-replacement',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+
+    await screen.findByText('Settings home')
+    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1)
+    expect(mockedAuthApi.me).toHaveBeenCalledTimes(1)
+    expect(accessTokenStore.get()).toBe('fresh')
+    expect(queryClient.getQueryData(['settings', 'users'])).toBeUndefined()
+    expect(coordinator.publish).not.toHaveBeenCalled()
+  })
+
+  it('terminalSessionFailurePropagatesAcrossTabs', async () => {
+    const coordinator = createTestCoordinator()
+    const queryClient = renderProvider(<AuthProbe />, coordinator)
+    await screen.findByText('Settings home')
+    queryClient.setQueryData(['settings', 'users'], { stale: true })
+    authEvents.emit()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument())
+    expect(coordinator.publish).toHaveBeenCalledTimes(1)
+    expect(coordinator.publish).toHaveBeenCalledWith('SESSION_INVALIDATED')
+
+    vi.mocked(coordinator.publish).mockClear()
+    coordinator.deliver({
+      version: 1,
+      type: 'SESSION_INVALIDATED',
+      eventId: 'remote-invalidation',
+      sourceTabId: 'tab-b',
+      occurredAt: Date.now(),
+    })
+    expect(coordinator.publish).not.toHaveBeenCalled()
+    expect(accessTokenStore.get()).toBeNull()
+    expect(queryClient.getQueryData(['settings', 'users'])).toBeUndefined()
+  })
+
   it('sessionExpiredClearsAuthAndRedirects', async () => {
     const queryClient = renderProvider()
 
