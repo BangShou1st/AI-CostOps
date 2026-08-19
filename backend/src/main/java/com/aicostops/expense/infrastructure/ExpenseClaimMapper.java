@@ -141,6 +141,19 @@ public interface ExpenseClaimMapper {
             @Param("approvalCaseId") Long approvalCaseId,
             @Param("now") Instant now);
 
+    /** Atomic M5 transition APPROVED → POSTED. */
+    @Update("""
+            UPDATE expense_claim
+            SET status='POSTED', version=version+1, updated_at=#{now}
+            WHERE id=#{expenseId} AND org_id=#{organizationId}
+              AND version=#{expectedVersion} AND status='APPROVED'
+            """)
+    int markPosted(
+            @Param("organizationId") long organizationId,
+            @Param("expenseId") long expenseId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") Instant now);
+
     @Select("""
             SELECT
             """ + CLAIM_COLUMNS + """
