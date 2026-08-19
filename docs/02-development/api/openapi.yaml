@@ -644,7 +644,7 @@ components:
       type: object
       required: [id, approvalCaseId, actorMemberId, actionType, fromState, toState, createdAt]
       properties:
-        id: { type: integer, format: int64 }
+        id: { $ref: '#/components/schemas/Id' }
         approvalCaseId: { $ref: '#/components/schemas/Id' }
         actorMemberId: { $ref: '#/components/schemas/Id' }
         actionType: { type: string, enum: [SUBMIT, REQUEST_INFO, RESUBMIT, APPROVE, REJECT, CANCEL] }
