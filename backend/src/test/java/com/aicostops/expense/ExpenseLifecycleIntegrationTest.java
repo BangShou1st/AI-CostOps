@@ -28,7 +28,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 /**
  * Full M4 expense lifecycle at the service boundary: create DRAFT -> attach
- * evidence -> submit -> request-info -> edit + resubmit -> approve, plus the
+ * evidence -> submit -> request-info -> edit + resubmit -> approve/posted, plus the
  * cancel path and the finance queue behavior (approved-unallocated visible).
  * Expense allocation confirm is covered by the allocation phase tests.
  */
@@ -181,6 +181,12 @@ class ExpenseLifecycleIntegrationTest extends ExpenseTestSupport {
                 .containsExactlyInAnyOrder("SUBMITTED", "NEEDS_INFO", "APPROVED");
         assertThat(reviewQueries.countQueue(financeUser(), "APPROVED")).isEqualTo(1);
         assertThat(reviewQueries.countQueue(financeUser(), "SUBMITTED")).isEqualTo(1);
+
+        // POSTED expenses leave the active review queue, even when the queue
+        // entry had already reached APPROVED.
+        setExpenseStatus(approvedId, "POSTED");
+        assertThat(reviewQueries.countQueue(financeUser(), "ALL")).isEqualTo(2);
+        assertThat(reviewQueries.countQueue(financeUser(), "APPROVED")).isZero();
 
         // finance can read any same-org detail without owner comparison
         var viaReview = reviewQueries.getForReview(financeUser(), needsInfoId);

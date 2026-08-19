@@ -1,15 +1,12 @@
 package com.aicostops.expense.domain;
 
-/**
- * Frozen M4 expense state machine. APPROVED is the terminal business state of
- * this milestone: there is no POSTED/VOIDED transition and a DRAFT or
- * NEEDS_INFO expense cannot be canceled.
- */
+/** Expense lifecycle state machine; POSTED is terminal and there is no VOIDED state. */
 public enum ExpenseClaimStatus {
     DRAFT,
     SUBMITTED,
     NEEDS_INFO,
     APPROVED,
+    POSTED,
     REJECTED,
     CANCELED;
 
@@ -21,7 +18,8 @@ public enum ExpenseClaimStatus {
                     || target == REJECTED
                     || target == CANCELED;
             case NEEDS_INFO -> target == SUBMITTED;
-            case APPROVED, REJECTED, CANCELED -> false;
+            case APPROVED -> target == POSTED;
+            case POSTED, REJECTED, CANCELED -> false;
         };
     }
 
