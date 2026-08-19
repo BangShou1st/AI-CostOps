@@ -1,5 +1,9 @@
 import axios from 'axios'
 import type { AccessTokenStore } from './accessTokenStore'
+import {
+  createCrossTabAuthCoordinator,
+  type CrossTabAuthCoordinator,
+} from './crossTabAuthCoordinator'
 
 export interface AuthUser {
   id: string
@@ -27,12 +31,19 @@ export interface AuthApi {
 // AUTH_REFRESH_RACE on every page load (React StrictMode double-mounts the
 // session bootstrap in dev).
 let refreshFlight: Promise<AuthTokenResponse> | null = null
+export const crossTabAuthCoordinator = createCrossTabAuthCoordinator()
 
-export function refreshTokenOnce(refresh: () => Promise<AuthTokenResponse>): Promise<AuthTokenResponse> {
+export function refreshTokenOnce(
+  refresh: () => Promise<AuthTokenResponse>,
+  coordinator: CrossTabAuthCoordinator = crossTabAuthCoordinator,
+): Promise<AuthTokenResponse> {
   if (!refreshFlight) {
-    refreshFlight = refreshWithRaceRetry(refresh).finally(() => {
-      refreshFlight = null
-    })
+    refreshFlight = coordinator.withCookieLock(() => refreshWithRaceRetry(refresh))
+      .then((result) => {
+        coordinator.publish('REFRESH_COMPLETED')
+        return result
+      })
+      .finally(() => { refreshFlight = null })
   }
   return refreshFlight
 }

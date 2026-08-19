@@ -5,13 +5,28 @@ import {
   bootstrapSession,
   RefreshRaceUnresolvedError,
   refreshMe,
+  refreshTokenOnce,
   refreshWithRaceRetry,
   type AuthApi,
 } from './authSession'
+import type { CrossTabAuthCoordinator } from './crossTabAuthCoordinator'
 
 const user = { id: '1', email: 'user@example.com', displayName: 'User', organizationId: '2', organizationMemberId: '3', permissions: [] }
 
 describe('authentication session', () => {
+  it('runs the complete refresh race lifecycle inside the cross-tab cookie lock', async () => {
+    const coordinator = {
+      withCookieLock: vi.fn(async <T>(operation: () => Promise<T>) => operation()),
+      publish: vi.fn(),
+    } as unknown as CrossTabAuthCoordinator
+    const refresh = vi.fn().mockResolvedValue({ accessToken: 'access', expiresIn: 900, user })
+
+    await expect(refreshTokenOnce(refresh, coordinator)).resolves.toMatchObject({ accessToken: 'access' })
+
+    expect(coordinator.withCookieLock).toHaveBeenCalledTimes(1)
+    expect(coordinator.publish).toHaveBeenCalledWith('REFRESH_COMPLETED')
+  })
+
   it('bootstraps through refresh then me without persisting the refresh secret', async () => {
     const store = createAccessTokenStore()
     const api: AuthApi = {
