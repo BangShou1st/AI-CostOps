@@ -408,6 +408,7 @@ class M1OpenApiContractTest {
         add(operations, "POST /commitments/{commitmentId}/reject", "200", "400", "401", "403", "404", "409");
         add(operations, "POST /commitments/{commitmentId}/cancel", "200", "400", "401", "403", "404", "409");
         add(operations, "POST /commitments/{commitmentId}/release", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /billing-periods", "200", "401", "403", "404");
         return Map.copyOf(operations);
     }
 
