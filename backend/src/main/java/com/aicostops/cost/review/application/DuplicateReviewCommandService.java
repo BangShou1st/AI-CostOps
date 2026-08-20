@@ -14,6 +14,7 @@ import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -135,7 +136,7 @@ public class DuplicateReviewCommandService {
         idempotency.validateKey(idempotencyKey);
         var candidate = requireCandidateVisible(context.organizationId(), candidateId);
         if (candidate.candidate().chargeFactId() != excludedChargeFactId
-                && candidate.candidate().matchedChargeId() != excludedChargeFactId) {
+                && candidate.candidate().matchedChargeFact().id() != excludedChargeFactId) {
             throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
                     "Excluded charge is not part of the candidate",
                     "excludedChargeFactId must be one of the candidate's two charges.");
@@ -150,7 +151,13 @@ public class DuplicateReviewCommandService {
                 return responseCodec.fromJson(decision.responseBody());
             }
 
+            // Exclusion changes external financial truth. Serialize against Close
+            // at organization scope, then require any covering endpoint periods to
+            // be OPEN before taking candidate/charge locks. Uncovered legacy charges
+            // remain reviewable; CLOSED period truth cannot be rewritten.
             closeAdmission.lockAndRequireNoClosingPeriod(context.organizationId());
+            lockOpenCandidatePeriods(context.organizationId(), candidate);
+
             var locked = candidates.findCandidateForUpdate(context.organizationId(), candidateId)
                     .orElseThrow(DuplicateReviewCommandService::candidateNotFound);
             if (locked.status() != CandidateStatus.OPEN) {
@@ -248,7 +255,11 @@ public class DuplicateReviewCommandService {
     }
 
     private BatchWriteResult writeBatch(long organizationId, List<CandidateDraft> batch) {
+        // Organization -> Period -> Charge is the frozen order. The org lock
+        // prevents Close from starting while this batch validates endpoint periods;
+        // period locks also serialize with normal provider posting.
         closeAdmission.lockAndRequireNoClosingPeriod(organizationId);
+        lockOpenDraftPeriods(organizationId, batch);
 
         var endpointIds = batch.stream()
                 .flatMap(draft -> Stream.of(draft.chargeFactId(), draft.matchedChargeId()))
@@ -279,6 +290,40 @@ public class DuplicateReviewCommandService {
             candidates.markSuspectedIfHasOpenCandidate(organizationId, endpointId);
         }
         return new BatchWriteResult(created, alreadyPresent);
+    }
+
+    private void lockOpenDraftPeriods(long organizationId, List<CandidateDraft> batch) {
+        var effectiveTimes = batch.stream()
+                .flatMap(draft -> Stream.of(
+                        requireEffectiveAt(draft.chargeEffectiveAt()),
+                        requireEffectiveAt(draft.matchedEffectiveAt())))
+                .distinct()
+                .sorted()
+                .toList();
+        for (var effectiveAt : effectiveTimes) {
+            closeAdmission.lockIfCoveredAndRequireOpenAt(organizationId, effectiveAt);
+        }
+    }
+
+    private void lockOpenCandidatePeriods(long organizationId, CandidateSummary candidate) {
+        var effectiveTimes = Stream.of(
+                        requireEffectiveAt(candidate.chargeFact().periodStart()),
+                        requireEffectiveAt(candidate.matchedChargeFact().periodStart()))
+                .distinct()
+                .sorted()
+                .toList();
+        for (var effectiveAt : effectiveTimes) {
+            closeAdmission.lockIfCoveredAndRequireOpenAt(organizationId, effectiveAt);
+        }
+    }
+
+    private static Instant requireEffectiveAt(Instant value) {
+        if (value == null) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Duplicate charge has no billing period effective time",
+                    "Duplicate review cannot change financial truth for a charge without period_start.");
+        }
+        return value;
     }
 
     private long generateCandidates(List<ChargeFactLineageRow> eligible, List<CandidateDraft> drafts) {
@@ -327,7 +372,8 @@ public class DuplicateReviewCommandService {
         var rightSignature = DuplicateFingerprint.evidenceSignature(high);
         return new CandidateDraft(low.organizationId(), low.id(), high.id(), type,
                 DuplicateFingerprint.pairFingerprint(type, leftSignature, rightSignature),
-                DuplicateFingerprint.ALGORITHM_VERSION, matchReason);
+                DuplicateFingerprint.ALGORITHM_VERSION, matchReason,
+                low.periodStart(), high.periodStart());
     }
 
     private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
