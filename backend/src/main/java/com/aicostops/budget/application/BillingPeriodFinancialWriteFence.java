@@ -7,6 +7,7 @@ import java.time.Instant;
 public interface BillingPeriodFinancialWriteFence {
     BillingPeriod lockOpenAt(long organizationId, Instant effectiveAt);
     BillingPeriod lockOpenById(long organizationId, long billingPeriodId);
+    void lockIfCoveredAndRequireOpenAt(long organizationId, Instant effectiveAt);
     void lockOrganizationAndRequireNoClosingPeriod(long organizationId);
     boolean hasClosingPeriod(long organizationId);
 }
