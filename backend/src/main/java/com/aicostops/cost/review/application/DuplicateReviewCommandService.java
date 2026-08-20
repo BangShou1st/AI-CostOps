@@ -136,7 +136,7 @@ public class DuplicateReviewCommandService {
         idempotency.validateKey(idempotencyKey);
         var candidate = requireCandidateVisible(context.organizationId(), candidateId);
         if (candidate.candidate().chargeFactId() != excludedChargeFactId
-                && candidate.candidate().matchedChargeFact().id() != excludedChargeFactId) {
+                && candidate.candidate().matchedChargeId() != excludedChargeFactId) {
             throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
                     "Excluded charge is not part of the candidate",
                     "excludedChargeFactId must be one of the candidate's two charges.");
