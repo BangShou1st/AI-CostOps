@@ -1,6 +1,7 @@
 package com.aicostops.budget;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.budget.application.BillingPeriodFinancialWriteFence;
@@ -73,6 +74,20 @@ class BillingPeriodFinancialWriteFenceIntegrationTest extends MySqlContainerSupp
     }
 
     @Test
+    void optionalCoveringFenceAllowsUncoveredTimeButRejectsClosedCoverage() {
+        assertThatCode(() -> tx.executeWithoutResult(status ->
+                fence.lockIfCoveredAndRequireOpenAt(
+                        orgId, Instant.parse("2026-10-01T00:00:00Z"))))
+                .doesNotThrowAnyException();
+
+        jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", periodId);
+        assertThatThrownBy(() -> tx.executeWithoutResult(status ->
+                fence.lockIfCoveredAndRequireOpenAt(
+                        orgId, Instant.parse("2026-08-15T00:00:00Z"))))
+                .isInstanceOf(DomainException.class);
+    }
+
+    @Test
     void organizationAdmissionRejectsAnyClosingPeriodButAllowsClosedHistory() {
         jdbc.update("UPDATE billing_period SET status='CLOSING' WHERE id=?", periodId);
         assertThatThrownBy(() -> tx.executeWithoutResult(
@@ -100,6 +115,10 @@ class BillingPeriodFinancialWriteFenceIntegrationTest extends MySqlContainerSupp
                 """, orgId);
         assertThatThrownBy(() -> tx.executeWithoutResult(
                 status -> fence.lockOpenAt(orgId, Instant.parse("2026-08-15T00:00:00Z"))))
+                .isInstanceOf(DomainException.class);
+        assertThatThrownBy(() -> tx.executeWithoutResult(status ->
+                fence.lockIfCoveredAndRequireOpenAt(
+                        orgId, Instant.parse("2026-08-15T00:00:00Z"))))
                 .isInstanceOf(DomainException.class);
     }
 }
