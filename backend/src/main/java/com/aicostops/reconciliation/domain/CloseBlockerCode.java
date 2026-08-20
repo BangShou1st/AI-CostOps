@@ -1,0 +1,11 @@
+package com.aicostops.reconciliation.domain;
+
+public enum CloseBlockerCode {
+    OPEN_IMPORTS,
+    UNRESOLVED_DUPLICATES,
+    UNALLOCATED_CHARGES,
+    UNPOSTED_APPROVED_EXPENSES,
+    OPEN_MATERIAL_RECONCILIATION,
+    PENDING_CORRECTIONS,
+    LEDGER_INTEGRITY
+}
