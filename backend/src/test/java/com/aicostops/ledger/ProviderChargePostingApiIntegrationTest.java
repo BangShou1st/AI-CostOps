@@ -1,5 +1,6 @@
 package com.aicostops.ledger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -22,6 +23,7 @@ class ProviderChargePostingApiIntegrationTest extends AllocationApiTestSupport {
     private MockMvc mvc;
 
     private long chargeId;
+    private long periodId;
 
     @BeforeEach
     void fixture() {
@@ -38,6 +40,8 @@ class ProviderChargePostingApiIntegrationTest extends AllocationApiTestSupport {
                 VALUES (?, '2026-01-01 00:00:00.000000','2026-02-01 00:00:00.000000',
                     'OPEN',0,NULL,NULL,NULL,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, orgId);
+        periodId = jdbc.queryForObject("SELECT MAX(id) FROM billing_period WHERE org_id=?",
+                Long.class, orgId);
         chargeId = insertCharge("10.00000000");
         jdbc.update("""
                 INSERT INTO allocation_decision(
@@ -70,6 +74,29 @@ class ProviderChargePostingApiIntegrationTest extends AllocationApiTestSupport {
                 .andExpect(jsonPath("$.allocationDecisionId").isString())
                 .andExpect(jsonPath("$.entries[0].amount").value("10.00000000"))
                 .andExpect(jsonPath("$.entries[0].budgetId").doesNotExist());
+    }
+
+    @Test
+    void committedPostingReplaysAfterPeriodCloses() throws Exception {
+        var first = mvc.perform(post("/api/v1/costs/charges/{chargeFactId}/post", chargeId)
+                .header("Authorization", bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"commitmentLinks\":[]}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        var postingId = com.jayway.jsonpath.JsonPath.<String>read(
+                first.getResponse().getContentAsString(), "$.id");
+        jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", periodId);
+
+        mvc.perform(post("/api/v1/costs/charges/{chargeFactId}/post", chargeId)
+                .header("Authorization", bearer())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"commitmentLinks\":[]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(postingId));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
+                Integer.class, orgId)).isEqualTo(1);
+        assertThat(auditCount("LEDGER_CHARGE_POSTED")).isEqualTo(1);
     }
 
     @Test

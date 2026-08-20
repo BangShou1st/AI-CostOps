@@ -91,6 +91,12 @@ public class ExpensePostingService {
 
         var preSource = expenses.load(context.organizationId(), expenseId);
         var decisionId = requireDecisionPointer(preSource);
+        var postingKey = "EXPENSE:" + expenseId;
+        var existing = ledger.selectPostingByKey(context.organizationId(), postingKey);
+        if (existing != null) {
+            return detail(existing);
+        }
+
         var preAllocation = allocations.load(context.organizationId(), decisionId);
         var preEntries = preAllocation.lines().stream().map(ExpensePostingService::toScopeAmount).toList();
 

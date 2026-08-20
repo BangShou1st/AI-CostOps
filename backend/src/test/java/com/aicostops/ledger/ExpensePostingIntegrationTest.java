@@ -75,6 +75,50 @@ class ExpensePostingIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
+    void committedPostingReplaysAfterPeriodClosesWithoutMutation() {
+        var actor = new AuthenticatedUser(actorUserId, 7);
+        var first = postings.post(actor, expenseId,
+                new PostSourceCommand(java.util.List.of(new CommitmentLink(firstLineId, commitmentId))));
+        var postingCount = jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
+                Integer.class, orgId);
+        var entryCount = jdbc.queryForObject("SELECT COUNT(*) FROM ledger_entry WHERE org_id=?",
+                Integer.class, orgId);
+        var version = expenseVersion(expenseId);
+        var exactActual = jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, exactBudgetId);
+        var orgActual = jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, orgBudgetId);
+        var remaining = jdbc.queryForObject("SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                BigDecimal.class, commitmentId);
+        var usageCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_commitment_usage WHERE budget_commitment_id=?",
+                Integer.class, commitmentId);
+        var auditCount = auditCount("LEDGER_EXPENSE_POSTED");
+
+        jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", periodId);
+
+        var replay = postings.post(actor, expenseId, new PostSourceCommand(java.util.List.of()));
+
+        assertThat(replay.posting().id()).isEqualTo(first.posting().id());
+        assertThat(expenseStatus(expenseId)).isEqualTo("POSTED");
+        assertThat(expenseVersion(expenseId)).isEqualTo(version);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
+                Integer.class, orgId)).isEqualTo(postingCount);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_entry WHERE org_id=?",
+                Integer.class, orgId)).isEqualTo(entryCount);
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, exactBudgetId)).isEqualByComparingTo(exactActual);
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, orgBudgetId)).isEqualByComparingTo(orgActual);
+        assertThat(jdbc.queryForObject("SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                BigDecimal.class, commitmentId)).isEqualByComparingTo(remaining);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_commitment_usage WHERE budget_commitment_id=?",
+                Integer.class, commitmentId)).isEqualTo(usageCount);
+        assertThat(auditCount("LEDGER_EXPENSE_POSTED")).isEqualTo(auditCount);
+    }
+
+    @Test
     void noBudgetDoesNotBlockExpensePosting() {
         jdbc.update("DELETE FROM budget_commitment WHERE id=?", commitmentId);
         jdbc.update("DELETE FROM budget WHERE id IN (?,?)", exactBudgetId, orgBudgetId);
