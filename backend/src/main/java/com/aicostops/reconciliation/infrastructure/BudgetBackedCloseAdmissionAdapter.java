@@ -27,4 +27,9 @@ public final class BudgetBackedCloseAdmissionAdapter implements
     public void lockOpenAt(long organizationId, Instant effectiveAt) {
         fence.lockOpenAt(organizationId, effectiveAt);
     }
+
+    @Override
+    public void lockIfCoveredAndRequireOpenAt(long organizationId, Instant effectiveAt) {
+        fence.lockIfCoveredAndRequireOpenAt(organizationId, effectiveAt);
+    }
 }
