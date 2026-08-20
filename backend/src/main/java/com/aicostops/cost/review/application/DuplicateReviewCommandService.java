@@ -1,6 +1,5 @@
 package com.aicostops.cost.review.application;
 
-import com.aicostops.budget.application.BillingPeriodFinancialWriteFence;
 import com.aicostops.cost.domain.ReviewStatus;
 import com.aicostops.cost.review.application.DuplicateReviewReadModels.CandidateDraft;
 import com.aicostops.cost.review.application.DuplicateReviewReadModels.CandidateSummary;
@@ -44,7 +43,7 @@ public class DuplicateReviewCommandService {
     private final DuplicateReviewIdempotency idempotency;
     private final DuplicateReviewAuditPort audit;
     private final DuplicateReviewResponseCodec responseCodec;
-    private final BillingPeriodFinancialWriteFence periodFence;
+    private final DuplicateCloseAdmissionPort closeAdmission;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -54,7 +53,7 @@ public class DuplicateReviewCommandService {
             DuplicateReviewIdempotency idempotency,
             DuplicateReviewAuditPort audit,
             DuplicateReviewResponseCodec responseCodec,
-            BillingPeriodFinancialWriteFence periodFence,
+            DuplicateCloseAdmissionPort closeAdmission,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -62,7 +61,7 @@ public class DuplicateReviewCommandService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseCodec = responseCodec;
-        this.periodFence = periodFence;
+        this.closeAdmission = closeAdmission;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -105,7 +104,6 @@ public class DuplicateReviewCommandService {
                 return responseCodec.fromJson(decision.responseBody());
             }
 
-            // Keep only removes an OPEN blocker; it remains legal in CLOSING.
             var candidate = candidates.findCandidateForUpdate(context.organizationId(), candidateId)
                     .orElseThrow(DuplicateReviewCommandService::candidateNotFound);
             if (candidate.status() != CandidateStatus.OPEN) {
@@ -152,9 +150,7 @@ public class DuplicateReviewCommandService {
                 return responseCodec.fromJson(decision.responseBody());
             }
 
-            // Exclude changes which canonical Charge money belongs to external
-            // truth, so a new exclusion must serialize with Close.
-            periodFence.lockOrganizationAndRequireNoClosingPeriod(context.organizationId());
+            closeAdmission.lockAndRequireNoClosingPeriod(context.organizationId());
             var locked = candidates.findCandidateForUpdate(context.organizationId(), candidateId)
                     .orElseThrow(DuplicateReviewCommandService::candidateNotFound);
             if (locked.status() != CandidateStatus.OPEN) {
@@ -252,10 +248,7 @@ public class DuplicateReviewCommandService {
     }
 
     private BatchWriteResult writeBatch(long organizationId, List<CandidateDraft> batch) {
-        // Each persistence chunk is a short organization-admission transaction.
-        // If Close has already switched any period to CLOSING, no new OPEN
-        // candidate may be created after that point.
-        periodFence.lockOrganizationAndRequireNoClosingPeriod(organizationId);
+        closeAdmission.lockAndRequireNoClosingPeriod(organizationId);
 
         var endpointIds = batch.stream()
                 .flatMap(draft -> Stream.of(draft.chargeFactId(), draft.matchedChargeId()))
