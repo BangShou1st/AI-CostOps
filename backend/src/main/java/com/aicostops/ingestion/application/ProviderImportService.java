@@ -1,6 +1,5 @@
 package com.aicostops.ingestion.application;
 
-import com.aicostops.budget.application.BillingPeriodFinancialWriteFence;
 import com.aicostops.evidence.application.EvidenceStorageService;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
@@ -31,7 +30,7 @@ public class ProviderImportService {
     private final EvidenceStorageService evidenceStorage;
     private final ImportBatchMapper batchMapper;
     private final ImportAttemptMapper attemptMapper;
-    private final BillingPeriodFinancialWriteFence periodFence;
+    private final ImportCloseAdmissionPort closeAdmission;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -42,7 +41,7 @@ public class ProviderImportService {
             EvidenceStorageService evidenceStorage,
             ImportBatchMapper batchMapper,
             ImportAttemptMapper attemptMapper,
-            BillingPeriodFinancialWriteFence periodFence,
+            ImportCloseAdmissionPort closeAdmission,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -51,7 +50,7 @@ public class ProviderImportService {
         this.evidenceStorage = evidenceStorage;
         this.batchMapper = batchMapper;
         this.attemptMapper = attemptMapper;
-        this.periodFence = periodFence;
+        this.closeAdmission = closeAdmission;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -74,8 +73,8 @@ public class ProviderImportService {
                         "Unsupported provider",
                         "No provider adapter is registered for provider code " + account.providerCode() + "."));
 
-        // Evidence storage is intentionally outside the short DB admission lock.
-        // If Close wins after storage, the immutable Evidence remains reusable.
+        // Evidence storage stays outside the short database admission lock. If
+        // Close wins afterwards, the immutable Evidence remains safely reusable.
         var stored = evidenceStorage.store(
                 context.organizationId(), context.organizationMemberId(), originalFilename, mediaType, content);
 
@@ -104,10 +103,7 @@ public class ProviderImportService {
             return reuse(existing);
         }
 
-        // Unknown-period financial truth serializes with Close at organization
-        // admission. Re-check identity with a locking current read after the
-        // admission lock so a concurrent winner is visible under RR isolation.
-        periodFence.lockOrganizationAndRequireNoClosingPeriod(organizationId);
+        closeAdmission.lockAndRequireNoClosingPeriod(organizationId);
         var winner = batchMapper.findByIdentityForUpdate(
                 evidenceId, providerAccountId, sourceType.name(), parserVersion);
         if (winner != null) {
