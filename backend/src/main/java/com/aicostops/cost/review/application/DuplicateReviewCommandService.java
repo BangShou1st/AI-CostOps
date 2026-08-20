@@ -1,7 +1,7 @@
 package com.aicostops.cost.review.application;
 
+import com.aicostops.budget.application.BillingPeriodFinancialWriteFence;
 import com.aicostops.cost.domain.ReviewStatus;
-import com.aicostops.cost.review.application.DuplicateReviewIdempotencyStore.IdempotencyDecision;
 import com.aicostops.cost.review.application.DuplicateReviewReadModels.CandidateDraft;
 import com.aicostops.cost.review.application.DuplicateReviewReadModels.CandidateSummary;
 import com.aicostops.cost.review.application.DuplicateReviewReadModels.ChargeFactLineageRow;
@@ -9,7 +9,6 @@ import com.aicostops.cost.review.application.DuplicateReviewReadModels.ChargeFac
 import com.aicostops.cost.review.application.DuplicateReviewReadModels.DuplicateScanSummary;
 import com.aicostops.cost.review.domain.CandidateStatus;
 import com.aicostops.cost.review.domain.CandidateType;
-import com.aicostops.cost.review.domain.DuplicateCandidate;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -32,15 +31,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Duplicate review commands. The scan is an explicit org-level command: it
- * reads eligible charges without a write transaction, groups and pairs them in
- * memory, then appends candidates and reconciles the charge aggregate in
- * bounded short transactions of at most {@value #SCAN_BATCH_SIZE} candidates.
- * Keep/Exclude are idempotent transactions that lock the candidate first, then
- * every affected charge row in id order, mutate candidate state, and reconcile
- * the charge aggregate only after the candidate is terminal.
- */
 @Service
 public class DuplicateReviewCommandService {
 
@@ -54,6 +44,7 @@ public class DuplicateReviewCommandService {
     private final DuplicateReviewIdempotency idempotency;
     private final DuplicateReviewAuditPort audit;
     private final DuplicateReviewResponseCodec responseCodec;
+    private final BillingPeriodFinancialWriteFence periodFence;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -63,6 +54,7 @@ public class DuplicateReviewCommandService {
             DuplicateReviewIdempotency idempotency,
             DuplicateReviewAuditPort audit,
             DuplicateReviewResponseCodec responseCodec,
+            BillingPeriodFinancialWriteFence periodFence,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -70,18 +62,11 @@ public class DuplicateReviewCommandService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseCodec = responseCodec;
+        this.periodFence = periodFence;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
 
-    /**
-     * Scans the organization's eligible charges (confirmed-attempt lineage,
-     * CLEAN/SUSPECTED) and appends V1 EXACT/OVERLAP candidates. A rescan never
-     * reopens a terminal pair and never marks a charge SUSPECTED unless the
-     * database currently holds an OPEN candidate touching it. Batch counters
-     * are transaction-local: only a committed batch result reaches the summary,
-     * so a deadlock-rolled-back attempt can never be double-counted.
-     */
     public DuplicateScanSummary scan(AuthenticatedUser user) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_DUPLICATE_REVIEW);
@@ -105,12 +90,6 @@ public class DuplicateReviewCommandService {
                 candidatesCreated, candidatesAlreadyPresent, scannedAt);
     }
 
-    /**
-     * Keep: the OPEN pair is judged unique. The candidate turns KEPT_CLEAN and
-     * each endpoint is restored to CLEAN only if the database holds no other
-     * OPEN candidate for it — the aggregate count runs strictly after the
-     * candidate is terminal, so this candidate cannot keep itself suspected.
-     */
     public CandidateSummary keep(AuthenticatedUser user, long candidateId, String idempotencyKey) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_DUPLICATE_REVIEW);
@@ -126,12 +105,13 @@ public class DuplicateReviewCommandService {
                 return responseCodec.fromJson(decision.responseBody());
             }
 
+            // Keep only removes an OPEN blocker; it remains legal in CLOSING.
             var candidate = candidates.findCandidateForUpdate(context.organizationId(), candidateId)
                     .orElseThrow(DuplicateReviewCommandService::candidateNotFound);
             if (candidate.status() != CandidateStatus.OPEN) {
                 throw candidateNotOpen();
             }
-            var endpoints = lockCharges(context.organizationId(),
+            lockCharges(context.organizationId(),
                     List.of(candidate.chargeFactId(), candidate.matchedChargeId()));
             var before = candidates.findSummaryById(context.organizationId(), candidateId)
                     .orElseThrow(() -> new IllegalStateException("A locked candidate must be readable"));
@@ -139,8 +119,6 @@ public class DuplicateReviewCommandService {
             if (candidates.markKeptClean(context.organizationId(), candidateId, clock.instant()) != 1) {
                 throw candidateNotOpen();
             }
-            // Candidate is terminal now: reconcile both endpoints against the
-            // remaining OPEN candidates in the database.
             candidates.restoreCleanIfNoOpenCandidates(context.organizationId(), candidate.chargeFactId());
             candidates.restoreCleanIfNoOpenCandidates(context.organizationId(), candidate.matchedChargeId());
 
@@ -152,13 +130,6 @@ public class DuplicateReviewCommandService {
         }));
     }
 
-    /**
-     * Exclude: one endpoint is judged a duplicate of the other. The excluded
-     * charge becomes EXCLUDED_DUPLICATE pointing at the keeper, every other
-     * OPEN candidate touching the excluded side is superseded, and every
-     * affected non-excluded endpoint is reconciled — leaving no orphan
-     * SUSPECTED charge and no duplicate chain.
-     */
     public CandidateSummary exclude(AuthenticatedUser user, long candidateId, String idempotencyKey,
             long excludedChargeFactId) {
         var context = authorizationContexts.current(user);
@@ -181,6 +152,9 @@ public class DuplicateReviewCommandService {
                 return responseCodec.fromJson(decision.responseBody());
             }
 
+            // Exclude changes which canonical Charge money belongs to external
+            // truth, so a new exclusion must serialize with Close.
+            periodFence.lockOrganizationAndRequireNoClosingPeriod(context.organizationId());
             var locked = candidates.findCandidateForUpdate(context.organizationId(), candidateId)
                     .orElseThrow(DuplicateReviewCommandService::candidateNotFound);
             if (locked.status() != CandidateStatus.OPEN) {
@@ -190,7 +164,6 @@ public class DuplicateReviewCommandService {
                     ? locked.matchedChargeId()
                     : locked.chargeFactId();
 
-            // Every currently OPEN candidate touching the excluded side, locked.
             var touching = candidates.findOpenCandidatesByChargeForUpdate(context.organizationId(),
                     excludedChargeFactId);
             var affected = new TreeSet<Long>();
@@ -226,7 +199,6 @@ public class DuplicateReviewCommandService {
             var supersededCandidateCount = candidates.supersedeOtherOpenCandidatesByCharge(
                     context.organizationId(), excludedChargeFactId, candidateId, clock.instant());
 
-            // Reconcile every affected endpoint except the excluded one.
             for (var endpointId : affected) {
                 if (endpointId != excludedChargeFactId) {
                     candidates.restoreCleanIfNoOpenCandidates(context.organizationId(), endpointId);
@@ -255,7 +227,7 @@ public class DuplicateReviewCommandService {
     }
 
     private static void requireExcludeCandidate(ChargeFactRow charge) {
-        if (charge.duplicateOfChargeId() != null
+        if (charge == null || charge.duplicateOfChargeId() != null
                 || (charge.reviewStatus() != ReviewStatus.CLEAN
                         && charge.reviewStatus() != ReviewStatus.SUSPECTED_DUPLICATE)) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
@@ -276,11 +248,15 @@ public class DuplicateReviewCommandService {
                 "The duplicate candidate is not available in the current organization.");
     }
 
-    /** Counters of one batch transaction; discarded wholesale on rollback. */
     private record BatchWriteResult(long candidatesCreated, long candidatesAlreadyPresent) {
     }
 
     private BatchWriteResult writeBatch(long organizationId, List<CandidateDraft> batch) {
+        // Each persistence chunk is a short organization-admission transaction.
+        // If Close has already switched any period to CLOSING, no new OPEN
+        // candidate may be created after that point.
+        periodFence.lockOrganizationAndRequireNoClosingPeriod(organizationId);
+
         var endpointIds = batch.stream()
                 .flatMap(draft -> Stream.of(draft.chargeFactId(), draft.matchedChargeId()))
                 .distinct()
@@ -289,7 +265,7 @@ public class DuplicateReviewCommandService {
         var stillEligible = candidates.findChargesForUpdate(organizationId, endpointIds).stream()
                 .filter(charge -> charge.reviewStatus() == ReviewStatus.CLEAN
                         || charge.reviewStatus() == ReviewStatus.SUSPECTED_DUPLICATE)
-                .map(row -> row.id())
+                .map(ChargeFactRow::id)
                 .collect(Collectors.toSet());
 
         long created = 0;
@@ -298,7 +274,7 @@ public class DuplicateReviewCommandService {
         for (var draft : batch) {
             if (!stillEligible.contains(draft.chargeFactId())
                     || !stillEligible.contains(draft.matchedChargeId())) {
-                continue; // an endpoint turned terminal since the non-locking read
+                continue;
             }
             if (candidates.insertIgnoringDuplicate(draft, now) == 1) {
                 created++;
@@ -306,15 +282,12 @@ public class DuplicateReviewCommandService {
                 alreadyPresent++;
             }
         }
-        // Only a database-side OPEN candidate may drive CLEAN -> SUSPECTED, so a
-        // terminal pair from an earlier review never resurrects its charges.
         for (var endpointId : stillEligible) {
             candidates.markSuspectedIfHasOpenCandidate(organizationId, endpointId);
         }
         return new BatchWriteResult(created, alreadyPresent);
     }
 
-    /** Groups by evidence dimensions and emits normalized (low id, high id) drafts. */
     private long generateCandidates(List<ChargeFactLineageRow> eligible, List<CandidateDraft> drafts) {
         var groups = eligible.stream().collect(Collectors.groupingBy(
                 row -> List.of(row.providerAccountId(), row.providerCode(), row.chargeCategory(),
@@ -347,7 +320,6 @@ public class DuplicateReviewCommandService {
             return Optional.of(candidate(low, high, CandidateType.EXACT,
                     DuplicateFingerprint.MATCH_REASON_EXACT));
         }
-        // Half-open [start,end) windows: adjacency is not overlap, hence strict <.
         if (low.periodStart().isBefore(high.periodEnd())
                 && high.periodStart().isBefore(low.periodEnd())) {
             return Optional.of(candidate(low, high, CandidateType.OVERLAP,

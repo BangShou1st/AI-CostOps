@@ -7,7 +7,6 @@ import com.aicostops.budget.domain.Budget;
 import com.aicostops.budget.infrastructure.BudgetMapper;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
-import com.aicostops.iam.domain.ScopeType;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -20,17 +19,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Budget management commands: create with a natural identity constraint and
- * server-side scope validation, and total-amount updates with an optimistic
- * version CAS. {@code BUDGET_MANAGE} is a sensitive permission, so both
- * commands resolve the authorization context fresh from MySQL — never from a
- * stale cache.
- *
- * <p>{@code actual_amount} / {@code committed_amount} are financial counters
- * owned exclusively by ledger posting / commitment transactions; this service
- * never writes them.
- */
 @Service
 public class BudgetCommandService {
 
@@ -40,6 +28,7 @@ public class BudgetCommandService {
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final AllocationTargetDirectory targets;
     private final BudgetMapper mapper;
+    private final BillingPeriodFinancialWriteFence periodFence;
     private final BudgetAuditPort audit;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -48,34 +37,27 @@ public class BudgetCommandService {
             AuthorizationContextService authorizationContexts,
             AllocationTargetDirectory targets,
             BudgetMapper mapper,
+            BillingPeriodFinancialWriteFence periodFence,
             BudgetAuditPort audit,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.targets = targets;
         this.mapper = mapper;
+        this.periodFence = periodFence;
         this.audit = audit;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
 
-    /**
-     * One MySQL transaction covers the INSERT, the generated-id readback, and
-     * the BUDGET_CREATED audit: an audit write failure rolls the just-inserted
-     * budget back, and the audit can never be missing for a committed budget.
-     * {@code LAST_INSERT_ID()} is connection-scoped, so it is only read inside
-     * the same Spring transaction that performed the insert.
-     */
     public Budget create(AuthenticatedUser user, CreateBudgetCommand command) {
         var context = authorizationContexts.fresh(user);
         authorization.requireOrg(context, PERMISSION_BUDGET_MANAGE);
         validateScope(context.organizationId(), command);
-        if (!mapper.existsBillingPeriod(context.organizationId(), command.billingPeriodId())) {
-            throw validation("The billing period must exist in the current organization.");
-        }
         var now = clock.instant();
         try {
-            return transactions.execute(status -> {
+            return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+                periodFence.lockOpenById(context.organizationId(), command.billingPeriodId());
                 mapper.insert(context.organizationId(), command.billingPeriodId(),
                         command.scopeType().name(), command.scopeId(), command.currency(),
                         command.totalAmount(), now);
@@ -84,21 +66,26 @@ public class BudgetCommandService {
                         created.currency(), created.scopeType().name(), created.scopeId(),
                         created.totalAmount());
                 return created;
-            });
+            }));
         } catch (DuplicateKeyException duplicateIdentity) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                     "Budget identity conflict",
-                    "A budget for this organization, billing period, scope, and currency "
-                            + "already exists.");
+                    "A budget for this organization, billing period, scope, and currency already exists.");
         }
     }
 
     public Budget update(AuthenticatedUser user, long budgetId, UpdateBudgetCommand command) {
         var context = authorizationContexts.fresh(user);
         authorization.requireOrg(context, PERMISSION_BUDGET_MANAGE);
+        var identity = mapper.selectByIdAndOrganization(context.organizationId(), budgetId);
+        if (identity == null) {
+            throw notFound();
+        }
+        var periodId = identity.billingPeriodId();
         return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+            periodFence.lockOpenById(context.organizationId(), periodId);
             var existing = mapper.selectByIdForUpdate(context.organizationId(), budgetId);
-            if (existing == null) {
+            if (existing == null || existing.billingPeriodId() != periodId) {
                 throw notFound();
             }
             if (mapper.updateTotalAmount(context.organizationId(), budgetId,
@@ -112,11 +99,6 @@ public class BudgetCommandService {
         }));
     }
 
-    /**
-     * Scope targets must be real, same-organization, ACTIVE resources; the
-     * ORG scope must be the budget's own organization. The request ids are
-     * never trusted as-is.
-     */
     private void validateScope(long organizationId, CreateBudgetCommand command) {
         var valid = switch (command.scopeType()) {
             case ORG -> command.scopeId() == organizationId;
