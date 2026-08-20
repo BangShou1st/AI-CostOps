@@ -83,7 +83,6 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT, "/api/v1/allocation-decisions/{decisionId}/lines").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/allocation-decisions/{decisionId}/confirm").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/costs/charges/{chargeFactId}/allocation-proposal").authenticated()
-                        // M4 expense workflow (real authorization in the services)
                         .requestMatchers(HttpMethod.POST, "/api/v1/expenses").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/expenses",
                                 "/api/v1/expenses/{expenseId}").authenticated()
@@ -104,13 +103,11 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/allocation-targets").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/allocation-rules/{ruleKey}/versions",
                                 "/api/v1/allocation-rules/{ruleId}/archive").authenticated()
-                        // M4 budget management (real authorization in the services)
                         .requestMatchers(HttpMethod.GET, "/api/v1/billing-periods").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/budgets",
                                 "/api/v1/budgets/{budgetId}").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/budgets").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/v1/budgets/{budgetId}").authenticated()
-                        // M4 budget commitments (real authorization in the services).
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/budgets/{budgetId}/commitments").authenticated()
                         .requestMatchers(HttpMethod.GET,
@@ -121,8 +118,6 @@ public class SecurityConfiguration {
                                 "/api/v1/commitments/{commitmentId}/reject",
                                 "/api/v1/commitments/{commitmentId}/cancel",
                                 "/api/v1/commitments/{commitmentId}/release").authenticated()
-                        // M5 immutable ledger routes. Business permission and
-                        // scope checks remain in Ledger application services.
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/costs/charges/{chargeFactId}/post",
                                 "/api/v1/expenses/{expenseId}/post",
@@ -132,6 +127,23 @@ public class SecurityConfiguration {
                                 "/api/v1/ledger/postings/{postingId}",
                                 "/api/v1/ledger/entries",
                                 "/api/v1/ledger/entries/{entryId}").authenticated()
+                        // M6 reconciliation and period-close routes. Business
+                        // permissions are enforced by M6 application services.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/reconciliation-runs",
+                                "/api/v1/reconciliation-runs/{runId}",
+                                "/api/v1/reconciliation-cases",
+                                "/api/v1/reconciliation-cases/{caseId}",
+                                "/api/v1/billing-periods/{periodId}/close-readiness",
+                                "/api/v1/billing-periods/{periodId}/close-runs",
+                                "/api/v1/billing-periods/{periodId}/close-runs/{runId}").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/reconciliation-runs",
+                                "/api/v1/reconciliation-cases/{caseId}/investigate",
+                                "/api/v1/reconciliation-cases/{caseId}/return-open",
+                                "/api/v1/reconciliation-cases/{caseId}/resolve",
+                                "/api/v1/billing-periods/{periodId}/close",
+                                "/api/v1/billing-periods/{periodId}/reopen").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

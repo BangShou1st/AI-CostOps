@@ -16,16 +16,6 @@ public interface BillingPeriodMapper {
             bp.closing_started_at,bp.closed_at,bp.reopened_at,bp.version,bp.created_at,bp.updated_at
             """;
 
-    /**
-     * Up to two billing periods covering {@code at} in the half-open sense:
-     * {@code period_start <= at < period_end}. Lookups are organization
-     * scoped, so a foreign period is never visible. Overlapping periods are
-     * not excluded by the schema, so this returns at most two candidates and
-     * the caller decides: one candidate is a valid period identity, two mean
-     * the organization has ambiguous covering periods and the guard must fail
-     * closed. The deterministic ORDER BY only stabilizes which two rows come
-     * back; the guard never picks a winner among them.
-     */
     @Select("""
             SELECT
             """ + PERIOD_COLUMNS + """
@@ -37,6 +27,22 @@ public interface BillingPeriodMapper {
             LIMIT 2
             """)
     List<BillingPeriod> selectCoveringCandidates(
+            @Param("organizationId") long organizationId,
+            @Param("at") Instant at);
+
+    /** Same covering lookup, but locks candidates for a financial write. */
+    @Select("""
+            SELECT
+            """ + PERIOD_COLUMNS + """
+            FROM billing_period bp
+            WHERE bp.org_id=#{organizationId}
+              AND bp.period_start <= #{at}
+              AND bp.period_end > #{at}
+            ORDER BY bp.period_start DESC, bp.id DESC
+            LIMIT 2
+            FOR UPDATE
+            """)
+    List<BillingPeriod> selectCoveringCandidatesForUpdate(
             @Param("organizationId") long organizationId,
             @Param("at") Instant at);
 
@@ -59,7 +65,7 @@ public interface BillingPeriodMapper {
             """)
     List<BillingPeriod> selectByOrganization(@Param("organizationId") long organizationId);
 
-    /** Row lock for callers that must serialize against Close (AIC-058+). */
+    /** Row lock for callers that must serialize against Close. */
     @Select("""
             SELECT
             """ + PERIOD_COLUMNS + """
@@ -70,4 +76,14 @@ public interface BillingPeriodMapper {
     BillingPeriod selectByIdForUpdate(
             @Param("organizationId") long organizationId,
             @Param("periodId") long periodId);
+
+    /** Organization admission lock for unknown-period financial truth. */
+    @Select("SELECT id FROM organization WHERE id=#{organizationId} FOR UPDATE")
+    Long lockOrganization(@Param("organizationId") long organizationId);
+
+    @Select("""
+            SELECT COUNT(*) FROM billing_period
+            WHERE org_id=#{organizationId} AND status='CLOSING'
+            """)
+    int countClosingByOrganization(@Param("organizationId") long organizationId);
 }
