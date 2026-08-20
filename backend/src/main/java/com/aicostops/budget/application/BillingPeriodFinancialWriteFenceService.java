@@ -6,6 +6,7 @@ import com.aicostops.budget.infrastructure.BillingPeriodMapper;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Instant;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -27,13 +28,7 @@ public class BillingPeriodFinancialWriteFenceService implements BillingPeriodFin
                     "No billing period of the organization covers the transaction time "
                             + effectiveAt + "; open a covering period before writing financial data.");
         }
-        if (candidates.size() > 1) {
-            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
-                    "Ambiguous covering billing periods",
-                    "The current organization has ambiguous billing periods covering "
-                            + effectiveAt + "; resolve the overlap before writing financial data.");
-        }
-        return requireOpen(candidates.getFirst());
+        return requireUniqueOpen(candidates, effectiveAt);
     }
 
     @Override
@@ -45,6 +40,15 @@ public class BillingPeriodFinancialWriteFenceService implements BillingPeriodFin
                     "The billing period is not available in the current organization.");
         }
         return requireOpen(period);
+    }
+
+    @Override
+    public void lockIfCoveredAndRequireOpenAt(long organizationId, Instant effectiveAt) {
+        var candidates = mapper.selectCoveringCandidatesForUpdate(organizationId, effectiveAt);
+        if (candidates.isEmpty()) {
+            return;
+        }
+        requireUniqueOpen(candidates, effectiveAt);
     }
 
     @Override
@@ -64,6 +68,16 @@ public class BillingPeriodFinancialWriteFenceService implements BillingPeriodFin
     @Override
     public boolean hasClosingPeriod(long organizationId) {
         return mapper.countClosingByOrganization(organizationId) > 0;
+    }
+
+    private static BillingPeriod requireUniqueOpen(List<BillingPeriod> candidates, Instant effectiveAt) {
+        if (candidates.size() > 1) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Ambiguous covering billing periods",
+                    "The current organization has ambiguous billing periods covering "
+                            + effectiveAt + "; resolve the overlap before writing financial data.");
+        }
+        return requireOpen(candidates.getFirst());
     }
 
     private static BillingPeriod requireOpen(BillingPeriod period) {
