@@ -12,7 +12,6 @@ public final class DuplicateReviewReadModels {
     private DuplicateReviewReadModels() {
     }
 
-    /** Eligible charge with its confirmed-import lineage for candidate generation. */
     public record ChargeFactLineageRow(
             long id,
             long organizationId,
@@ -26,7 +25,6 @@ public final class DuplicateReviewReadModels {
             ReviewStatus reviewStatus) {
     }
 
-    /** Locked current charge state used by keep/exclude guards. */
     public record ChargeFactRow(
             long id,
             long organizationId,
@@ -34,7 +32,11 @@ public final class DuplicateReviewReadModels {
             Long duplicateOfChargeId) {
     }
 
-    /** Candidate row to append; pair ordering and identity are enforced by the database. */
+    /**
+     * Effective instants are carried only for Close admission and are not
+     * persisted on duplicate_candidate. The seven-argument constructor keeps
+     * direct persistence tests/backward callers source-compatible.
+     */
     public record CandidateDraft(
             long organizationId,
             long chargeFactId,
@@ -42,10 +44,23 @@ public final class DuplicateReviewReadModels {
             CandidateType candidateType,
             String fingerprint,
             String algorithmVersion,
-            String matchReason) {
+            String matchReason,
+            Instant chargeEffectiveAt,
+            Instant matchedEffectiveAt) {
+
+        public CandidateDraft(
+                long organizationId,
+                long chargeFactId,
+                long matchedChargeId,
+                CandidateType candidateType,
+                String fingerprint,
+                String algorithmVersion,
+                String matchReason) {
+            this(organizationId, chargeFactId, matchedChargeId, candidateType, fingerprint,
+                    algorithmVersion, matchReason, null, null);
+        }
     }
 
-    /** Charge projection returned next to a candidate. */
     public record ChargeSummary(
             long id,
             String providerCode,
@@ -62,14 +77,12 @@ public final class DuplicateReviewReadModels {
         }
     }
 
-    /** Candidate plus both endpoint charges; the idempotent command response model. */
     public record CandidateSummary(
             DuplicateCandidate candidate,
             ChargeSummary chargeFact,
             ChargeSummary matchedChargeFact) {
     }
 
-    /** Aggregate result of one org-level scan run. */
     public record DuplicateScanSummary(
             long chargesScanned,
             long candidatePairsEvaluated,
