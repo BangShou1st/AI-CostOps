@@ -32,10 +32,10 @@ public interface LedgerIntegrityAdapter extends LedgerIntegrityPort {
                      target.project_id,target.cost_center_id,target.team_id,
                      target.source_charge_fact_id,target.source_expense_claim_id,
                      target.allocation_line_id
-            HAVING cg.id IS NULL
-                OR target.id IS NULL
-                OR lp.source_id <> cg.target_entry_id
-                OR cg.target_posting_id <> target.posting_id
+            HAVING MAX(cg.id) IS NULL
+                OR MAX(target.id) IS NULL
+                OR MAX(lp.source_id) <> MAX(cg.target_entry_id)
+                OR MAX(cg.target_posting_id) <> MAX(target.posting_id)
                 OR COUNT(le.id) NOT BETWEEN 1 AND 2
                 OR SUM(CASE WHEN le.entry_type='REVERSAL' THEN 1 ELSE 0 END) <> 1
                 OR SUM(CASE WHEN le.entry_type='ADJUSTMENT' THEN 1 ELSE 0 END) <> COUNT(le.id)-1

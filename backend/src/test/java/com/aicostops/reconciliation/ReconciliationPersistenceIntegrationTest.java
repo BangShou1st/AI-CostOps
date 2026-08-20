@@ -62,7 +62,7 @@ class ReconciliationPersistenceIntegrationTest extends MySqlContainerSupport {
                 INSERT INTO provider_account(
                   org_id,provider_code,display_name,status,created_at,updated_at)
                 VALUES (?,'OPENAI',?,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                """, suffix);
+                """, orgId, suffix);
         providerAccountId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
 

@@ -65,7 +65,7 @@ class M6AuthorizationIntegrationTest extends AllocationApiTestSupport {
         jdbc.update("""
                 INSERT INTO app_user(
                   email_normalized,display_name,status,security_version,created_at,updated_at)
-                VALUES (?,?,'ACTIVE',0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                VALUES (?,?,'ACTIVE',7,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, email, email);
         return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }

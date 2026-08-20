@@ -49,6 +49,7 @@ class ImportWorkflowRetryIntegrationTest extends AuthenticationContainersSupport
     private long parsedBatchId;
     private long foreignBatchId;
     private long failedAttemptId;
+    private long closedPeriodFailedBatchId;
 
     @BeforeEach
     void setUp() {
@@ -78,6 +79,9 @@ class ImportWorkflowRetryIntegrationTest extends AuthenticationContainersSupport
         insertAttempt(parsedBatchId, 1, "SUCCEEDED", "INITIAL", null);
         foreignBatchId = insertBatch(foreignOrganizationId, "FAILED");
         insertAttempt(foreignBatchId, 1, "FAILED", "INITIAL", null);
+        closedPeriodFailedBatchId = insertBatch(organizationId, "FAILED");
+        insertAttempt(closedPeriodFailedBatchId, 1, "FAILED", "INITIAL", null);
+        bindBatchToPeriod(closedPeriodFailedBatchId, insertClosedPeriod(organizationId));
     }
 
     @AfterEach
@@ -124,6 +128,19 @@ class ImportWorkflowRetryIntegrationTest extends AuthenticationContainersSupport
         assertThat(detail.status().name()).isEqualTo("PENDING");
         assertThat(detail.latestAttempt().attemptNo()).isEqualTo(2);
         assertThat(detail.latestAttempt().triggerType().name()).isEqualTo("MANUAL_RETRY");
+    }
+
+    @Test
+    void knownClosedPeriodRetryIsRejectedWithoutSuccessor() {
+        assertThatThrownBy(() -> commands.retry(user(), closedPeriodFailedBatchId,
+                "idem-closed-retry"))
+                .isInstanceOf(DomainException.class)
+                .satisfies(this::isPeriodNotOpen);
+
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, closedPeriodFailedBatchId)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_attempt WHERE import_batch_id=?",
+                Integer.class, closedPeriodFailedBatchId)).isEqualTo(1);
     }
 
     @Test
@@ -271,6 +288,10 @@ class ImportWorkflowRetryIntegrationTest extends AuthenticationContainersSupport
         assertDomain(throwable, 409, "STATE_CONFLICT");
     }
 
+    private void isPeriodNotOpen(Throwable throwable) {
+        assertDomain(throwable, 409, "PERIOD_NOT_OPEN");
+    }
+
     private void isNotFound(Throwable throwable) {
         assertDomain(throwable, 404, "RESOURCE_NOT_FOUND");
     }
@@ -338,6 +359,25 @@ class ImportWorkflowRetryIntegrationTest extends AuthenticationContainersSupport
         return jdbc.queryForObject("""
                 SELECT id FROM import_batch WHERE org_id=? AND evidence_id=?
                 """, Long.class, orgId, evId);
+    }
+
+    private long insertClosedPeriod(long orgId) {
+        jdbc.update("""
+                INSERT INTO billing_period(
+                    org_id,period_start,period_end,status,close_generation,closed_at,version,created_at,updated_at)
+                VALUES (?, '2026-08-01 00:00:00.000000','2026-09-01 00:00:00.000000',
+                    'CLOSED',0,UTC_TIMESTAMP(6),0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void bindBatchToPeriod(long batchId, long periodId) {
+        jdbc.update("""
+                UPDATE import_batch ib
+                JOIN billing_period bp ON bp.id=? AND bp.org_id=ib.org_id
+                SET ib.period_start=bp.period_start,ib.period_end=bp.period_end
+                WHERE ib.id=?
+                """, periodId, batchId);
     }
 
     private long insertAttempt(long batch, int attemptNo, String status, String trigger, Long predecessor) {

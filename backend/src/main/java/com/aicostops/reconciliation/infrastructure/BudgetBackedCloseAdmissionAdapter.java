@@ -24,6 +24,12 @@ public final class BudgetBackedCloseAdmissionAdapter implements
     }
 
     @Override
+    public void lockAndRequireOpenPeriod(long organizationId, Instant periodStart) {
+        fence.lockOrganizationAndRequireNoClosingPeriod(organizationId);
+        fence.lockOpenAt(organizationId, periodStart);
+    }
+
+    @Override
     public void lockOpenAt(long organizationId, Instant effectiveAt) {
         fence.lockOpenAt(organizationId, effectiveAt);
     }

@@ -163,7 +163,7 @@ class M6ReconciliationCloseSchemaIntegrationTest extends MySqlContainerSupport {
                   org_id,provider_code,display_name,external_account_ref,status,metadata_json,
                   created_at,updated_at)
                 VALUES (?,'OPENAI',?,NULL,'ACTIVE',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                """, suffix);
+                """, orgId, suffix);
         var providerAccountId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         return new Fixture(orgId, memberId, periodId, providerAccountId);
     }

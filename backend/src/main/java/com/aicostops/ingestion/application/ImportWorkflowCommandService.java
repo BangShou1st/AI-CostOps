@@ -77,7 +77,8 @@ public class ImportWorkflowCommandService {
                 return responseSerializer.importDetailFromJson(decision.responseBody());
             }
 
-            closeAdmission.lockAndRequireNoClosingPeriod(context.organizationId());
+            admitBatchForMutation(context.organizationId(),
+                    batchMapper.findByIdAndOrganization(importId, context.organizationId()));
             var latest = attemptMapper.findLatestByBatchForUpdate(importId);
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
@@ -171,7 +172,7 @@ public class ImportWorkflowCommandService {
                 return replayed;
             }
 
-            closeAdmission.lockAndRequireNoClosingPeriod(context.organizationId());
+            admitBatchForMutation(context.organizationId(), preRead);
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
                 throw notFound();
@@ -252,6 +253,14 @@ public class ImportWorkflowCommandService {
         if (batch == null) {
             throw notFound();
         }
+    }
+
+    private void admitBatchForMutation(long organizationId, ImportBatch batch) {
+        if (batch != null && batch.periodStart() != null && batch.periodEnd() != null) {
+            closeAdmission.lockAndRequireOpenPeriod(organizationId, batch.periodStart());
+            return;
+        }
+        closeAdmission.lockAndRequireNoClosingPeriod(organizationId);
     }
 
     private ImportSummary currentDetail(long organizationId, long importId) {

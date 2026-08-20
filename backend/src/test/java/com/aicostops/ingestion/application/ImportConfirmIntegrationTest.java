@@ -47,6 +47,7 @@ class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
     private long parsedBatchId;
     private long failedBatchId;
     private long foreignReadyBatchId;
+    private long closedPeriodReadyBatchId;
 
     @BeforeEach
     void setUp() {
@@ -84,6 +85,9 @@ class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
         insertAttempt(failedBatchId, 1, "FAILED", "INITIAL", null, 1);
         foreignReadyBatchId = insertBatch(foreignOrganizationId, "READY_FOR_REVIEW");
         insertAttempt(foreignReadyBatchId, 1, "SUCCEEDED", "INITIAL", null, 0);
+        closedPeriodReadyBatchId = insertBatch(organizationId, "READY_FOR_REVIEW");
+        insertAttempt(closedPeriodReadyBatchId, 1, "SUCCEEDED", "INITIAL", null, 0);
+        bindBatchToPeriod(closedPeriodReadyBatchId, insertClosedPeriod(organizationId));
     }
 
     @AfterEach
@@ -203,8 +207,25 @@ class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
                 .satisfies(this::isStateConflict);
     }
 
+    @Test
+    void knownClosedPeriodConfirmIsRejectedWithoutTruthMutation() {
+        assertThatThrownBy(() -> commands.confirm(user(), closedPeriodReadyBatchId,
+                "idem-closed-confirm"))
+                .isInstanceOf(DomainException.class)
+                .satisfies(this::isPeriodNotOpen);
+
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, closedPeriodReadyBatchId)).isEqualTo("READY_FOR_REVIEW");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_attempt WHERE import_batch_id=?",
+                Integer.class, closedPeriodReadyBatchId)).isEqualTo(1);
+    }
+
     private void isStateConflict(Throwable throwable) {
         assertDomain(throwable, org.springframework.http.HttpStatus.CONFLICT, "STATE_CONFLICT");
+    }
+
+    private void isPeriodNotOpen(Throwable throwable) {
+        assertDomain(throwable, org.springframework.http.HttpStatus.CONFLICT, "PERIOD_NOT_OPEN");
     }
 
     private void isNotFound(Throwable throwable) {
@@ -248,6 +269,25 @@ class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
         return jdbc.queryForObject("""
                 SELECT id FROM import_batch WHERE org_id=? AND evidence_id=?
                 """, Long.class, orgId, evId);
+    }
+
+    private long insertClosedPeriod(long orgId) {
+        jdbc.update("""
+                INSERT INTO billing_period(
+                    org_id,period_start,period_end,status,close_generation,closed_at,version,created_at,updated_at)
+                VALUES (?, '2026-08-01 00:00:00.000000','2026-09-01 00:00:00.000000',
+                    'CLOSED',0,UTC_TIMESTAMP(6),0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void bindBatchToPeriod(long batchId, long periodId) {
+        jdbc.update("""
+                UPDATE import_batch ib
+                JOIN billing_period bp ON bp.id=? AND bp.org_id=ib.org_id
+                SET ib.period_start=bp.period_start,ib.period_end=bp.period_end
+                WHERE ib.id=?
+                """, periodId, batchId);
     }
 
     private long insertAttempt(long batch, int attemptNo, String status, String trigger,

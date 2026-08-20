@@ -16,6 +16,7 @@ import com.aicostops.attribution.domain.AllocationDecisionStatus;
 import com.aicostops.attribution.domain.AllocationLine;
 import com.aicostops.attribution.domain.AllocationSubjectType;
 import com.aicostops.attribution.infrastructure.AllocationDecisionMapper;
+import com.aicostops.budget.application.BillingPeriodFinancialWriteFence;
 import com.aicostops.budget.application.LedgerBudgetPort.EntryScopeAmount;
 import com.aicostops.budget.application.LedgerBudgetService;
 import com.aicostops.budget.domain.BillingPeriod;
@@ -24,7 +25,6 @@ import com.aicostops.budget.domain.Budget;
 import com.aicostops.budget.domain.BudgetCommitment;
 import com.aicostops.budget.domain.BudgetCommitmentStatus;
 import com.aicostops.budget.domain.BudgetStatus;
-import com.aicostops.budget.infrastructure.BillingPeriodMapper;
 import com.aicostops.budget.infrastructure.BudgetCommitmentMapper;
 import com.aicostops.budget.infrastructure.BudgetMapper;
 import com.aicostops.cost.application.ChargePostingPort.ChargePostingSource;
@@ -103,7 +103,7 @@ class PostingPortIntegrationTest {
 
     @Test
     void budgetUsesExactBeforeOrgFallbackAndLocksIdsInOrder() {
-        var periods = mock(BillingPeriodMapper.class);
+        var periodFence = mock(BillingPeriodFinancialWriteFence.class);
         var budgets = mock(BudgetMapper.class);
         var commitments = mock(BudgetCommitmentMapper.class);
         var period = new BillingPeriod(5L, 9L, EFFECTIVE_AT.minusSeconds(1),
@@ -111,8 +111,7 @@ class PostingPortIntegrationTest {
                 0L, EFFECTIVE_AT, EFFECTIVE_AT);
         var exact = budget(20L, 5L, "PROJECT", 33L, "USD");
         var org = budget(21L, 5L, "ORG", 9L, "USD");
-        when(periods.selectCoveringCandidates(9L, EFFECTIVE_AT)).thenReturn(List.of(period));
-        when(periods.selectByIdForUpdate(9L, 5L)).thenReturn(period);
+        when(periodFence.lockOpenAt(9L, EFFECTIVE_AT)).thenReturn(period);
         when(budgets.selectByIdentity(9L, 5L, "PROJECT", 33L, "USD")).thenReturn(exact);
         when(budgets.selectByIdentity(9L, 5L, "PROJECT", 34L, "USD")).thenReturn(null);
         when(budgets.selectByIdentity(9L, 5L, "ORG", 9L, "USD")).thenReturn(org);
@@ -120,7 +119,7 @@ class PostingPortIntegrationTest {
         when(budgets.selectByIdForUpdate(9L, 21L)).thenReturn(org);
         when(commitments.selectByIdForUpdate(9L, 30L)).thenReturn(commitment(30L, 20L));
 
-        var service = new LedgerBudgetService(periods, budgets, commitments);
+        var service = new LedgerBudgetService(periodFence, budgets, commitments);
         assertThat(service.lockOpenPeriodAt(9L, EFFECTIVE_AT)).isEqualTo(period);
         assertThat(service.resolveSelections(9L, 5L, List.of(
                 new EntryScopeAmount(0, com.aicostops.iam.domain.ScopeType.PROJECT, 33L, "USD"),
