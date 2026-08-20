@@ -53,7 +53,7 @@ class ReconciliationTruthIntegrationTest extends MySqlContainerSupport {
                 INSERT INTO provider_account(
                     org_id,provider_code,display_name,status,created_at,updated_at)
                 VALUES (?,'OPENAI',?,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                """, suffix);
+                """, orgId, suffix);
         providerAccountId = lastId();
         jdbc.update("""
                 INSERT INTO project(org_id,code,name,status,created_at,updated_at)
@@ -80,7 +80,7 @@ class ReconciliationTruthIntegrationTest extends MySqlContainerSupport {
                 INSERT INTO import_batch(
                     org_id,evidence_id,provider_account_id,expected_provider_code,source_type,
                     parser_version,status,period_start,period_end,created_by_member_id,created_at,updated_at)
-                VALUES (?,?,?,'OPENAI','COST_EXPORT','v1','READY_FOR_REVIEW',
+                VALUES (?,?,?,'OPENAI','FILE_EXPORT','v1','READY_FOR_REVIEW',
                     '2026-08-01 00:00:00.000000','2026-09-01 00:00:00.000000',?,
                     UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, orgId, evidenceId, providerAccountId, memberId);
