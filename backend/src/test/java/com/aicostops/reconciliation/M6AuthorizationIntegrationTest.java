@@ -21,17 +21,17 @@ class M6AuthorizationIntegrationTest extends AllocationApiTestSupport {
 
     @Test
     void seededFinanceRolesPreserveM6AuthorityBoundary() {
-        var reviewerUserId = insertUser("m6-reviewer-" + System.nanoTime() + "@example.com");
-        var reviewerMemberId = insertMember(orgId, reviewerUserId);
-        assign("FINANCE_REVIEWER", "ORG", orgId, reviewerMemberId);
+        var reviewerUserId = insertTestUser("m6-reviewer-" + System.nanoTime() + "@example.com");
+        var reviewerMemberId = insertTestMember(reviewerUserId);
+        assignRole(reviewerMemberId, "FINANCE_REVIEWER");
 
-        var adminUserId = insertUser("m6-admin-" + System.nanoTime() + "@example.com");
-        var adminMemberId = insertMember(orgId, adminUserId);
-        assign("FINANCE_ADMIN", "ORG", orgId, adminMemberId);
+        var adminUserId = insertTestUser("m6-admin-" + System.nanoTime() + "@example.com");
+        var adminMemberId = insertTestMember(adminUserId);
+        assignRole(adminMemberId, "FINANCE_ADMIN");
 
-        var systemUserId = insertUser("m6-system-" + System.nanoTime() + "@example.com");
-        var systemMemberId = insertMember(orgId, systemUserId);
-        assign("SYSTEM_ADMIN", "ORG", orgId, systemMemberId);
+        var systemUserId = insertTestUser("m6-system-" + System.nanoTime() + "@example.com");
+        var systemMemberId = insertTestMember(systemUserId);
+        assignRole(systemMemberId, "SYSTEM_ADMIN");
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
 
         var reviewer = authorizationContexts.fresh(new AuthenticatedUser(reviewerUserId, 7));
@@ -59,5 +59,31 @@ class M6AuthorizationIntegrationTest extends AllocationApiTestSupport {
                 .isInstanceOf(DomainException.class);
         assertThatThrownBy(() -> authorization.requireOrg(system, "PERIOD_CLOSE"))
                 .isInstanceOf(DomainException.class);
+    }
+
+    private long insertTestUser(String email) {
+        jdbc.update("""
+                INSERT INTO app_user(
+                  email_normalized,display_name,status,security_version,created_at,updated_at)
+                VALUES (?,?,'ACTIVE',0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, email, email);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long insertTestMember(long userId) {
+        jdbc.update("""
+                INSERT INTO organization_member(org_id,user_id,status,joined_at)
+                VALUES (?,?,'ACTIVE',UTC_TIMESTAMP(6))
+                """, orgId, userId);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void assignRole(long memberId, String roleCode) {
+        jdbc.update("""
+                INSERT INTO role_assignment(
+                  org_member_id,role_id,scope_type,scope_id,assigned_by,created_at)
+                SELECT ?,r.id,'ORG',?,NULL,UTC_TIMESTAMP(6)
+                FROM `role` r WHERE r.code=?
+                """, memberId, orgId, roleCode);
     }
 }
