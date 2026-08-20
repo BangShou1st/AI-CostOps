@@ -1,0 +1,63 @@
+package com.aicostops.reconciliation;
+
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.aicostops.allocation.AllocationApiTestSupport;
+import com.aicostops.iam.application.AuthorizationContextService;
+import com.aicostops.iam.application.M1AuthorizationService;
+import com.aicostops.shared.security.AuthenticatedUser;
+import com.aicostops.shared.web.DomainException;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class M6AuthorizationIntegrationTest extends AllocationApiTestSupport {
+
+    @Autowired AuthorizationContextService authorizationContexts;
+
+    private final M1AuthorizationService authorization = new M1AuthorizationService();
+
+    @Test
+    void seededFinanceRolesPreserveM6AuthorityBoundary() {
+        var reviewerUserId = insertUser("m6-reviewer-" + System.nanoTime() + "@example.com");
+        var reviewerMemberId = insertMember(orgId, reviewerUserId);
+        assign("FINANCE_REVIEWER", "ORG", orgId, reviewerMemberId);
+
+        var adminUserId = insertUser("m6-admin-" + System.nanoTime() + "@example.com");
+        var adminMemberId = insertMember(orgId, adminUserId);
+        assign("FINANCE_ADMIN", "ORG", orgId, adminMemberId);
+
+        var systemUserId = insertUser("m6-system-" + System.nanoTime() + "@example.com");
+        var systemMemberId = insertMember(orgId, systemUserId);
+        assign("SYSTEM_ADMIN", "ORG", orgId, systemMemberId);
+        redis.getConnectionFactory().getConnection().serverCommands().flushAll();
+
+        var reviewer = authorizationContexts.fresh(new AuthenticatedUser(reviewerUserId, 7));
+        assertThatCode(() -> authorization.requireOrg(reviewer, "RECONCILIATION_READ"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> authorization.requireOrg(reviewer, "RECONCILIATION_RUN"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> authorization.requireOrg(reviewer, "RECONCILIATION_RESOLVE"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> authorization.requireOrg(reviewer, "PERIOD_READ"))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> authorization.requireOrg(reviewer, "PERIOD_CLOSE"))
+                .isInstanceOf(DomainException.class);
+        assertThatThrownBy(() -> authorization.requireOrg(reviewer, "PERIOD_REOPEN"))
+                .isInstanceOf(DomainException.class);
+
+        var admin = authorizationContexts.fresh(new AuthenticatedUser(adminUserId, 7));
+        assertThatCode(() -> authorization.requireOrg(admin, "PERIOD_CLOSE"))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> authorization.requireOrg(admin, "PERIOD_REOPEN"))
+                .doesNotThrowAnyException();
+
+        var system = authorizationContexts.fresh(new AuthenticatedUser(systemUserId, 7));
+        assertThatThrownBy(() -> authorization.requireOrg(system, "RECONCILIATION_READ"))
+                .isInstanceOf(DomainException.class);
+        assertThatThrownBy(() -> authorization.requireOrg(system, "PERIOD_CLOSE"))
+                .isInstanceOf(DomainException.class);
+    }
+}

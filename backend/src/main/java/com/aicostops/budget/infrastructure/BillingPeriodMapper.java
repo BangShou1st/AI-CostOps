@@ -6,6 +6,7 @@ import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /** Row access for {@code billing_period}. */
 @Mapper
@@ -30,7 +31,6 @@ public interface BillingPeriodMapper {
             @Param("organizationId") long organizationId,
             @Param("at") Instant at);
 
-    /** Same covering lookup, but locks candidates for a financial write. */
     @Select("""
             SELECT
             """ + PERIOD_COLUMNS + """
@@ -65,7 +65,6 @@ public interface BillingPeriodMapper {
             """)
     List<BillingPeriod> selectByOrganization(@Param("organizationId") long organizationId);
 
-    /** Row lock for callers that must serialize against Close. */
     @Select("""
             SELECT
             """ + PERIOD_COLUMNS + """
@@ -77,7 +76,6 @@ public interface BillingPeriodMapper {
             @Param("organizationId") long organizationId,
             @Param("periodId") long periodId);
 
-    /** Organization admission lock for unknown-period financial truth. */
     @Select("SELECT id FROM organization WHERE id=#{organizationId} FOR UPDATE")
     Long lockOrganization(@Param("organizationId") long organizationId);
 
@@ -86,4 +84,53 @@ public interface BillingPeriodMapper {
             WHERE org_id=#{organizationId} AND status='CLOSING'
             """)
     int countClosingByOrganization(@Param("organizationId") long organizationId);
+
+    @Update("""
+            UPDATE billing_period
+            SET status='CLOSING',closing_started_at=#{now},version=version+1,updated_at=#{now}
+            WHERE id=#{periodId} AND org_id=#{organizationId}
+              AND status='OPEN' AND version=#{expectedVersion}
+            """)
+    int markClosing(
+            @Param("organizationId") long organizationId,
+            @Param("periodId") long periodId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") Instant now);
+
+    @Update("""
+            UPDATE billing_period
+            SET status='OPEN',closing_started_at=NULL,version=version+1,updated_at=#{now}
+            WHERE id=#{periodId} AND org_id=#{organizationId}
+              AND status='CLOSING' AND version=#{expectedVersion}
+            """)
+    int returnOpen(
+            @Param("organizationId") long organizationId,
+            @Param("periodId") long periodId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") Instant now);
+
+    @Update("""
+            UPDATE billing_period
+            SET status='CLOSED',closed_at=#{now},version=version+1,updated_at=#{now}
+            WHERE id=#{periodId} AND org_id=#{organizationId}
+              AND status='CLOSING' AND version=#{expectedVersion}
+            """)
+    int markClosed(
+            @Param("organizationId") long organizationId,
+            @Param("periodId") long periodId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") Instant now);
+
+    @Update("""
+            UPDATE billing_period
+            SET status='OPEN',close_generation=close_generation+1,
+                closing_started_at=NULL,reopened_at=#{now},version=version+1,updated_at=#{now}
+            WHERE id=#{periodId} AND org_id=#{organizationId}
+              AND status='CLOSED' AND version=#{expectedVersion}
+            """)
+    int reopen(
+            @Param("organizationId") long organizationId,
+            @Param("periodId") long periodId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") Instant now);
 }

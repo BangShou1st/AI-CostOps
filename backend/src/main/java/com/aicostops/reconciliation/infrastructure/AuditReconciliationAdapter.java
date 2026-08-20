@@ -41,4 +41,51 @@ public final class AuditReconciliationAdapter implements ReconciliationAuditPort
         audit.append("RECONCILIATION_CASE_" + action, organizationId, actorUserId,
                 "RECONCILIATION_CASE", caseId, metadata);
     }
+
+    @Override
+    public void closeStarted(long organizationId, long actorUserId, long closeRunId,
+            long billingPeriodId, long closeGeneration, int attemptNo) {
+        audit.append("PERIOD_CLOSE_STARTED", organizationId, actorUserId,
+                "PERIOD_CLOSE_RUN", closeRunId,
+                Map.of("billingPeriodId", billingPeriodId,
+                        "closeGeneration", closeGeneration,
+                        "attemptNo", attemptNo));
+    }
+
+    @Override
+    public void closeBlocked(long organizationId, long actorUserId, long closeRunId,
+            long billingPeriodId, long failedCheckCount) {
+        audit.append("PERIOD_CLOSE_BLOCKED", organizationId, actorUserId,
+                "PERIOD_CLOSE_RUN", closeRunId,
+                Map.of("billingPeriodId", billingPeriodId,
+                        "failedCheckCount", failedCheckCount));
+    }
+
+    @Override
+    public void closeFailed(long organizationId, long actorUserId, long closeRunId,
+            long billingPeriodId, String errorCode) {
+        audit.append("PERIOD_CLOSE_FAILED", organizationId, actorUserId,
+                "PERIOD_CLOSE_RUN", closeRunId,
+                Map.of("billingPeriodId", billingPeriodId, "errorCode", errorCode));
+    }
+
+    @Override
+    public void periodClosed(long organizationId, long actorUserId, long closeRunId,
+            long billingPeriodId, long closeGeneration) {
+        audit.append("PERIOD_CLOSED", organizationId, actorUserId,
+                "BILLING_PERIOD", billingPeriodId,
+                Map.of("closeRunId", closeRunId,
+                        "closeGeneration", closeGeneration));
+    }
+
+    @Override
+    public void periodReopened(long organizationId, long actorUserId, long billingPeriodId,
+            long oldGeneration, long newGeneration, String reasonCode, String reasonNote) {
+        audit.append("PERIOD_REOPENED", organizationId, actorUserId,
+                "BILLING_PERIOD", billingPeriodId,
+                Map.of("oldGeneration", oldGeneration,
+                        "newGeneration", newGeneration,
+                        "reasonCode", reasonCode,
+                        "reasonNote", reasonNote));
+    }
 }
