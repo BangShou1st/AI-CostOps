@@ -9,6 +9,64 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface LedgerIntegrityAdapter extends LedgerIntegrityPort {
 
+    /**
+     * A period-scoped CORRECTION posting is the anchor. The canonical group is
+     * recovered from posting_key=CORRECTION:{groupId}; source_id is then checked
+     * against the group's target_entry_id. Anchoring from the posting means a
+     * corrupted source_id cannot make the problem disappear from the scan.
+     */
+    String CORRECTION_PROBLEM_FROM = """
+            FROM ledger_posting lp
+            LEFT JOIN correction_group cg
+              ON cg.org_id=lp.org_id
+             AND lp.posting_key=CONCAT('CORRECTION:',cg.id)
+            LEFT JOIN ledger_entry target
+              ON target.id=cg.target_entry_id AND target.org_id=cg.org_id
+            LEFT JOIN ledger_entry le
+              ON le.posting_id=lp.id AND le.org_id=lp.org_id
+            WHERE lp.org_id=#{organizationId}
+              AND lp.billing_period_id=#{billingPeriodId}
+              AND lp.source_type='CORRECTION'
+            GROUP BY lp.id,lp.posting_key,lp.source_id,cg.id,cg.target_entry_id,cg.target_posting_id,
+                     target.id,target.posting_id,target.amount,target.currency,
+                     target.project_id,target.cost_center_id,target.team_id,
+                     target.source_charge_fact_id,target.source_expense_claim_id,
+                     target.allocation_line_id
+            HAVING cg.id IS NULL
+                OR target.id IS NULL
+                OR lp.source_id <> cg.target_entry_id
+                OR cg.target_posting_id <> target.posting_id
+                OR COUNT(le.id) NOT BETWEEN 1 AND 2
+                OR SUM(CASE WHEN le.entry_type='REVERSAL' THEN 1 ELSE 0 END) <> 1
+                OR SUM(CASE WHEN le.entry_type='ADJUSTMENT' THEN 1 ELSE 0 END) <> COUNT(le.id)-1
+                OR SUM(CASE WHEN le.entry_type NOT IN ('REVERSAL','ADJUSTMENT') THEN 1 ELSE 0 END) > 0
+                OR SUM(CASE WHEN le.entry_type='REVERSAL' AND (
+                     le.entry_index <> 0
+                     OR le.reverses_entry_id IS NULL
+                     OR le.reverses_entry_id <> target.id
+                     OR le.amount <> -target.amount
+                     OR le.currency <> target.currency
+                     OR NOT (le.project_id <=> target.project_id)
+                     OR NOT (le.cost_center_id <=> target.cost_center_id)
+                     OR NOT (le.team_id <=> target.team_id)
+                     OR NOT (le.source_charge_fact_id <=> target.source_charge_fact_id)
+                     OR NOT (le.source_expense_claim_id <=> target.source_expense_claim_id)
+                     OR NOT (le.allocation_line_id <=> target.allocation_line_id)
+                     OR le.correction_group_id IS NULL
+                     OR le.correction_group_id <> cg.id
+                   ) THEN 1 ELSE 0 END) > 0
+                OR SUM(CASE WHEN le.entry_type='ADJUSTMENT' AND (
+                     le.entry_index <> 1
+                     OR le.reverses_entry_id IS NOT NULL
+                     OR le.currency <> target.currency
+                     OR NOT (le.source_charge_fact_id <=> target.source_charge_fact_id)
+                     OR NOT (le.source_expense_claim_id <=> target.source_expense_claim_id)
+                     OR le.allocation_line_id IS NOT NULL
+                     OR le.correction_group_id IS NULL
+                     OR le.correction_group_id <> cg.id
+                   ) THEN 1 ELSE 0 END) > 0
+            """;
+
     @Override
     @Select("""
             SELECT
@@ -68,53 +126,26 @@ public interface LedgerIntegrityAdapter extends LedgerIntegrityPort {
               ) AS normal_posting_cardinality_mismatches,
               (
                 SELECT COUNT(*) FROM (
-                  SELECT cg.id
-                  FROM correction_group cg
-                  JOIN ledger_posting lp
-                    ON lp.org_id=cg.org_id
-                   AND lp.source_type='CORRECTION'
-                   AND lp.source_id=cg.id
-                  JOIN ledger_entry target
-                    ON target.id=cg.target_entry_id AND target.org_id=cg.org_id
-                  LEFT JOIN ledger_entry le
-                    ON le.posting_id=lp.id AND le.org_id=lp.org_id
-                  WHERE cg.org_id=#{organizationId}
-                    AND lp.billing_period_id=#{billingPeriodId}
-                  GROUP BY cg.id,target.id,target.amount,target.currency,
-                           target.project_id,target.cost_center_id,target.team_id,
-                           target.source_charge_fact_id,target.source_expense_claim_id
-                  HAVING SUM(CASE WHEN le.entry_type='REVERSAL' THEN 1 ELSE 0 END) <> 1
-                      OR COUNT(le.id) NOT BETWEEN 1 AND 2
-                      OR SUM(CASE WHEN le.entry_type='REVERSAL' AND (
-                           le.reverses_entry_id IS NULL
-                           OR le.reverses_entry_id <> target.id
-                           OR le.amount <> -target.amount
-                           OR le.currency <> target.currency
-                           OR NOT (le.project_id <=> target.project_id)
-                           OR NOT (le.cost_center_id <=> target.cost_center_id)
-                           OR NOT (le.team_id <=> target.team_id)
-                           OR NOT (le.source_charge_fact_id <=> target.source_charge_fact_id)
-                           OR NOT (le.source_expense_claim_id <=> target.source_expense_claim_id)
-                           OR le.correction_group_id <> cg.id
-                         ) THEN 1 ELSE 0 END) > 0
+                  SELECT lp.id
+                  """ + CORRECTION_PROBLEM_FROM + """
                 ) x
               ) AS correction_mismatches,
               (
                 SELECT COUNT(*) FROM (
-                  SELECT current_cg.target_entry_id
-                  FROM correction_group current_cg
-                  JOIN ledger_posting current_lp
-                    ON current_lp.org_id=current_cg.org_id
-                   AND current_lp.source_type='CORRECTION'
-                   AND current_lp.source_id=current_cg.id
-                  WHERE current_cg.org_id=#{organizationId}
-                    AND current_lp.billing_period_id=#{billingPeriodId}
+                  SELECT cg.target_entry_id
+                  FROM correction_group cg
+                  JOIN ledger_posting lp
+                    ON lp.org_id=cg.org_id
+                   AND lp.source_type='CORRECTION'
+                   AND lp.posting_key=CONCAT('CORRECTION:',cg.id)
+                  WHERE cg.org_id=#{organizationId}
+                    AND lp.billing_period_id=#{billingPeriodId}
                     AND (
                       SELECT COUNT(*) FROM correction_group all_cg
-                      WHERE all_cg.org_id=current_cg.org_id
-                        AND all_cg.target_entry_id=current_cg.target_entry_id
+                      WHERE all_cg.org_id=cg.org_id
+                        AND all_cg.target_entry_id=cg.target_entry_id
                     ) > 1
-                  GROUP BY current_cg.target_entry_id
+                  GROUP BY cg.target_entry_id
                 ) x
               ) AS double_reversal_targets
             """)
@@ -153,17 +184,18 @@ public interface LedgerIntegrityAdapter extends LedgerIntegrityPort {
                   OR NOT (le.project_id <=> al.project_id)
                   OR NOT (le.cost_center_id <=> al.cost_center_id)
                   OR NOT (le.team_id <=> al.team_id)
+                  OR (lp.source_type='PROVIDER_CHARGE' AND (
+                      le.source_charge_fact_id IS NULL
+                      OR le.source_charge_fact_id <> lp.source_id
+                      OR le.source_expense_claim_id IS NOT NULL))
+                  OR (lp.source_type='EXPENSE_CLAIM' AND (
+                      le.source_expense_claim_id IS NULL
+                      OR le.source_expense_claim_id <> lp.source_id
+                      OR le.source_charge_fact_id IS NOT NULL))
                 )
               UNION
-              SELECT DISTINCT lp.id AS problem_id
-              FROM correction_group cg
-              JOIN ledger_posting lp
-                ON lp.org_id=cg.org_id AND lp.source_type='CORRECTION' AND lp.source_id=cg.id
-              LEFT JOIN ledger_entry le
-                ON le.posting_id=lp.id AND le.org_id=lp.org_id
-              WHERE cg.org_id=#{organizationId}
-                AND lp.billing_period_id=#{billingPeriodId}
-                AND (le.id IS NULL OR le.correction_group_id IS NULL OR le.correction_group_id<>cg.id)
+              SELECT lp.id AS problem_id
+              """ + CORRECTION_PROBLEM_FROM + """
             ) problems
             ORDER BY problem_id
             LIMIT #{limit}
