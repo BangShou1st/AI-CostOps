@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.aicostops.allocation.AllocationApiTestSupport;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -92,5 +93,21 @@ class LedgerLineageApiIntegrationTest extends AllocationApiTestSupport {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
         mvc.perform(get("/api/v1/ledger/postings").header("Authorization", bearer()))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void ledgerListRejectsInvalidPaginationWithValidationProblemDetail() throws Exception {
+        for (var path : List.of("/api/v1/ledger/postings", "/api/v1/ledger/entries")) {
+            for (var invalid : List.of(new String[] {"page", "-1"},
+                    new String[] {"size", "0"}, new String[] {"size", "201"})) {
+                mvc.perform(get(path).header("Authorization", bearer())
+                        .queryParam(invalid[0], invalid[1]))
+                        .andExpect(status().isBadRequest())
+                        .andExpect(jsonPath("$.status").value(400))
+                        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                        .andExpect(jsonPath("$.type")
+                                .value("https://aicostops.dev/problems/validation-failed"));
+            }
+        }
     }
 }

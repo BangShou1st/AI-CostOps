@@ -73,6 +73,8 @@ class LedgerCorrectionIntegrationTest extends AllocationApiTestSupport {
         assertThat(reversal.reversesEntryId()).isEqualTo(targetEntryId);
         assertThat(reversal.sourceChargeFactId()).isEqualTo(chargeId);
         assertThat(reversal.projectId()).isEqualTo(projectId);
+        assertThat(reversal.allocationLineId()).isEqualTo(jdbc.queryForObject(
+                "SELECT allocation_line_id FROM ledger_entry WHERE id=?", Long.class, targetEntryId));
 
         var historical = jdbc.queryForMap("SELECT * FROM ledger_entry WHERE id=?", targetEntryId);
         assertThat(historical.get("posting_id")).isEqualTo(sourcePostingId);
@@ -110,6 +112,9 @@ class LedgerCorrectionIntegrationTest extends AllocationApiTestSupport {
         assertThat(result.posting().entries().get(1).amount()).isEqualByComparingTo("10.00000000");
         assertThat(result.posting().entries().get(0).budgetId()).isEqualTo(budgetId);
         assertThat(result.posting().entries().get(1).budgetId()).isEqualTo(orgBudgetId);
+        assertThat(result.posting().entries().get(1).allocationLineId()).isNull();
+        assertThat(result.posting().entries().get(1).sourceChargeFactId()).isEqualTo(chargeId);
+        assertThat(result.posting().entries().get(1).sourceExpenseClaimId()).isNull();
         assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?", BigDecimal.class,
                 budgetId)).isEqualByComparingTo("-6.00000000");
         assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?", BigDecimal.class,
@@ -131,6 +136,21 @@ class LedgerCorrectionIntegrationTest extends AllocationApiTestSupport {
                 Integer.class, orgId)).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
                 Integer.class, orgId)).isEqualTo(1);
+    }
+
+    @Test
+    void replaceRejectsMissingForeignArchivedAndDisabledTargetsWithoutRows() {
+        var foreignProject = insertTarget("project", foreignOrgId, "corr-foreign-target");
+        var archivedProject = insertTarget("project", orgId, "corr-archived-target");
+        var disabledProject = insertTarget("project", orgId, "corr-disabled-target");
+        jdbc.update("UPDATE project SET status='ARCHIVED' WHERE id=?", archivedProject);
+        jdbc.update("UPDATE project SET status='DISABLED' WHERE id=?", disabledProject);
+
+        assertInvalidReplacement(999_999_991L, "corr-missing-target");
+        assertInvalidReplacement(foreignProject, "corr-foreign-target");
+        assertInvalidReplacement(archivedProject, "corr-archived-target");
+        assertInvalidReplacement(disabledProject, "corr-disabled-target");
+        assertNoCorrectionRows();
     }
 
     @Test
@@ -193,5 +213,21 @@ class LedgerCorrectionIntegrationTest extends AllocationApiTestSupport {
                 SELECT id FROM budget
                 WHERE org_id=? AND billing_period_id=? AND scope_type=? AND scope_id=? AND currency='CNY'
                 """, Long.class, orgId, periodId, scopeType, scopeId);
+    }
+
+    private void assertInvalidReplacement(long targetId, String idempotencyKey) {
+        var command = new CorrectionCommand(targetEntryId, correctionPeriodId,
+                CorrectionMode.REPLACE, "ALLOCATION_ERROR", null,
+                new Replacement(new BigDecimal("10.00000000"), "CNY", targetId, null, null));
+        assertThatThrownBy(() -> corrections.correct(new AuthenticatedUser(actorUserId, 7), command,
+                idempotencyKey)).isInstanceOf(DomainException.class)
+                .hasMessageContaining("ACTIVE");
+    }
+
+    private void assertNoCorrectionRows() {
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM correction_group WHERE org_id=?",
+                Integer.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
+                Integer.class, orgId)).isEqualTo(1);
     }
 }

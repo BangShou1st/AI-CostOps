@@ -1,5 +1,6 @@
 package com.aicostops.ledger.application;
 
+import com.aicostops.allocation.application.AllocationTargetQueryService;
 import com.aicostops.budget.application.LedgerBudgetPort;
 import com.aicostops.budget.application.LedgerBudgetPort.BudgetSelection;
 import com.aicostops.budget.application.LedgerBudgetPort.EntryScopeAmount;
@@ -43,6 +44,7 @@ public class LedgerCorrectionService {
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final LedgerBudgetPort budgets;
+    private final AllocationTargetQueryService allocationTargets;
     private final LedgerPostingMapper ledger;
     private final LedgerAuditPort audit;
     private final LedgerCorrectionIdempotency idempotency;
@@ -52,6 +54,7 @@ public class LedgerCorrectionService {
     public LedgerCorrectionService(
             AuthorizationContextService authorizationContexts,
             LedgerBudgetPort budgets,
+            AllocationTargetQueryService allocationTargets,
             LedgerPostingMapper ledger,
             LedgerAuditPort audit,
             LedgerCorrectionIdempotency idempotency,
@@ -59,6 +62,7 @@ public class LedgerCorrectionService {
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.budgets = budgets;
+        this.allocationTargets = allocationTargets;
         this.ledger = ledger;
         this.audit = audit;
         this.idempotency = idempotency;
@@ -132,6 +136,9 @@ public class LedgerCorrectionService {
         if (existingCorrection != null) {
             throw stateConflict("The target Ledger entry has already been reversed.");
         }
+        if (command.replacement() != null) {
+            validateReplacementTarget(organizationId, command.replacement());
+        }
 
         var now = clock.instant();
         var correctionKey = "CORRECTION_COMMAND:" + reservation.id();
@@ -158,7 +165,7 @@ public class LedgerCorrectionService {
             ledger.insertEntry(organizationId, postingId, 1, LedgerEntryType.ADJUSTMENT.name(),
                     replacementAmount, replacement.currency(), replacement.projectId(),
                     replacement.costCenterId(), replacement.teamId(), budgetId(budgetByIndex.get(1)),
-                    target.sourceChargeFactId(), target.sourceExpenseClaimId(), target.allocationLineId(),
+                    target.sourceChargeFactId(), target.sourceExpenseClaimId(), null,
                     correctionGroupId, null, now);
             incrementActual(organizationId, budgetByIndex.get(1), replacementAmount, now);
             entryCount++;
@@ -228,6 +235,17 @@ public class LedgerCorrectionService {
     private void incrementActual(long organizationId, Budget budget, BigDecimal amount, Instant now) {
         if (budget != null) {
             budgets.incrementActual(organizationId, budget.id(), amount, now);
+        }
+    }
+
+    private void validateReplacementTarget(long organizationId, Replacement replacement) {
+        var targetType = replacement.projectId() != null ? ScopeType.PROJECT
+                : replacement.costCenterId() != null ? ScopeType.COST_CENTER : ScopeType.TEAM;
+        var targetId = replacement.projectId() != null ? replacement.projectId()
+                : replacement.costCenterId() != null ? replacement.costCenterId() : replacement.teamId();
+        if (!allocationTargets.activeTargetExists(organizationId, targetType, targetId)) {
+            throw validation("The replacement target must be an ACTIVE project, cost center, or team "
+                    + "of the current organization.");
         }
     }
 

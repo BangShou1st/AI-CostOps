@@ -50,6 +50,8 @@ public final class LedgerReadModels {
             String expenseStatus,
             Long expenseEvidenceId,
             Long correctionGroupId,
-            Long reversesEntryId) {
+            Long reversesEntryId,
+            Long correctedByCorrectionGroupId,
+            Long correctionTargetEntryId) {
     }
 }

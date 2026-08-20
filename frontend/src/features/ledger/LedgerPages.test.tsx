@@ -29,10 +29,10 @@ const POSTING = {
   visibleTotals: { CNY: '10.00000000' }, entries: [ENTRY],
 }
 
-function renderPage(element: React.ReactElement, initialEntries = ['/ledger']) {
+function renderPage(element: React.ReactElement, initialEntries = ['/ledger'], permissions = ['LEDGER_READ']) {
   mockedUseAuth.mockReturnValue({
     status: 'authenticated',
-    user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '3', permissions: ['LEDGER_READ'] },
+    user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '3', permissions },
     login: vi.fn(), refreshMe: vi.fn(), logout: vi.fn(),
   } as ReturnType<typeof useAuth>)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -65,11 +65,37 @@ describe('Ledger detail pages', () => {
       allocationLineId: '701', allocationDecisionId: '70', allocationDecisionStatus: 'CONFIRMED', chargeFactId: '31',
       chargeProviderCode: 'GLM', chargeReviewStatus: 'CLEAN', rawProviderRecordId: '41', importAttemptId: '42', importBatchId: '43',
       providerEvidenceId: '44', expenseClaimId: null, expenseStatus: null, expenseEvidenceId: null, correctionGroupId: null, reversesEntryId: null,
+      correctedByCorrectionGroupId: null, correctionTargetEntryId: null,
     } })
     renderPage(<Routes><Route path="/ledger/entries/:id" element={<LedgerEntryDetailPage />} /></Routes>, ['/ledger/entries/901'])
     await waitFor(() => expect(screen.getByText('分录血缘 #901')).toBeInTheDocument())
     expect(screen.getByText('供应商成本')).toBeInTheDocument()
     expect(screen.getByText('GLM')).toBeInTheDocument()
     expect(screen.getByText('44')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '纠正' })).not.toBeInTheDocument()
+  })
+
+  it('hides correction for an entry already targeted by a correction group', async () => {
+    mockedLedgerApi.getEntry.mockResolvedValue({ entry: ENTRY, posting: POSTING, lineage: {
+      allocationLineId: '701', allocationDecisionId: '70', allocationDecisionStatus: 'CONFIRMED', chargeFactId: '31',
+      chargeProviderCode: 'GLM', chargeReviewStatus: 'CLEAN', rawProviderRecordId: '41', importAttemptId: '42', importBatchId: '43',
+      providerEvidenceId: '44', expenseClaimId: null, expenseStatus: null, expenseEvidenceId: null, correctionGroupId: null, reversesEntryId: null,
+      correctedByCorrectionGroupId: '5', correctionTargetEntryId: null,
+    } })
+    renderPage(<Routes><Route path="/ledger/entries/:id" element={<LedgerEntryDetailPage />} /></Routes>, ['/ledger/entries/901'], ['LEDGER_READ', 'LEDGER_CORRECT'])
+    await waitFor(() => expect(screen.getByText('分录血缘 #901')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '纠正' })).not.toBeInTheDocument()
+  })
+
+  it('allows a correction entry to be corrected again until it becomes a target', async () => {
+    mockedLedgerApi.getEntry.mockResolvedValue({ entry: { ...ENTRY, id: '902', allocationLineId: null, correctionGroupId: '5' }, posting: POSTING, lineage: {
+      allocationLineId: null, allocationDecisionId: null, allocationDecisionStatus: null, chargeFactId: '31',
+      chargeProviderCode: 'GLM', chargeReviewStatus: 'CLEAN', rawProviderRecordId: '41', importAttemptId: '42', importBatchId: '43',
+      providerEvidenceId: '44', expenseClaimId: null, expenseStatus: null, expenseEvidenceId: null, correctionGroupId: '5', reversesEntryId: null,
+      correctedByCorrectionGroupId: null, correctionTargetEntryId: '901',
+    } })
+    renderPage(<Routes><Route path="/ledger/entries/:id" element={<LedgerEntryDetailPage />} /></Routes>, ['/ledger/entries/902'], ['LEDGER_READ', 'LEDGER_CORRECT'])
+    await waitFor(() => expect(screen.getByText('分录血缘 #902')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /纠\s*正/ })).toBeInTheDocument()
   })
 })

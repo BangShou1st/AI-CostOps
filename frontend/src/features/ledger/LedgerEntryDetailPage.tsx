@@ -23,7 +23,7 @@ export function LedgerEntryDetailPage() {
   const lineage = detail.lineage
   const provider = lineage.chargeFactId !== null
   const expense = lineage.expenseClaimId !== null
-  const correction = lineage.correctionGroupId !== null || lineage.reversesEntryId !== null
+  const correction = lineage.correctionGroupId !== null || lineage.reversesEntryId !== null || lineage.correctedByCorrectionGroupId !== null
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ledgerKeys.entry(id) })
     void queryClient.invalidateQueries({ queryKey: ledgerKeys.posting(detail.posting.id) })
@@ -33,7 +33,7 @@ export function LedgerEntryDetailPage() {
     <main className="settings-page">
       <header className="page-header">
         <h1>分录血缘 #{detail.entry.id}</h1>
-        {hasPermission(auth.user?.permissions, 'LEDGER_CORRECT') && !detail.entry.correctionGroupId && <CorrectionAction entry={detail.entry} onCompleted={refresh} />}
+        {hasPermission(auth.user?.permissions, 'LEDGER_CORRECT') && lineage.correctedByCorrectionGroupId === null && <CorrectionAction entry={detail.entry} onCompleted={refresh} />}
       </header>
       <Card size="small">
         <Descriptions column={2} size="small">
@@ -46,7 +46,7 @@ export function LedgerEntryDetailPage() {
       <Card title="来源链路" size="small" style={{ marginTop: 16 }}>
         {provider && <Descriptions column={2} size="small"><Descriptions.Item label="类型">供应商成本</Descriptions.Item><Descriptions.Item label="成本 ID"><Link to={`/costs/${lineage.chargeFactId}`}>{lineage.chargeFactId}</Link></Descriptions.Item><Descriptions.Item label="供应商">{lineageLabel(lineage.chargeProviderCode)}</Descriptions.Item><Descriptions.Item label="审核状态">{lineageLabel(lineage.chargeReviewStatus)}</Descriptions.Item><Descriptions.Item label="导入批次">{lineageLabel(lineage.importBatchId)}</Descriptions.Item><Descriptions.Item label="证据">{lineageLabel(lineage.providerEvidenceId)}</Descriptions.Item></Descriptions>}
         {expense && <Descriptions column={2} size="small"><Descriptions.Item label="类型">报销</Descriptions.Item><Descriptions.Item label="报销 ID"><Link to={`/expense-reviews/${lineage.expenseClaimId}`}>{lineage.expenseClaimId}</Link></Descriptions.Item><Descriptions.Item label="状态">{lineageLabel(lineage.expenseStatus)}</Descriptions.Item><Descriptions.Item label="凭证">{lineageLabel(lineage.expenseEvidenceId)}</Descriptions.Item></Descriptions>}
-        {correction && <Descriptions column={2} size="small"><Descriptions.Item label="类型">纠正</Descriptions.Item><Descriptions.Item label="纠正组">{lineageLabel(lineage.correctionGroupId)}</Descriptions.Item><Descriptions.Item label="反转目标">{lineageLabel(lineage.reversesEntryId)}</Descriptions.Item></Descriptions>}
+        {correction && <Descriptions column={2} size="small"><Descriptions.Item label="类型">纠正</Descriptions.Item><Descriptions.Item label="纠正组">{lineageLabel(lineage.correctionGroupId)}</Descriptions.Item><Descriptions.Item label="反转目标">{lineageLabel(lineage.reversesEntryId ?? lineage.correctionTargetEntryId)}</Descriptions.Item><Descriptions.Item label="被纠正组">{lineageLabel(lineage.correctedByCorrectionGroupId)}</Descriptions.Item></Descriptions>}
         {!provider && !expense && !correction && <span>暂无业务来源链路。</span>}
         <Divider plain>分摊链路</Divider>
         <Descriptions column={2} size="small"><Descriptions.Item label="分摊决策">{lineageLabel(lineage.allocationDecisionId)}</Descriptions.Item><Descriptions.Item label="分摊行">{lineageLabel(lineage.allocationLineId)}</Descriptions.Item><Descriptions.Item label="决策状态">{lineageLabel(lineage.allocationDecisionStatus)}</Descriptions.Item></Descriptions>

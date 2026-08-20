@@ -1,6 +1,7 @@
 package com.aicostops.ledger;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -34,7 +35,7 @@ class LedgerCorrectionApiIntegrationTest extends AllocationApiTestSupport {
         jdbc.update("""
                 INSERT INTO role_permission(role_id,permission_id)
                 SELECT r.id,p.id FROM `role` r JOIN permission p
-                WHERE r.code='ALLOC_WORKER' AND p.code IN ('LEDGER_POST','LEDGER_CORRECT')
+                WHERE r.code='ALLOC_WORKER' AND p.code IN ('LEDGER_POST','LEDGER_CORRECT','LEDGER_READ')
                 """);
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
         jdbc.update("""
@@ -87,7 +88,7 @@ class LedgerCorrectionApiIntegrationTest extends AllocationApiTestSupport {
                 }
                 """.formatted(targetEntryId, correctionPeriodId, teamId);
 
-        mvc.perform(post("/api/v1/ledger/corrections")
+        var response = mvc.perform(post("/api/v1/ledger/corrections")
                 .header("Authorization", bearer())
                 .header("Idempotency-Key", "api-correction-1")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -97,7 +98,24 @@ class LedgerCorrectionApiIntegrationTest extends AllocationApiTestSupport {
                 .andExpect(jsonPath("$.posting.id").isString())
                 .andExpect(jsonPath("$.posting.sourceType").value("CORRECTION"))
                 .andExpect(jsonPath("$.posting.entries[0].amount").value("-6.00000000"))
-                .andExpect(jsonPath("$.posting.entries[1].amount").value("10.00000000"));
+                .andExpect(jsonPath("$.posting.entries[1].amount").value("10.00000000"))
+                .andReturn().getResponse().getContentAsString();
+        var json = com.fasterxml.jackson.databind.json.JsonMapper.builder().build().readTree(response);
+        var correctionGroupId = json.get("correctionGroupId").asText();
+        var replacementEntryId = json.get("posting").get("entries").get(1).get("id").asText();
+
+        mvc.perform(get("/api/v1/ledger/entries/{entryId}", targetEntryId)
+                .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lineage.correctedByCorrectionGroupId").value(correctionGroupId));
+        mvc.perform(get("/api/v1/ledger/entries/{entryId}", replacementEntryId)
+                .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entry.allocationLineId").doesNotExist())
+                .andExpect(jsonPath("$.lineage.correctionGroupId").value(correctionGroupId))
+                .andExpect(jsonPath("$.lineage.correctionTargetEntryId")
+                        .value(Long.toString(targetEntryId)))
+                .andExpect(jsonPath("$.lineage.correctedByCorrectionGroupId").doesNotExist());
     }
 
     @Test

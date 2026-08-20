@@ -17,12 +17,15 @@ import org.yaml.snakeyaml.constructor.SafeConstructor;
 class M5OpenApiContractTest {
 
     private static Map<String, Object> document;
+    private static String openapiText;
 
     @BeforeAll
     static void loadDocument() throws IOException {
         var options = new LoaderOptions();
         options.setAllowDuplicateKeys(false);
-        try (var input = Files.newInputStream(Path.of("..", "docs", "02-development", "api", "openapi.yaml"))) {
+        var path = Path.of("..", "docs", "02-development", "api", "openapi.yaml");
+        openapiText = Files.readString(path);
+        try (var input = Files.newInputStream(path)) {
             document = new Yaml(new SafeConstructor(options)).load(input);
         }
     }
@@ -44,6 +47,13 @@ class M5OpenApiContractTest {
         assertThat(propertyRef("LedgerEntryResponse", "amount")).isEqualTo("#/components/schemas/Money");
         assertThat(propertyRef("LedgerEntryResponse", "id")).isEqualTo("#/components/schemas/Id");
         assertThat(schema("CorrectionMode").get("enum")).isEqualTo(List.of("REVERSAL_ONLY", "REPLACE"));
+        assertThat(map(map(schema("LedgerLineageResponse"), "properties")).keySet())
+                .contains("correctedByCorrectionGroupId", "correctionTargetEntryId");
+        assertThat(openapiText).doesNotContain("APPROVED-unallocated");
+        assertThat(openapiText).contains("APPROVED remains until POSTED")
+                .contains("ACTIVE same-org resources")
+                .contains("do not inherit the old AllocationLine lineage")
+                .contains("Invalid page or size returns ProblemDetail with code VALIDATION_FAILED");
     }
 
     private static Map<String, Object> paths() {

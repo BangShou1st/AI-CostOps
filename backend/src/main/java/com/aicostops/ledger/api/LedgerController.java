@@ -78,7 +78,7 @@ public class LedgerController {
             @RequestParam(defaultValue = "50") int size,
             @RequestParam(defaultValue = "postedAt,desc") String sort) {
         return LedgerResponses.postingPage(queries.listPostings(authenticatedUser,
-                PageRequest.of(page, size), billingPeriodId, sourceType, projectId, costCenterId,
+                ledgerPage(page, size), billingPeriodId, sourceType, projectId, costCenterId,
                 teamId, sort));
     }
 
@@ -102,8 +102,19 @@ public class LedgerController {
             @RequestParam(defaultValue = "50") int size,
             @RequestParam(defaultValue = "postedAt,desc") String sort) {
         return LedgerResponses.entryPage(queries.listEntries(authenticatedUser,
-                PageRequest.of(page, size), billingPeriodId, sourceType, projectId, costCenterId,
+                ledgerPage(page, size), billingPeriodId, sourceType, projectId, costCenterId,
                 teamId, sort));
+    }
+
+    private static PageRequest ledgerPage(int page, int size) {
+        try {
+            return PageRequest.of(page, size);
+        } catch (IllegalArgumentException invalidPage) {
+            throw new com.aicostops.shared.web.DomainException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    com.aicostops.shared.web.ProblemCode.VALIDATION_FAILED,
+                    "Invalid Ledger pagination", invalidPage.getMessage());
+        }
     }
 
     @GetMapping("/ledger/entries/{entryId}")

@@ -152,7 +152,9 @@ public final class LedgerResponses {
             String expenseStatus,
             ApiId expenseEvidenceId,
             ApiId correctionGroupId,
-            ApiId reversesEntryId) {
+            ApiId reversesEntryId,
+            ApiId correctedByCorrectionGroupId,
+            ApiId correctionTargetEntryId) {
 
         static LedgerLineageResponse from(LedgerLineage lineage) {
             return new LedgerLineageResponse(id(lineage.allocationLineId()),
@@ -162,7 +164,8 @@ public final class LedgerResponses {
                     id(lineage.importAttemptId()), id(lineage.importBatchId()),
                     id(lineage.providerEvidenceId()), id(lineage.expenseClaimId()),
                     lineage.expenseStatus(), id(lineage.expenseEvidenceId()),
-                    id(lineage.correctionGroupId()), id(lineage.reversesEntryId()));
+                    id(lineage.correctionGroupId()), id(lineage.reversesEntryId()),
+                    id(lineage.correctedByCorrectionGroupId()), id(lineage.correctionTargetEntryId()));
         }
     }
 

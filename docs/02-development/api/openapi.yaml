@@ -657,7 +657,7 @@ components:
         budgetId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         sourceChargeFactId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         sourceExpenseClaimId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
-        allocationLineId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        allocationLineId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }], description: Null for a REPLACE correction entry; replacement facts do not inherit the old AllocationLine lineage. }
         correctionGroupId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         reversesEntryId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         createdAt: { type: string, format: date-time }
@@ -713,6 +713,8 @@ components:
         expenseEvidenceId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         correctionGroupId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         reversesEntryId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        correctedByCorrectionGroupId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }], description: Correction group that targeted this entry; non-null entries cannot be corrected again. }
+        correctionTargetEntryId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }], description: Original entry targeted by the correction group that created this correction entry. }
     LedgerEntryDetailResponse:
       type: object
       required: [entry, posting, lineage]
@@ -736,9 +738,9 @@ components:
       properties:
         amount: { $ref: '#/components/schemas/Money' }
         currency: { type: string, pattern: '^[A-Z]{3}$' }
-        projectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
-        costCenterId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
-        teamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        projectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }], description: Must identify an ACTIVE project in the current organization. }
+        costCenterId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }], description: Must identify an ACTIVE cost center in the current organization. }
+        teamId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }], description: Must identify an ACTIVE team in the current organization. }
     CorrectionRequest:
       type: object
       required: [targetEntryId, correctionPeriodId, mode, reasonCode]
@@ -1188,7 +1190,7 @@ paths:
   /expense-reviews:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: status, in: query, schema: { type: string, enum: [ALL, SUBMITTED, NEEDS_INFO, APPROVED] } }]
-      responses: { '200': { description: Finance review queue (SUBMITTED/NEEDS_INFO/APPROVED-unallocated), content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseExpense' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+      responses: { '200': { description: Finance review queue (SUBMITTED/NEEDS_INFO/APPROVED; APPROVED remains until POSTED), content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseExpense' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
   /expense-reviews/{expenseId}:
     get:
       responses: { '200': { description: Finance review detail (no owner comparison), content: { application/json: { schema: { $ref: '#/components/schemas/ExpenseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
@@ -1217,6 +1219,7 @@ paths:
       responses: { '200': { description: Manual DRAFT created for the expense (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/AllocationDecisionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /ledger/postings:
     get:
+      description: Invalid page or size returns ProblemDetail with code VALIDATION_FAILED (HTTP 400).
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -1232,6 +1235,7 @@ paths:
       responses: { '200': { description: One caller-scoped immutable posting summary, content: { application/json: { schema: { $ref: '#/components/schemas/LedgerPostingSummaryResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
   /ledger/entries:
     get:
+      description: Invalid page or size returns ProblemDetail with code VALIDATION_FAILED (HTTP 400).
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
@@ -1249,7 +1253,7 @@ paths:
     post:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CorrectionRequest' } } } }
-      responses: { '200': { description: 'Append-only reversal or replacement correction in a new OPEN period (or the stored idempotent replay)', content: { application/json: { schema: { $ref: '#/components/schemas/LedgerCorrectionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+      responses: { '200': { description: 'Append-only reversal or replacement correction in a new OPEN period (or the stored idempotent replay); replacement targets must be ACTIVE same-org resources and replacement entries do not inherit the old AllocationLine lineage.', content: { application/json: { schema: { $ref: '#/components/schemas/LedgerCorrectionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /allocation-rules:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]

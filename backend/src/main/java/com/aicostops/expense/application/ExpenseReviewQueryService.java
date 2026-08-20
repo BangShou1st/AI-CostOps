@@ -11,7 +11,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Finance review reads: the org review queue (SUBMITTED / NEEDS_INFO /
- * APPROVED-unallocated, filterable) and the reviewer detail view. All require
+ * APPROVED, filterable, retained until POSTED) and the reviewer detail view. All require
  * EXPENSE_REVIEW at ORG scope; no owner comparison applies.
  */
 @Service

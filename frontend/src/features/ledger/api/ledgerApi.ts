@@ -56,6 +56,8 @@ export interface LedgerLineageResponse {
   expenseEvidenceId: string | null
   correctionGroupId: string | null
   reversesEntryId: string | null
+  correctedByCorrectionGroupId: string | null
+  correctionTargetEntryId: string | null
 }
 
 export interface LedgerEntryDetailResponse {

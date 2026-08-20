@@ -244,7 +244,9 @@ public interface LedgerQueryMapper {
               ec.status AS expense_status,
               expense_ev.id AS expense_evidence_id,
               le.correction_group_id AS correction_group_id,
-              le.reverses_entry_id AS reverses_entry_id
+              le.reverses_entry_id AS reverses_entry_id,
+              corrected_by.id AS corrected_by_correction_group_id,
+              created_by.target_entry_id AS correction_target_entry_id
             FROM ledger_entry le
             LEFT JOIN allocation_line ad
               ON ad.id=le.allocation_line_id AND ad.org_id=le.org_id
@@ -259,6 +261,10 @@ public interface LedgerQueryMapper {
             LEFT JOIN expense_claim ec
               ON ec.id=le.source_expense_claim_id AND ec.org_id=le.org_id
             LEFT JOIN evidence expense_ev ON expense_ev.id=ec.evidence_id
+            LEFT JOIN correction_group corrected_by
+              ON corrected_by.target_entry_id=le.id AND corrected_by.org_id=le.org_id
+            LEFT JOIN correction_group created_by
+              ON created_by.id=le.correction_group_id AND created_by.org_id=le.org_id
             WHERE le.org_id=#{organizationId} AND le.id=#{entryId}
             """)
     LedgerLineage selectLineage(

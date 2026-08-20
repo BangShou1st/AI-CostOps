@@ -4,6 +4,7 @@ import com.aicostops.attribution.application.AllocationTargetDirectory;
 import com.aicostops.attribution.application.AllocationTargetDirectory.TargetRef;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
+import com.aicostops.iam.domain.ScopeType;
 import com.aicostops.shared.security.AuthenticatedUser;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -34,5 +35,15 @@ public class AllocationTargetQueryService {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_ALLOCATION_EDIT);
         return targets.activeTargets(context.organizationId());
+    }
+
+    /** Same-org ACTIVE target validation for application workflows. */
+    public boolean activeTargetExists(long organizationId, ScopeType targetType, long targetId) {
+        return switch (targetType) {
+            case PROJECT -> targets.activeProjectExists(organizationId, targetId);
+            case COST_CENTER -> targets.activeCostCenterExists(organizationId, targetId);
+            case TEAM -> targets.activeTeamExists(organizationId, targetId);
+            case ORG -> false;
+        };
     }
 }
