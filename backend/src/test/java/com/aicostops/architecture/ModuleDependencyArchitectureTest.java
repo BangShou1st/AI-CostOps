@@ -577,4 +577,64 @@ class ModuleDependencyArchitectureTest {
 
         providerRule.check(productionClasses);
     }
+
+    @Test
+    void ledgerApplicationUsesPortsAndItsOwnPersistenceOnly() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.ledger.application..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.ledger..",
+                        "com.aicostops.budget.application..",
+                        "com.aicostops.budget.domain..",
+                        "com.aicostops.allocation.application..",
+                        "com.aicostops.attribution.domain..",
+                        "com.aicostops.cost.application..",
+                        "com.aicostops.cost.domain..",
+                        "com.aicostops.expense.application..",
+                        "com.aicostops.iam..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void ledgerDomainStaysFrameworkFree() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.ledger.domain..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.ledger.domain..", "java..");
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    void ledgerApplicationDoesNotReachForeignInfrastructure() {
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule rule = classes()
+                .that().resideInAPackage("com.aicostops.ledger.application..")
+                .should().onlyDependOnClassesThat().resideOutsideOfPackages(
+                        "com.aicostops.allocation.infrastructure..",
+                        "com.aicostops.budget.infrastructure..",
+                        "com.aicostops.cost.infrastructure..",
+                        "com.aicostops.expense.infrastructure..",
+                        "com.aicostops.iam.infrastructure..");
+
+        rule.check(productionClasses);
+    }
 }

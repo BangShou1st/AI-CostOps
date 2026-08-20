@@ -324,6 +324,10 @@ class CommitmentConsumeIntegrationTest extends CommitmentTestSupport {
         insertCommitmentCase(orgId, commitmentId, "APPROVED");
         jdbc.update("UPDATE budget SET committed_amount=? WHERE id=?",
                 new BigDecimal(remaining), budgetId);
+        for (var ledgerEntryId : new long[] { 9001L, 9002L, 9003L, 9004L, 9005L,
+                9006L, 9007L, 9601L, 9602L }) {
+            insertSyntheticLedgerEntry(ledgerEntryId, periodId);
+        }
         return new Activated(commitmentId, budgetId);
     }
 

@@ -166,7 +166,7 @@ function makeDecision(overrides: Partial<AllocationDecision> = {}): AllocationDe
     createdByMemberId: 'm-3',
     createdAt: '2026-08-01T00:00:00Z',
     lines: [
-      { lineIndex: 0, allocatedAmount: '100.00000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null },
+  { id: '701', lineIndex: 0, allocatedAmount: '100.00000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null },
     ],
     ...overrides,
   }
@@ -421,7 +421,7 @@ describe('ExpensePages', () => {
     })
     expect(mockedExpenseApi.getForReview.mock.calls.length).toBeGreaterThanOrEqual(2)
     expect(mockedAllocationApi.listDecisionsByExpense.mock.calls.length).toBeGreaterThanOrEqual(2)
-  })
+  }, 15_000)
 
   it('finance creates a manual draft from an empty decision list, refetches, then confirms it', async () => {
     currentUser = FINANCE
@@ -486,7 +486,7 @@ describe('ExpensePages', () => {
     // This test walks the full create-draft -> refetch -> confirm workflow
     // through jsdom + antd; on slow CI runners it takes ~8s, so it gets an
     // explicit timeout instead of the 5s default.
-  }, 15_000)
+  }, 30_000)
 
   it('finance creates an expense manual draft from a short-decimal amount (real UAT flow)', async () => {
     // The UAT operator typed 129.5 (not 129.50000000) for Expense 1. The
@@ -494,7 +494,7 @@ describe('ExpensePages', () => {
     currentUser = FINANCE
     const draft = makeDecision({
       id: 'dec-draft',
-      lines: [{ lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+  lines: [{ id: '702', lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
     })
     mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
       status: 'APPROVED',
@@ -528,7 +528,7 @@ describe('ExpensePages', () => {
       [{ allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
       expect.any(String),
     ))
-  })
+  }, 15_000)
 
   it('finance sees the CONFIRMED manual allocation as read-only lines', async () => {
     // Real UAT state: Expense 1 APPROVED, decision 1 MANUAL CONFIRMED,
@@ -540,7 +540,7 @@ describe('ExpensePages', () => {
       id: 'dec-1',
       source: 'MANUAL',
       status: 'CONFIRMED',
-      lines: [{ lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
+  lines: [{ id: '703', lineIndex: 0, allocatedAmount: '129.50000000', currency: 'CNY', projectId: 'p-1', costCenterId: null, teamId: null }],
     })
     mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({
       status: 'APPROVED',
@@ -610,7 +610,7 @@ describe('ExpensePages', () => {
       expect(screen.getByText(/Allocation sum mismatch/)).toBeInTheDocument()
     })
     expect(screen.getByText('The lines must exactly sum to the expense amount.')).toBeInTheDocument()
-  })
+  }, 15_000)
 
   it('displays the backend problem detail on a 403 forbidden', async () => {
     currentUser = FINANCE

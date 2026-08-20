@@ -141,6 +141,19 @@ public interface ExpenseClaimMapper {
             @Param("approvalCaseId") Long approvalCaseId,
             @Param("now") Instant now);
 
+    /** Atomic M5 transition APPROVED → POSTED. */
+    @Update("""
+            UPDATE expense_claim
+            SET status='POSTED', version=version+1, updated_at=#{now}
+            WHERE id=#{expenseId} AND org_id=#{organizationId}
+              AND version=#{expectedVersion} AND status='APPROVED'
+            """)
+    int markPosted(
+            @Param("organizationId") long organizationId,
+            @Param("expenseId") long expenseId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") Instant now);
+
     @Select("""
             SELECT
             """ + CLAIM_COLUMNS + """
@@ -164,12 +177,7 @@ public interface ExpenseClaimMapper {
             @Param("organizationId") long organizationId,
             @Param("claimantMemberId") long claimantMemberId);
 
-    /**
-     * Finance review queue: active reviews (SUBMITTED / NEEDS_INFO) plus
-     * APPROVED expenses that are not yet posting-ready (no current allocation
-     * decision). The {@code statusFilter} is one of
-     * SUBMITTED / NEEDS_INFO / APPROVED / ALL.
-     */
+    /** Finance review queue: active reviews plus every APPROVED expense until POSTED. */
     @Select("""
             <script>
             SELECT
@@ -184,11 +192,11 @@ public interface ExpenseClaimMapper {
                 AND ec.status='NEEDS_INFO'
               </when>
               <when test="statusFilter == 'APPROVED'">
-                AND ec.status='APPROVED' AND ec.current_allocation_decision_id IS NULL
+                AND ec.status='APPROVED'
               </when>
               <otherwise>
                 AND (ec.status IN ('SUBMITTED','NEEDS_INFO')
-                     OR (ec.status='APPROVED' AND ec.current_allocation_decision_id IS NULL))
+                     OR ec.status='APPROVED')
               </otherwise>
             </choose>
             ORDER BY ec.created_at ASC, ec.id ASC
@@ -214,11 +222,11 @@ public interface ExpenseClaimMapper {
                 AND ec.status='NEEDS_INFO'
               </when>
               <when test="statusFilter == 'APPROVED'">
-                AND ec.status='APPROVED' AND ec.current_allocation_decision_id IS NULL
+                AND ec.status='APPROVED'
               </when>
               <otherwise>
                 AND (ec.status IN ('SUBMITTED','NEEDS_INFO')
-                     OR (ec.status='APPROVED' AND ec.current_allocation_decision_id IS NULL))
+                     OR ec.status='APPROVED')
               </otherwise>
             </choose>
             </script>

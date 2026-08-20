@@ -29,6 +29,7 @@ public final class AllocationDecisionResponses {
     }
 
     public record AllocationLineResponse(
+            ApiId id,
             int lineIndex,
             String allocatedAmount,
             String currency,
@@ -70,6 +71,7 @@ public final class AllocationDecisionResponses {
                     view.decision().createdAt(),
                     view.lines().stream()
                             .map(line -> new AllocationLineResponse(
+                                    ApiId.of(line.id()),
                                     line.lineIndex(),
                                     line.allocatedAmount().toPlainString(),
                                     line.currency(),

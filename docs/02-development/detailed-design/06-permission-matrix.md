@@ -421,3 +421,16 @@ Period Close / Reopen
 Disabled User → Reject
 Role Change 后 Stale Cache 不可继续敏感操作
 ```
+
+## 13. M5 Ledger permissions
+
+| Permission | Allowed scope | Endpoints |
+|---|---|---|
+| `LEDGER_READ` | ORG, PROJECT, TEAM, COST_CENTER | `/ledger/postings*`, `/ledger/entries*` |
+| `LEDGER_POST` | ORG | `/costs/charges/{chargeFactId}/post`, `/expenses/{expenseId}/post` |
+| `LEDGER_CORRECT` | ORG | `/ledger/corrections` |
+
+Posting and correction are sensitive commands: authorization is revalidated from
+the current organization context, and failed scope visibility is not inferred
+from client-side page state. The frontend hides unavailable actions for usability;
+the backend remains authoritative.

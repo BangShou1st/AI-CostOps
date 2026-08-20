@@ -28,7 +28,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 /**
  * Full M4 expense lifecycle at the service boundary: create DRAFT -> attach
- * evidence -> submit -> request-info -> edit + resubmit -> approve, plus the
+ * evidence -> submit -> request-info -> edit + resubmit -> approve/posted, plus the
  * cancel path and the finance queue behavior (approved-unallocated visible).
  * Expense allocation confirm is covered by the allocation phase tests.
  */
@@ -182,12 +182,18 @@ class ExpenseLifecycleIntegrationTest extends ExpenseTestSupport {
         assertThat(reviewQueries.countQueue(financeUser(), "APPROVED")).isEqualTo(1);
         assertThat(reviewQueries.countQueue(financeUser(), "SUBMITTED")).isEqualTo(1);
 
+        // POSTED expenses leave the active review queue, even when the queue
+        // entry had already reached APPROVED.
+        setExpenseStatus(approvedId, "POSTED");
+        assertThat(reviewQueries.countQueue(financeUser(), "ALL")).isEqualTo(2);
+        assertThat(reviewQueries.countQueue(financeUser(), "APPROVED")).isZero();
+
         // finance can read any same-org detail without owner comparison
         var viaReview = reviewQueries.getForReview(financeUser(), needsInfoId);
         assertThat(viaReview.status().name()).isEqualTo("NEEDS_INFO");
-        // the owner still sees history via their own view
+        // the owner still sees the immutable posted state via their own view
         var owned = queries.getOwned(employeeUser(), approvedId);
-        assertThat(owned.status().name()).isEqualTo("APPROVED");
+        assertThat(owned.status().name()).isEqualTo("POSTED");
     }
 
     private void assertConflict(Throwable thrown) {

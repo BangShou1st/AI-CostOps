@@ -47,6 +47,7 @@ public class AllocationResponseCodec {
     }
 
     public record LineJson(
+            Long id,
             int lineIndex,
             String allocatedAmount,
             String currency,
@@ -121,6 +122,7 @@ public class AllocationResponseCodec {
 
     private static LineJson lineJson(AllocationLine line) {
         return new LineJson(
+                line.id(),
                 line.lineIndex(),
                 line.allocatedAmount().toPlainString(),
                 line.currency(),
@@ -149,7 +151,7 @@ public class AllocationResponseCodec {
                 Instant.parse(stored.createdAt()));
         var lines = stored.lines().stream()
                 .map(line -> new AllocationLine(
-                        -1L,
+                        line.id() == null ? -1L : line.id(),
                         stored.organizationId(),
                         stored.id(),
                         line.lineIndex(),

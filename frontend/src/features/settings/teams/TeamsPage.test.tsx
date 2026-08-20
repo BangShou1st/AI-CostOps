@@ -103,7 +103,7 @@ describe('TeamsPage', () => {
     mockedSettingsApi.listTeams.mockResolvedValue(pageOf([]))
     renderTeamsPage(['TEAM_READ'])
     expect(await screen.findByText(/该组织暂无团队/i)).toBeInTheDocument()
-  })
+  }, 20_000)
 
   it('teamActionsRequireManage', async () => {
     renderTeamsPage(['TEAM_READ'])

@@ -13,6 +13,7 @@ export const BUSINESS_NAV: readonly AppNavEntry[] = [
   { path: '/expenses', label: '我的报销', readPermission: 'EXPENSE_READ_OWN' },
   { path: '/budgets', label: '预算', readPermission: 'BUDGET_READ' },
   { path: '/expense-reviews', label: '报销审核', readPermission: 'EXPENSE_REVIEW' },
+  { path: '/ledger', label: '账本', readPermission: 'LEDGER_READ' },
 ]
 
 export function visibleBusinessNav(permissions: readonly string[] | undefined): readonly AppNavEntry[] {

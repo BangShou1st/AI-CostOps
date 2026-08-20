@@ -12,12 +12,17 @@ import { useAuth } from '../auth/AuthSessionProvider'
 import { allocationApi } from '../allocation/api/allocationApi'
 import { allocationKeys } from '../allocation/api/allocationKeys'
 import { AllocationEditor } from '../allocation/AllocationEditor'
+import { PostingAction } from '../ledger/PostingAction'
+import { ledgerApi } from '../ledger/api/ledgerApi'
+import { ledgerKeys } from '../ledger/api/ledgerKeys'
+import type { CommitmentLinkRequest } from '../ledger/api/ledgerApi'
+import { CommitmentLinkPicker } from '../ledger/CommitmentLinkPicker'
 
 const STATUS_LABEL: Record<string, string> = {
-  DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', REJECTED: '已拒绝', CANCELED: '已取消',
+  DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', POSTED: '已记账', REJECTED: '已拒绝', CANCELED: '已取消',
 }
 const STATUS_COLOR: Record<string, string> = {
-  DRAFT: 'default', SUBMITTED: 'processing', NEEDS_INFO: 'warning', APPROVED: 'success', REJECTED: 'error', CANCELED: 'default',
+  DRAFT: 'default', SUBMITTED: 'processing', NEEDS_INFO: 'warning', APPROVED: 'success', POSTED: 'blue', REJECTED: 'error', CANCELED: 'default',
 }
 
 export function ExpenseReviewDetailPage() {
@@ -27,12 +32,14 @@ export function ExpenseReviewDetailPage() {
   const canConfirm = hasPermission(auth.user?.permissions, 'ALLOCATION_CONFIRM')
   const canReadAllocation = hasPermission(auth.user?.permissions, 'ALLOCATION_READ')
   const canReview = hasPermission(auth.user?.permissions, 'EXPENSE_REVIEW')
+  const canPost = hasPermission(auth.user?.permissions, 'EXPENSE_POST') && hasPermission(auth.user?.permissions, 'LEDGER_POST')
   const qc = useQueryClient()
   const [problem, setProblem] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [comment, setComment] = useState('')
   const [rejectModal, setRejectModal] = useState(false)
   const [requestInfoModal, setRequestInfoModal] = useState(false)
+  const [commitmentLinks, setCommitmentLinks] = useState<CommitmentLinkRequest[]>([])
 
   const { data: expense, isLoading } = useQuery({
     queryKey: expenseKeys.reviewDetail(expenseId!),
@@ -53,6 +60,7 @@ export function ExpenseReviewDetailPage() {
   const refetch = useCallback(() => {
     qc.invalidateQueries({ queryKey: expenseKeys.reviewDetail(expenseId!) })
     qc.invalidateQueries({ queryKey: allocationKeys.byExpense(expenseId!) })
+    qc.invalidateQueries({ queryKey: ledgerKeys.lists() })
   }, [qc, expenseId])
 
   if (isLoading || !expense) return <Card loading={isLoading} />
@@ -100,7 +108,20 @@ export function ExpenseReviewDetailPage() {
     <Space orientation="vertical" style={{ width: '100%' }} size="middle">
       {problem && <Alert type="error" showIcon title={problem} closable onClose={() => setProblem(null)} />}
       <Card title={`报销审核 ${expense.id}`} extra={
-        <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
+        <Space>
+          <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
+          {expense.status === 'APPROVED' && expense.postingReady && canPost && (
+            <>
+              <CommitmentLinkPicker
+                lines={confirmedDecision?.lines ?? []}
+                effectiveAt={expense.expenseDate}
+                value={commitmentLinks}
+                onChange={setCommitmentLinks}
+              />
+              <PostingAction label="记账" onPost={() => ledgerApi.postExpense(expense.id, commitmentLinks)} onCompleted={refetch} />
+            </>
+          )}
+        </Space>
       }>
         <Descriptions column={2} size="small">
           <Descriptions.Item label="日期">{formatBusinessDate(expense.expenseDate)}</Descriptions.Item>

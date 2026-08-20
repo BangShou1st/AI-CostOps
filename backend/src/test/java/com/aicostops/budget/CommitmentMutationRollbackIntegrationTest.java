@@ -131,6 +131,7 @@ class CommitmentMutationRollbackIntegrationTest extends CommitmentTestSupport {
         var commitmentId = insertCommitmentRow(orgId, budgetId, "ACTIVE",
                 "30.00000000", "30.00000000", "30.00000000", 1);
         insertCommitmentCase(orgId, commitmentId, "APPROVED");
+        insertSyntheticLedgerEntry(9801L, periodId);
 
         doThrow(new IllegalStateException("simulated audit outage"))
                 .when(auditPort).consumed(anyLong(), isNull(), anyLong(), anyLong(),

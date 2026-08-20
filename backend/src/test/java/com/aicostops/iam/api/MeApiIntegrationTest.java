@@ -120,6 +120,9 @@ class MeApiIntegrationTest extends AuthenticationContainersSupport {
                         "IMPORT_CONFIRM",
                         "IMPORT_READ",
                         "IMPORT_RETRY",
+                        "LEDGER_CORRECT",
+                        "LEDGER_POST",
+                        "LEDGER_READ",
                         "PROVIDER_ACCOUNT_MANAGE",
                         "PROVIDER_ACCOUNT_READ")));
     }
@@ -155,6 +158,9 @@ class MeApiIntegrationTest extends AuthenticationContainersSupport {
                         "IMPORT_CONFIRM",
                         "IMPORT_READ",
                         "IMPORT_RETRY",
+                        "LEDGER_CORRECT",
+                        "LEDGER_POST",
+                        "LEDGER_READ",
                         "PROJECT_MANAGE",
                         "PROJECT_MEMBER_MANAGE",
                         "PROJECT_READ",

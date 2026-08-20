@@ -1093,6 +1093,11 @@ Closed Period Rejected
 
 核心展示：Lineage + 授权后的 Correction UX。
 
+**M5 implementation status (2026-08-19)：** AIC-047 ～ AIC-053 已完成并在
+`feat/m5-immutable-ledger` 汇总。实现证据包括 V13/V14 迁移、Provider/Expense
+posting、Ledger Query/Lineage、Correction、架构与财务不变量测试，以及前端
+账本/记账/纠正工作流。M5 不引入 Reconciliation/Close；这些仍属于 M6。
+
 ---
 
 # M6 — Reconciliation & Close

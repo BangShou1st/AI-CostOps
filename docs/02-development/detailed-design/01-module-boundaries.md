@@ -427,3 +427,15 @@ React Workflow
 ```
 
 Ownership 不等于禁止对方修改。V1 结束前，两个人都要至少完成一次非主责模块的真实实现或修复。
+
+## M5 Immutable Ledger Boundary
+
+`ledger.application` owns provider/expense posting, read models, and correction
+use cases. It may call the narrow `LedgerBudgetPort`, allocation/source read
+ports, authorization, and audit ports; it must not import budget or ingestion
+infrastructure classes directly.
+
+`budget.application` remains the owner of `BillingPeriod`, `Budget`, and
+`Commitment` locking and counter mutation. A posting never writes those tables
+through a mapper of its own. `ledger.infrastructure` exposes append-only
+ledger INSERT/SELECT seams; no UPDATE or DELETE path exists for ledger rows.

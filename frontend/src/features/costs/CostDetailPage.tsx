@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Alert, Descriptions, Tag, Typography } from 'antd'
 import { Link, useParams } from 'react-router-dom'
 import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
@@ -12,12 +13,17 @@ import { allocationApi } from '../allocation/api/allocationApi'
 import { AllocationEditor } from '../allocation/AllocationEditor'
 import { AllocationHistory } from '../allocation/AllocationHistory'
 import { formatBusinessDateRange } from '../../lib/dateTime'
+import { PostingAction } from '../ledger/PostingAction'
+import { ledgerApi } from '../ledger/api/ledgerApi'
+import type { CommitmentLinkRequest } from '../ledger/api/ledgerApi'
+import { CommitmentLinkPicker } from '../ledger/CommitmentLinkPicker'
 
 export function CostDetailPage() {
   const params = useParams()
   const chargeId = params.id ?? ''
   const auth = useAuth()
   const queryClient = useQueryClient()
+  const [commitmentLinks, setCommitmentLinks] = useState<CommitmentLinkRequest[]>([])
 
   const permissions = auth.user?.permissions
   const canReadAllocation = hasPermission(permissions, 'ALLOCATION_READ')
@@ -25,6 +31,7 @@ export function CostDetailPage() {
   const canConfirmAllocation = hasPermission(permissions, 'ALLOCATION_CONFIRM')
   const canReviewDuplicates = hasPermission(permissions, 'DUPLICATE_REVIEW')
   const canManageRules = hasPermission(permissions, 'ALLOCATION_RULE_MANAGE')
+  const canPost = hasPermission(permissions, 'LEDGER_POST')
 
   const charge = useQuery({
     queryKey: costKeys.detail(chargeId),
@@ -86,7 +93,20 @@ export function CostDetailPage() {
     <main className="settings-page">
       <header className="page-header">
         <h1>成本详情 #{detail.id}</h1>
-        {canManageRules && <Link to="/allocation-rules">分摊规则管理</Link>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {canManageRules && <Link to="/allocation-rules">分摊规则管理</Link>}
+          {canPost && detail.confirmedImport && detail.reviewStatus === 'CLEAN' && detail.currentAllocationDecisionId && (
+            <>
+              <CommitmentLinkPicker
+                lines={confirmedDecision?.lines ?? []}
+                effectiveAt={detail.periodStart}
+                value={commitmentLinks}
+                onChange={setCommitmentLinks}
+              />
+              <PostingAction onPost={() => ledgerApi.postCharge(chargeId, commitmentLinks)} onCompleted={refresh} />
+            </>
+          )}
+        </div>
       </header>
 
       <Descriptions column={1} bordered size="small">

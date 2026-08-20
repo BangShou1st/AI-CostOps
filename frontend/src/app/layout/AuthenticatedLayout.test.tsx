@@ -229,3 +229,13 @@ describe('AuthenticatedLayout budget navigation', () => {
     expect(screen.getByRole('menuitem', { name: '预算' })).toBeInTheDocument()
   })
 })
+
+describe('AuthenticatedLayout ledger navigation', () => {
+  it('shows the ledger menu item only with LEDGER_READ', () => {
+    renderLayout(['USER_READ'])
+    expect(screen.queryByRole('menuitem', { name: '账本' })).not.toBeInTheDocument()
+
+    renderLayout(['LEDGER_READ', 'USER_READ'])
+    expect(screen.getByRole('menuitem', { name: '账本' })).toBeInTheDocument()
+  })
+})

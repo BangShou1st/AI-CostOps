@@ -140,8 +140,6 @@ SUBMITTED
 
 APPROVED
 → POSTED
-or
-→ VOIDED（Posting 前）
 ```
 
 `POSTED` 为终态。
@@ -269,13 +267,11 @@ close_generation++
 ## 11. CorrectionGroup
 
 ```text
-DRAFT
-→ POSTED
-or
-→ CANCELED
+POSTED
 ```
 
-POSTED Correction 也不可变。
+M5 correction group is created atomically as `POSTED`; there is no mutable draft or
+cancel operation. POSTED Correction 也不可变。
 
 ## 12. 重复 Command 怎么返回
 
@@ -302,3 +298,17 @@ Confirm SUPERSEDED Allocation
 ```
 
 并带 Current State。
+
+## 13. M5 Ledger posting and correction
+
+Provider charge posting requires a `CONFIRMED` allocation and a `CLEAN` source,
+then writes one immutable entry per allocation line. Expense posting requires
+`APPROVED` and transitions the claim to terminal `POSTED` in the same transaction;
+there is no M5 `VOIDED` state. Neither operation requires a budget to exist and
+neither silently posts into a closed period.
+
+Correction is append-only and has no editable lifecycle. The command locks a new
+`OPEN` correction period, writes a `correction_group` with `POSTED` status, then a
+reversal entry (and optional replacement adjustment). The historical target entry
+and its parent posting are never updated. `REVERSAL_ONLY` has no replacement;
+`REPLACE` must use the historical entry currency and a new target dimension.

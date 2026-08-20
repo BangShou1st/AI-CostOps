@@ -317,6 +317,29 @@ Stable Key：
 CHARGE:{chargeFactId}:ALLOCATION:{allocationDecisionId}
 ```
 
+### Committed posting replay fast-path
+
+Provider posting first resolves the current authorization context, requires
+`LEDGER_POST` at ORG scope, validates the request/link shape, loads the charge
+within the current organization, and resolves its current allocation decision.
+It then derives the stable posting key and checks for an existing committed
+posting before loading allocations or entering any mutable eligibility gate.
+
+```text
+Authorization + org identity + request-shape validation
+→ org-scoped source load + current decision resolution
+→ derive stable posting key
+→ existing committed posting: return the persisted posting immediately
+```
+
+`OPEN` period, CLEAN source state, consumable commitments, budget availability,
+and allocation/source revalidation decide whether a new posting may be created;
+they do not invalidate replay of an already committed immutable posting.
+Therefore a CLOSED/CLOSING period blocks only a new posting, not an authorized
+replay of the same committed posting. The in-transaction posting-key check
+remains in place for an early-check miss and concurrent winner/loser
+convergence; the new-posting lock order is unchanged.
+
 事务按稳定顺序：
 
 ```text
@@ -397,6 +420,14 @@ Key：
 ```text
 EXPENSE:{expenseClaimId}
 ```
+
+Expense posting uses the same authorized replay fast-path: after authorization,
+ORG-scoped request-shape validation, expense load, and current allocation
+decision resolution, derive `EXPENSE:{expenseClaimId}` and return an existing
+committed posting before the OPEN-period gate, budget/commitment locks,
+`APPROVED` revalidation, or allocation revalidation. `APPROVED → POSTED` and
+all financial/audit mutations apply only when no committed posting exists.
+The in-transaction existing-key check and concurrent convergence remain.
 
 Posting 与 Claim `APPROVED→POSTED` 同事务。
 
@@ -557,3 +588,28 @@ Conditional Update
 | Duplicate Post | 返回同一 Posting |
 | Budget Race | 只有合法 Commitment Active |
 | Close Race | CLOSING 阻止普通写 |
+
+## M5 Posting / Correction Rules
+
+Posting transactions use the fixed order:
+
+```text
+OPEN BillingPeriod
+→ Budget sorted by id
+→ Commitment sorted by id
+→ Source
+→ Confirmed AllocationDecision
+→ AllocationLine
+```
+
+Provider natural key is `CHARGE:{chargeFactId}:ALLOCATION:{allocationDecisionId}`;
+expense natural key is `EXPENSE:{expenseClaimId}`. The first committed posting
+wins a concurrent race and the loser reads that posting in a fresh transaction.
+Budget absence never blocks posting; selection is exact target first, then ORG,
+and commitment links are optional, one per positive allocation line.
+
+Corrections reserve `Idempotency-Key` with a canonical request hash, lock the
+chosen OPEN correction period by id, and append a REVERSAL entry plus an optional
+REPLACE adjustment. Historical entries and postings are never updated or
+deleted. Deadlock retry is bounded and financial mutations are never retried by
+the browser.

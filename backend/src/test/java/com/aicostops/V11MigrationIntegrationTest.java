@@ -20,7 +20,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * identity and money guards (negative actual allowed, negative total /
  * committed rejected), commitment statuses and amount guards, and the
  * append-only usage lineage with a stable (org, commitment, ledger entry)
- * uniqueness but no FK to the not-yet-existing {@code ledger_entry} table.
+ * uniqueness. M5 adds the same-organization FK from usage lineage to the
+ * immutable {@code ledger_entry} table, so the current-schema contract also
+ * verifies that link and supplies real ledger parents for lineage fixtures.
  */
 @SpringBootTest
 @Tag("integration")
@@ -262,6 +264,9 @@ class V11MigrationIntegrationTest extends MySqlContainerSupport {
         var commitmentId = insertCommitment(orgId, budgetId, "ACTIVE",
                 "100.00000000", "100.00000000", "100.00000000");
 
+        for (var ledgerEntryId : List.of(9001L, 9002L, 9003L, 9004L)) {
+            insertLedgerEntry(orgId, periodId, ledgerEntryId);
+        }
         insertUsage(orgId, commitmentId, 9001L, "40.00000000");
         insertUsage(orgId, commitmentId, 9002L, "60.00000000");
         assertThatThrownBy(() -> insertUsage(orgId, commitmentId, 9001L, "1.00000000"))
@@ -289,7 +294,7 @@ class V11MigrationIntegrationTest extends MySqlContainerSupport {
     }
 
     @Test
-    void ledgerEntryIdExistsButHasNoForeignKeyYet() {
+    void ledgerEntryIdIsLinkedToImmutableLedgerAfterM5() {
         var column = jdbc.queryForList("""
                 SELECT COLUMN_NAME, IS_NULLABLE FROM information_schema.columns
                 WHERE table_schema=DATABASE() AND table_name='budget_commitment_usage'
@@ -305,14 +310,7 @@ class V11MigrationIntegrationTest extends MySqlContainerSupport {
                   AND table_name='budget_commitment_usage'
                   AND constraint_type='FOREIGN KEY'
                 """, String.class);
-        for (var constraint : ledgerFks) {
-            var referenced = jdbc.queryForList("""
-                    SELECT DISTINCT REFERENCED_TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE
-                    WHERE constraint_schema=DATABASE() AND constraint_name=?
-                    """, String.class, constraint);
-            assertThat(referenced).as("FK %s must not reference ledger_entry", constraint)
-                    .doesNotContain("ledger_entry");
-        }
+        assertThat(ledgerFks).contains("fk_budget_commitment_usage_ledger_entry");
     }
 
     // -- fixtures -------------------------------------------------------------
@@ -392,5 +390,46 @@ class V11MigrationIntegrationTest extends MySqlContainerSupport {
                 SELECT id FROM budget_commitment_usage
                 WHERE org_id=? AND budget_commitment_id=? AND ledger_entry_id=?
                 """, Long.class, org, commitmentId, ledgerEntryId);
+    }
+
+    private void insertLedgerEntry(long org, long periodId, long ledgerEntryId) {
+        var suffix = org + "-" + ledgerEntryId + "-" + System.nanoTime();
+        var email = "v11-ledger-" + suffix + "@example.com";
+        var code = "V11-LEDGER-" + suffix;
+        jdbc.update("""
+                INSERT INTO app_user(email_normalized,display_name,status,security_version,created_at,updated_at)
+                VALUES (?,?,'ACTIVE',0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, email, "V11 Ledger User");
+        var userId = jdbc.queryForObject(
+                "SELECT id FROM app_user WHERE email_normalized=?", Long.class, email);
+        jdbc.update("""
+                INSERT INTO organization_member(org_id,user_id,status,joined_at)
+                VALUES (?,?,'ACTIVE',UTC_TIMESTAMP(6))
+                """, org, userId);
+        var memberId = jdbc.queryForObject("""
+                SELECT id FROM organization_member WHERE org_id=? AND user_id=?
+                """, Long.class, org, userId);
+        jdbc.update("""
+                INSERT INTO project(org_id,code,name,status,created_at,updated_at)
+                VALUES (?,?,?,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, org, code, "V11 Ledger Target");
+        var projectId = jdbc.queryForObject(
+                "SELECT id FROM project WHERE org_id=? AND code=?", Long.class, org, code);
+        jdbc.update("""
+                INSERT INTO ledger_posting(
+                    org_id,posting_key,source_type,source_id,allocation_decision_id,
+                    billing_period_id,status,posted_by_member_id,posted_at,created_at)
+                VALUES (?,?,'CORRECTION',?,NULL,?,'POSTED',?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, org, "V11_LEDGER_PARENT:" + suffix, ledgerEntryId, periodId, memberId);
+        var postingId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO ledger_entry(
+                    id,org_id,posting_id,entry_index,entry_type,amount,currency,
+                    project_id,cost_center_id,team_id,budget_id,source_charge_fact_id,
+                    source_expense_claim_id,allocation_line_id,correction_group_id,
+                    reverses_entry_id,created_at)
+                VALUES (?, ?, ?, 0, 'COST', '1.00000000', 'CNY', ?, NULL, NULL,
+                        NULL, NULL, NULL, NULL, NULL, NULL, UTC_TIMESTAMP(6))
+                """, ledgerEntryId, org, postingId, projectId);
     }
 }

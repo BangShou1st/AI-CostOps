@@ -28,8 +28,8 @@ const DRAFT: AllocationDecision = {
   createdByMemberId: '3',
   createdAt: '2026-01-05T00:00:00Z',
   lines: [
-    { lineIndex: 0, allocatedAmount: '4.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null },
-    { lineIndex: 1, allocatedAmount: '6.00000000', currency: 'CNY', projectId: null, costCenterId: '6', teamId: null },
+  { id: '501', lineIndex: 0, allocatedAmount: '4.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null },
+  { id: '502', lineIndex: 1, allocatedAmount: '6.00000000', currency: 'CNY', projectId: null, costCenterId: '6', teamId: null },
   ],
 }
 
@@ -39,7 +39,7 @@ const RULE_DRAFT: AllocationDecision = {
   source: 'RULE',
   allocationRule: { id: '41', ruleKey: 'glm-key', version: 1, priority: 10 },
   lines: [
-    { lineIndex: 0, allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null },
+  { id: '503', lineIndex: 0, allocatedAmount: '10.00000000', currency: 'CNY', projectId: '5', costCenterId: null, teamId: null },
   ],
 }
 

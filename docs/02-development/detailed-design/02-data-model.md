@@ -1040,3 +1040,14 @@ Reconciliation
 ```
 
 100k/500k/1m 后通过 EXPLAIN 再优化，不提前堆索引。
+
+## 13. M5 immutable ledger implementation addendum
+
+M5 uses forward-only migrations `V13__m5_immutable_ledger_schema.sql` and
+`V14__m5_expense_posted_state.sql`; V1–V12 remain frozen. The implementation adds
+`ledger_posting`, `ledger_entry`, and `correction_group` with same-organization
+foreign keys, unique `(org_id, posting_key)`, signed `DECIMAL(20,8)` amounts, and
+database checks enforcing one target dimension per entry. `budget_commitment_usage`
+also records the consuming `ledger_entry_id`.
+
+Posting keys are stable natural identities: `CHARGE:{chargeFactId}:ALLOCATION:{allocationDecisionId}` and `EXPENSE:{expenseClaimId}`. Corrections use `CORRECTION:{correctionGroupId}` and an idempotent command reservation. No mapper in the ledger persistence boundary exposes update or delete operations for ledger rows.

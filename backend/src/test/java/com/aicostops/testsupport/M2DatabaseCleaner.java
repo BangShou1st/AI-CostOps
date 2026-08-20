@@ -15,12 +15,20 @@ public final class M2DatabaseCleaner {
     }
 
     public static void clean(JdbcTemplate jdbc) {
+        // M5 immutable history is append-only in production, but test fixtures
+        // must remove its children before allocation/budget source rows.
+        jdbc.update("DELETE FROM budget_commitment_usage");
+        // CorrectionGroup and LedgerEntry have a deliberate circular FK: remove
+        // correction entries first, then their groups, then historical entries.
+        jdbc.update("DELETE FROM ledger_entry WHERE correction_group_id IS NOT NULL");
+        jdbc.update("DELETE FROM correction_group");
+        jdbc.update("DELETE FROM ledger_entry");
+        jdbc.update("DELETE FROM ledger_posting");
         jdbc.update("DELETE FROM duplicate_candidate");
         jdbc.update("DELETE FROM allocation_line");
         // V11 budget/period chain: usage -> commitment -> budget -> period.
         // V12 (AIC-044) added approval_case.budget_commitment_id, so approval
         // cases must be deleted before their referenced commitments.
-        jdbc.update("DELETE FROM budget_commitment_usage");
         // M4 pointers on expense_claim must be cleared before their referenced
         // approval_case / allocation_decision rows are deleted; allocation
         // decisions themselves reference expense_claim (V10 FK), so decisions

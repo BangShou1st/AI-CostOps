@@ -1,5 +1,6 @@
 import {
   AccountBookOutlined,
+  BookOutlined,
   AuditOutlined,
   CloudOutlined,
   DeploymentUnitOutlined,
@@ -37,6 +38,7 @@ export const NAV_ICONS: Record<string, ReactNode> = {
   '/expenses': <FileDoneOutlined />,
   '/budgets': <WalletOutlined />,
   '/expense-reviews': <AuditOutlined />,
+  '/ledger': <BookOutlined />,
   '/settings/users': <UserOutlined />,
   '/settings/roles': <SafetyOutlined />,
   '/settings/projects': <FolderOutlined />,

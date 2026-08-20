@@ -71,6 +71,22 @@ public interface BudgetMapper {
             SELECT
             """ + BUDGET_COLUMNS + """
             FROM budget b
+            WHERE b.org_id=#{organizationId}
+              AND b.billing_period_id=#{billingPeriodId}
+              AND b.scope_type=#{scopeType} AND b.scope_id=#{scopeId}
+              AND b.currency=#{currency}
+            """)
+    Budget selectByIdentity(
+            @Param("organizationId") long organizationId,
+            @Param("billingPeriodId") long billingPeriodId,
+            @Param("scopeType") String scopeType,
+            @Param("scopeId") long scopeId,
+            @Param("currency") String currency);
+
+    @Select("""
+            SELECT
+            """ + BUDGET_COLUMNS + """
+            FROM budget b
             WHERE b.org_id=#{organizationId} AND b.id=#{budgetId}
             FOR UPDATE
             """)
@@ -113,6 +129,18 @@ public interface BudgetMapper {
               AND committed_amount >= #{amount}
             """)
     int decrementCommitted(
+            @Param("organizationId") long organizationId,
+            @Param("budgetId") long budgetId,
+            @Param("amount") BigDecimal amount,
+            @Param("now") Instant now);
+
+    @Update("""
+            UPDATE budget
+            SET actual_amount=actual_amount+#{amount},
+                version=version+1, updated_at=#{now}
+            WHERE id=#{budgetId} AND org_id=#{organizationId} AND status='ACTIVE'
+            """)
+    int incrementActual(
             @Param("organizationId") long organizationId,
             @Param("budgetId") long budgetId,
             @Param("amount") BigDecimal amount,
