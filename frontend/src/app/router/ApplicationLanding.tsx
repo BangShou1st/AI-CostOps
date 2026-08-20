@@ -36,6 +36,12 @@ export function ApplicationLanding() {
   if (hasPermission(permissions, 'LEDGER_READ')) {
     return <Navigate to="/ledger" replace />
   }
+  if (hasPermission(permissions, 'RECONCILIATION_READ')) {
+    return <Navigate to="/reconciliation" replace />
+  }
+  if (hasPermission(permissions, 'PERIOD_READ')) {
+    return <Navigate to="/period-close" replace />
+  }
   const first = SETTINGS_NAV.find((entry) => hasPermission(permissions, entry.readPermission))
   if (!first) return <ForbiddenPage />
   return <Navigate to={first.path} replace />

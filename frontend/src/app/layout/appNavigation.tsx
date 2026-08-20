@@ -14,7 +14,11 @@ export const BUSINESS_NAV: readonly AppNavEntry[] = [
   { path: '/budgets', label: '预算', readPermission: 'BUDGET_READ' },
   { path: '/expense-reviews', label: '报销审核', readPermission: 'EXPENSE_REVIEW' },
   { path: '/ledger', label: '账本', readPermission: 'LEDGER_READ' },
+  { path: '/reconciliation', label: '对账', readPermission: 'RECONCILIATION_READ' },
+  { path: '/period-close', label: '期间结账', readPermission: 'PERIOD_READ' },
 ]
+
+export const FINANCE_NAV_PATHS = ['/budgets', '/ledger', '/reconciliation', '/period-close'] as const
 
 export function visibleBusinessNav(permissions: readonly string[] | undefined): readonly AppNavEntry[] {
   return BUSINESS_NAV.filter((entry) => permissions?.includes(entry.readPermission) ?? false)

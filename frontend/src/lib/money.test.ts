@@ -3,12 +3,19 @@ import {
   addDecimal8,
   compareDecimal8,
   formatDecimal8,
+  formatMoney,
   parseDecimal8,
   subtractDecimal8,
   sumDecimal8,
 } from './money'
 
 describe('decimal8 money helpers', () => {
+  it('formats scale-8 strings with grouping and a currency symbol', () => {
+    expect(formatMoney('1234.56000000', 'USD')).toBe('$1,234.56')
+    expect(formatMoney('-1234.56700000', 'CNY')).toBe('-¥1,234.57')
+    expect(formatMoney('1000000.00000000')).toBe('1,000,000.00')
+  })
+
   it('parses scale-8 strings to bigint minor units', () => {
     expect(parseDecimal8('10.00000000')).toBe(1000000000n)
     expect(parseDecimal8('-1.25000000')).toBe(-125000000n)
