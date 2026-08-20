@@ -1,6 +1,5 @@
 package com.aicostops.ingestion.application;
 
-import com.aicostops.budget.application.BillingPeriodFinancialWriteFence;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.ingestion.application.ImportWorkflowReadModels.ImportSummary;
@@ -35,7 +34,7 @@ public class ImportWorkflowCommandService {
     private final ImportCommandIdempotency idempotency;
     private final ImportWorkflowAuditPort audit;
     private final ImportCommandResponseSerializer responseSerializer;
-    private final BillingPeriodFinancialWriteFence periodFence;
+    private final ImportCloseAdmissionPort closeAdmission;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -47,7 +46,7 @@ public class ImportWorkflowCommandService {
             ImportCommandIdempotency idempotency,
             ImportWorkflowAuditPort audit,
             ImportCommandResponseSerializer responseSerializer,
-            BillingPeriodFinancialWriteFence periodFence,
+            ImportCloseAdmissionPort closeAdmission,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -57,7 +56,7 @@ public class ImportWorkflowCommandService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseSerializer = responseSerializer;
-        this.periodFence = periodFence;
+        this.closeAdmission = closeAdmission;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -78,9 +77,7 @@ public class ImportWorkflowCommandService {
                 return responseSerializer.importDetailFromJson(decision.responseBody());
             }
 
-            // A new successor Attempt can change Close truth and therefore uses
-            // the organization admission lock. Same-key replay above remains legal.
-            periodFence.lockOrganizationAndRequireNoClosingPeriod(context.organizationId());
+            closeAdmission.lockAndRequireNoClosingPeriod(context.organizationId());
             var latest = attemptMapper.findLatestByBatchForUpdate(importId);
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
@@ -105,18 +102,6 @@ public class ImportWorkflowCommandService {
             idempotency.finalize(decision.id(), 200, responseSerializer.importDetailJson(detail));
             return detail;
         }));
-    }
-
-    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
-        for (var attempt = 1; ; attempt++) {
-            try {
-                return operation.get();
-            } catch (DeadlockLoserDataAccessException deadlock) {
-                if (attempt >= DEADLOCK_RETRIES) {
-                    throw deadlock;
-                }
-            }
-        }
     }
 
     public ImportSummary cancel(AuthenticatedUser user, long importId, String idempotencyKey) {
@@ -175,8 +160,8 @@ public class ImportWorkflowCommandService {
                 return responseSerializer.importDetailFromJson(decision.responseBody());
             }
 
-            // Semantic re-confirm of already committed truth stays legal during
-            // CLOSING/CLOSED. Use a non-locking pre-read only for this no-op path.
+            // Semantic re-confirm of already committed truth remains a no-op
+            // replay and therefore does not need a new Close admission gate.
             var preRead = batchMapper.findByIdAndOrganization(importId, context.organizationId());
             var preLatest = attemptMapper.findLatestByBatch(importId);
             if (isSemanticReconfirm(preRead, preLatest)) {
@@ -186,9 +171,7 @@ public class ImportWorkflowCommandService {
                 return replayed;
             }
 
-            // A new READY_FOR_REVIEW -> CONFIRMED transition changes external
-            // financial truth; serialize it with Close before taking Batch locks.
-            periodFence.lockOrganizationAndRequireNoClosingPeriod(context.organizationId());
+            closeAdmission.lockAndRequireNoClosingPeriod(context.organizationId());
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
                 throw notFound();
@@ -286,5 +269,17 @@ public class ImportWorkflowCommandService {
     private static DomainException notFound() {
         return new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                 "Import not found", "The import is not available in the current organization.");
+    }
+
+    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
+        for (var attempt = 1; ; attempt++) {
+            try {
+                return operation.get();
+            } catch (DeadlockLoserDataAccessException deadlock) {
+                if (attempt >= DEADLOCK_RETRIES) {
+                    throw deadlock;
+                }
+            }
+        }
     }
 }
