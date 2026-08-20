@@ -43,17 +43,15 @@
 - Create: `backend/src/test/java/com/aicostops/M6ReconciliationCloseSchemaIntegrationTest.java`
 - Modify: `backend/src/test/java/com/aicostops/testsupport/M2DatabaseCleaner.java`
 
-**Interfaces:**
-- Produces durable tables `reconciliation_run`, `reconciliation_case`, `period_close_run`, `period_close_check` and the indexes/keys consumed by all later tasks.
-- Adds `UNIQUE(id, org_id)` to `provider_account` only if needed as the same-org FK target; does not alter existing provider-account business identity.
+**Contract:** Create `reconciliation_run`, `reconciliation_case`, `period_close_run`, and `period_close_check`; add only the supporting same-org key/indexes required by the approved design.
 
 - [ ] **Step 1: Write the failing MySQL migration test**
 
-Create `M6ReconciliationCloseSchemaIntegrationTest` using the repository's existing Testcontainers/Flyway integration base. Assert all of the following against real MySQL metadata and constraint behavior:
+Create `M6ReconciliationCloseSchemaIntegrationTest` using the repository's existing Testcontainers/Flyway integration base. Assert table existence and real constraint rejection for invalid state/code combinations.
 
 ```java
 @Test
-void v16CreatesFourM6TablesAndCanonicalConstraints() {
+void v16CreatesFourM6TablesAndRejectsUnknownCloseBlocker() {
     assertThat(tableExists("reconciliation_run")).isTrue();
     assertThat(tableExists("reconciliation_case")).isTrue();
     assertThat(tableExists("period_close_run")).isTrue();
@@ -61,94 +59,103 @@ void v16CreatesFourM6TablesAndCanonicalConstraints() {
 
     assertThatThrownBy(() -> jdbc.update("""
         INSERT INTO period_close_check(
-          org_id,period_close_run_id,blocker_code,result,item_count,summary_json,evaluated_at,created_at)
+          org_id,period_close_run_id,blocker_code,result,item_count,
+          summary_json,evaluated_at,created_at)
         VALUES (?,?,?,?,0,JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
         """, orgId, closeRunId, "NOT_A_BLOCKER", "PASS"))
         .isInstanceOf(DataIntegrityViolationException.class);
 }
 ```
 
-Also cover:
+Also prove:
 
 ```text
 ReconciliationRun status CHECK
-ReconciliationCase case_type/status/resolution consistency CHECKs
-PeriodCloseRun status + non-negative generation + positive attempt_no CHECKs
-PeriodCloseCheck canonical blocker/result CHECKs
+ReconciliationCase type/status/resolution consistency CHECKs
+PeriodCloseRun status + non-negative generation + positive attempt_no
+PeriodCloseCheck seven blocker codes + PASS/FAIL/ERROR
 UQ(run, providerAccount, currency)
 UQ(org, period, generation, attempt_no)
 UQ(closeRun, blockerCode)
-same-org period/member/provider/run FKs
-required indexes
+same-org period/member/provider/run foreign keys
+required query indexes
 ```
 
 - [ ] **Step 2: Run the schema test and confirm it fails before V16 exists**
-
-PowerShell:
 
 ```powershell
 cd backend
 .\mvnw.cmd -Dtest=M6ReconciliationCloseSchemaIntegrationTest test
 ```
 
-Expected: FAIL because V16 tables/constraints are absent.
+Expected: FAIL because V16 is absent.
 
-- [ ] **Step 3: Implement V16 with exact frozen states and money precision**
+- [ ] **Step 3: Implement V16 with exact frozen states and precision**
 
-The migration must encode, at minimum:
+`reconciliation_run` must include:
 
 ```sql
-CREATE TABLE reconciliation_run (
-    id BIGINT NOT NULL AUTO_INCREMENT,
-    org_id BIGINT NOT NULL,
-    billing_period_id BIGINT NOT NULL,
-    status VARCHAR(32) NOT NULL,
-    algorithm_version VARCHAR(100) NOT NULL,
-    tolerance_amount DECIMAL(20,8) NOT NULL,
-    basis_hash CHAR(64) NULL,
-    summary_json JSON NOT NULL,
-    created_by_member_id BIGINT NOT NULL,
-    started_at DATETIME(6) NOT NULL,
-    finished_at DATETIME(6) NULL,
-    error_code VARCHAR(100) NULL,
-    error_summary VARCHAR(500) NULL,
-    created_at DATETIME(6) NOT NULL,
-    updated_at DATETIME(6) NOT NULL,
-    PRIMARY KEY (id),
-    CONSTRAINT uq_reconciliation_run_id_org UNIQUE (id, org_id),
-    CONSTRAINT chk_reconciliation_run_status
-      CHECK (status IN ('CREATED','RUNNING','COMPLETED','FAILED')),
-    CONSTRAINT chk_reconciliation_run_tolerance CHECK (tolerance_amount >= 0),
-    CONSTRAINT chk_reconciliation_run_terminal CHECK (
-      (status IN ('CREATED','RUNNING') AND finished_at IS NULL)
-      OR (status='COMPLETED' AND finished_at IS NOT NULL AND basis_hash IS NOT NULL)
-      OR (status='FAILED' AND finished_at IS NOT NULL)
-    )
-);
+id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+org_id BIGINT NOT NULL,
+billing_period_id BIGINT NOT NULL,
+status VARCHAR(32) NOT NULL,
+algorithm_version VARCHAR(100) NOT NULL,
+tolerance_amount DECIMAL(20,8) NOT NULL,
+basis_hash CHAR(64) NULL,
+summary_json JSON NOT NULL,
+created_by_member_id BIGINT NOT NULL,
+started_at DATETIME(6) NOT NULL,
+finished_at DATETIME(6) NULL,
+error_code VARCHAR(100) NULL,
+error_summary VARCHAR(500) NULL,
+created_at DATETIME(6) NOT NULL,
+updated_at DATETIME(6) NOT NULL
 ```
 
-Use analogous explicit CHECK/FK/index definitions for the other three tables. `reconciliation_case.case_type` is exactly:
+with status `CREATED | RUNNING | COMPLETED | FAILED`, non-negative tolerance, same-org FKs, and terminal consistency (`COMPLETED` requires `basis_hash` and `finished_at`; `FAILED` requires `finished_at`).
+
+`reconciliation_case` must use exactly:
 
 ```text
-MISSING_INTERNAL | MISSING_EXTERNAL | AMOUNT_MISMATCH
+case_type: MISSING_INTERNAL | MISSING_EXTERNAL | AMOUNT_MISMATCH
+status: OPEN | INVESTIGATING | RESOLVED
+money: external_amount/internal_amount nullable DECIMAL(20,8), difference_amount DECIMAL(20,8)
+row counts: non-negative BIGINT
+resolution: reason_code/note/actor/time all present iff RESOLVED
 ```
 
-`period_close_check.blocker_code` is exactly the seven codes in the spec; `result` is `PASS | FAIL | ERROR`.
+`period_close_run` must use exactly `CHECKING | BLOCKED | CLOSED | FAILED`, `close_generation >= 0`, `attempt_no > 0`, and unique `(org_id,billing_period_id,close_generation,attempt_no)`.
 
-Add supporting indexes after confirming they do not duplicate existing coverage:
+`period_close_check` must use exactly these blocker codes:
+
+```text
+OPEN_IMPORTS
+UNRESOLVED_DUPLICATES
+UNALLOCATED_CHARGES
+UNPOSTED_APPROVED_EXPENSES
+OPEN_MATERIAL_RECONCILIATION
+PENDING_CORRECTIONS
+LEDGER_INTEGRITY
+```
+
+and result `PASS | FAIL | ERROR` with unique `(period_close_run_id,blocker_code)`.
+
+If `reconciliation_case` uses a same-org composite FK to provider account, add `UNIQUE(id,org_id)` to `provider_account`; do not alter its existing natural uniqueness.
+
+Confirm/add non-duplicate indexes equivalent to:
 
 ```sql
 CREATE INDEX idx_ledger_posting_org_period_id
-    ON ledger_posting(org_id, billing_period_id, id);
+    ON ledger_posting(org_id,billing_period_id,id);
 CREATE INDEX idx_expense_claim_org_status_date_id
-    ON expense_claim(org_id, status, expense_date, id);
+    ON expense_claim(org_id,status,expense_date,id);
 CREATE INDEX idx_import_batch_org_status_period_id
-    ON import_batch(org_id, status, period_start, period_end, id);
+    ON import_batch(org_id,status,period_start,period_end,id);
 ```
 
-- [ ] **Step 4: Update database cleanup order for the four new child/parent tables**
+- [ ] **Step 4: Update database cleanup order**
 
-Delete in FK-safe order before existing finance tables:
+Delete before existing finance parents in this order:
 
 ```text
 period_close_check
@@ -157,7 +164,7 @@ reconciliation_case
 reconciliation_run
 ```
 
-- [ ] **Step 5: Run schema and existing migration regressions**
+- [ ] **Step 5: Run migration regression**
 
 ```powershell
 cd backend
@@ -177,7 +184,7 @@ git commit -m "feat(reconciliation): add M6 close schema"
 
 ---
 
-### Task 2: Add M6 domain types, persistence mappers, permission activation, and architecture boundary
+### Task 2: Add M6 domain types, persistence mappers, permissions, and architecture boundary
 
 **Files:**
 - Create: `backend/src/main/java/com/aicostops/reconciliation/domain/ReconciliationRunStatus.java`
@@ -197,14 +204,9 @@ git commit -m "feat(reconciliation): add M6 close schema"
 - Modify: `backend/src/test/java/com/aicostops/architecture/ModuleDependencyArchitectureTest.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/ReconciliationPersistenceIntegrationTest.java`
 
-**Interfaces:**
-- Produces typed M6 records/enums and mapper operations for Run/Case/CloseRun/Check.
-- Activates six already-seeded M6 permissions at ORG only.
-- Freezes architecture rule: `reconciliation.application` may consume owning-module application/domain seams, never foreign `..infrastructure..`.
+**Contract:** Domain stays immutable/framework-free. Reconciliation application may consume owning-module application/domain seams but not foreign persistence classes.
 
 - [ ] **Step 1: Write failing permission and architecture tests**
-
-Add assertions equivalent to:
 
 ```java
 assertThat(M1AdminPermissionPolicy.applicableScopes("RECONCILIATION_READ"))
@@ -221,17 +223,15 @@ assertThat(M1AdminPermissionPolicy.applicableScopes("PERIOD_REOPEN"))
     .containsExactly(ScopeType.ORG);
 ```
 
-Add an ArchUnit rule:
+Add an ArchUnit rule preventing `com.aicostops.reconciliation.application..` from depending on any of:
 
-```java
-classes().that().resideInAPackage("com.aicostops.reconciliation.application..")
-    .should().onlyDependOnClassesThat().resideOutsideOfPackages(
-        "com.aicostops.ingestion.infrastructure..",
-        "com.aicostops.cost.infrastructure..",
-        "com.aicostops.cost.review.infrastructure..",
-        "com.aicostops.expense.infrastructure..",
-        "com.aicostops.budget.infrastructure..",
-        "com.aicostops.ledger.infrastructure..");
+```text
+com.aicostops.ingestion.infrastructure..
+com.aicostops.cost.infrastructure..
+com.aicostops.cost.review.infrastructure..
+com.aicostops.expense.infrastructure..
+com.aicostops.budget.infrastructure..
+com.aicostops.ledger.infrastructure..
 ```
 
 - [ ] **Step 2: Run targeted tests and confirm failure**
@@ -241,11 +241,7 @@ cd backend
 .\mvnw.cmd -Dtest=M1AdminPermissionPolicyTest,ModuleDependencyArchitectureTest test
 ```
 
-Expected: permission assertions fail because M6 codes are not mapped yet.
-
-- [ ] **Step 3: Add exact domain enums and immutable records**
-
-For example:
+- [ ] **Step 3: Add exact enums/records**
 
 ```java
 public enum CloseBlockerCode {
@@ -259,52 +255,78 @@ public enum CloseBlockerCode {
 }
 ```
 
-Keep domain package framework-free.
+All money fields are `BigDecimal`, all persisted ids are `long`/`Long`, all event timestamps are `Instant`.
 
-- [ ] **Step 4: Add focused mapper methods**
+- [ ] **Step 4: Implement explicit ReconciliationMapper contract**
 
-`ReconciliationMapper` must support:
+The mapper exposes these exact operations (parameter annotations may follow repository style):
 
 ```java
-void insertRun(...);
+int insertRun(long organizationId, long billingPeriodId, String status,
+        String algorithmVersion, BigDecimal toleranceAmount, String summaryJson,
+        long createdByMemberId, Instant startedAt, Instant createdAt, Instant updatedAt);
+long lastInsertId();
 ReconciliationRun selectRunByIdAndOrganization(long organizationId, long runId);
-ReconciliationRun selectLatestRunForPeriod(long organizationId, long billingPeriodId);
 ReconciliationRun selectRunByIdForUpdate(long organizationId, long runId);
-void markRunCompleted(...);
-void markRunFailed(...);
-void insertCase(...);
-ReconciliationCase selectCaseByIdAndOrganization(...);
-ReconciliationCase selectCaseByIdForUpdate(...);
-List<ReconciliationCase> selectCasesByRun(...);
+ReconciliationRun selectLatestRunForPeriod(long organizationId, long billingPeriodId);
+List<ReconciliationRun> selectRunsByPeriod(long organizationId, long billingPeriodId,
+        int size, int offset);
+long countRunsByPeriod(long organizationId, long billingPeriodId);
+int markRunCompleted(long organizationId, long runId, String basisHash,
+        String summaryJson, Instant finishedAt, Instant updatedAt);
+int markRunFailed(long organizationId, long runId, String errorCode,
+        String errorSummary, Instant finishedAt, Instant updatedAt);
+int insertCase(long organizationId, long runId, long providerAccountId, String currency,
+        String caseType, BigDecimal externalAmount, BigDecimal internalAmount,
+        BigDecimal differenceAmount, long externalRowCount, long internalRowCount,
+        Instant createdAt, Instant updatedAt);
+ReconciliationCase selectCaseByIdAndOrganization(long organizationId, long caseId);
+ReconciliationCase selectCaseByIdForUpdate(long organizationId, long caseId);
+List<ReconciliationCase> selectCasesByRun(long organizationId, long runId, int size, int offset);
+long countCasesByRun(long organizationId, long runId);
 long countUnresolvedCases(long organizationId, long runId);
-int transitionCase(...);
+int markInvestigating(long organizationId, long caseId, Instant updatedAt);
+int returnInvestigatingToOpen(long organizationId, long caseId, Instant updatedAt);
+int markResolved(long organizationId, long caseId, String reasonCode,
+        String resolutionNote, long resolvedByMemberId, Instant resolvedAt, Instant updatedAt);
 ```
 
-`PeriodCloseMapper` must support:
+- [ ] **Step 5: Implement explicit PeriodCloseMapper contract**
 
 ```java
-void insertRun(...);
-PeriodCloseRun selectLatestRunForPeriod(...);
-PeriodCloseRun selectCheckingRunForGeneration(...);
-PeriodCloseRun selectLatestSuccessfulRunForGeneration(...);
-PeriodCloseRun selectRunByIdForUpdate(...);
-int nextAttemptNo(...);
-void insertCheck(...);
-List<PeriodCloseCheck> selectChecksByRun(...);
-void markBlocked(...);
-void markFailed(...);
-void markClosed(...);
+int insertRun(long organizationId, long billingPeriodId, long closeGeneration,
+        int attemptNo, String status, Long reconciliationRunId,
+        long startedByMemberId, Instant startedAt, Instant createdAt, Instant updatedAt);
+long lastInsertId();
+PeriodCloseRun selectRunByIdAndOrganization(long organizationId, long runId);
+PeriodCloseRun selectRunByIdForUpdate(long organizationId, long runId);
+PeriodCloseRun selectLatestRunForPeriod(long organizationId, long billingPeriodId);
+List<PeriodCloseRun> selectCheckingRunsForGeneration(
+        long organizationId, long billingPeriodId, long closeGeneration);
+PeriodCloseRun selectLatestSuccessfulRunForGeneration(
+        long organizationId, long billingPeriodId, long closeGeneration);
+int selectNextAttemptNo(long organizationId, long billingPeriodId, long closeGeneration);
+List<PeriodCloseRun> selectRunsByPeriod(long organizationId, long billingPeriodId,
+        int size, int offset);
+long countRunsByPeriod(long organizationId, long billingPeriodId);
+int insertCheck(long organizationId, long closeRunId, String blockerCode,
+        String result, long itemCount, String summaryJson,
+        Instant evaluatedAt, Instant createdAt);
+List<PeriodCloseCheck> selectChecksByRun(long organizationId, long closeRunId);
+int markRunBlocked(long organizationId, long runId, Instant finishedAt, Instant updatedAt);
+int markRunFailed(long organizationId, long runId, String errorCode,
+        String errorSummary, Instant finishedAt, Instant updatedAt);
+int markRunClosed(long organizationId, long runId, long reconciliationRunId,
+        Instant finishedAt, Instant updatedAt);
 ```
 
-All reads are org-scoped; lock methods use `FOR UPDATE` only where state transitions require current reads.
+- [ ] **Step 6: Activate only ORG scope for the six existing seed permissions**
 
-- [ ] **Step 5: Activate only ORG scope for the six M6 permissions**
+Do not alter V3 seed contents.
 
-Add six entries to `M1AdminPermissionPolicy`; do not change V3 role seed.
+- [ ] **Step 7: Write and run persistence integration tests**
 
-- [ ] **Step 6: Write/run persistence integration tests**
-
-Test generated IDs, org-scoped privacy, run/case ordering, `FOR UPDATE` transition behavior, and unique keys against real MySQL.
+Prove generated ids, org privacy, ordering, unique keys, row-lock transitions, and terminal consistency against real MySQL.
 
 ```powershell
 cd backend
@@ -313,7 +335,7 @@ cd backend
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```powershell
 git add backend/src/main/java/com/aicostops/reconciliation `
@@ -326,20 +348,22 @@ git commit -m "feat(reconciliation): establish M6 domain boundaries"
 
 ---
 
-### Task 3: Implement external/internal financial truth ports, tolerance policy, matching, and deterministic basis hash
+### Task 3: Implement external/internal truth, tolerance, matching, and basis hash
 
 **Files:**
 - Create: `backend/src/main/java/com/aicostops/cost/application/ReconciliationExternalTruthPort.java`
 - Create: `backend/src/main/java/com/aicostops/cost/infrastructure/ReconciliationExternalTruthAdapter.java`
 - Create: `backend/src/main/java/com/aicostops/ledger/application/ReconciliationInternalTruthPort.java`
 - Create: `backend/src/main/java/com/aicostops/ledger/infrastructure/ReconciliationInternalTruthAdapter.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationMoney.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationTolerancePolicy.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationMatchEngine.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationTruthHasher.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationReadModels.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/ReconciliationMatchEngineTest.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/ReconciliationTruthIntegrationTest.java`
 
-**Interfaces:**
+**Contracts:**
 
 ```java
 public interface ReconciliationExternalTruthPort {
@@ -361,11 +385,11 @@ public interface ReconciliationInternalTruthPort {
 }
 ```
 
-`ReconciliationMatchEngine` produces a sorted immutable list of rows with explicit presence booleans, counts, amounts, difference, and optional discrepancy type.
+`ReconciliationReadModels.MatchRow` contains providerAccountId, currency, both presence flags/counts/amounts, `difference`, and nullable `ReconciliationCaseType`.
 
-- [ ] **Step 1: Write matching-engine unit tests first**
+- [ ] **Step 1: Write matching-engine tests first**
 
-Cover exact match, tolerance match, missing side, amount mismatch, zero-net-but-present, deterministic sort, and difference sign:
+Cover exact match, within-tolerance match, missing side, mismatch, zero-net-but-present, deterministic ordering, and sign:
 
 ```java
 @Test
@@ -375,25 +399,20 @@ void differenceIsInternalMinusExternal() {
         List.of(internal(7, "USD", 1, "12.00000000")),
         new BigDecimal("0.00000000"));
 
-    assertThat(result.getFirst().difference())
-        .isEqualByComparingTo("2.00000000");
+    assertThat(result.getFirst().difference()).isEqualByComparingTo("2.00000000");
     assertThat(result.getFirst().caseType())
         .isEqualTo(ReconciliationCaseType.AMOUNT_MISMATCH);
 }
 ```
 
-- [ ] **Step 2: Run and confirm unit tests fail**
+- [ ] **Step 2: Run and confirm failure**
 
 ```powershell
 cd backend
 .\mvnw.cmd -Dtest=ReconciliationMatchEngineTest test
 ```
 
-Expected: FAIL because engine/ports do not exist.
-
-- [ ] **Step 3: Implement external truth query with confirmed lineage only**
-
-The MyBatis SQL must derive provider account from ImportBatch lineage and use half-open Charge effective time:
+- [ ] **Step 3: Implement external truth SQL**
 
 ```sql
 SELECT ib.provider_account_id,
@@ -401,25 +420,23 @@ SELECT ib.provider_account_id,
        COUNT(*) AS row_count,
        SUM(cf.amount) AS amount
 FROM charge_fact cf
-JOIN raw_provider_record rpr ON rpr.id = cf.raw_record_id
-JOIN import_attempt ia ON ia.id = rpr.import_attempt_id
-JOIN import_batch ib ON ib.id = ia.import_batch_id
-WHERE cf.org_id = #{organizationId}
-  AND ib.org_id = cf.org_id
-  AND ib.status = 'CONFIRMED'
-  AND ib.confirmed_attempt_id = ia.id
+JOIN raw_provider_record rpr ON rpr.id=cf.raw_record_id
+JOIN import_attempt ia ON ia.id=rpr.import_attempt_id
+JOIN import_batch ib ON ib.id=ia.import_batch_id
+WHERE cf.org_id=#{organizationId}
+  AND ib.org_id=cf.org_id
+  AND ib.status='CONFIRMED'
+  AND ib.confirmed_attempt_id=ia.id
   AND cf.review_status IN ('CLEAN','SUSPECTED_DUPLICATE')
   AND cf.period_start >= #{periodStart}
   AND cf.period_start < #{periodEnd}
-GROUP BY ib.provider_account_id, cf.currency
-ORDER BY ib.provider_account_id, cf.currency
+GROUP BY ib.provider_account_id,cf.currency
+ORDER BY ib.provider_account_id,cf.currency
 ```
 
-Do not join `external_document` for authority.
+Do not use `external_document` as authority.
 
-- [ ] **Step 4: Implement internal truth query including provider-charge correction lineage**
-
-Use the target period on parent posting and source Charge lineage on Entry:
+- [ ] **Step 4: Implement internal truth SQL including correction lineage**
 
 ```sql
 SELECT ib.provider_account_id,
@@ -435,55 +452,35 @@ JOIN import_batch ib ON ib.id=ia.import_batch_id AND ib.org_id=le.org_id
 WHERE le.org_id=#{organizationId}
   AND lp.billing_period_id=#{billingPeriodId}
   AND le.source_charge_fact_id IS NOT NULL
-GROUP BY ib.provider_account_id, le.currency
-ORDER BY ib.provider_account_id, le.currency
+GROUP BY ib.provider_account_id,le.currency
+ORDER BY ib.provider_account_id,le.currency
 ```
 
-Do not filter `lp.source_type='PROVIDER_CHARGE'`, because valid Correction entries preserve `source_charge_fact_id` and must contribute to internal net truth.
+Do not filter parent posting to `PROVIDER_CHARGE`; correction entries with preserved source Charge lineage must contribute.
 
-- [ ] **Step 5: Implement server-owned tolerance and canonical basis hash**
+- [ ] **Step 5: Implement exact money/tolerance policy**
 
-Use an injected property with exact default:
-
-```java
-@Component
-public final class ReconciliationTolerancePolicy {
-    private final BigDecimal amount;
-
-    public ReconciliationTolerancePolicy(
-            @Value("${aicostops.reconciliation.tolerance:0.00000000}") String configured) {
-        this.amount = BudgetDecimal.requireMoney(new BigDecimal(configured));
-        if (amount.signum() < 0) throw new IllegalArgumentException("tolerance must be non-negative");
-    }
-
-    public BigDecimal amount() { return amount; }
-}
-```
-
-If reusing `BudgetDecimal` would create an undesirable reconciliation→budget-domain dependency, implement the same exact DECIMAL(20,8) representability check locally in Reconciliation and cover it by tests; do not silently round.
-
-Hash canonical lines such as:
+`ReconciliationMoney.requireScale8Exact(BigDecimal)` rejects values that cannot be represented exactly at scale 8; it never silently rounds. `ReconciliationTolerancePolicy` reads:
 
 ```text
-M6_PERIOD_PROVIDER_CURRENCY_V1\n
-7|USD|1|3|10.00000000|1|3|10.00000000\n
+aicostops.reconciliation.tolerance
 ```
 
-with SHA-256 UTF-8 in providerAccount/currency order.
+with default `0.00000000`, validates non-negative exact scale-8 money, and exposes `BigDecimal amount()`.
 
-- [ ] **Step 6: Write and run real-MySQL truth integration tests**
+- [ ] **Step 6: Implement deterministic SHA-256 basis hash**
 
-Fixtures must prove:
+Canonical UTF-8 input starts with algorithm version and then one sorted line per `(providerAccount,currency)`. A line contains:
 
 ```text
-only confirmed_attempt_id lineage contributes externally
-EXCLUDED_* does not contribute
-SUSPECTED_DUPLICATE still contributes externally
-period_start half-open boundaries are correct
-expense ledger rows do not contribute internally
-provider correction reversal/adjustment does contribute internally
-zero-net aggregate remains present through rowCount
+providerAccountId|currency|externalPresent|externalRowCount|externalAmount|internalPresent|internalRowCount|internalAmount
 ```
+
+Amounts are exact scale-8 strings; null side amount uses a fixed marker `-`; booleans use `1`/`0`; line separator is `\n`.
+
+- [ ] **Step 7: Write real-MySQL truth integration tests**
+
+Prove confirmed-attempt lineage only, excluded/suspected behavior, half-open boundaries, expense exclusion, provider correction inclusion, and zero-net presence.
 
 ```powershell
 cd backend
@@ -492,7 +489,7 @@ cd backend
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```powershell
 git add backend/src/main/java/com/aicostops/cost/application/ReconciliationExternalTruthPort.java `
@@ -513,7 +510,6 @@ git commit -m "feat(reconciliation): match canonical truth to ledger"
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationAuditPort.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationRunService.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationQueryService.java`
-- Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationReadModels.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/infrastructure/AuditReconciliationAdapter.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/api/ReconciliationController.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/api/ReconciliationRequests.java`
@@ -523,85 +519,71 @@ git commit -m "feat(reconciliation): match canonical truth to ledger"
 - Create: `backend/src/test/java/com/aicostops/reconciliation/ReconciliationRunIntegrationTest.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/M6OpenApiContractTest.java`
 
-**Interfaces:**
+**Contracts:**
 
 ```java
-public ReconciliationRunDetail run(AuthenticatedUser user, long billingPeriodId)
-public PageResponse<ReconciliationRunSummary> list(...)
-public ReconciliationRunDetail get(AuthenticatedUser user, long runId)
+public ReconciliationReadModels.RunDetail run(AuthenticatedUser user, long billingPeriodId);
+public ReconciliationReadModels.RunPage listRuns(
+    AuthenticatedUser user, long billingPeriodId, int page, int size);
+public ReconciliationReadModels.RunDetail getRun(AuthenticatedUser user, long runId);
 ```
 
-`POST /api/v1/reconciliation-runs` body is only `{ "billingPeriodId": "..." }`.
+Add `RunPage(List<RunSummary> content,long totalElements,int page,int size)` to `ReconciliationReadModels` and serialize to the repository's existing pagination response shape.
+
+`POST /api/v1/reconciliation-runs` accepts only:
+
+```json
+{"billingPeriodId":"123"}
+```
 
 - [ ] **Step 1: Write failing API/integration tests**
 
-Prove:
+Prove permission, cross-org 404, OPEN-only start, no caller tolerance/totals, new history per explicit run, completed snapshot fields, case creation, within-tolerance summary-only behavior, FAILED run behavior, JSON-string IDs, and scale-8 money strings.
 
-```text
-RECONCILIATION_RUN ORG required
-foreign period -> 404
-CLOSING/CLOSED period -> 409
-caller cannot submit tolerance/totals
-second explicit run creates new history
-completed run snapshots algorithm/tolerance/basis hash
-one discrepancy -> one persisted Case
-within-tolerance match -> summary only, no Case
-failed evaluation -> FAILED Run, no completed partial Case set
-IDs are JSON strings and money strings are scale-8
-```
-
-- [ ] **Step 2: Run targeted tests and confirm failure**
+- [ ] **Step 2: Run and confirm failure**
 
 ```powershell
 cd backend
 .\mvnw.cmd -Dtest=ReconciliationRunIntegrationTest,M6OpenApiContractTest test
 ```
 
-- [ ] **Step 3: Implement a two-phase synchronous Run lifecycle with consistent snapshot**
+- [ ] **Step 3: Implement synchronous three-phase Run lifecycle**
 
 Phase 1 transaction:
 
 ```text
-fresh/current authorization as required
-org-scoped period lookup/OPEN check
-insert Run RUNNING with current algorithm + tolerance
+fresh authorization context
+require RECONCILIATION_RUN @ ORG
+org-scoped BillingPeriod lookup
+require OPEN
+insert RUNNING with algorithm + tolerance snapshot
 commit
 ```
 
-Snapshot transaction uses `REPEATABLE_READ` for both external/internal aggregate reads and builds immutable in-memory match rows + basis hash.
+Snapshot transaction uses `REPEATABLE_READ` for both truth-port reads and computes immutable MatchRows + basis hash.
 
 Finalize transaction:
 
 ```text
-lock Run FOR UPDATE
+Run FOR UPDATE
 require RUNNING
-insert discrepancy Cases
-mark COMPLETED with basis_hash + summary_json + finished_at
-append secret-free audit
+insert only discrepancy Cases
+mark COMPLETED with basis_hash/summary/finished_at
+append audit
 commit
 ```
 
-On an evaluation exception, finalize the same Run as FAILED in a fresh transaction when possible. Never mark partial cases completed.
+On evaluation exception, mark that Run FAILED in a fresh transaction when possible. Never expose a partial Case set as COMPLETED.
 
-- [ ] **Step 4: Add audit adapter through existing `AuditService.append(...)`**
+- [ ] **Step 4: Implement audit through existing `AuditService.append`**
 
-Use bounded metadata, for example:
+Use event `RECONCILIATION_RUN_COMPLETED` or `RECONCILIATION_RUN_FAILED`, subject `RECONCILIATION_RUN`, and bounded metadata containing period id, algorithm, and counts only.
 
-```java
-audit.append("RECONCILIATION_RUN_COMPLETED", organizationId, actorUserId,
-    "RECONCILIATION_RUN", runId,
-    Map.of("billingPeriodId", billingPeriodId,
-           "caseCount", caseCount,
-           "algorithmVersion", ALGORITHM_VERSION));
-```
+- [ ] **Step 5: Add explicit security matchers and OpenAPI**
 
-Never store raw payload/evidence content.
+Authenticate Run/Case M6 routes explicitly; business permission stays in services.
 
-- [ ] **Step 5: Add explicit SecurityConfiguration matchers and OpenAPI contract**
-
-Add authenticated routes for Run/Case resources now; business permission remains in services.
-
-- [ ] **Step 6: Run Run/OpenAPI/architecture regression**
+- [ ] **Step 6: Run Run/OpenAPI/architecture tests**
 
 ```powershell
 cd backend
@@ -626,39 +608,41 @@ git commit -m "feat(reconciliation): add run workflow and API"
 
 **Files:**
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationCaseService.java`
+- Extend: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationQueryService.java`
 - Extend: `backend/src/main/java/com/aicostops/reconciliation/application/ReconciliationAuditPort.java`
+- Extend: `backend/src/main/java/com/aicostops/reconciliation/infrastructure/AuditReconciliationAdapter.java`
 - Extend: `backend/src/main/java/com/aicostops/reconciliation/api/ReconciliationController.java`
 - Extend: `backend/src/main/java/com/aicostops/reconciliation/api/ReconciliationRequests.java`
 - Extend: `backend/src/main/java/com/aicostops/reconciliation/api/ReconciliationResponses.java`
 - Extend: `docs/02-development/api/openapi.yaml`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/ReconciliationCaseLifecycleIntegrationTest.java`
 
-**Interfaces:**
+**Contracts:**
 
 ```java
-public ReconciliationCaseDetail investigate(AuthenticatedUser user, long caseId)
-public ReconciliationCaseDetail returnOpen(AuthenticatedUser user, long caseId)
-public ReconciliationCaseDetail resolve(
-    AuthenticatedUser user, long caseId, ResolveCaseCommand command)
-
+public ReconciliationReadModels.CaseDetail investigate(AuthenticatedUser user, long caseId);
+public ReconciliationReadModels.CaseDetail returnOpen(AuthenticatedUser user, long caseId);
+public ReconciliationReadModels.CaseDetail resolve(
+    AuthenticatedUser user, long caseId, ResolveCaseCommand command);
+public ReconciliationReadModels.CaseDetail getCase(AuthenticatedUser user, long caseId);
+public ReconciliationReadModels.CasePage listCases(
+    AuthenticatedUser user, long runId, String status, int page, int size);
 public record ResolveCaseCommand(String reasonCode, String resolutionNote) {}
 ```
 
-- [ ] **Step 1: Write lifecycle and invariant tests before implementation**
-
-Test:
+- [ ] **Step 1: Write failing lifecycle/invariant tests**
 
 ```text
 OPEN -> INVESTIGATING
 INVESTIGATING -> OPEN
 INVESTIGATING -> RESOLVED
 OPEN cannot resolve directly
-RESOLVED is terminal
+RESOLVED terminal
 blank reason/note rejected
-stale concurrent transition -> one success, one 409
-cross-org detail/transition -> 404
-missing applicable permission -> 403 before disclosure
-LedgerEntry/LedgerPosting/Budget counters unchanged by resolve
+concurrent stale transition -> one success, one 409
+cross-org -> 404 after applicable permission check
+no permission -> 403 before disclosure
+resolve leaves Ledger/Budget/canonical facts unchanged
 ```
 
 - [ ] **Step 2: Run and confirm failure**
@@ -668,48 +652,41 @@ cd backend
 .\mvnw.cmd -Dtest=ReconciliationCaseLifecycleIntegrationTest test
 ```
 
-- [ ] **Step 3: Implement row-locked state transitions**
+- [ ] **Step 3: Implement row-locked transitions**
 
-Use one transaction per command:
+Each mutation uses fresh auth, `RECONCILIATION_RESOLVE @ ORG`, org-scoped Case `FOR UPDATE`, exact from-state validation, one CAS, audit, and committed readback.
 
-```text
-fresh auth -> require RECONCILIATION_RESOLVE @ ORG
-case org-scoped FOR UPDATE
-validate exact from-state
-CAS update status + resolution fields
-append audit
-read committed detail
-commit
-```
-
-For resolve, persist all resolution fields atomically:
+Resolve writes in the same transaction:
 
 ```text
+status=RESOLVED
 reason_code
 resolution_note
 resolved_by_member_id
 resolved_at
-status=RESOLVED
+updated_at
 ```
 
-- [ ] **Step 4: Add API routes and OpenAPI examples**
+It performs no accounting write.
 
-Routes:
+- [ ] **Step 4: Add routes/OpenAPI**
 
 ```text
+GET  /api/v1/reconciliation-cases
+GET  /api/v1/reconciliation-cases/{caseId}
 POST /api/v1/reconciliation-cases/{caseId}/investigate
 POST /api/v1/reconciliation-cases/{caseId}/return-open
 POST /api/v1/reconciliation-cases/{caseId}/resolve
 ```
 
-- [ ] **Step 5: Run Case + Ledger invariant regression**
+- [ ] **Step 5: Run Case + financial invariant regression**
 
 ```powershell
 cd backend
 .\mvnw.cmd -Dtest=ReconciliationCaseLifecycleIntegrationTest,LedgerFinancialInvariantIntegrationTest,M6OpenApiContractTest test
 ```
 
-Expected: PASS with no financial mutation from Case resolution.
+Expected: PASS.
 
 - [ ] **Step 6: Commit and stop for Sol Checkpoint 1 review**
 
@@ -720,21 +697,21 @@ git add backend/src/main/java/com/aicostops/reconciliation `
 git commit -m "feat(reconciliation): add case resolution lifecycle"
 ```
 
-**Checkpoint 1 evidence before proceeding:**
+Checkpoint evidence:
 
 ```powershell
 cd backend
-.\mvnw.cmd -Dtest='com.aicostops.reconciliation.*' test
+.\mvnw.cmd "-Dtest=com.aicostops.reconciliation.*" test
 .\mvnw.cmd -Dtest=ModuleDependencyArchitectureTest test
 ```
 
-Sol reviews schema, truth semantics, hash/tolerance, case non-mutation, permission/privacy, and architecture boundaries before AIC-057/058 begins.
+Sol reviews schema, truth semantics, tolerance/hash, case non-mutation, permission/privacy, and architecture boundaries before Close Core.
 
 ---
 
 ## Checkpoint 2 — AIC-057～AIC-058 Close Core
 
-### Task 6: Add owner-module Close blocker data ports and real-MySQL invariant snapshots
+### Task 6: Add owner-module Close blocker data ports and integrity snapshots
 
 **Files:**
 - Create: `backend/src/main/java/com/aicostops/ingestion/application/ImportCloseBlockerPort.java`
@@ -751,44 +728,45 @@ Sol reviews schema, truth semantics, hash/tolerance, case non-mutation, permissi
 - Create: `backend/src/main/java/com/aicostops/budget/infrastructure/BudgetIntegrityAdapter.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/CloseBlockerDataPortsIntegrationTest.java`
 
-**Interfaces:**
-
-Each owner module returns bounded facts/counts; it does not return its mapper to Reconciliation. Example:
+**Contracts:** each module returns count + bounded sample ids or typed aggregate snapshots, never its mapper.
 
 ```java
-public interface ExpenseCloseBlockerPort {
-    BlockerItems approvedUnposted(
-        long organizationId, Instant periodStart, Instant periodEnd, int sampleLimit);
-
+public interface ImportCloseBlockerPort {
+    BlockerItems openImports(long organizationId, Instant periodStart, Instant periodEnd,
+        int sampleLimit);
     record BlockerItems(long count, List<Long> sampleIds) {}
 }
 ```
 
-Import port additionally treats unknown/partial period bounds conservatively.
-
-Ledger/Budget integrity ports return typed mismatch counts/sample ids and budget aggregate snapshots needed to compare counters.
-
-- [ ] **Step 1: Write one failing integration test matrix covering all source-port semantics**
-
-Include fixtures for:
-
-```text
-unknown-period PENDING Import -> counted
-FAILED relevant Import -> counted
-CANCELED/CONFIRMED Import -> not counted
-complete non-overlapping Import -> not counted
-OPEN duplicate endpoint in period -> counted
-terminal duplicate -> not counted
-confirmed+CLEAN Charge without confirmed allocation -> counted
-SUSPECTED/EXCLUDED Charge -> not double-counted as unallocated
-APPROVED Expense uses expense_date UTC effective time -> counted
-POSTED Expense -> not counted
-Ledger posting with no entry -> integrity mismatch
-normal entry/allocation mismatch -> integrity mismatch
-correction reversal amount mismatch -> integrity mismatch
-budget.actual drift -> mismatch
-budget.committed drift -> mismatch
+```java
+public interface DuplicateCloseBlockerPort {
+    BlockerItems unresolvedDuplicates(long organizationId, Instant periodStart,
+        Instant periodEnd, int sampleLimit);
+    record BlockerItems(long count, List<Long> sampleCandidateIds) {}
+}
 ```
+
+```java
+public interface AllocationCloseBlockerPort {
+    BlockerItems unallocatedCleanCharges(long organizationId, Instant periodStart,
+        Instant periodEnd, int sampleLimit);
+    record BlockerItems(long count, List<Long> sampleChargeIds) {}
+}
+```
+
+```java
+public interface ExpenseCloseBlockerPort {
+    BlockerItems approvedUnposted(long organizationId, Instant periodStart,
+        Instant periodEnd, int sampleLimit);
+    record BlockerItems(long count, List<Long> sampleExpenseIds) {}
+}
+```
+
+`LedgerIntegrityPort` exposes period-scoped posting/allocation/correction checks plus `Map<Long,BigDecimal> actualByBudget`; `BudgetIntegrityPort` exposes current `actual_amount`, `committed_amount`, and expected outstanding commitment sum per period Budget.
+
+- [ ] **Step 1: Write failing data-port integration matrix**
+
+Prove unknown-period/FAILED imports block, CANCELED/CONFIRMED do not; OPEN duplicate blocks; terminal duplicate does not; CLEAN confirmed unallocated Charge blocks; suspected/excluded are not double-counted; APPROVED Expense uses UTC date semantics; Ledger/Allocation/Correction/Budget counter drift is detectable.
 
 - [ ] **Step 2: Run and confirm failure**
 
@@ -797,23 +775,38 @@ cd backend
 .\mvnw.cmd -Dtest=CloseBlockerDataPortsIntegrationTest test
 ```
 
-- [ ] **Step 3: Implement narrow SQL adapters with bounded samples**
+- [ ] **Step 3: Implement bounded owner queries**
 
-Every port returns full `count` plus at most a fixed sample (for example 20 IDs). Do not serialize provider raw payloads into diagnostics.
+Every count query returns the full count; sample query returns at most 20 ids ordered deterministically. No raw provider payload enters a blocker summary.
 
-For Expense use the same UTC financial-date interpretation as posting. Because `expense_date` is a SQL DATE, the query can compare against UTC-derived `LocalDate` bounds only when the BillingPeriod boundaries are exact UTC dates; otherwise perform the exact `expense_date at 00:00Z` half-open comparison in SQL/application without browser timezone assumptions.
-
-- [ ] **Step 4: Implement Ledger/Budget integrity snapshot calculations without repair**
-
-Budget actual check is exact:
+Import semantics:
 
 ```text
-budget.actual_amount == SUM(ledger_entry.amount WHERE ledger_entry.budget_id = budget.id)
+safe terminal = CONFIRMED or CANCELED
+complete overlapping period bounds = relevant
+missing/partial bounds on nonterminal Batch = conservatively relevant
+complete non-overlap = irrelevant
 ```
 
-Committed check derives the expected outstanding counter from commitment states that currently contribute to `budget.committed_amount`; use the existing commitment status semantics, not a new status list invented in Reconciliation.
+Expense semantics reuse `expense_date at 00:00:00 UTC`, never browser timezone.
 
-- [ ] **Step 5: Run blocker data tests plus existing M5 financial invariants**
+- [ ] **Step 4: Implement exact Ledger/Budget integrity snapshots**
+
+At minimum detect:
+
+```text
+posting with zero entries
+normal Provider/Expense entries not matching confirmed allocation line identity/index/money/currency/target
+posting source_id vs entry source pointer mismatch
+invalid correction reversal/group/target linkage or replacement cardinality
+double reversed historical target
+budget.actual_amount != signed Ledger sum by budget
+budget.committed_amount != outstanding remaining amount of currently contributing commitment states
+```
+
+Do not repair rows.
+
+- [ ] **Step 5: Run data-port + M5 invariants**
 
 ```powershell
 cd backend
@@ -836,87 +829,75 @@ git commit -m "feat(close): expose deterministic blocker facts"
 
 ---
 
-### Task 7: Implement the seven blocker providers, registry, and informational Close readiness
+### Task 7: Implement all seven blocker providers, registry, and readiness preview
 
 **Files:**
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/CloseBlockerContext.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/CloseBlockerProvider.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/CloseBlockerResult.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/CloseBlockerRegistry.java`
-- Create seven providers under: `backend/src/main/java/com/aicostops/reconciliation/application/blockers/`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/blockers/OpenImportsBlockerProvider.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/blockers/UnresolvedDuplicatesBlockerProvider.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/blockers/UnallocatedChargesBlockerProvider.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/blockers/UnpostedApprovedExpensesBlockerProvider.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/blockers/OpenMaterialReconciliationBlockerProvider.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/blockers/PendingCorrectionsBlockerProvider.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/application/blockers/LedgerIntegrityBlockerProvider.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/application/PeriodCloseQueryService.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/api/PeriodCloseController.java`
 - Create: `backend/src/main/java/com/aicostops/reconciliation/api/PeriodCloseResponses.java`
-- Extend: `backend/src/main/java/com/aicostops/iam/infrastructure/SecurityConfiguration.java`
-- Extend: `docs/02-development/api/openapi.yaml`
+- Modify: `backend/src/main/java/com/aicostops/iam/infrastructure/SecurityConfiguration.java`
+- Modify: `docs/02-development/api/openapi.yaml`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/CloseBlockerProviderIntegrationTest.java`
 
-**Interfaces:**
+**Contracts:**
 
 ```java
+public record CloseBlockerContext(
+    long organizationId, long billingPeriodId, Instant periodStart, Instant periodEnd) {}
+
 public interface CloseBlockerProvider {
     CloseBlockerCode code();
     CloseBlockerResult evaluate(CloseBlockerContext context);
 }
 
 public record CloseBlockerResult(
-    CloseBlockerCode code,
-    boolean passed,
-    long itemCount,
-    Map<String, Object> summary) {}
+    CloseBlockerCode code, boolean passed, long itemCount,
+    Map<String,Object> summary) {}
 ```
 
-Registry validates at startup that each canonical enum code has exactly one provider.
+Registry sorts by `CloseBlockerCode.ordinal()` and fails startup if a code is missing or duplicated.
 
-- [ ] **Step 1: Write failing tests asserting the registry has exactly seven unique providers**
+- [ ] **Step 1: Write failing registry/provider tests**
 
 ```java
 assertThat(registry.providers())
     .extracting(CloseBlockerProvider::code)
-    .containsExactlyInAnyOrder(CloseBlockerCode.values());
+    .containsExactly(CloseBlockerCode.values());
 ```
 
-Add PASS/FAIL tests for every provider.
+- [ ] **Step 2: Implement four owner-source blockers and pending-correction not-applicable PASS**
 
-- [ ] **Step 2: Implement five source blockers + explicit pending-correction PASS**
+`PENDING_CORRECTIONS` returns count 0, `passed=true`, and summary `{notApplicable:true, model:"POSTED_ONLY"}`.
 
-`PENDING_CORRECTIONS` returns:
+- [ ] **Step 3: Implement OPEN_MATERIAL_RECONCILIATION freshness**
 
-```java
-return CloseBlockerResult.pass(
-    CloseBlockerCode.PENDING_CORRECTIONS,
-    0,
-    Map.of("notApplicable", true,
-           "reason", "M5 corrections are persisted only as committed POSTED groups"));
-```
+PASS only if latest period Run is COMPLETED, algorithm current, tolerance snapshot equals current server policy, recomputed current basis hash equals stored hash, and unresolved Case count is zero. Never fall back from a newer failed/running/stale Run to an older completed Run.
 
-- [ ] **Step 3: Implement `OPEN_MATERIAL_RECONCILIATION` freshness in exact order**
+- [ ] **Step 4: Implement LEDGER_INTEGRITY provider**
 
-It must require:
+Combine owner snapshots from Task 6. Any frozen mismatch yields FAIL with category counts and at most 20 sample ids per category.
 
-```text
-latest period Run exists and COMPLETED
-algorithm version current
-tolerance snapshot == current policy
-recomputed current basis hash == run basis_hash
-unresolved Case count == 0
-```
-
-Do not fall back to an older Run if the latest is failed/running/stale.
-
-- [ ] **Step 4: Implement `LEDGER_INTEGRITY` by combining owner-port snapshots**
-
-Return FAIL when any frozen integrity invariant mismatches. Keep a bounded summary by category and sample ids.
-
-- [ ] **Step 5: Add informational `close-readiness` endpoint**
+- [ ] **Step 5: Add readiness preview**
 
 ```text
 GET /api/v1/billing-periods/{periodId}/close-readiness
 Permission: PERIOD_READ @ ORG
 ```
 
-It evaluates the seven providers but does not set CLOSING and does not persist authoritative `period_close_check` rows. Response must label it as preview/readiness state.
+Preview evaluates seven providers but never changes period state or persists authoritative CloseChecks.
 
-- [ ] **Step 6: Run blocker/readiness tests**
+- [ ] **Step 6: Run blocker/OpenAPI tests**
 
 ```powershell
 cd backend
@@ -937,7 +918,7 @@ git commit -m "feat(close): evaluate canonical close blockers"
 
 ---
 
-### Task 8: Add the BillingPeriod financial write fence and retrofit known-period finance mutations
+### Task 8: Add BillingPeriod financial write fence and retrofit known-period mutations
 
 **Files:**
 - Create: `backend/src/main/java/com/aicostops/budget/application/BillingPeriodFinancialWriteFence.java`
@@ -951,7 +932,7 @@ git commit -m "feat(close): evaluate canonical close blockers"
 - Create: `backend/src/test/java/com/aicostops/budget/BillingPeriodFinancialWriteFenceIntegrationTest.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/KnownPeriodCloseRaceIntegrationTest.java`
 
-**Interfaces:**
+**Contract:**
 
 ```java
 public interface BillingPeriodFinancialWriteFence {
@@ -962,86 +943,57 @@ public interface BillingPeriodFinancialWriteFence {
 }
 ```
 
-`lockOrganizationAndRequireNoClosingPeriod` is used only for unknown-period/org-level admission paths; known-period finance writes use period-first methods.
+`lockOrganizationAndRequireNoClosingPeriod` executes `organization FOR UPDATE` and then checks current CLOSING periods in the same transaction.
 
-- [ ] **Step 1: Write failing period-fence tests**
+- [ ] **Step 1: Write failing fence tests**
 
-Prove:
+Prove unique OPEN period returns; CLOSING/CLOSED returns existing period-not-open error; missing/ambiguous covering period fails closed; organization admission serializes against a concurrent CLOSING transition.
 
-```text
-unique covering OPEN period locks and returns
-CLOSING/CLOSED -> PERIOD_NOT_OPEN
-missing/ambiguous period -> deterministic conflict
-organization admission waits/serializes and rejects when any period is CLOSING
-```
+- [ ] **Step 2: Implement fence and delegate LedgerBudgetService to it**
 
-- [ ] **Step 2: Implement fence service and make `LedgerBudgetService` delegate to it**
+There must be one canonical period OPEN lock implementation. Preserve M5 posting/correction error behavior and committed replay fast paths.
 
-Do not duplicate two independent OPEN-lock implementations. Preserve existing posting behavior and error contracts.
+- [ ] **Step 3: Retrofit Budget create/update**
 
-- [ ] **Step 3: Retrofit Budget create/update to period-first locking**
-
-Create:
+Create transaction lock order:
 
 ```text
-transaction -> lockOpenById(command.billingPeriodId) -> validate/insert Budget
+BillingPeriod OPEN lock -> scope validation/current reads -> Budget INSERT
 ```
 
-Update:
+Update uses org-scoped Budget pre-read only to derive immutable `billingPeriodId`, then:
 
 ```text
-pre-read org-scoped Budget identity
-transaction -> lockOpenById(preRead.billingPeriodId)
-            -> Budget FOR UPDATE
-            -> revalidate same id/period/version
-            -> update total
+BillingPeriod OPEN lock -> Budget FOR UPDATE -> id/period/version revalidation -> total update
 ```
 
-This fixes the real Budget→Period reverse-order Close race.
+- [ ] **Step 4: Retrofit Commitment request only where currently unfenced**
 
-- [ ] **Step 4: Retrofit Commitment request without changing approve/release semantics**
+After idempotency replay is ruled out, lock the Budget's BillingPeriod OPEN before creating `REQUESTED` commitment lineage. Keep approve/release Period→Budget→Commitment semantics unchanged.
 
-For a new request after idempotency replay is ruled out:
+- [ ] **Step 5: Retrofit Expense approve**
 
-```text
-pre-read budget period
-transaction reserve/replay
--> lockOpenById(budget.billingPeriodId)
--> re-read/validate Budget
--> insert REQUESTED commitment + approval lineage
-```
-
-Approve/Release already use Period→Budget→Commitment; refactor to the shared fence only if behavior remains byte/transaction equivalent.
-
-- [ ] **Step 5: Retrofit Expense approve only**
-
-Pre-read the org-scoped claim to derive:
+Pre-read org-scoped Expense only to derive:
 
 ```java
 Instant effectiveAt = claim.expenseDate().atStartOfDay(ZoneOffset.UTC).toInstant();
 ```
 
-Inside the existing idempotent transaction:
+Inside transaction:
 
 ```text
-reserve/replay first
-replay -> return old response without OPEN gate
-new approve -> lockOpenAt(effectiveAt)
-            -> lock Expense
-            -> verify expenseDate still equals pre-read date
-            -> lock ApprovalCase
-            -> APPROVED transition
+idempotency reserve/replay
+replay -> return old response, no new OPEN gate
+new approve -> period OPEN lock -> Expense FOR UPDATE
+            -> revalidate unchanged expenseDate/version/state
+            -> ApprovalCase FOR UPDATE -> approve
 ```
 
-`requestInfo` and `reject` do not introduce an APPROVED-unposted blocker and need no new period gate.
+Request-info/reject remain allowed because they do not introduce APPROVED-unposted truth.
 
-- [ ] **Step 6: Add real MySQL races for writer-first and Close/CLOSING-first behavior**
+- [ ] **Step 6: Add real-MySQL race tests**
 
-At this stage simulate the CLOSING state with the real period row lock/update; Close coordinator comes later.
-
-Test Budget update, Commitment request, Expense approve, and verify existing Provider/Expense posting, Correction, Commitment approve/release remain period-first and pass their regression suites.
-
-- [ ] **Step 7: Run known-period regression**
+Cover writer-first and CLOSING-first for Budget update, Commitment request, Expense approve, plus regression of Provider/Expense posting, Correction, Commitment approve/release.
 
 ```powershell
 cd backend
@@ -1050,7 +1002,7 @@ cd backend
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```powershell
 git add backend/src/main/java/com/aicostops/budget `
@@ -1063,7 +1015,7 @@ git commit -m "fix(close): fence known-period finance writes"
 
 ---
 
-### Task 9: Fence unknown-period Import and Duplicate truth mutations without breaking replay/cleanup
+### Task 9: Fence unknown-period Import and Duplicate truth changes without breaking replay/cleanup
 
 **Files:**
 - Modify: `backend/src/main/java/com/aicostops/ingestion/application/ProviderImportService.java`
@@ -1072,68 +1024,60 @@ git commit -m "fix(close): fence known-period finance writes"
 - Modify: `backend/src/test/java/com/aicostops/architecture/ModuleDependencyArchitectureTest.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/UnknownPeriodCloseRaceIntegrationTest.java`
 
-**Interfaces:**
-- Consumes `BillingPeriodFinancialWriteFence.lockOrganizationAndRequireNoClosingPeriod` only in workflow services that can introduce/change Close truth.
-- Existing semantic replay paths remain allowed because they create no new truth.
+**Contract:** workflow classes consume `BillingPeriodFinancialWriteFence.lockOrganizationAndRequireNoClosingPeriod`; semantic replay/cleanup that creates no new truth remains allowed.
 
-- [ ] **Step 1: Write failing race/replay tests before edits**
+- [ ] **Step 1: Write failing race/replay tests**
 
-Cover:
+Prove:
 
 ```text
-new Provider Import batch vs CLOSING
-existing identical ImportBatch reuse while CLOSING -> still returns existing batch
-Import retry new successor vs CLOSING -> rejected
-Import retry same successful Idempotency-Key replay while CLOSING -> returns stored success
-Import confirm new transition vs CLOSING -> rejected
-semantic re-confirm of already CONFIRMED same attempt -> succeeds without new truth
-Import cancel during CLOSING -> remains allowed because it only reduces blocker
-Duplicate scan chunk cannot create OPEN candidate after CLOSING wins admission
-Duplicate keep remains allowed during CLOSING because it only reduces blocker
+new Provider Import Batch rejected if Close/CLOSING wins
+existing identical Batch reuse succeeds during CLOSING
+Import retry new successor rejected during CLOSING
+same-key retry replay succeeds during CLOSING
+Import confirm new transition rejected during CLOSING
+semantic re-confirm already CONFIRMED same attempt succeeds
+Import cancel remains allowed during CLOSING
+Duplicate scan cannot persist a new OPEN candidate after Close wins admission
+Duplicate keep remains allowed during CLOSING
 Duplicate exclude is fenced because it changes included external truth
 ```
 
-- [ ] **Step 2: Retrofit ProviderImport creation with post-upload admission recheck**
-
-Do not hold a DB lock while streaming Evidence. Keep storage outside the short DB transaction.
+- [ ] **Step 2: Retrofit ProviderImport after Evidence storage without a long DB lock**
 
 Inside `createOrReuseBatch`:
 
 ```text
-find existing identity
-existing -> reuse immediately
-absent -> lock Organization admission
-       -> recheck identity (concurrent winner convergence)
-       -> require no CLOSING period
+read existing identity
+existing -> reuse
+absent -> Organization admission lock
+       -> re-read identity for concurrent winner
+       -> winner exists: reuse
+       -> otherwise require no CLOSING period
        -> insert Batch + Initial Attempt
 ```
 
-If Evidence was stored but Close wins before Batch admission, leave the immutable Evidence reusable; do not invent a cross-system rollback.
+If immutable Evidence storage finished but Close then rejects new Batch admission, keep Evidence reusable; do not fake a cross-system rollback.
 
 - [ ] **Step 3: Retrofit retry/confirm after idempotency replay decision**
 
-Pattern:
-
 ```text
-reserve idempotency
-same-key replay -> return stored response
-new mutation -> lockOrganizationAndRequireNoClosingPeriod(org)
-             -> continue existing Attempt/Batch locking/state machine
+reserve
+replay -> return stored success
+new state change -> organization admission gate -> existing workflow locks/state machine
 ```
 
-Keep Cancel ungated.
+Cancel stays ungated.
 
-- [ ] **Step 4: Retrofit Duplicate scan/exclude conservatively at organization admission boundary**
+- [ ] **Step 4: Retrofit Duplicate scan/exclude**
 
-Each scan persistence batch acquires the short org admission gate before creating new OPEN candidates. If Close starts between batches, already committed candidates are visible to Close; later candidate creation stops.
+Every scan persistence chunk obtains short org admission before inserting OPEN candidates. `keep` stays allowed. `exclude` obtains org admission because it changes current included external truth.
 
-`keep` can remain legal during CLOSING. `exclude`, which changes current included external truth, requires no CLOSING period before its existing candidate/charge locks.
+- [ ] **Step 5: Narrowly adjust architecture rules**
 
-- [ ] **Step 5: Narrowly update ArchUnit allowed dependencies**
+Permit only these workflow application classes/packages to use `budget.application.BillingPeriodFinancialWriteFence`; canonical cost domain/normalization and ingestion infrastructure remain independent from Budget.
 
-Allow only the workflow application packages/classes that consume `budget.application.BillingPeriodFinancialWriteFence`; do not permit `cost.domain`, canonical normalization, or generic ingestion infrastructure to depend on Budget.
-
-- [ ] **Step 6: Run race plus existing Import/Duplicate concurrency tests**
+- [ ] **Step 6: Run race and regression tests**
 
 ```powershell
 cd backend
@@ -1154,7 +1098,7 @@ git commit -m "fix(close): fence import and duplicate truth changes"
 
 ---
 
-### Task 10: Implement resumable BillingPeriod Close coordinator and persisted seven-check finalization
+### Task 10: Implement resumable Close coordinator and exactly-seven persisted checks
 
 **Files:**
 - Create: `backend/src/main/java/com/aicostops/budget/application/BillingPeriodClosePort.java`
@@ -1169,41 +1113,43 @@ git commit -m "fix(close): fence import and duplicate truth changes"
 - Create: `backend/src/test/java/com/aicostops/reconciliation/PeriodCloseCoordinatorIntegrationTest.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/PeriodCloseConcurrencyIntegrationTest.java`
 
-**Interfaces:**
+**Contract:**
 
 ```java
 public interface BillingPeriodClosePort {
     void lockOrganizationAdmission(long organizationId);
     BillingPeriod lockPeriod(long organizationId, long periodId);
-    void markClosing(long organizationId, long periodId, long expectedVersion, Instant now);
-    void returnOpen(long organizationId, long periodId, long expectedVersion, Instant now);
-    void markClosed(long organizationId, long periodId, long expectedVersion, Instant now);
-    void reopen(long organizationId, long periodId, long expectedVersion, Instant now);
+    BillingPeriod markClosing(long organizationId, long periodId,
+        long expectedVersion, Instant now);
+    BillingPeriod returnOpen(long organizationId, long periodId,
+        long expectedVersion, Instant now);
+    BillingPeriod markClosed(long organizationId, long periodId,
+        long expectedVersion, Instant now);
+    BillingPeriod reopen(long organizationId, long periodId,
+        long expectedVersion, Instant now);
 }
 ```
 
-`PeriodCloseService.close(user, periodId)` owns begin/resume → evaluate → finalize orchestration.
+`PeriodCloseService.close(AuthenticatedUser,long)` owns begin/resume, seven-provider evaluation, and finalization.
 
-- [ ] **Step 1: Write the Close state-machine tests first**
-
-Test:
+- [ ] **Step 1: Write state-machine/crash tests first**
 
 ```text
 OPEN -> CLOSING -> CLOSED
 one FAIL -> CloseRun BLOCKED + period OPEN
 one ERROR -> CloseRun FAILED + period OPEN
-finalized attempt has exactly 7 Check rows
+finalized attempt has exactly seven Check rows
 blocked retry same generation increments attempt_no
-hard-crash simulation after begin leaves CLOSING+CHECKING; next close resumes same run
-CLOSED retry returns current successful result with no second run/audit
-ambiguous CLOSING without exactly one CHECKING run -> 409/integrity conflict
+simulated stop after begin leaves CLOSING+CHECKING; next close resumes same run
+CLOSED response-loss retry returns current successful result without extra run/audit
+CLOSING with zero/multiple CHECKING runs -> deterministic conflict
 ```
 
-Provide a package-private/test seam that executes `beginOrResume` separately from `evaluateAndFinalize`; do not add a production-only debug endpoint.
+Expose package-private begin/finalize seams for tests; no debug HTTP endpoint.
 
-- [ ] **Step 2: Implement Budget-owned period CAS mutations**
+- [ ] **Step 2: Implement Budget-owned CAS transitions**
 
-Under row lock, updates still require expected status/version in SQL. Example:
+Use expected status + version even under row lock. For example:
 
 ```sql
 UPDATE billing_period
@@ -1213,70 +1159,60 @@ WHERE id=#{periodId} AND org_id=#{organizationId}
   AND status='OPEN' AND version=#{expectedVersion}
 ```
 
-Analogous exact transitions:
-
-```text
-CLOSING -> OPEN: closing_started_at=NULL, version+1
-CLOSING -> CLOSED: closed_at=now, version+1
-CLOSED -> OPEN (Task 11): generation+1, reopened_at=now, version+1
-```
+CLOSING→OPEN clears `closing_started_at`; CLOSING→CLOSED sets `closed_at`; each increments version exactly once.
 
 - [ ] **Step 3: Implement begin/resume transaction with global lock order**
 
 ```text
-fresh auth + PERIOD_CLOSE ORG
-Organization row FOR UPDATE
+fresh auth + PERIOD_CLOSE @ ORG
+Organization FOR UPDATE
 BillingPeriod FOR UPDATE
-CLOSED -> return existing successful run
-CLOSING -> find exactly one CHECKING run current generation and resume
-OPEN -> insert CHECKING run with next attempt_no; mark CLOSING; audit start; commit
+CLOSED -> return current generation successful CloseRun
+CLOSING -> require exactly one current-generation CHECKING run and resume it
+OPEN -> next attempt_no -> insert CHECKING -> mark CLOSING -> audit start -> commit
 ```
 
 - [ ] **Step 4: Evaluate all seven providers independently**
 
-Catch provider exceptions into `ERROR` results so final diagnostics still contain all seven codes. Do not persist partial authoritative Check rows before finalization.
+Convert provider exceptions to `ERROR` evaluation results so diagnostics still contain all seven codes. Do not persist authoritative partial checks before finalization.
 
-- [ ] **Step 5: Finalize in one transaction**
+- [ ] **Step 5: Finalize atomically**
 
 ```text
-lock period + close run
-revalidate CLOSING/CHECKING/generation
-insert exactly 7 unique checks
-if any ERROR -> run FAILED + period OPEN
-else if any FAIL -> run BLOCKED + period OPEN
+BillingPeriod FOR UPDATE
+CloseRun FOR UPDATE
+require CLOSING/CHECKING/current generation
+validate exactly seven unique in-memory results
+insert seven Check rows
+any ERROR -> run FAILED + period OPEN
+else any FAIL -> run BLOCKED + period OPEN
 else -> run CLOSED + period CLOSED
-append exactly one terminal audit
+append one terminal audit
 commit
 ```
 
-Before terminal transition assert programmatically:
+Validation:
 
 ```java
 if (results.size() != CloseBlockerCode.values().length
-        || results.stream().map(CloseBlockerResult::code).distinct().count() != 7) {
+        || results.stream().map(CloseBlockerResult::code).distinct().count()
+            != CloseBlockerCode.values().length) {
     throw new IllegalStateException("A finalized Close must contain exactly seven blocker results");
 }
 ```
 
-- [ ] **Step 6: Add Close route and API contract**
+- [ ] **Step 6: Add Close API**
 
 ```text
 POST /api/v1/billing-periods/{periodId}/close
 Permission: PERIOD_CLOSE @ ORG
 ```
 
-Response includes period status, generation, CloseRun status/attempt, and seven checks. BLOCKED is not serialized as BillingPeriod status.
+Response includes BillingPeriod status/generation plus CloseRun attempt/status/checks. `BLOCKED` never appears as period status.
 
 - [ ] **Step 7: Prove real row-lock races**
 
-Use two executors/latches with real MySQL to prove both orders for at least Provider posting and one newly retrofitted writer:
-
-```text
-writer wins period/admission lock -> Close waits and sees committed result
-Close wins -> writer sees CLOSING and cannot create new truth
-```
-
-Also prove committed posting replay in CLOSED still returns prior posting.
+Use two executors/latches with real MySQL for Provider posting and at least one newly retrofitted writer. Prove writer-first makes Close observe committed truth; Close-first makes new write fail after seeing CLOSING. Also prove committed posting replay still succeeds after CLOSED.
 
 - [ ] **Step 8: Run Close core tests**
 
@@ -1299,73 +1235,57 @@ git commit -m "feat(close): coordinate resumable billing period close"
 
 ---
 
-### Task 11: Implement privileged Reopen, generation semantics, close-history reads, and authorization matrix
+### Task 11: Implement Reopen, generation semantics, history reads, and authorization matrix
 
 **Files:**
 - Extend: `backend/src/main/java/com/aicostops/reconciliation/application/PeriodCloseService.java`
 - Extend: `backend/src/main/java/com/aicostops/reconciliation/application/PeriodCloseQueryService.java`
 - Extend: `backend/src/main/java/com/aicostops/reconciliation/api/PeriodCloseController.java`
-- Create/extend: `backend/src/main/java/com/aicostops/reconciliation/api/PeriodCloseRequests.java`
+- Create: `backend/src/main/java/com/aicostops/reconciliation/api/PeriodCloseRequests.java`
 - Extend: `backend/src/main/java/com/aicostops/reconciliation/api/PeriodCloseResponses.java`
 - Extend: `docs/02-development/api/openapi.yaml`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/PeriodReopenIntegrationTest.java`
 - Create: `backend/src/test/java/com/aicostops/reconciliation/M6AuthorizationIntegrationTest.java`
 
-**Interfaces:**
+**Contracts:**
 
 ```java
 public record ReopenPeriodCommand(String reasonCode, String reasonNote) {}
-public PeriodCloseView reopen(AuthenticatedUser user, long periodId, ReopenPeriodCommand command)
+public PeriodCloseView reopen(
+    AuthenticatedUser user, long periodId, ReopenPeriodCommand command);
 ```
 
-Read APIs:
-
 ```text
-GET /api/v1/billing-periods/{periodId}/close-runs
-GET /api/v1/billing-periods/{periodId}/close-runs/{runId}
+GET  /api/v1/billing-periods/{periodId}/close-runs
+GET  /api/v1/billing-periods/{periodId}/close-runs/{runId}
 POST /api/v1/billing-periods/{periodId}/reopen
 ```
 
-- [ ] **Step 1: Write failing Reopen/generation tests**
+- [ ] **Step 1: Write Reopen/generation tests first**
 
-Prove:
+Prove CLOSED-only transition; mandatory reason code/nonblank note; current-generation successful CloseRun required; generation increments once; reopened_at set; closing_started_at cleared; closed_at retained; old close/reconciliation/ledger history unchanged; repeat while OPEN returns 409; next generation starts Close attempt 1.
 
-```text
-CLOSED -> OPEN only
-reasonCode required
-reasonNote nonblank required
-latest successful CloseRun must match current generation
-close_generation increments exactly once
-reopened_at set, closing_started_at NULL
-closed_at retained until next successful close
-old close runs/checks/reconciliation/ledger rows unchanged
-reopen when already OPEN -> 409 and no generation increment
-next close after reopen uses new generation + attempt_no=1
-```
-
-- [ ] **Step 2: Implement Reopen under BillingPeriod lock**
+- [ ] **Step 2: Implement Reopen under period row lock**
 
 ```text
-fresh auth -> PERIOD_REOPEN ORG
+fresh auth -> PERIOD_REOPEN @ ORG
 BillingPeriod FOR UPDATE
 require CLOSED
-require latest successful CloseRun current generation
-validate reason fields
-Budget close port CLOSED -> OPEN CAS with generation+1
-append PERIOD_REOPENED audit containing old/new generation + reasonCode
+require latest successful CloseRun for current generation
+validate reason
+CLOSED -> OPEN CAS with close_generation+1
+append PERIOD_REOPENED audit with old/new generation + reasonCode
 commit
 ```
 
-Do not put arbitrary long reason note into audit metadata if it exceeds the repository's bounded audit policy; persist user explanation in the command audit representation only as allowed by the existing secret-free convention.
+Persist the user explanation in the approved command/audit representation without copying secrets or unbounded payloads into metadata.
 
-- [ ] **Step 3: Add FINANCE_REVIEWER / FINANCE_ADMIN / SYSTEM_ADMIN authorization matrix**
-
-Integration fixtures must prove:
+- [ ] **Step 3: Prove finance authorization matrix**
 
 ```text
-FINANCE_REVIEWER: reconciliation read/run/resolve + period read; no close/reopen
-FINANCE_ADMIN: close/reopen allowed
-SYSTEM_ADMIN: no implicit finance access
+FINANCE_REVIEWER: reconciliation read/run/resolve + PERIOD_READ; no Close/Reopen
+FINANCE_ADMIN: Close/Reopen allowed
+SYSTEM_ADMIN-only: no implicit finance capability
 ```
 
 - [ ] **Step 4: Run Reopen/security/OpenAPI tests**
@@ -1377,7 +1297,7 @@ cd backend
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit and stop for Sol Checkpoint 2 review**
+- [ ] **Step 5: Commit and stop for Sol Checkpoint 2**
 
 ```powershell
 git add backend/src/main/java/com/aicostops/reconciliation `
@@ -1386,65 +1306,58 @@ git add backend/src/main/java/com/aicostops/reconciliation `
 git commit -m "feat(close): add privileged period reopen"
 ```
 
-**Checkpoint 2 evidence before frontend:**
+Checkpoint evidence:
 
 ```powershell
 cd backend
 .\mvnw.cmd test
 ```
 
-Sol reviews all write-fence races, exactly-seven finalization, crash/resume, generation semantics, replay exceptions, ledger/budget integrity, and finance authorization before AIC-059 begins.
+Sol reviews write-fence races, exactly-seven finalization, crash/resume, replay exceptions, generation/history, ledger/budget integrity, authorization/privacy, and API contract before frontend work.
 
 ---
 
 ## Checkpoint 3 — AIC-059 Frontend / UAT
 
-### Task 12: Build typed M6 React APIs, navigation, Reconciliation workflow, and Period Close workflow
+### Task 12: Build typed React Reconciliation and Period Close workflows
 
 **Files:**
 - Create: `frontend/src/features/reconciliation/api/reconciliationApi.ts`
+- Create: `frontend/src/features/reconciliation/api/reconciliationApi.test.ts`
 - Create: `frontend/src/features/reconciliation/presentation.ts`
 - Create: `frontend/src/features/reconciliation/ReconciliationRunsPage.tsx`
+- Create: `frontend/src/features/reconciliation/ReconciliationRunsPage.test.tsx`
 - Create: `frontend/src/features/reconciliation/ReconciliationRunDetailPage.tsx`
+- Create: `frontend/src/features/reconciliation/ReconciliationRunDetailPage.test.tsx`
 - Create: `frontend/src/features/reconciliation/ReconciliationCaseDetailPage.tsx`
+- Create: `frontend/src/features/reconciliation/ReconciliationCaseDetailPage.test.tsx`
 - Create: `frontend/src/features/period-close/api/periodCloseApi.ts`
+- Create: `frontend/src/features/period-close/api/periodCloseApi.test.ts`
 - Create: `frontend/src/features/period-close/presentation.ts`
 - Create: `frontend/src/features/period-close/PeriodClosePage.tsx`
-- Create corresponding `*.test.tsx`/API tests for the new pages.
+- Create: `frontend/src/features/period-close/PeriodClosePage.test.tsx`
 - Modify: `frontend/src/features/imports/api/importTypes.ts`
 - Modify: `frontend/src/app/router/AppRouter.tsx`
 - Modify: `frontend/src/app/layout/appNavigation.tsx`
 - Modify: `frontend/src/app/layout/appNavigation.test.tsx`
 - Modify: `frontend/src/app/layout/AuthenticatedLayout.tsx`
 - Modify: `frontend/src/app/layout/AuthenticatedLayout.test.tsx`
-- Modify: `frontend/src/styles.css` only for M6 layout styles that cannot be expressed by existing component classes.
+- Modify: `frontend/src/styles.css` only if existing layout utilities cannot express the M6 screens.
 
-**Interfaces:**
-
-Frontend IDs/money remain strings. Example API types:
+**Contracts:** frontend ids/money are strings.
 
 ```ts
 export type ReconciliationRunStatus = 'CREATED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
 export type ReconciliationCaseStatus = 'OPEN' | 'INVESTIGATING' | 'RESOLVED'
 export type ReconciliationCaseType = 'MISSING_INTERNAL' | 'MISSING_EXTERNAL' | 'AMOUNT_MISMATCH'
-export type PeriodStatus = 'OPEN' | 'CLOSING' | 'CLOSED'
+export type BillingPeriodStatus = 'OPEN' | 'CLOSING' | 'CLOSED'
 export type PeriodCloseRunStatus = 'CHECKING' | 'BLOCKED' | 'CLOSED' | 'FAILED'
 export type CloseCheckResult = 'PASS' | 'FAIL' | 'ERROR'
 ```
 
-- [ ] **Step 1: Write frontend type/API tests first**
+- [ ] **Step 1: Write API/type tests first**
 
-Assert:
-
-```text
-all ids remain strings
-money/difference/tolerance remain strings
-close check enum includes PASS/FAIL/ERROR
-ImportBatchStatus now includes READY_FOR_REVIEW and CONFIRMED
-API requests never send caller tolerance/totals/basis hash
-```
-
-Update Import union exactly:
+Assert ids remain strings, money/tolerance/difference remain strings, caller never sends tolerance/totals/hash, and Import status union is exactly:
 
 ```ts
 export type ImportBatchStatus =
@@ -1457,78 +1370,32 @@ export type ImportBatchStatus =
   | 'CANCELED'
 ```
 
-- [ ] **Step 2: Add permission-aware routes and navigation with icons**
-
-Add business navigation:
+- [ ] **Step 2: Add navigation/routes/icons**
 
 ```text
-/reconciliation -> 对账        requires RECONCILIATION_READ
-/period-close   -> 账期结算     requires PERIOD_READ
+/reconciliation -> 对账 -> RECONCILIATION_READ
+/period-close -> 账期结算 -> PERIOD_READ
 ```
 
-Add actual `NAV_ICONS` entries so desktop/mobile/collapsed layouts never render blank icon slots.
+Add actual Ant Design icons to `NAV_ICONS` for both paths so desktop/mobile/collapsed sidebar never has a blank icon slot.
 
-Router must protect nested mutation views using backend permissions for button visibility, while backend remains authoritative.
+- [ ] **Step 3: Build Reconciliation pages**
 
-- [ ] **Step 3: Build Reconciliation list/detail/case flows**
+List/history by period, explicit Run action, Run detail summary, Case filters/detail/actions. Render backend-provided external/internal/difference values only. Resolve sends only `reasonCode` and `resolutionNote`.
 
-Use TanStack Query keys scoped by period/run/case. UI displays backend values only:
-
-```text
-Run status / algorithm / tolerance / counts
-provider + currency
-external / internal / difference
-Case type/status
-investigate / return-open / resolve actions
-```
-
-Resolve modal requires Chinese reason/note copy and sends only reasonCode/resolutionNote.
-
-Use `formatMoney(...)` or the existing money helper on decimal strings; never `Number(amount)` for accounting.
+Use `frontend/src/lib/money.ts`; never use `Number(amount)` for authoritative arithmetic.
 
 - [ ] **Step 4: Build Period Close page**
 
-Show:
+Show period status, generation, readiness preview, seven blockers, latest Close attempt, history, Close control, and CLOSED-only Reopen control. Render `BLOCKED` as `本次结算被阻断`, not as BillingPeriod status; render `FAILED` separately as technical failure.
 
-```text
-BillingPeriod OPEN/CLOSING/CLOSED
-close generation
-readiness preview
-exactly seven blocker cards/rows
-latest CloseRun status + attempt
-history by generation/attempt
-Close action for PERIOD_CLOSE
-Reopen action for PERIOD_REOPEN and CLOSED only
-```
+- [ ] **Step 5: Reuse shared time/date helpers**
 
-Render `BLOCKED` as `本次结算被阻断`, not a BillingPeriod status. Render `FAILED` separately as technical failure.
+Use `formatBusinessDate`, `formatBusinessDateRange`, and `formatEventDateTime` from `frontend/src/lib/dateTime.ts`; do not create another Intl formatter in M6. Business DATE fields remain date-only.
 
-- [ ] **Step 5: Reuse shared date/time behavior**
+- [ ] **Step 6: Add TanStack Query invalidation**
 
-Use:
-
-```ts
-formatBusinessDate(...)
-formatBusinessDateRange(...)
-formatEventDateTime(...)
-```
-
-from `frontend/src/lib/dateTime.ts`. Do not duplicate `Intl.DateTimeFormat` inside M6 pages. Expense business dates stay date-only.
-
-- [ ] **Step 6: Add query invalidation after every mutation**
-
-After Run/Case/Close/Reopen success invalidate the affected:
-
-```text
-reconciliation-runs
-reconciliation-run detail
-reconciliation-cases
-billing-periods
-close-readiness
-close-runs
-```
-
-so stale status does not survive navigation.
+After Run/Case/Close/Reopen mutation, invalidate affected Run/Case/BillingPeriod/readiness/CloseRun keys so stale finance state cannot remain onscreen.
 
 - [ ] **Step 7: Run targeted frontend tests**
 
@@ -1539,7 +1406,7 @@ npm test -- --run src/features/reconciliation src/features/period-close src/app/
 
 Expected: PASS.
 
-- [ ] **Step 8: Run frontend quality gates**
+- [ ] **Step 8: Run frontend gates**
 
 ```powershell
 cd frontend
@@ -1548,7 +1415,7 @@ npm test -- --run
 npm run build
 ```
 
-Expected: all PASS.
+Expected: PASS.
 
 - [ ] **Step 9: Commit**
 
@@ -1559,28 +1426,25 @@ git commit -m "feat(frontend): add reconciliation and period close workflow"
 
 ---
 
-### Task 13: Run full M6 regression, browser UAT, acceptance evidence, and final PR preparation
+### Task 13: Full regression, browser UAT, acceptance evidence, and final PR readiness
 
 **Files:**
 - Create: `docs/03-acceptance/implementation/16-m6-reconciliation-close-evidence.md`
-- Modify only if test evidence proves drift: `docs/02-development/detailed-design/02-data-model.md`
-- Modify only if test evidence proves drift: `docs/02-development/detailed-design/03-state-machines.md`
-- Modify only if test evidence proves drift: `docs/02-development/detailed-design/04-transactions-idempotency-concurrency.md`
-- Modify only if test evidence proves drift: `docs/02-development/detailed-design/06-permission-matrix.md`
+- Modify if implementation proves pre-M6 drift: `docs/02-development/detailed-design/02-data-model.md`
+- Modify if implementation proves pre-M6 drift: `docs/02-development/detailed-design/03-state-machines.md`
+- Modify if implementation proves pre-M6 drift: `docs/02-development/detailed-design/04-transactions-idempotency-concurrency.md`
+- Modify if implementation proves pre-M6 drift: `docs/02-development/detailed-design/06-permission-matrix.md`
 
-**Interfaces:**
-- Produces reviewable evidence for Issue #89 and the one final squash PR; no new business behavior is introduced here.
-
-- [ ] **Step 1: Run complete backend tests from a clean branch state**
+- [ ] **Step 1: Run complete backend suite**
 
 ```powershell
 cd backend
 .\mvnw.cmd test
 ```
 
-Expected: all unit, integration, architecture, migration and OpenAPI tests PASS.
+Expected: all unit/integration/architecture/migration/OpenAPI tests PASS.
 
-- [ ] **Step 2: Run complete frontend quality gates**
+- [ ] **Step 2: Run complete frontend gates**
 
 ```powershell
 cd ..\frontend
@@ -1590,11 +1454,9 @@ npm test -- --run
 npm run build
 ```
 
-Expected: all PASS.
+Expected: PASS.
 
 - [ ] **Step 3: Run Compose smoke**
-
-From repository root with the established development env:
 
 ```powershell
 cd ..
@@ -1603,47 +1465,35 @@ docker compose up -d
 docker compose ps
 ```
 
-Expected: MySQL/Redis/MinIO/backend/frontend are healthy/running according to existing compose health contracts.
+Expected: infrastructure/backend/frontend match existing healthy/running contracts.
 
-- [ ] **Step 4: Execute browser UAT on desktop/tablet/mobile layouts**
+- [ ] **Step 4: Execute desktop/tablet/mobile browser UAT**
 
-Use real finance-role accounts and verify these business paths:
-
-```text
-1. Run reconciliation on an OPEN period with an exact match.
-2. Create a material mismatch, inspect Case, investigate, resolve with reason/note.
-3. Confirm resolving Case alone does not change Ledger totals.
-4. Preview Close readiness and see all seven blocker codes.
-5. Demonstrate OPEN_IMPORTS / UNRESOLVED_DUPLICATES / UNALLOCATED_CHARGES /
-   UNPOSTED_APPROVED_EXPENSES each links the operator to the owning workflow.
-6. Close clean period: OPEN -> CLOSED, all seven checks PASS.
-7. Blocked Close returns period to OPEN and history shows BLOCKED attempt.
-8. Reopen CLOSED period with reason; generation increments; old close history remains.
-9. Verify FINANCE_REVIEWER cannot Close/Reopen; FINANCE_ADMIN can.
-10. Verify SYSTEM_ADMIN-only account has no finance actions.
-11. Verify all M6 visible copy is Chinese, sidebar icons exist in all layouts,
-    event times use shared formatter, business dates do not shift.
-```
-
-- [ ] **Step 5: Record exact evidence, not assertions without output**
-
-Acceptance doc includes:
+Verify:
 
 ```text
-branch + head SHA
-schema migration version
-backend command + PASS summary
-frontend lint/test/build summaries
-Compose service state
-browser UAT matrix and screenshots/reference notes as appropriate
-known non-goals / no deferred blocker
+1. Exact-match reconciliation completes without Case.
+2. Material mismatch creates Case; investigate/resolve records reason/note.
+3. Resolving Case alone leaves Ledger totals unchanged.
+4. Readiness shows all seven blocker codes.
+5. OPEN_IMPORTS / UNRESOLVED_DUPLICATES / UNALLOCATED_CHARGES /
+   UNPOSTED_APPROVED_EXPENSES expose useful owning-workflow context.
+6. Clean Close transitions OPEN -> CLOSED with seven PASS checks.
+7. Blocked Close returns period to OPEN and history records BLOCKED.
+8. Reopen increments generation and preserves old history.
+9. FINANCE_REVIEWER cannot Close/Reopen; FINANCE_ADMIN can.
+10. SYSTEM_ADMIN-only account has no implicit finance action.
+11. M6 visible copy is Chinese; both new nav items have icons on all layouts.
+12. Event timestamps use the shared formatter; business dates do not shift.
 ```
 
-Do not claim full pass until the commands in Steps 1–4 have actually been run on the implementation head.
+- [ ] **Step 5: Record exact evidence**
 
-- [ ] **Step 6: Sync detailed-design docs only where implementation now differs from pre-M6 documents**
+Acceptance doc records branch/head SHA, V16, backend test output summary, frontend gate summaries, Compose status, UAT matrix, and any resolved defects. Do not claim PASS without actual command/UAT evidence.
 
-Update the canonical data model/state machine/concurrency/permission docs to the actual implemented contract. Do not rewrite unrelated historical sections.
+- [ ] **Step 6: Sync canonical detailed-design docs only where actual M6 implementation supersedes pre-M6 text**
+
+Do not rewrite unrelated history.
 
 - [ ] **Step 7: Run final diff hygiene**
 
@@ -1651,48 +1501,39 @@ Update the canonical data model/state machine/concurrency/permission docs to the
 git status --short
 git diff --check
 git diff main...HEAD --stat
+git diff --name-only main...HEAD -- backend/src/main/resources/db/migration/V1__foundation_baseline.sql `
+  backend/src/main/resources/db/migration/V2__m1_identity_organization_schema.sql `
+  backend/src/main/resources/db/migration/V3__seed_v1_roles_permissions.sql `
+  backend/src/main/resources/db/migration/V4__m2_evidence_import_schema.sql `
+  backend/src/main/resources/db/migration/V5__m2_import_worker_support.sql `
+  backend/src/main/resources/db/migration/V6__m2_provider_pipeline.sql `
+  backend/src/main/resources/db/migration/V7__m2_import_workflow_review_indexes.sql `
+  backend/src/main/resources/db/migration/V8__m3_canonical_cost_foundation.sql `
+  backend/src/main/resources/db/migration/V9__m3_duplicate_attribution_foundation.sql `
+  backend/src/main/resources/db/migration/V10__m4_expense_approval.sql `
+  backend/src/main/resources/db/migration/V11__m4_budget_period_schema.sql `
+  backend/src/main/resources/db/migration/V12__m4_budget_commitment_approval.sql `
+  backend/src/main/resources/db/migration/V13__m5_immutable_ledger_schema.sql `
+  backend/src/main/resources/db/migration/V14__m5_expense_posted_state.sql `
+  backend/src/main/resources/db/migration/V15__m5_ledger_target_integrity.sql
 ```
 
-Expected:
+Expected: no V1～V15 file listed, no secrets/generated artifacts/unrelated refactors.
 
-```text
-no secrets
-no generated build artifacts
-no accidental V1-V15 edits
-no unrelated refactors
-```
-
-- [ ] **Step 8: Commit acceptance/doc sync if changed**
+- [ ] **Step 8: Commit evidence/doc sync if changed**
 
 ```powershell
 git add docs
 git commit -m "docs(m6): record reconciliation close acceptance"
 ```
 
-- [ ] **Step 9: Stop for Sol Checkpoint 3/final review before opening PR**
+- [ ] **Step 9: Stop for Sol Checkpoint 3/final review before opening the single PR**
 
-Sol must review:
-
-```text
-spec coverage
-financial truth correctness
-all row-lock/race proofs
-Case non-mutation
-exactly-seven Close checks
-crash/resume and replay semantics
-Reopen history preservation
-authorization/privacy/OpenAPI
-frontend no-JS-money + localization/time formatting
-full regression/UAT evidence
-```
-
-Only after this review is clean should the existing project workflow open the single final PR for Issue #89 and use squash merge.
+Sol reviews spec coverage, truth correctness, row-lock races, Case non-mutation, exactly-seven checks, crash/resume/replay, Reopen history, authorization/privacy/OpenAPI, frontend money/time/localization, and full regression/UAT evidence. Only a clean review proceeds to the one Issue #89 PR and squash merge.
 
 ---
 
-## Plan Self-Review Checklist
-
-Before implementation starts, the executor/reviewer must be able to map every frozen design invariant to a task above:
+## Plan Self-Review Map
 
 ```text
 V16 four-table schema                         -> Task 1
@@ -1701,8 +1542,8 @@ confirmed Charge external truth               -> Task 3
 immutable provider Ledger internal truth      -> Task 3
 server tolerance + deterministic basis hash   -> Task 3
 Run history/API                               -> Task 4
-Case lifecycle + no Ledger mutation           -> Task 5
-seven blocker fact sources                    -> Task 6
+Case lifecycle + no accounting mutation       -> Task 5
+blocker owner data sources                    -> Task 6
 seven blocker providers/readiness             -> Task 7
 known-period write fence                      -> Task 8
 unknown-period admission/replay               -> Task 9
@@ -1712,4 +1553,4 @@ React workflow/localization/time/money        -> Task 12
 full regression/UAT/evidence                  -> Task 13
 ```
 
-No task may replace an explicit rule above with a generic abstraction, a Redis lock, browser calculation, or a deferred follow-up issue.
+No task may replace an explicit rule above with a generic abstraction, Redis correctness lock, browser calculation, or deferred follow-up issue.
