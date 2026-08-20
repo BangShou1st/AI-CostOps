@@ -1,6 +1,5 @@
 package com.aicostops.expense.application;
 
-import com.aicostops.budget.application.BillingPeriodFinancialWriteFence;
 import com.aicostops.expense.application.ExpenseCommands.ApproveExpenseCommand;
 import com.aicostops.expense.application.ExpenseCommands.RejectExpenseCommand;
 import com.aicostops.expense.application.ExpenseCommands.RequestInfoCommand;
@@ -36,7 +35,7 @@ public class ExpenseReviewCommandService {
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final ExpenseClaimMapper mapper;
-    private final BillingPeriodFinancialWriteFence periodFence;
+    private final ExpenseCloseAdmissionPort closeAdmission;
     private final ExpenseIdempotency idempotency;
     private final ExpenseAuditPort audit;
     private final ExpenseResponseCodec responseCodec;
@@ -46,7 +45,7 @@ public class ExpenseReviewCommandService {
     public ExpenseReviewCommandService(
             AuthorizationContextService authorizationContexts,
             ExpenseClaimMapper mapper,
-            BillingPeriodFinancialWriteFence periodFence,
+            ExpenseCloseAdmissionPort closeAdmission,
             ExpenseIdempotency idempotency,
             ExpenseAuditPort audit,
             ExpenseResponseCodec responseCodec,
@@ -54,7 +53,7 @@ public class ExpenseReviewCommandService {
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
-        this.periodFence = periodFence;
+        this.closeAdmission = closeAdmission;
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseCodec = responseCodec;
@@ -147,7 +146,7 @@ public class ExpenseReviewCommandService {
             String actionType, String comment, IdempotencyDecision decision,
             Instant financialEffectiveAt) {
         if (financialEffectiveAt != null) {
-            periodFence.lockOpenAt(context.organizationId(), financialEffectiveAt);
+            closeAdmission.lockOpenAt(context.organizationId(), financialEffectiveAt);
         }
         var claim = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
         if (claim == null) {
