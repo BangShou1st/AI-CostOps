@@ -23,7 +23,7 @@ import { useState, type ReactNode } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { visibleSettingsNav } from '../../features/settings/permissions'
-import { visibleBusinessNav } from './appNavigation'
+import { FINANCE_NAV_PATHS, visibleBusinessNav } from './appNavigation'
 import { SETTINGS_COPY } from '../../features/settings/presentation'
 import { useMediaQuery } from './useMediaQuery'
 
@@ -39,6 +39,8 @@ export const NAV_ICONS: Record<string, ReactNode> = {
   '/budgets': <WalletOutlined />,
   '/expense-reviews': <AuditOutlined />,
   '/ledger': <BookOutlined />,
+  '/reconciliation': <AuditOutlined />,
+  '/period-close': <AccountBookOutlined />,
   '/settings/users': <UserOutlined />,
   '/settings/roles': <SafetyOutlined />,
   '/settings/projects': <FolderOutlined />,
@@ -78,21 +80,30 @@ export function AuthenticatedLayout() {
   const selectedKey = entries.find((entry) => location.pathname.startsWith(entry.path))?.path
   const currentLabel = entries.find((entry) => entry.path === selectedKey)?.label ?? ''
 
-  const menuItems = [
-    ...businessEntries.map((entry) => ({
+  const menuEntry = (entry: typeof entries[number]) => ({
       key: entry.path,
       icon: <span aria-hidden="true">{NAV_ICONS[entry.path]}</span>,
       label: entry.label,
-    })),
+    })
+  const financeEntries = businessEntries
+    .filter((entry) => FINANCE_NAV_PATHS.includes(entry.path as typeof FINANCE_NAV_PATHS[number]))
+    .sort((left, right) => FINANCE_NAV_PATHS.indexOf(left.path as typeof FINANCE_NAV_PATHS[number]) - FINANCE_NAV_PATHS.indexOf(right.path as typeof FINANCE_NAV_PATHS[number]))
+  const nonFinanceEntries = businessEntries.filter((entry) => !FINANCE_NAV_PATHS.includes(entry.path as typeof FINANCE_NAV_PATHS[number]))
+  const businessMenuItems = [
+    ...nonFinanceEntries.map(menuEntry),
+    ...(nonFinanceEntries.length > 0 && financeEntries.length > 0
+      ? [{ type: 'divider' as const, key: 'finance-divider' }]
+      : []),
+    ...(financeEntries.length > 0
+      ? [{ type: 'group' as const, key: 'finance-group', label: '财务', children: financeEntries.map(menuEntry) }]
+      : []),
+  ]
+  const menuItems = [
+    ...businessMenuItems,
     ...(businessEntries.length > 0 && settingsEntries.length > 0
       ? [{ type: 'divider' as const, key: 'nav-divider' }]
       : []),
-    ...settingsEntries.map((entry) => ({
-      key: entry.path,
-      // Icon decorations must not pollute the accessible name of the item.
-      icon: <span aria-hidden="true">{NAV_ICONS[entry.path]}</span>,
-      label: entry.label,
-    })),
+    ...settingsEntries.map(menuEntry),
   ]
 
   const selectRoute = (path: string) => {

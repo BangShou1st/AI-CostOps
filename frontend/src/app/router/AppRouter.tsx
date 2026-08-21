@@ -26,6 +26,10 @@ import { BudgetCommitmentDetailPage } from '../../features/budgets/BudgetCommitm
 import { LedgerListPage } from '../../features/ledger/LedgerListPage'
 import { LedgerPostingDetailPage } from '../../features/ledger/LedgerPostingDetailPage'
 import { LedgerEntryDetailPage } from '../../features/ledger/LedgerEntryDetailPage'
+import { ReconciliationCaseDetailPage } from '../../features/reconciliation/ReconciliationCaseDetailPage'
+import { ReconciliationPage } from '../../features/reconciliation/ReconciliationPage'
+import { ReconciliationRunDetailPage } from '../../features/reconciliation/ReconciliationRunDetailPage'
+import { PeriodClosePage } from '../../features/period-close/PeriodClosePage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ApplicationLanding } from './ApplicationLanding'
 import { ProtectedRoute } from './ProtectedRoute'
@@ -82,6 +86,15 @@ export function AppRouter() {
           <Route index element={<LedgerListPage />} />
           <Route path="postings/:id" element={<LedgerPostingDetailPage />} />
           <Route path="entries/:id" element={<LedgerEntryDetailPage />} />
+        </Route>
+        <Route path="/reconciliation" element={<PermissionRoute permission="RECONCILIATION_READ" />}>
+          <Route index element={<ReconciliationPage />} />
+          <Route path="cases/:caseId" element={<ReconciliationCaseDetailPage />} />
+          <Route path=":runId" element={<ReconciliationRunDetailPage />} />
+        </Route>
+        <Route path="/period-close" element={<PermissionRoute permission="PERIOD_READ" />}>
+          <Route index element={<PeriodClosePage />} />
+          <Route path=":periodId" element={<PeriodClosePage />} />
         </Route>
         <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
           <Route index element={<UsersPage />} />

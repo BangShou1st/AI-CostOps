@@ -20,13 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Idempotent provider-import creation.
- *
- * <p>Request order: authorization -> ACTIVE provider account -> registered adapter /
- * parser version -> store/reuse Evidence -> create or reuse ImportBatch. A reused
- * Batch returns its latest Attempt and never implicitly creates a new one.
- */
 @Service
 public class ProviderImportService {
 
@@ -37,6 +30,7 @@ public class ProviderImportService {
     private final EvidenceStorageService evidenceStorage;
     private final ImportBatchMapper batchMapper;
     private final ImportAttemptMapper attemptMapper;
+    private final ImportCloseAdmissionPort closeAdmission;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -47,6 +41,7 @@ public class ProviderImportService {
             EvidenceStorageService evidenceStorage,
             ImportBatchMapper batchMapper,
             ImportAttemptMapper attemptMapper,
+            ImportCloseAdmissionPort closeAdmission,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -55,6 +50,7 @@ public class ProviderImportService {
         this.evidenceStorage = evidenceStorage;
         this.batchMapper = batchMapper;
         this.attemptMapper = attemptMapper;
+        this.closeAdmission = closeAdmission;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -77,6 +73,8 @@ public class ProviderImportService {
                         "Unsupported provider",
                         "No provider adapter is registered for provider code " + account.providerCode() + "."));
 
+        // Evidence storage stays outside the short database admission lock. If
+        // Close wins afterwards, the immutable Evidence remains safely reusable.
         var stored = evidenceStorage.store(
                 context.organizationId(), context.organizationMemberId(), originalFilename, mediaType, content);
 
@@ -104,19 +102,23 @@ public class ProviderImportService {
         if (existing != null) {
             return reuse(existing);
         }
+
+        closeAdmission.lockAndRequireNoClosingPeriod(organizationId);
+        var winner = batchMapper.findByIdentityForUpdate(
+                evidenceId, providerAccountId, sourceType.name(), parserVersion);
+        if (winner != null) {
+            return reuseAfterConcurrentWinner(winner);
+        }
+
         var now = clock.instant();
         try {
             batchMapper.insert(organizationId, evidenceId, providerAccountId, expectedProviderCode,
                     sourceType.name(), parserVersion, createdByMemberId, now);
         } catch (DuplicateKeyException concurrentIdentity) {
-            // Concurrent same-identity creation converges on the winner's Batch.
-            // The winner's Initial Attempt must be read with a locking current read:
-            // a consistent read would reuse this transaction's old REPEATABLE READ
-            // snapshot and could miss the just-committed Attempt.
-            var winner = batchMapper.findByIdentityForUpdate(
+            var concurrentWinner = batchMapper.findByIdentityForUpdate(
                     evidenceId, providerAccountId, sourceType.name(), parserVersion);
-            if (winner != null) {
-                return reuseAfterConcurrentWinner(winner);
+            if (concurrentWinner != null) {
+                return reuseAfterConcurrentWinner(concurrentWinner);
             }
             throw concurrentIdentity;
         }

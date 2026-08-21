@@ -12,10 +12,11 @@ import type { ImportBatchStatus, ImportSummary } from './api/importTypes'
 import { ProviderImportUploadModal, type ProviderImportUploadResult } from './upload/ProviderImportUploadModal'
 import { formatEventDateTime } from '../../lib/dateTime'
 import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
+import { formatImportSourceType, formatImportStatus } from './presentation'
 
 const PAGE_SIZE = 50
 
-const STATUS_OPTIONS: ImportBatchStatus[] = ['PENDING', 'PROCESSING', 'PARSED', 'FAILED', 'CANCELED']
+const STATUS_OPTIONS: ImportBatchStatus[] = ['PENDING', 'PROCESSING', 'PARSED', 'READY_FOR_REVIEW', 'CONFIRMED', 'FAILED', 'CANCELED']
 
 export function ImportListPage() {
   const auth = useAuth()
@@ -58,7 +59,7 @@ export function ImportListPage() {
       <header className="page-header">
         <h1>导入</h1>
         {canUpload && (
-          <Button type="primary" onClick={() => setUploadOpen(true)}>上传 Provider 账单</Button>
+          <Button type="primary" onClick={() => setUploadOpen(true)}>上传供应商账单</Button>
         )}
       </header>
       <div className="filters">
@@ -71,15 +72,15 @@ export function ImportListPage() {
             setStatus(value)
             setPage(0)
           }}
-          options={STATUS_OPTIONS.map((value) => ({ value, label: value }))}
+          options={STATUS_OPTIONS.map((value) => ({ value, label: formatImportStatus(value) }))}
           style={{ width: 180 }}
         />
         {canFilterByAccount && (
           <Select
             {...READABLE_SELECT_PROPS}
             allowClear
-            placeholder="Provider 账号"
-            aria-label="Provider 账号"
+            placeholder="供应商账号"
+            aria-label="供应商账号"
             value={providerAccountId}
             onChange={(value) => {
               setProviderAccountId(value)
@@ -106,9 +107,9 @@ export function ImportListPage() {
         columns={[
           { title: 'ID', dataIndex: 'id' },
           { title: '证据文件', render: (_, row) => row.evidence.originalFilename },
-          { title: 'Provider 账号', render: (_, row) => row.providerAccount.displayName },
-          { title: '来源类型', render: (_, row) => row.sourceType ?? '—' },
-          { title: '状态', dataIndex: 'status' },
+          { title: '供应商账号', render: (_, row) => row.providerAccount.displayName },
+          { title: '来源类型', render: (_, row) => formatImportSourceType(row.sourceType) },
+          { title: '状态', dataIndex: 'status', render: (value: string | null) => formatImportStatus(value) },
           { title: '创建时间', dataIndex: 'createdAt', render: (value: string) => formatEventDateTime(value) },
         ]}
       />

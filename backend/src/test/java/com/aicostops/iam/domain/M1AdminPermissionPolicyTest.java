@@ -50,6 +50,18 @@ class M1AdminPermissionPolicyTest {
                 Arguments.of("LEDGER_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                         ScopeType.TEAM, ScopeType.COST_CENTER)),
                 Arguments.of("LEDGER_POST", Set.of(ScopeType.ORG)),
-                Arguments.of("LEDGER_CORRECT", Set.of(ScopeType.ORG)));
+                Arguments.of("LEDGER_CORRECT", Set.of(ScopeType.ORG)),
+                Arguments.of("COMMITMENT_REQUEST", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                        ScopeType.TEAM, ScopeType.COST_CENTER)),
+                Arguments.of("COMMITMENT_APPROVE", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                        ScopeType.TEAM, ScopeType.COST_CENTER)),
+                Arguments.of("COMMITMENT_RELEASE", Set.of(ScopeType.ORG, ScopeType.PROJECT,
+                        ScopeType.TEAM, ScopeType.COST_CENTER)),
+                Arguments.of("RECONCILIATION_READ", Set.of(ScopeType.ORG)),
+                Arguments.of("RECONCILIATION_RUN", Set.of(ScopeType.ORG)),
+                Arguments.of("RECONCILIATION_RESOLVE", Set.of(ScopeType.ORG)),
+                Arguments.of("PERIOD_READ", Set.of(ScopeType.ORG)),
+                Arguments.of("PERIOD_CLOSE", Set.of(ScopeType.ORG)),
+                Arguments.of("PERIOD_REOPEN", Set.of(ScopeType.ORG)));
     }
 }

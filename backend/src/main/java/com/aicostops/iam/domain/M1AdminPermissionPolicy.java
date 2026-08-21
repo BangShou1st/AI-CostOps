@@ -24,9 +24,6 @@ public final class M1AdminPermissionPolicy {
             Map.entry("EVIDENCE_UPLOAD_PROVIDER", Set.of(ScopeType.ORG)),
             Map.entry("EVIDENCE_READ", Set.of(ScopeType.ORG)),
             Map.entry("EVIDENCE_DOWNLOAD", Set.of(ScopeType.ORG)),
-            // M4 expense permissions. ORG applicable scope never implies OWN:
-            // the *_OWN checks are applied in the expense services by comparing
-            // the claimant against the current organization member.
             Map.entry("EXPENSE_CREATE_OWN", Set.of(ScopeType.ORG)),
             Map.entry("EXPENSE_READ_OWN", Set.of(ScopeType.ORG)),
             Map.entry("EXPENSE_SUBMIT_OWN", Set.of(ScopeType.ORG)),
@@ -42,29 +39,29 @@ public final class M1AdminPermissionPolicy {
             Map.entry("ALLOCATION_EDIT", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
             Map.entry("ALLOCATION_CONFIRM", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
             Map.entry("ALLOCATION_RULE_MANAGE", Set.of(ScopeType.ORG)),
-            // M4 budget permissions. BUDGET_READ follows the budget's own
-            // polymorphic scope (budgets may be ORG/PROJECT/TEAM/COST_CENTER
-            // scoped); BUDGET_MANAGE is a sensitive finance-admin capability
-            // granted org-wide only, mirroring ALLOCATION_RULE_MANAGE.
             Map.entry("BUDGET_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                     ScopeType.TEAM, ScopeType.COST_CENTER)),
             Map.entry("BUDGET_MANAGE", Set.of(ScopeType.ORG)),
-            // M5 ledger read follows the entry target scope. Posting and
-            // correction are organization-wide financial-admin operations.
             Map.entry("LEDGER_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                     ScopeType.TEAM, ScopeType.COST_CENTER)),
             Map.entry("LEDGER_POST", Set.of(ScopeType.ORG)),
             Map.entry("LEDGER_CORRECT", Set.of(ScopeType.ORG)),
-            // M4 commitment permissions follow the budget's own polymorphic
-            // scope: the grant must cover the budget (ORG/PROJECT/TEAM/
-            // COST_CENTER) the commitment belongs to. SYSTEM_ADMIN never
-            // inherits them (seed matrix).
             Map.entry("COMMITMENT_REQUEST", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                     ScopeType.TEAM, ScopeType.COST_CENTER)),
             Map.entry("COMMITMENT_APPROVE", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                     ScopeType.TEAM, ScopeType.COST_CENTER)),
             Map.entry("COMMITMENT_RELEASE", Set.of(ScopeType.ORG, ScopeType.PROJECT,
-                    ScopeType.TEAM, ScopeType.COST_CENTER)));
+                    ScopeType.TEAM, ScopeType.COST_CENTER)),
+            // M6 reconciliation/period-end operations are intentionally
+            // organization-wide finance capabilities. The V3 seed controls
+            // which finance roles receive them; SYSTEM_ADMIN does not inherit
+            // them merely because the scope is ORG.
+            Map.entry("RECONCILIATION_READ", Set.of(ScopeType.ORG)),
+            Map.entry("RECONCILIATION_RUN", Set.of(ScopeType.ORG)),
+            Map.entry("RECONCILIATION_RESOLVE", Set.of(ScopeType.ORG)),
+            Map.entry("PERIOD_READ", Set.of(ScopeType.ORG)),
+            Map.entry("PERIOD_CLOSE", Set.of(ScopeType.ORG)),
+            Map.entry("PERIOD_REOPEN", Set.of(ScopeType.ORG)));
 
     private M1AdminPermissionPolicy() {
     }

@@ -2,6 +2,7 @@ import { Descriptions, Drawer } from 'antd'
 import { useQuery } from '@tanstack/react-query'
 import { importKeys } from './api/importKeys'
 import { importsApi } from './api/importsApi'
+import { formatRawRecordNormalizeStatus } from './presentation'
 
 /**
  * Lazy Raw Record payload detail. The persisted sanitized payload is rendered
@@ -37,8 +38,8 @@ export function RawRecordDrawer({
         <>
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="记录位置">{record.recordLocator}</Descriptions.Item>
-            <Descriptions.Item label="Provider 键">{record.providerRecordKey ?? '—'}</Descriptions.Item>
-            <Descriptions.Item label="归一化状态">{record.normalizeStatus ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label="供应商记录键">{record.providerRecordKey ?? '—'}</Descriptions.Item>
+            <Descriptions.Item label="归一化状态">{formatRawRecordNormalizeStatus(record.normalizeStatus)}</Descriptions.Item>
             <Descriptions.Item label="用量开始">{record.usageStart ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="用量结束">{record.usageEnd ?? '—'}</Descriptions.Item>
           </Descriptions>

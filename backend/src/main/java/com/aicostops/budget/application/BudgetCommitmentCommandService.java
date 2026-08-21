@@ -5,15 +5,12 @@ import com.aicostops.budget.application.BudgetCommitmentCommands.CancelCommitmen
 import com.aicostops.budget.application.BudgetCommitmentCommands.RejectCommitmentCommand;
 import com.aicostops.budget.application.BudgetCommitmentCommands.ReleaseCommitmentCommand;
 import com.aicostops.budget.application.BudgetCommitmentCommands.RequestCommitmentCommand;
-import com.aicostops.budget.application.CommitmentIdempotencyStore.IdempotencyDecision;
 import com.aicostops.budget.application.CommitmentReadModels.CommitmentDetail;
-import com.aicostops.budget.domain.BillingPeriodStatus;
 import com.aicostops.budget.domain.Budget;
 import com.aicostops.budget.domain.BudgetCommitment;
 import com.aicostops.budget.domain.BudgetDecimal;
 import com.aicostops.budget.domain.BudgetStatus;
 import com.aicostops.budget.domain.CommitmentApprovalCaseStatus;
-import com.aicostops.budget.infrastructure.BillingPeriodMapper;
 import com.aicostops.budget.infrastructure.BudgetCommitmentMapper;
 import com.aicostops.budget.infrastructure.BudgetMapper;
 import com.aicostops.iam.application.AuthorizationContextService;
@@ -35,19 +32,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Budget commitment commands. Every command resolves the authorization
- * context fresh from MySQL (commitments are finance-sensitive), requires the
- * permission before any resource lookup (403), then finds the resource
- * organization-scoped (privacy 404), then enforces the grant scope against
- * the budget's own scope, then runs the state rules inside one MySQL
- * transaction.
- *
- * <p>Request (AIC-044 foundation) creates REQUESTED commitment + PENDING
- * approval case + SUBMIT action atomically and never touches
- * {@code budget.committed_amount}. Activation / reject / cancel / release /
- * consume are implemented in the later TDD stages of this branch.
- */
 @Service
 public class BudgetCommitmentCommandService {
 
@@ -60,7 +44,7 @@ public class BudgetCommitmentCommandService {
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final BudgetMapper budgetMapper;
     private final BudgetCommitmentMapper commitmentMapper;
-    private final BillingPeriodMapper billingPeriodMapper;
+    private final BillingPeriodFinancialWriteFence periodFence;
     private final CommitmentIdempotency idempotency;
     private final CommitmentAuditPort audit;
     private final CommitmentResponseCodec responseCodec;
@@ -71,7 +55,7 @@ public class BudgetCommitmentCommandService {
             AuthorizationContextService authorizationContexts,
             BudgetMapper budgetMapper,
             BudgetCommitmentMapper commitmentMapper,
-            BillingPeriodMapper billingPeriodMapper,
+            BillingPeriodFinancialWriteFence periodFence,
             CommitmentIdempotency idempotency,
             CommitmentAuditPort audit,
             CommitmentResponseCodec responseCodec,
@@ -80,7 +64,7 @@ public class BudgetCommitmentCommandService {
         this.authorizationContexts = authorizationContexts;
         this.budgetMapper = budgetMapper;
         this.commitmentMapper = commitmentMapper;
-        this.billingPeriodMapper = billingPeriodMapper;
+        this.periodFence = periodFence;
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseCodec = responseCodec;
@@ -88,14 +72,6 @@ public class BudgetCommitmentCommandService {
         this.clock = clock;
     }
 
-    /**
-     * A new commitment request: one MySQL transaction creates the REQUESTED
-     * commitment, its PENDING approval case, and the append-only SUBMIT
-     * action, then audits and finalizes the idempotency row. The request
-     * validates the budget (same org, ACTIVE, currency match, grant scope)
-     * but never reserves capacity: committed_amount stays untouched until
-     * activation.
-     */
     public CommitmentDetail request(AuthenticatedUser user, RequestCommitmentCommand command,
             String idempotencyKey) {
         var context = authorizationContexts.fresh(user);
@@ -116,13 +92,21 @@ public class BudgetCommitmentCommandService {
             if (decision.replay()) {
                 return responseCodec.fromJson(decision.responseBody());
             }
-            var budget = budgetMapper.selectByIdAndOrganization(context.organizationId(),
+            var identity = budgetMapper.selectByIdAndOrganization(context.organizationId(),
                     command.budgetId());
-            if (budget == null) {
+            if (identity == null) {
                 throw notFound("The budget is not available in the current organization.");
             }
             authorization.requireResource(context, PERMISSION_COMMITMENT_REQUEST,
-                    budget.scopeType(), budget.scopeId());
+                    identity.scopeType(), identity.scopeId());
+
+            // REQUESTED commitments are a future Close blocker even before they
+            // reserve capacity, so creation is an OPEN-period financial write.
+            periodFence.lockOpenById(context.organizationId(), identity.billingPeriodId());
+            var budget = budgetMapper.selectByIdForUpdate(context.organizationId(), identity.id());
+            if (budget == null || budget.billingPeriodId() != identity.billingPeriodId()) {
+                throw notFound("The budget is not available in the current organization.");
+            }
             if (budget.status() != BudgetStatus.ACTIVE) {
                 throw stateConflict("Budget is not active",
                         "The budget must be ACTIVE before requesting a commitment.");
@@ -151,32 +135,6 @@ public class BudgetCommitmentCommandService {
         }));
     }
 
-    /**
-     * Atomic activation — the highest-risk transaction of AIC-044. One MySQL
-     * transaction, in the frozen lock order BillingPeriod → Budget →
-     * Commitment → ApprovalCase:
-     *
-     * <pre>
-     * resolve commitment → budget → billing_period
-     * SELECT billing_period ... FOR UPDATE   (serializes against future Close)
-     * require OPEN (half-open window)
-     * budget FOR UPDATE
-     * commitment FOR UPDATE + state/version revalidation
-     * UPDATE budget SET committed=committed+amount, version+1
-     *   WHERE id=? AND status='ACTIVE' AND total-actual-committed >= amount
-     * commitment REQUESTED → ACTIVE (approved = remaining = requested)
-     * approval_case PENDING → APPROVED
-     * approval_action APPROVE (append-only)
-     * audit + idempotency finalize
-     * </pre>
-     *
-     * <p>When the conditional UPDATE affects zero rows the loser is
-     * classified by re-reading the locked budget: insufficient available →
-     * 409 BUDGET_INSUFFICIENT, non-ACTIVE status → 409 STATE_CONFLICT. A
-     * concurrent loser on the commitment row itself hits the status/version
-     * CAS and gets 409 STATE_CONFLICT. Approval and counter can never be
-     * split: everything is one transaction.
-     */
     public CommitmentDetail approve(AuthenticatedUser user, long commitmentId,
             ApproveCommitmentCommand command, String idempotencyKey) {
         var context = authorizationContexts.fresh(user);
@@ -197,41 +155,27 @@ public class BudgetCommitmentCommandService {
             if (commitment == null) {
                 throw notFound("The commitment is not available in the current organization.");
             }
-            var budget = budgetMapper.selectByIdAndOrganization(context.organizationId(),
+            var budgetIdentity = budgetMapper.selectByIdAndOrganization(context.organizationId(),
                     commitment.budgetId());
-            if (budget == null) {
+            if (budgetIdentity == null) {
                 throw notFound("The budget is not available in the current organization.");
             }
             authorization.requireResource(context, PERMISSION_COMMITMENT_APPROVE,
-                    budget.scopeType(), budget.scopeId());
+                    budgetIdentity.scopeType(), budgetIdentity.scopeId());
 
             var now = clock.instant();
-            // 1. BillingPeriod lock + OPEN guard inside the same transaction:
-            //    the OPEN check and the budget mutation cannot race with
-            //    Close. The frozen activation rule (04-transactions §8) gates
-            //    on the period STATUS only — the budget already binds the
-            //    commitment to this period, so the wall clock must not add a
-            //    second gate over the budget-determined period.
-            var period = billingPeriodMapper.selectByIdForUpdate(
-                    context.organizationId(), budget.billingPeriodId());
-            if (period == null) {
-                throw stateConflict("Billing period is missing",
-                        "The budget references no billing period; activation requires one.");
-            }
-            if (period.status() != BillingPeriodStatus.OPEN) {
-                throw periodNotOpen("The billing period of the budget is "
-                        + period.status() + "; activation requires an OPEN period.");
-            }
-            // 2. Budget lock + revalidation.
+            periodFence.lockOpenById(context.organizationId(), budgetIdentity.billingPeriodId());
             var budgetLocked = budgetMapper.selectByIdForUpdate(context.organizationId(),
-                    budget.id());
-            if (budgetLocked.status() != BudgetStatus.ACTIVE) {
+                    budgetIdentity.id());
+            if (budgetLocked == null || budgetLocked.status() != BudgetStatus.ACTIVE) {
                 throw stateConflict("Budget is not active",
                         "The budget must be ACTIVE before activation.");
             }
-            // 3. Commitment lock + state/version revalidation.
             var commitmentLocked = commitmentMapper.selectByIdForUpdate(
                     context.organizationId(), commitmentId);
+            if (commitmentLocked == null || commitmentLocked.budgetId() != budgetLocked.id()) {
+                throw notFound("The commitment is not available in the current organization.");
+            }
             if (commitmentLocked.version() != command.expectedVersion()) {
                 throw staleVersion();
             }
@@ -240,36 +184,29 @@ public class BudgetCommitmentCommandService {
                         "Only a REQUESTED commitment can be activated; the commitment is "
                                 + commitmentLocked.status() + ".");
             }
-            // 4. Atomic conditional UPDATE: no Java check-then-act anywhere.
             var amount = commitmentLocked.requestedAmount();
-            var updated = budgetMapper.incrementCommitted(context.organizationId(), budget.id(),
-                    amount, now);
-            if (updated != 1) {
-                // Classify the loser on the row already locked FOR UPDATE in
-                // this transaction: it is a current read, so the availability
-                // decision is based on the latest committed state, never on
-                // the REPEATABLE-READ snapshot of this transaction.
-                if (budgetLocked.status() != BudgetStatus.ACTIVE) {
+            if (budgetMapper.incrementCommitted(context.organizationId(), budgetLocked.id(),
+                    amount, now) != 1) {
+                var currentBudget = budgetMapper.selectByIdForUpdate(
+                        context.organizationId(), budgetLocked.id());
+                if (currentBudget.status() != BudgetStatus.ACTIVE) {
                     throw stateConflict("Budget is not active",
                             "The budget must be ACTIVE before activation.");
                 }
-                if (budgetLocked.available().compareTo(amount) < 0) {
+                if (currentBudget.available().compareTo(amount) < 0) {
                     throw insufficientBudget("The budget available ("
-                            + budgetLocked.available().toPlainString()
+                            + currentBudget.available().toPlainString()
                             + ") is insufficient for the requested amount "
                             + amount.toPlainString() + ".");
                 }
                 throw stateConflict("Budget activation conflict",
-                        "The budget could not be committed; a concurrent activation consumed "
-                                + "the available capacity.");
+                        "The budget could not be committed; a concurrent activation consumed the available capacity.");
             }
-            // 5. Commitment REQUESTED → ACTIVE with exact amounts.
             if (commitmentMapper.updateActivate(context.organizationId(), commitmentId,
                     amount, amount, now) != 1) {
                 throw stateConflict("Commitment activation conflict",
                         "The commitment was no longer REQUESTED when activation applied.");
             }
-            // 6. Approval case PENDING → APPROVED, exactly one APPROVE action.
             var approvalCase = commitmentMapper.selectApprovalCaseByCommitmentForUpdate(
                     context.organizationId(), commitmentId);
             if (approvalCase == null
@@ -286,18 +223,12 @@ public class BudgetCommitmentCommandService {
             var detail = toDetail(commitmentMapper.selectByIdAndOrganization(
                     context.organizationId(), commitmentId), updatedCase);
             audit.activated(context.organizationId(), context.userId(), commitmentId,
-                    budget.id(), amount, updatedCase.id(), "REQUESTED", "ACTIVE");
+                    budgetLocked.id(), amount, updatedCase.id(), "REQUESTED", "ACTIVE");
             idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
             return detail;
         }));
     }
 
-    /**
-     * Reviewer rejection (REQUESTED only): the commitment and its approval
-     * case move REQUESTED → REJECTED / PENDING → REJECTED in one
-     * transaction with exactly one REJECT action; the budget counter is
-     * never touched. Requires COMMITMENT_APPROVE at the budget scope.
-     */
     public CommitmentDetail reject(AuthenticatedUser user, long commitmentId,
             RejectCommitmentCommand command, String idempotencyKey) {
         var context = authorizationContexts.fresh(user);
@@ -348,13 +279,6 @@ public class BudgetCommitmentCommandService {
         }));
     }
 
-    /**
-     * Cancellation (REQUESTED only) by the requester (the SUBMIT actor of the
-     * approval case) or by any COMMITMENT_APPROVE holder at the budget scope:
-     * an arbitrary organization member can never cancel someone else's
-     * commitment. Same single transaction as reject; the budget counter is
-     * never touched (an ACTIVE commitment's exits are consume and release).
-     */
     public CommitmentDetail cancel(AuthenticatedUser user, long commitmentId,
             CancelCommitmentCommand command, String idempotencyKey) {
         var context = authorizationContexts.fresh(user);
@@ -411,16 +335,6 @@ public class BudgetCommitmentCommandService {
         }));
     }
 
-    /**
-     * Release (AIC-045): ACTIVE / PARTIALLY_CONSUMED → RELEASED frees the
-     * exact outstanding remainder. Lock order BillingPeriod → Budget →
-     * Commitment; the period must be OPEN (release is an ordinary financial
-     * mutation); budget.committed_amount is decremented by R with a MySQL
-     * floor guard, remaining_amount is zeroed, versions bump, and the audit
-     * fires — all in one transaction. The approval case stays APPROVED
-     * (release is not an approval transition, and approval_action has no
-     * RELEASE type by design).
-     */
     public CommitmentDetail release(AuthenticatedUser user, long commitmentId,
             ReleaseCommitmentCommand command, String idempotencyKey) {
         var context = authorizationContexts.fresh(user);
@@ -436,25 +350,13 @@ public class BudgetCommitmentCommandService {
             if (decision.replay()) {
                 return responseCodec.fromJson(decision.responseBody());
             }
-            var budget = requireVisibleBudget(context, commitmentId,
+            var budgetIdentity = requireVisibleBudget(context, commitmentId,
                     PERMISSION_COMMITMENT_RELEASE);
             var now = clock.instant();
-            // BillingPeriod lock + OPEN guard inside the same transaction
-            // (frozen release rule: period STATUS only, never a second
-            // wall-clock gate over the budget-bound period).
-            var period = billingPeriodMapper.selectByIdForUpdate(
-                    context.organizationId(), budget.billingPeriodId());
-            if (period == null) {
-                throw stateConflict("Billing period is missing",
-                        "The budget references no billing period; release requires one.");
-            }
-            if (period.status() != BillingPeriodStatus.OPEN) {
-                throw periodNotOpen("The billing period of the budget is "
-                        + period.status() + "; release requires an OPEN period.");
-            }
+            periodFence.lockOpenById(context.organizationId(), budgetIdentity.billingPeriodId());
             var budgetLocked = budgetMapper.selectByIdForUpdate(context.organizationId(),
-                    budget.id());
-            if (budgetLocked.status() != BudgetStatus.ACTIVE) {
+                    budgetIdentity.id());
+            if (budgetLocked == null || budgetLocked.status() != BudgetStatus.ACTIVE) {
                 throw stateConflict("Budget is not active",
                         "The budget must be ACTIVE before releasing.");
             }
@@ -465,12 +367,11 @@ public class BudgetCommitmentCommandService {
             }
             if (!commitmentLocked.status().canRelease()) {
                 throw stateConflict("Commitment cannot be released",
-                        "Only an ACTIVE or PARTIALLY_CONSUMED commitment can be released; "
-                                + "the commitment is " + commitmentLocked.status() + ".");
+                        "Only an ACTIVE or PARTIALLY_CONSUMED commitment can be released; the commitment is "
+                                + commitmentLocked.status() + ".");
             }
             var remainder = commitmentLocked.remainingAmount();
-            // committed -= R with the MySQL floor guard: never negative.
-            if (budgetMapper.decrementCommitted(context.organizationId(), budget.id(),
+            if (budgetMapper.decrementCommitted(context.organizationId(), budgetLocked.id(),
                     remainder, now) != 1) {
                 throw stateConflict("Budget release conflict",
                         "The committed counter cannot cover the released remainder.");
@@ -484,7 +385,7 @@ public class BudgetCommitmentCommandService {
             var detail = toDetail(commitmentMapper.selectByIdAndOrganization(
                     context.organizationId(), commitmentId), approvalCase);
             audit.released(context.organizationId(), context.userId(), commitmentId,
-                    budget.id(), remainder,
+                    budgetLocked.id(), remainder,
                     approvalCase == null ? 0 : approvalCase.id(),
                     commitmentLocked.status().name(), "RELEASED");
             idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
@@ -492,17 +393,15 @@ public class BudgetCommitmentCommandService {
         }));
     }
 
-    // -- shared helpers --------------------------------------------------------
-
     protected CommitmentDetail toDetail(BudgetCommitment commitment,
             com.aicostops.budget.domain.CommitmentApprovalCase approvalCase) {
-        var history = approvalCase == null ? List.<com.aicostops.budget.domain.CommitmentApprovalAction>of()
+        var history = approvalCase == null
+                ? List.<com.aicostops.budget.domain.CommitmentApprovalAction>of()
                 : commitmentMapper.selectApprovalActionsByCase(commitment.organizationId(),
                         approvalCase.id());
         return CommitmentDetail.from(commitment, approvalCase, history);
     }
 
-    /** 403 before any resource lookup: any applicable grant must exist. */
     protected static void requireAnyApplicableGrant(AuthorizationContext context,
             String permissionCode) {
         if (!hasApplicableGrant(context, permissionCode)) {
@@ -510,7 +409,6 @@ public class BudgetCommitmentCommandService {
         }
     }
 
-    /** Cancel is a requester (COMMITMENT_REQUEST) or reviewer action. */
     private static void requireRequestOrApproveGrant(AuthorizationContext context) {
         if (!hasApplicableGrant(context, PERMISSION_COMMITMENT_REQUEST)
                 && !hasApplicableGrant(context, PERMISSION_COMMITMENT_APPROVE)) {
@@ -532,11 +430,6 @@ public class BudgetCommitmentCommandService {
                 "The required permission is not granted at an applicable scope.");
     }
 
-    /**
-     * Organization-scoped lookup + grant-scope enforcement of a commitment's
-     * budget: a wrong organization or a budget outside the granted scope is a
-     * privacy-preserving 404.
-     */
     protected Budget requireVisibleBudget(AuthorizationContext context, long commitmentId,
             String permissionCode) {
         var commitment = commitmentMapper.selectByIdAndOrganization(context.organizationId(),
@@ -554,10 +447,6 @@ public class BudgetCommitmentCommandService {
         return budget;
     }
 
-    /**
-     * Cancel visibility: the requester's COMMITMENT_REQUEST grant or the
-     * reviewer's COMMITMENT_APPROVE grant, either matching the budget scope.
-     */
     private Budget requireVisibleBudgetForCancel(AuthorizationContext context,
             long commitmentId) {
         var commitment = commitmentMapper.selectByIdAndOrganization(context.organizationId(),
@@ -578,12 +467,6 @@ public class BudgetCommitmentCommandService {
         return budget;
     }
 
-    /**
-     * Grant matching for the combined cancel path: an ORG grant of the
-     * current organization covers every budget scope except ORG budgets of
-     * another organization; a typed grant matches exactly the same
-     * scope_type/scope_id (mirrors M1AuthorizationService.matchesResource).
-     */
     private static boolean matchesBudgetScope(AuthorizationContext context,
             String permissionCode, Budget budget) {
         var applicableScopes = M1AdminPermissionPolicy.applicableScopes(permissionCode);

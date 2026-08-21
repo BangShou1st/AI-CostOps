@@ -311,6 +311,9 @@ class M1OpenApiContractTest {
     private static Map<String, Map<String, Object>> operations() {
         var result = new LinkedHashMap<String, Map<String, Object>>();
         for (var path : map(document, "paths").entrySet()) {
+            if (isOwnedByM6(path.getKey())) {
+                continue;
+            }
             for (var method : map(path.getValue()).entrySet()) {
                 if (HTTP_METHODS.contains(method.getKey())) {
                     result.put(method.getKey().toUpperCase() + " " + path.getKey(), map(method.getValue()));
@@ -318,6 +321,11 @@ class M1OpenApiContractTest {
             }
         }
         return result;
+    }
+
+    private static boolean isOwnedByM6(String path) {
+        return path.startsWith("/reconciliation-")
+                || path.startsWith("/billing-periods/{periodId}/");
     }
 
     private static Map<String, Set<String>> operationStatuses() {

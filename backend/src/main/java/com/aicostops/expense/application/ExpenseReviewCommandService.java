@@ -17,6 +17,7 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.function.Supplier;
 import org.springframework.dao.DeadlockLoserDataAccessException;
@@ -25,12 +26,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Finance review commands. Every review locks the expense then its approval
- * case (same order as the employee transitions), rechecks version and case
- * state, appends the immutable action, and CAS-transitions both rows — so
- * two concurrent reviewers converge to exactly one terminal result.
- */
 @Service
 public class ExpenseReviewCommandService {
 
@@ -40,6 +35,7 @@ public class ExpenseReviewCommandService {
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final ExpenseClaimMapper mapper;
+    private final ExpenseCloseAdmissionPort closeAdmission;
     private final ExpenseIdempotency idempotency;
     private final ExpenseAuditPort audit;
     private final ExpenseResponseCodec responseCodec;
@@ -49,6 +45,7 @@ public class ExpenseReviewCommandService {
     public ExpenseReviewCommandService(
             AuthorizationContextService authorizationContexts,
             ExpenseClaimMapper mapper,
+            ExpenseCloseAdmissionPort closeAdmission,
             ExpenseIdempotency idempotency,
             ExpenseAuditPort audit,
             ExpenseResponseCodec responseCodec,
@@ -56,6 +53,7 @@ public class ExpenseReviewCommandService {
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
+        this.closeAdmission = closeAdmission;
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseCodec = responseCodec;
@@ -81,7 +79,7 @@ public class ExpenseReviewCommandService {
             var result = reviewTransition(context, expenseId, command.expectedVersion(),
                     ExpenseClaimStatus.SUBMITTED, ExpenseClaimStatus.NEEDS_INFO,
                     ApprovalCaseStatus.PENDING, ApprovalCaseStatus.NEEDS_INFO,
-                    "REQUEST_INFO", command.comment(), decision);
+                    "REQUEST_INFO", command.comment(), decision, null);
             audit.reviewed(context.organizationId(), context.userId(), expenseId,
                     result.version(), "REQUEST_INFO", command.comment());
             return result;
@@ -90,9 +88,14 @@ public class ExpenseReviewCommandService {
 
     public ExpenseDetail approve(AuthenticatedUser user, long expenseId,
             ApproveExpenseCommand command, String idempotencyKey) {
-        var context = authorizationContexts.current(user);
+        var context = authorizationContexts.fresh(user);
         authorization.requireOrg(context, PERMISSION_EXPENSE_REVIEW);
         idempotency.validateKey(idempotencyKey);
+        var identity = mapper.selectByIdAndOrganization(context.organizationId(), expenseId);
+        if (identity == null) {
+            throw notFound();
+        }
+        var effectiveAt = identity.expenseDate().atStartOfDay(ZoneOffset.UTC).toInstant();
         var requestHash = idempotency.approveRequestHash(context.organizationId(),
                 context.organizationMemberId(), expenseId, command.expectedVersion());
         return executeWithDeadlockRetry(() -> transactions.execute(status -> {
@@ -105,7 +108,7 @@ public class ExpenseReviewCommandService {
             var result = reviewTransition(context, expenseId, command.expectedVersion(),
                     ExpenseClaimStatus.SUBMITTED, ExpenseClaimStatus.APPROVED,
                     ApprovalCaseStatus.PENDING, ApprovalCaseStatus.APPROVED,
-                    "APPROVE", null, decision);
+                    "APPROVE", null, decision, effectiveAt);
             audit.reviewed(context.organizationId(), context.userId(), expenseId,
                     result.version(), "APPROVE", null);
             return result;
@@ -130,26 +133,30 @@ public class ExpenseReviewCommandService {
             var result = reviewTransition(context, expenseId, command.expectedVersion(),
                     ExpenseClaimStatus.SUBMITTED, ExpenseClaimStatus.REJECTED,
                     ApprovalCaseStatus.PENDING, ApprovalCaseStatus.REJECTED,
-                    "REJECT", command.comment(), decision);
+                    "REJECT", command.comment(), decision, null);
             audit.reviewed(context.organizationId(), context.userId(), expenseId,
                     result.version(), "REJECT", command.comment());
             return result;
         }));
     }
 
-    /**
-     * Shared review transition: lock expense then approval case, recheck
-     * expectedVersion and both expected states, append the action, and CAS
-     * both rows. The expense and case CAS each require exactly one updated
-     * row, so a concurrent reviewer that lost the race gets a 409.
-     */
     private ExpenseDetail reviewTransition(AuthorizationContext context, long expenseId,
             long expectedVersion, ExpenseClaimStatus fromExpense, ExpenseClaimStatus toExpense,
             ApprovalCaseStatus fromCase, ApprovalCaseStatus toCase,
-            String actionType, String comment, IdempotencyDecision decision) {
+            String actionType, String comment, IdempotencyDecision decision,
+            Instant financialEffectiveAt) {
+        if (financialEffectiveAt != null) {
+            closeAdmission.lockOpenAt(context.organizationId(), financialEffectiveAt);
+        }
         var claim = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
         if (claim == null) {
             throw notFound();
+        }
+        if (financialEffectiveAt != null
+                && !claim.expenseDate().atStartOfDay(ZoneOffset.UTC).toInstant().equals(financialEffectiveAt)) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Expense effective date changed",
+                    "Reload the expense before approving it.");
         }
         if (claim.approvalCaseId() == null) {
             throw new IllegalStateException("A reviewable expense must have an approval case");

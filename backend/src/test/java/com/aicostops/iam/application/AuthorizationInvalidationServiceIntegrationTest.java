@@ -39,6 +39,11 @@ class AuthorizationInvalidationServiceIntegrationTest extends AuthenticationCont
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
         jdbc.update("DELETE FROM invitation");
         jdbc.update("DELETE FROM role_assignment");
+        // M6 close/reconciliation history references organization members.
+        jdbc.update("DELETE FROM period_close_check");
+        jdbc.update("DELETE FROM period_close_run");
+        jdbc.update("DELETE FROM reconciliation_case");
+        jdbc.update("DELETE FROM reconciliation_run");
         jdbc.update("DELETE FROM organization_member");
         jdbc.update("DELETE FROM user_credential");
         jdbc.update("DELETE FROM app_user");

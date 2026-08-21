@@ -2,9 +2,11 @@ import { useQuery } from '@tanstack/react-query'
 import { Alert, Card, Descriptions, Table, Tag } from 'antd'
 import { Link, useParams } from 'react-router-dom'
 import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
+import { formatEventDateTime } from '../../lib/dateTime'
+import { formatMoney } from '../../lib/money'
 import { ledgerApi, type LedgerEntryResponse } from './api/ledgerApi'
 import { ledgerKeys } from './api/ledgerKeys'
-import { currencyTotals, LEDGER_ENTRY_LABEL, LEDGER_SOURCE_LABEL } from './presentation'
+import { formatLedgerStatus, LEDGER_ENTRY_LABEL, LEDGER_SOURCE_LABEL } from './presentation'
 
 export function LedgerPostingDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -21,11 +23,18 @@ export function LedgerPostingDetailPage() {
       <Card size="small">
         <Descriptions column={2} size="small">
           <Descriptions.Item label="发布键">{detail.postingKey}</Descriptions.Item>
-          <Descriptions.Item label="状态">{detail.status}</Descriptions.Item>
+          <Descriptions.Item label="状态">{formatLedgerStatus(detail.status)}</Descriptions.Item>
           <Descriptions.Item label="来源 ID">{detail.sourceId}</Descriptions.Item>
           <Descriptions.Item label="账期">{detail.billingPeriodId}</Descriptions.Item>
-          <Descriptions.Item label="发布时间">{detail.postedAt}</Descriptions.Item>
-          <Descriptions.Item label="可见合计">{currencyTotals(detail.visibleTotals).join(' / ') || '—'}</Descriptions.Item>
+          <Descriptions.Item label="发布时间">{formatEventDateTime(detail.postedAt)}</Descriptions.Item>
+          <Descriptions.Item label="可见合计">
+            {Object.entries(detail.visibleTotals).map(([currency, amount]) => (
+              <span key={currency}>
+                <span>{formatMoney(amount, currency)}</span>
+                <span className="sr-only">{`${amount} ${currency}`}</span>
+              </span>
+            ))}
+          </Descriptions.Item>
         </Descriptions>
       </Card>
       <Table<LedgerEntryResponse>
@@ -37,7 +46,7 @@ export function LedgerPostingDetailPage() {
         columns={[
           { title: '序号', dataIndex: 'entryIndex', width: 70 },
           { title: '类型', render: (_: unknown, row: LedgerEntryResponse) => LEDGER_ENTRY_LABEL[row.entryType] ?? row.entryType },
-          { title: '金额', render: (_: unknown, row: LedgerEntryResponse) => `${row.amount} ${row.currency}` },
+          { title: '金额', render: (_: unknown, row: LedgerEntryResponse) => formatMoney(row.amount, row.currency) },
           { title: '目标', render: (_: unknown, row: LedgerEntryResponse) => `${row.targetType} · ${row.targetId}` },
           { title: '预算', dataIndex: 'budgetId', render: (value: string | null) => value ?? '未匹配' },
           { title: '血缘', render: (_: unknown, row: LedgerEntryResponse) => <Link to={`/ledger/entries/${row.id}`}>查看</Link> },

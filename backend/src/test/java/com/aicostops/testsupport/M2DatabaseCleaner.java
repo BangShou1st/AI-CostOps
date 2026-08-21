@@ -15,6 +15,13 @@ public final class M2DatabaseCleaner {
     }
 
     public static void clean(JdbcTemplate jdbc) {
+        // M6 close/reconciliation history references BillingPeriod, provider
+        // account, organization members and (optionally) reconciliation runs.
+        jdbc.update("DELETE FROM period_close_check");
+        jdbc.update("DELETE FROM period_close_run");
+        jdbc.update("DELETE FROM reconciliation_case");
+        jdbc.update("DELETE FROM reconciliation_run");
+
         // M5 immutable history is append-only in production, but test fixtures
         // must remove its children before allocation/budget source rows.
         jdbc.update("DELETE FROM budget_commitment_usage");

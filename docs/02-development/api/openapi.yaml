@@ -914,6 +914,114 @@ components:
       properties:
         totalAmount: { $ref: '#/components/schemas/Money' }
         expectedVersion: { type: integer, minimum: 0 }
+    ReconciliationRunStatus: { type: string, enum: [CREATED, RUNNING, COMPLETED, FAILED] }
+    ReconciliationCaseStatus: { type: string, enum: [OPEN, INVESTIGATING, RESOLVED] }
+    CloseBlockerCode:
+      type: string
+      enum: [OPEN_IMPORTS, UNRESOLVED_DUPLICATES, UNALLOCATED_CHARGES, UNPOSTED_APPROVED_EXPENSES, OPEN_MATERIAL_RECONCILIATION, PENDING_CORRECTIONS, LEDGER_INTEGRITY]
+    CloseCheckResult: { type: string, enum: [PASS, FAIL, ERROR] }
+    CloseRunStatus: { type: string, enum: [CHECKING, BLOCKED, CLOSED, FAILED] }
+    ReconciliationRunRequest:
+      type: object
+      required: [billingPeriodId]
+      properties:
+        billingPeriodId: { $ref: '#/components/schemas/Id' }
+    ResolveCaseRequest:
+      type: object
+      required: [reasonCode, resolutionNote]
+      properties:
+        reasonCode: { type: string, minLength: 1, maxLength: 100 }
+        resolutionNote: { type: string, minLength: 1, maxLength: 2000 }
+    ReopenPeriodRequest:
+      type: object
+      required: [reasonCode, reasonNote]
+      properties:
+        reasonCode: { type: string, minLength: 1, maxLength: 100 }
+        reasonNote: { type: string, minLength: 1, maxLength: 2000 }
+    ReconciliationRunResponse:
+      type: object
+      required: [id, billingPeriodId, status, algorithmVersion, toleranceAmount, basisHash, summary, createdByMemberId, startedAt, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        billingPeriodId: { $ref: '#/components/schemas/Id' }
+        status: { $ref: '#/components/schemas/ReconciliationRunStatus' }
+        algorithmVersion: { type: string }
+        toleranceAmount: { $ref: '#/components/schemas/Money' }
+        basisHash: { type: [string, 'null'] }
+        summary: { type: object, additionalProperties: true }
+        createdByMemberId: { $ref: '#/components/schemas/Id' }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        errorCode: { type: [string, 'null'] }
+        errorSummary: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ReconciliationCaseResponse:
+      type: object
+      required: [id, reconciliationRunId, providerAccountId, currency, caseType, differenceAmount, externalRowCount, internalRowCount, status, createdAt, updatedAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        reconciliationRunId: { $ref: '#/components/schemas/Id' }
+        providerAccountId: { $ref: '#/components/schemas/Id' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        caseType: { type: string }
+        externalAmount: { type: [string, 'null'], pattern: '^-?[0-9]+\\.[0-9]{8}$' }
+        internalAmount: { type: [string, 'null'], pattern: '^-?[0-9]+\\.[0-9]{8}$' }
+        differenceAmount: { $ref: '#/components/schemas/Money' }
+        externalRowCount: { type: integer, format: int64, minimum: 0 }
+        internalRowCount: { type: integer, format: int64, minimum: 0 }
+        status: { $ref: '#/components/schemas/ReconciliationCaseStatus' }
+        reasonCode: { type: [string, 'null'] }
+        resolutionNote: { type: [string, 'null'] }
+        resolvedByMemberId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        resolvedAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CloseCheckResponse:
+      type: object
+      required: [blockerCode, result, itemCount, summary]
+      properties:
+        blockerCode: { $ref: '#/components/schemas/CloseBlockerCode' }
+        result: { $ref: '#/components/schemas/CloseCheckResult' }
+        itemCount: { type: integer, format: int64, minimum: 0 }
+        summary: { type: object, additionalProperties: true }
+        evaluatedAt: { type: [string, 'null'], format: date-time }
+    CloseReadinessResponse:
+      type: object
+      required: [billingPeriodId, periodStatus, closeGeneration, ready, preview, checks]
+      properties:
+        billingPeriodId: { $ref: '#/components/schemas/Id' }
+        periodStatus: { type: string, enum: [OPEN, CLOSING, CLOSED] }
+        closeGeneration: { $ref: '#/components/schemas/Id' }
+        ready: { type: boolean }
+        preview: { type: boolean, enum: [true] }
+        checks: { type: array, items: { $ref: '#/components/schemas/CloseCheckResponse' } }
+    CloseRunResponse:
+      type: object
+      required: [billingPeriodId, periodStatus, closeGeneration, runId, runStatus, attemptNo, startedByMemberId, startedAt, checks]
+      properties:
+        billingPeriodId: { $ref: '#/components/schemas/Id' }
+        periodStatus: { type: string, enum: [OPEN, CLOSING, CLOSED] }
+        closeGeneration: { $ref: '#/components/schemas/Id' }
+        closingStartedAt: { type: [string, 'null'], format: date-time }
+        closedAt: { type: [string, 'null'], format: date-time }
+        reopenedAt: { type: [string, 'null'], format: date-time }
+        runId: { $ref: '#/components/schemas/Id' }
+        runStatus: { $ref: '#/components/schemas/CloseRunStatus' }
+        attemptNo: { type: integer, minimum: 1 }
+        reconciliationRunId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        startedByMemberId: { $ref: '#/components/schemas/Id' }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        errorCode: { type: [string, 'null'] }
+        errorSummary: { type: [string, 'null'] }
+        checks: { type: array, items: { $ref: '#/components/schemas/CloseCheckResponse' } }
+    PageResponseReconciliationRun:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ReconciliationRunResponse' } } } }]
+    PageResponseReconciliationCase:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ReconciliationCaseResponse' } } } }]
+    PageResponseCloseRun:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/CloseRunResponse' } } } }]
 
 paths:
   /auth/login:
@@ -1307,6 +1415,57 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ExpectedVersionRequest' } } } }
       responses: { '200': { description: Released commitment frees the committed remainder (or the stored replay), content: { application/json: { schema: { $ref: '#/components/schemas/CommitmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-runs:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationRunRequest' } } } }
+      responses: { '200': { description: Reconciliation run completed or failed, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationRunResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+    get:
+      parameters:
+        - { name: billingPeriodId, in: query, required: true, schema: { $ref: '#/components/schemas/Id' } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses: { '200': { description: Reconciliation run history for a billing period, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseReconciliationRun' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-runs/{runId}:
+    get:
+      responses: { '200': { description: One organization-scoped reconciliation run, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationRunResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases:
+    get:
+      parameters:
+        - { name: runId, in: query, required: true, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ReconciliationCaseStatus' } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses: { '200': { description: Reconciliation cases for a run, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseReconciliationCase' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases/{caseId}:
+    get:
+      responses: { '200': { description: One organization-scoped reconciliation case, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationCaseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases/{caseId}/investigate:
+    post:
+      responses: { '200': { description: Case moved to INVESTIGATING, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationCaseResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases/{caseId}/return-open:
+    post:
+      responses: { '200': { description: Case returned to OPEN, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationCaseResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases/{caseId}/resolve:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResolveCaseRequest' } } } }
+      responses: { '200': { description: Case resolved without accounting mutation, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationCaseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /billing-periods/{periodId}/close-readiness:
+    get:
+      responses: { '200': { description: Non-mutating preview of all seven Close blockers, content: { application/json: { schema: { $ref: '#/components/schemas/CloseReadinessResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /billing-periods/{periodId}/close-runs:
+    get:
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses: { '200': { description: Close attempt history for a billing period, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseCloseRun' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /billing-periods/{periodId}/close-runs/{runId}:
+    get:
+      responses: { '200': { description: One Close attempt with persisted blocker checks, content: { application/json: { schema: { $ref: '#/components/schemas/CloseRunResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /billing-periods/{periodId}/close:
+    post:
+      responses: { '200': { description: Current or newly finalized Close attempt, content: { application/json: { schema: { $ref: '#/components/schemas/CloseRunResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /billing-periods/{periodId}/reopen:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReopenPeriodRequest' } } } }
+      responses: { '200': { description: Billing period reopened into a new generation, content: { application/json: { schema: { $ref: '#/components/schemas/CloseRunResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /billing-periods:
     get:
       responses: { '200': { description: Current-organization billing periods ordered by period start descending and id descending, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/BillingPeriodResponse' } } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }

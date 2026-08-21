@@ -6,6 +6,7 @@ import { importsApi } from './api/importsApi'
 import type { AttemptSummary, IssueSeverity, IssueSummary, RawRecordNormalizeStatus, RawRecordSummary } from './api/importTypes'
 import { RawRecordDrawer } from './RawRecordDrawer'
 import { formatEventDateTime } from '../../lib/dateTime'
+import { formatImportAttemptStatus, formatImportAttemptTrigger, formatIssueSeverity, formatRawRecordNormalizeStatus } from './presentation'
 
 const PAGE_SIZE = 50
 
@@ -93,8 +94,8 @@ export function AttemptReview({ importId }: { importId: string }) {
           onRow={(row) => ({ onClick: () => selectAttempt(row.id) })}
           columns={[
             { title: '尝试 #', dataIndex: 'attemptNo' },
-            { title: '状态', dataIndex: 'status' },
-            { title: '触发', dataIndex: 'triggerType' },
+            { title: '状态', dataIndex: 'status', render: (value: string | null) => formatImportAttemptStatus(value) },
+            { title: '触发', dataIndex: 'triggerType', render: (value: string | null) => formatImportAttemptTrigger(value) },
             { title: '错误', dataIndex: 'errorCode' },
             { title: '完成时间', dataIndex: 'finishedAt', render: (value: string | null) => formatEventDateTime(value) },
           ]}
@@ -113,7 +114,7 @@ export function AttemptReview({ importId }: { importId: string }) {
               setSeverity(value)
               setIssuePage(0)
             }}
-            options={[{ value: 'WARN', label: 'WARN' }, { value: 'ERROR', label: 'ERROR' }]}
+            options={[{ value: 'WARN', label: '警告' }, { value: 'ERROR', label: '错误' }]}
             style={{ width: 140 }}
           />
           <Input
@@ -146,7 +147,7 @@ export function AttemptReview({ importId }: { importId: string }) {
             onChange: (nextPage) => setIssuePage(nextPage - 1),
           }}
           columns={[
-            { title: '严重级别', dataIndex: 'severity', render: (value) => <Tag>{value}</Tag> },
+            { title: '严重级别', dataIndex: 'severity', render: (value) => <Tag>{formatIssueSeverity(value)}</Tag> },
             { title: '代码', dataIndex: 'issueCode' },
             { title: '记录位置', dataIndex: 'recordLocator' },
             { title: '字段', dataIndex: 'fieldName' },
@@ -169,9 +170,9 @@ export function AttemptReview({ importId }: { importId: string }) {
               setRawPage(0)
             }}
             options={[
-              { value: 'NORMALIZED', label: 'NORMALIZED' },
-              { value: 'WARN', label: 'WARN' },
-              { value: 'ERROR', label: 'ERROR' },
+              { value: 'NORMALIZED', label: '已归一化' },
+              { value: 'WARN', label: '归一化警告' },
+              { value: 'ERROR', label: '归一化失败' },
             ]}
             style={{ width: 160 }}
           />
@@ -192,7 +193,7 @@ export function AttemptReview({ importId }: { importId: string }) {
           columns={[
             { title: '索引', dataIndex: 'recordIndex' },
             { title: '记录位置', dataIndex: 'recordLocator' },
-            { title: '归一化状态', dataIndex: 'normalizeStatus' },
+            { title: '归一化状态', dataIndex: 'normalizeStatus', render: (value: string | null) => formatRawRecordNormalizeStatus(value) },
             { title: '键数', render: (_, row) => row.rawPayloadKeys.keyCount },
             { title: '键', render: (_, row) => row.rawPayloadKeys.keys.join(', ') },
             { title: '截断', render: (_, row) => (row.rawPayloadKeys.keysTruncated ? '是' : '否') },

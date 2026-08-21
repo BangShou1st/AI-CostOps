@@ -46,6 +46,11 @@ class PasswordResetApiIntegrationTest extends AuthenticationContainersSupport {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
         jdbc.update("DELETE FROM audit_event"); jdbc.update("DELETE FROM invitation");
         jdbc.update("DELETE FROM role_assignment");
+        // M6 close/reconciliation history references organization members.
+        jdbc.update("DELETE FROM period_close_check");
+        jdbc.update("DELETE FROM period_close_run");
+        jdbc.update("DELETE FROM reconciliation_case");
+        jdbc.update("DELETE FROM reconciliation_run");
         jdbc.update("DELETE FROM organization_member"); jdbc.update("DELETE FROM user_credential");
         jdbc.update("DELETE FROM app_user"); jdbc.update("DELETE FROM organization WHERE slug='reset-org'");
         jdbc.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('Reset','reset-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");

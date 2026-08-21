@@ -21,19 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Idempotent Import workflow commands. retry/cancel follow the established
- * {@code ImportAttempt -> ImportBatch} lock order; confirm locks the Batch first
- * and reads the latest Attempt without locking (the reverse order, absorbed by
- * the bounded deadlock retry). Every command reserves/replays its
- * Idempotency-Key inside the same transaction and appends exactly one secret-free
- * audit event per committed command.
- *
- * <p>Concurrent commands on one Batch can hit MySQL's classic gap-lock/insert-
- * intention deadlock (the locking latest-Attempt scan reserves the gap the
- * successor insert needs). InnoDB rolls one side back; a bounded retry lets that
- * side re-read the winner's committed state and produce the correct 409.
- */
 @Service
 public class ImportWorkflowCommandService {
 
@@ -47,6 +34,7 @@ public class ImportWorkflowCommandService {
     private final ImportCommandIdempotency idempotency;
     private final ImportWorkflowAuditPort audit;
     private final ImportCommandResponseSerializer responseSerializer;
+    private final ImportCloseAdmissionPort closeAdmission;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -58,6 +46,7 @@ public class ImportWorkflowCommandService {
             ImportCommandIdempotency idempotency,
             ImportWorkflowAuditPort audit,
             ImportCommandResponseSerializer responseSerializer,
+            ImportCloseAdmissionPort closeAdmission,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -67,16 +56,11 @@ public class ImportWorkflowCommandService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseSerializer = responseSerializer;
+        this.closeAdmission = closeAdmission;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
 
-    /**
-     * Manual retry: FAILED / CANCELED batches gain one new QUEUED
-     * {@code MANUAL_RETRY} Attempt whose predecessor is the latest Attempt and
-     * whose {@code attempt_no} is {@code latest + 1}; the Batch returns to
-     * PENDING in the same transaction. Old lineage is never touched.
-     */
     public ImportSummary retry(AuthenticatedUser user, long importId, String idempotencyKey) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "IMPORT_RETRY");
@@ -93,6 +77,10 @@ public class ImportWorkflowCommandService {
                 return responseSerializer.importDetailFromJson(decision.responseBody());
             }
 
+            // Retry only creates a new unconfirmed attempt and cannot change
+            // confirmed external truth. Keep the organization-level workflow
+            // admission, while the later Confirm fences canonical periods.
+            closeAdmission.lockAndRequireNoClosingPeriod(context.organizationId());
             var latest = attemptMapper.findLatestByBatchForUpdate(importId);
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
@@ -119,25 +107,6 @@ public class ImportWorkflowCommandService {
         }));
     }
 
-    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
-        for (var attempt = 1; ; attempt++) {
-            try {
-                return operation.get();
-            } catch (DeadlockLoserDataAccessException deadlock) {
-                if (attempt >= DEADLOCK_RETRIES) {
-                    throw deadlock;
-                }
-            }
-        }
-    }
-
-    /**
-     * Cooperative cancel: legal only for {@code PENDING + QUEUED} or
-     * {@code PROCESSING + RUNNING}. The latest Attempt becomes CANCELED with
-     * {@code finished_at} set and its active lease cleared; the Batch becomes
-     * CANCELED in the same transaction. Worker threads are never interrupted —
-     * the existing lease/fencing model makes every later worker write fail.
-     */
     public ImportSummary cancel(AuthenticatedUser user, long importId, String idempotencyKey) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "IMPORT_CANCEL");
@@ -154,6 +123,7 @@ public class ImportWorkflowCommandService {
                 return responseSerializer.importDetailFromJson(decision.responseBody());
             }
 
+            // Cancel only removes open work, so it remains legal during CLOSING.
             var latest = attemptMapper.findLatestByBatchForUpdate(importId);
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
@@ -177,15 +147,6 @@ public class ImportWorkflowCommandService {
         }));
     }
 
-    /**
-     * Confirm: a READY_FOR_REVIEW batch with a SUCCEEDED, error-free latest
-     * Attempt becomes CONFIRMED in one transaction and records one audit event.
-     * A CONFIRMED batch whose confirmed attempt is the latest attempt is a
-     * semantic idempotent success even under a new Idempotency-Key (the current
-     * reservation is finalized as 200, never left provisional). Lock order is
-     * batch-first, attempt read-only — the reverse of retry/cancel, so the bounded
-     * deadlock retry absorbs the intersection.
-     */
     public ImportSummary confirm(AuthenticatedUser user, long importId, String idempotencyKey) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "IMPORT_CONFIRM");
@@ -202,6 +163,26 @@ public class ImportWorkflowCommandService {
                 return responseSerializer.importDetailFromJson(decision.responseBody());
             }
 
+            // Semantic re-confirm of already committed truth remains a no-op
+            // replay and therefore does not need a new Close admission gate.
+            var preRead = batchMapper.findByIdAndOrganization(importId, context.organizationId());
+            var preLatest = attemptMapper.findLatestByBatch(importId);
+            if (isSemanticReconfirm(preRead, preLatest)) {
+                var replayed = currentDetail(context.organizationId(), importId);
+                idempotency.finalize(decision.id(), 200,
+                        responseSerializer.importDetailJson(replayed));
+                return replayed;
+            }
+
+            if (preRead == null || preRead.organizationId() != context.organizationId()) {
+                throw notFound();
+            }
+            // Validate the immutable pre-admission shape before taking any
+            // workflow row lock. The actual mutation is revalidated after the
+            // organization + period locks below.
+            requireConfirmable(preRead, preLatest);
+            closeAdmission.lockAndRequireOpenPeriodsForAttempt(context.organizationId(), preLatest.id());
+
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
                 throw notFound();
@@ -211,15 +192,13 @@ public class ImportWorkflowCommandService {
                 throw stateConflict("Import cannot be confirmed",
                         "The import has no latest attempt matching the batch.");
             }
-
-            // Semantic re-confirm: same attempt under a new key is success.
+            if (isSemanticReconfirm(batch, latest)) {
+                var replayed = currentDetail(context.organizationId(), importId);
+                idempotency.finalize(decision.id(), 200,
+                        responseSerializer.importDetailJson(replayed));
+                return replayed;
+            }
             if (batch.status() == ImportBatchStatus.CONFIRMED) {
-                if (batch.confirmedAttemptId() != null && batch.confirmedAttemptId() == latest.id()) {
-                    var replayed = currentDetail(context.organizationId(), importId);
-                    idempotency.finalize(decision.id(), 200,
-                            responseSerializer.importDetailJson(replayed));
-                    return replayed;
-                }
                 throw stateConflict("Import cannot be confirmed",
                         "A confirmed import can only re-confirm its confirmed attempt.");
             }
@@ -236,6 +215,14 @@ public class ImportWorkflowCommandService {
             idempotency.finalize(decision.id(), 200, responseSerializer.importDetailJson(detail));
             return detail;
         }));
+    }
+
+    private static boolean isSemanticReconfirm(ImportBatch batch, ImportAttempt latest) {
+        return batch != null
+                && batch.status() == ImportBatchStatus.CONFIRMED
+                && latest != null
+                && batch.confirmedAttemptId() != null
+                && batch.confirmedAttemptId() == latest.id();
     }
 
     private void requireConfirmable(ImportBatch batch, ImportAttempt latest) {
@@ -255,8 +242,7 @@ public class ImportWorkflowCommandService {
                 && latest != null && latest.status() == ImportAttemptStatus.RUNNING;
         if (!pendingQueued && !processingRunning) {
             throw stateConflict("Import cannot be canceled",
-                    "Only a PENDING import with a queued attempt or a PROCESSING import "
-                            + "with a running attempt can be canceled.");
+                    "Only a PENDING import with a queued attempt or a PROCESSING import with a running attempt can be canceled.");
         }
     }
 
@@ -294,5 +280,17 @@ public class ImportWorkflowCommandService {
     private static DomainException notFound() {
         return new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                 "Import not found", "The import is not available in the current organization.");
+    }
+
+    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
+        for (var attempt = 1; ; attempt++) {
+            try {
+                return operation.get();
+            } catch (DeadlockLoserDataAccessException deadlock) {
+                if (attempt >= DEADLOCK_RETRIES) {
+                    throw deadlock;
+                }
+            }
+        }
     }
 }

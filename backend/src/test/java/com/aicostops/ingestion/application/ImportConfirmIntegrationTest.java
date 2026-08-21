@@ -26,6 +26,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @Tag("integration")
 class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
 
+    private static final String AUG_1 = "2026-08-01 00:00:00.000000";
+    private static final String AUG_15 = "2026-08-15 00:00:00.000000";
+    private static final String SEP_1 = "2026-09-01 00:00:00.000000";
+    private static final String SEP_15 = "2026-09-15 00:00:00.000000";
+    private static final String OCT_1 = "2026-10-01 00:00:00.000000";
+
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
@@ -47,6 +53,9 @@ class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
     private long parsedBatchId;
     private long failedBatchId;
     private long foreignReadyBatchId;
+    private long closedPeriodReadyBatchId;
+    private long closedPeriodAttemptId;
+    private long closedPeriodId;
 
     @BeforeEach
     void setUp() {
@@ -84,6 +93,11 @@ class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
         insertAttempt(failedBatchId, 1, "FAILED", "INITIAL", null, 1);
         foreignReadyBatchId = insertBatch(foreignOrganizationId, "READY_FOR_REVIEW");
         insertAttempt(foreignReadyBatchId, 1, "SUCCEEDED", "INITIAL", null, 0);
+        closedPeriodReadyBatchId = insertBatch(organizationId, "READY_FOR_REVIEW");
+        closedPeriodAttemptId = insertAttempt(closedPeriodReadyBatchId, 1, "SUCCEEDED", "INITIAL", null, 0);
+        closedPeriodId = insertClosedPeriod(organizationId);
+        var closedRawRecordId = insertRawRecord(closedPeriodAttemptId, "closed-confirm-lineage");
+        insertCharge(closedPeriodReadyBatchId, closedRawRecordId, 0, AUG_15, SEP_1, "CLEAN");
     }
 
     @AfterEach
@@ -203,8 +217,131 @@ class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
                 .satisfies(this::isStateConflict);
     }
 
+    @Test
+    void knownClosedPeriodConfirmIsRejectedWithoutTruthMutation() {
+        assertThatThrownBy(() -> commands.confirm(user(), closedPeriodReadyBatchId,
+                "idem-closed-confirm"))
+                .isInstanceOf(DomainException.class)
+                .satisfies(this::isPeriodNotOpen);
+
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, closedPeriodReadyBatchId)).isEqualTo("READY_FOR_REVIEW");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_attempt WHERE import_batch_id=?",
+                Integer.class, closedPeriodReadyBatchId)).isEqualTo(1);
+    }
+
+    @Test
+    void nullBatchBoundsCannotConfirmCanonicalChargeIntoClosedPeriod() {
+        var rawRecordId = insertRawRecord(readyAttemptId, "closed-lineage");
+        insertCharge(readyBatchId, rawRecordId, 0, AUG_15, SEP_1, "CLEAN");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT period_start FROM import_batch WHERE id=?", Object.class, readyBatchId)).isNull();
+        assertThatThrownBy(() -> commands.confirm(user(), readyBatchId, "idem-null-closed"))
+                .isInstanceOf(DomainException.class)
+                .satisfies(this::isPeriodNotOpen);
+
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, readyBatchId)).isEqualTo("READY_FOR_REVIEW");
+        assertThat(jdbc.queryForObject("SELECT confirmed_attempt_id FROM import_batch WHERE id=?",
+                Long.class, readyBatchId)).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event", Integer.class)).isZero();
+    }
+
+    @Test
+    void confirmRejectsAtomicallyWhenCanonicalLineageTouchesClosedAndOpenPeriods() {
+        insertPeriod(organizationId, SEP_1, OCT_1, "OPEN");
+        var rawRecordId = insertRawRecord(readyAttemptId, "cross-period-lineage");
+        insertCharge(readyBatchId, rawRecordId, 0, AUG_15, SEP_1, "CLEAN");
+        insertCharge(readyBatchId, rawRecordId, 1, SEP_15, OCT_1, "CLEAN");
+
+        assertThatThrownBy(() -> commands.confirm(user(), readyBatchId, "idem-cross-period"))
+                .isInstanceOf(DomainException.class)
+                .satisfies(this::isPeriodNotOpen);
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, readyBatchId)).isEqualTo("READY_FOR_REVIEW");
+        assertThat(jdbc.queryForObject("SELECT confirmed_attempt_id FROM import_batch WHERE id=?",
+                Long.class, readyBatchId)).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event", Integer.class)).isZero();
+    }
+
+    @Test
+    void confirmSucceedsWhenEveryCanonicalLineagePeriodIsOpen() {
+        jdbc.update("UPDATE billing_period SET status='OPEN',closed_at=NULL WHERE id=?", closedPeriodId);
+        insertPeriod(organizationId, SEP_1, OCT_1, "OPEN");
+        var rawRecordId = insertRawRecord(readyAttemptId, "all-open-lineage");
+        insertCharge(readyBatchId, rawRecordId, 0, AUG_15, SEP_1, "CLEAN");
+        insertCharge(readyBatchId, rawRecordId, 1, SEP_15, OCT_1, "CLEAN");
+
+        var detail = commands.confirm(user(), readyBatchId, "idem-all-open");
+
+        assertThat(detail.status().name()).isEqualTo("CONFIRMED");
+        assertThat(detail.confirmedAttemptId()).isEqualTo(readyAttemptId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void semanticReconfirmRemainsSuccessfulAfterItsLineagePeriodCloses() {
+        jdbc.update("UPDATE billing_period SET status='OPEN',closed_at=NULL WHERE id=?", closedPeriodId);
+        var rawRecordId = insertRawRecord(readyAttemptId, "semantic-replay-lineage");
+        insertCharge(readyBatchId, rawRecordId, 0, AUG_15, SEP_1, "CLEAN");
+
+        commands.confirm(user(), readyBatchId, "idem-semantic-close-1");
+        jdbc.update("UPDATE billing_period SET status='CLOSED',closed_at=UTC_TIMESTAMP(6) WHERE id=?",
+                closedPeriodId);
+
+        var replay = commands.confirm(user(), readyBatchId, "idem-semantic-close-2");
+
+        assertThat(replay.status().name()).isEqualTo("CONFIRMED");
+        assertThat(replay.confirmedAttemptId()).isEqualTo(readyAttemptId);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void idempotencyReplayRemainsSuccessfulAfterItsLineagePeriodCloses() {
+        jdbc.update("UPDATE billing_period SET status='OPEN',closed_at=NULL WHERE id=?", closedPeriodId);
+        var rawRecordId = insertRawRecord(readyAttemptId, "idempotent-replay-lineage");
+        insertCharge(readyBatchId, rawRecordId, 0, AUG_15, SEP_1, "CLEAN");
+
+        commands.confirm(user(), readyBatchId, "idem-close-replay");
+        jdbc.update("UPDATE billing_period SET status='CLOSED',closed_at=UTC_TIMESTAMP(6) WHERE id=?",
+                closedPeriodId);
+
+        var replay = commands.confirm(user(), readyBatchId, "idem-close-replay");
+
+        assertThat(replay.status().name()).isEqualTo("CONFIRMED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void periodlessCanonicalLineageKeepsUnknownPeriodAdmissionBehavior() {
+        var rawRecordId = insertRawRecord(readyAttemptId, "periodless-lineage");
+        insertCharge(readyBatchId, rawRecordId, 0, null, null, "CLEAN");
+
+        var detail = commands.confirm(user(), readyBatchId, "idem-periodless");
+
+        assertThat(detail.status().name()).isEqualTo("CONFIRMED");
+        assertThat(detail.confirmedAttemptId()).isEqualTo(readyAttemptId);
+    }
+
+    @Test
+    void foreignPeriodAndChargeCannotAffectOwnConfirmAdmission() {
+        insertPeriod(foreignOrganizationId, SEP_1, OCT_1, "CLOSED");
+        var rawRecordId = insertRawRecord(readyAttemptId, "foreign-period-lineage");
+        insertChargeForOrg(foreignOrganizationId, rawRecordId, 0, SEP_15, OCT_1, "CLEAN");
+
+        var detail = commands.confirm(user(), readyBatchId, "idem-foreign-period");
+
+        assertThat(detail.status().name()).isEqualTo("CONFIRMED");
+        assertThat(detail.confirmedAttemptId()).isEqualTo(readyAttemptId);
+    }
+
     private void isStateConflict(Throwable throwable) {
         assertDomain(throwable, org.springframework.http.HttpStatus.CONFLICT, "STATE_CONFLICT");
+    }
+
+    private void isPeriodNotOpen(Throwable throwable) {
+        assertDomain(throwable, org.springframework.http.HttpStatus.CONFLICT, "PERIOD_NOT_OPEN");
     }
 
     private void isNotFound(Throwable throwable) {
@@ -248,6 +385,51 @@ class ImportConfirmIntegrationTest extends AuthenticationContainersSupport {
         return jdbc.queryForObject("""
                 SELECT id FROM import_batch WHERE org_id=? AND evidence_id=?
                 """, Long.class, orgId, evId);
+    }
+
+    private long insertClosedPeriod(long orgId) {
+        jdbc.update("""
+                INSERT INTO billing_period(
+                    org_id,period_start,period_end,status,close_generation,closed_at,version,created_at,updated_at)
+                VALUES (?, '2026-08-01 00:00:00.000000','2026-09-01 00:00:00.000000',
+                    'CLOSED',0,UTC_TIMESTAMP(6),0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long insertPeriod(long orgId, String start, String end, String status) {
+        jdbc.update("""
+                INSERT INTO billing_period(
+                    org_id,period_start,period_end,status,close_generation,version,created_at,updated_at)
+                VALUES (?,?,?,?,0,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, start, end, status);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long insertRawRecord(long attemptId, String locator) {
+        jdbc.update("""
+                INSERT INTO raw_provider_record(
+                    import_attempt_id,record_index,record_locator,provider_record_key,
+                    raw_payload,normalized_payload,usage_start,usage_end,normalize_status,created_at)
+                VALUES (?,0,?,NULL,JSON_OBJECT(),NULL,NULL,NULL,'NORMALIZED',UTC_TIMESTAMP(6))
+                """, attemptId, locator);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long insertCharge(long batchId, long rawRecordId, int factIndex,
+            String periodStart, String periodEnd, String reviewStatus) {
+        return insertChargeForOrg(organizationId, rawRecordId, factIndex, periodStart, periodEnd, reviewStatus);
+    }
+
+    private long insertChargeForOrg(long orgId, long rawRecordId, int factIndex,
+            String periodStart, String periodEnd, String reviewStatus) {
+        jdbc.update("""
+                INSERT INTO charge_fact(
+                    org_id,raw_record_id,fact_index,provider_code,charge_category,amount,currency,
+                    period_start,period_end,review_status,created_at)
+                VALUES (?,?,?,'TEST_PROVIDER','USAGE','1.00000000','USD',?,?,?,UTC_TIMESTAMP(6))
+                """, orgId, rawRecordId, factIndex, periodStart, periodEnd, reviewStatus);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
 
     private long insertAttempt(long batch, int attemptNo, String status, String trigger,

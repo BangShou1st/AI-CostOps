@@ -65,29 +65,29 @@ beforeEach(() => {
 describe('ProviderImportUploadModal', () => {
   it('offers only FILE_EXPORT for DeepSeek', async () => {
     renderModal()
-    await pickOption(/Provider 账号/, /DeepSeek 主账号/)
+    await pickOption(/供应商账号/, /DeepSeek 主账号/)
 
     fireEvent.mouseDown(screen.getByLabelText(/来源类型/))
-    expect(await screen.findByText('文件导出（FILE_EXPORT）')).toBeInTheDocument()
-    expect(screen.queryByText('用量 API JSON（USAGE_API_JSON）')).not.toBeInTheDocument()
-    expect(screen.queryByText('成本 API JSON（COSTS_API_JSON）')).not.toBeInTheDocument()
+    expect(await screen.findByText('文件导出')).toBeInTheDocument()
+    expect(screen.queryByText('用量 API')).not.toBeInTheDocument()
+    expect(screen.queryByText('费用 API')).not.toBeInTheDocument()
   })
 
   it('offers all three source types for OpenAI', async () => {
     renderModal()
-    await pickOption(/Provider 账号/, /OpenAI 主账号/)
+    await pickOption(/供应商账号/, /OpenAI 主账号/)
 
     fireEvent.mouseDown(screen.getByLabelText(/来源类型/))
-    expect(await screen.findByText('文件导出（FILE_EXPORT）')).toBeInTheDocument()
-    expect(await screen.findByText('用量 API JSON（USAGE_API_JSON）')).toBeInTheDocument()
-    expect(await screen.findByText('成本 API JSON（COSTS_API_JSON）')).toBeInTheDocument()
+    expect(await screen.findByText('文件导出')).toBeInTheDocument()
+    expect(await screen.findByText('用量 API')).toBeInTheDocument()
+    expect(await screen.findByText('费用 API')).toBeInTheDocument()
   })
 
   it('marks unknown provider as unsupported without guessing a source type', async () => {
     renderModal()
-    await pickOption(/Provider 账号/, /未知 Provider/)
+    await pickOption(/供应商账号/, /未知 Provider/)
 
-    expect(await screen.findByText(/该 Provider 暂不支持上传/)).toBeInTheDocument()
+    expect(await screen.findByText(/该供应商暂不支持上传/)).toBeInTheDocument()
     expect(screen.getByLabelText(/来源类型/)).toBeDisabled()
     expect(screen.getByRole('button', { name: /上\s*传/ })).toBeDisabled()
   })
@@ -104,8 +104,8 @@ describe('ProviderImportUploadModal', () => {
       batchStatus: 'PENDING', duplicateEvidence: true, duplicateBatch: true,
     })
 
-    await pickOption(/Provider 账号/, /DeepSeek 主账号/)
-    await pickOption(/来源类型/, /FILE_EXPORT/)
+    await pickOption(/供应商账号/, /DeepSeek 主账号/)
+    await pickOption(/来源类型/, /文件导出/)
     const file = attachFile()
 
     fireEvent.click(screen.getByRole('button', { name: /上\s*传/ }))
@@ -129,8 +129,8 @@ describe('ProviderImportUploadModal', () => {
       } },
     })
 
-    await pickOption(/Provider 账号/, /DeepSeek 主账号/)
-    await pickOption(/来源类型/, /FILE_EXPORT/)
+    await pickOption(/供应商账号/, /DeepSeek 主账号/)
+    await pickOption(/来源类型/, /文件导出/)
     attachFile()
     fireEvent.click(screen.getByRole('button', { name: /上\s*传/ }))
 

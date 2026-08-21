@@ -13,6 +13,14 @@ export const LEDGER_ENTRY_LABEL: Record<LedgerEntryType, string> = {
   REVERSAL: '反转',
 }
 
+export function formatLedgerStatus(status: string): string {
+  const labels: Record<string, string> = {
+    POSTED: '已入账',
+    REVERSED: '已冲销',
+  }
+  return labels[status] ?? '其他状态'
+}
+
 export function currencyTotals(totals: Record<string, string>): string[] {
   return Object.entries(totals).map(([currency, amount]) => `${amount} ${currency}`)
 }

@@ -22,6 +22,7 @@ vi.mock('./api/importsApi', () => ({
     getRawRecord: vi.fn(),
     retry: vi.fn(),
     cancel: vi.fn(),
+    confirm: vi.fn(),
     uploadProviderImport: vi.fn(),
   },
 }))
@@ -76,6 +77,22 @@ const importSummary: ImportSummary = {
   updatedAt: '2026-08-01T00:00:00Z',
   retryable: true,
   cancelable: false,
+  confirmedAttemptId: null,
+}
+
+const reviewableImport: ImportSummary = {
+  ...importSummary,
+  status: 'READY_FOR_REVIEW',
+  retryable: false,
+  cancelable: false,
+  latestAttempt: {
+    ...importSummary.latestAttempt!,
+    status: 'SUCCEEDED',
+    warningCount: 0,
+    errorCount: 0,
+    errorCode: null,
+    errorSummary: null,
+  },
 }
 
 function queryClientForTest() {
@@ -152,7 +169,7 @@ describe('ImportListPage', () => {
     await screen.findByText('invoice.csv')
 
     expect(mockedSettingsApi.listProviderAccounts).toHaveBeenCalled()
-    fireEvent.mouseDown(screen.getByLabelText(/Provider 账号/))
+    fireEvent.mouseDown(screen.getByLabelText(/供应商账号/))
     const matches = await screen.findAllByText('Primary')
     expect(matches.length).toBeGreaterThan(1)
   })
@@ -183,7 +200,7 @@ describe('ImportDetailPage', () => {
 
     expect(await screen.findByText('invoice.csv')).toBeInTheDocument()
     expect(screen.getByText('Primary')).toBeInTheDocument()
-    expect(screen.getByText('FILE_EXPORT')).toBeInTheDocument()
+    expect(screen.getByText('文件导出')).toBeInTheDocument()
     expect(screen.queryByText(/归一化事实|确认导入|READY_FOR_REVIEW|分配建议|总账/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /确\s*认/ })).not.toBeInTheDocument()
   })
@@ -195,6 +212,25 @@ describe('ImportDetailPage', () => {
 
     renderPage(['IMPORT_READ', 'IMPORT_RETRY'], 'detail')
     expect(await screen.findByRole('button', { name: /重\s*试/ })).toBeInTheDocument()
+  })
+
+  it('confirms a reviewable import only with permission and renders the authoritative response', async () => {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-confirm-1' as ReturnType<typeof crypto.randomUUID>)
+    mockedImportsApi.getImport.mockResolvedValue(reviewableImport)
+    mockedImportsApi.confirm.mockResolvedValue({
+      ...reviewableImport,
+      status: 'CONFIRMED',
+      confirmedAttemptId: '3',
+    })
+
+    renderPage(['IMPORT_READ', 'IMPORT_CONFIRM'], 'detail')
+    fireEvent.click(await screen.findByRole('button', { name: /确\s*认导入/ }))
+
+    await waitFor(() => {
+      expect(mockedImportsApi.confirm).toHaveBeenCalledWith('123', 'uuid-confirm-1')
+    })
+    expect(await screen.findByText('已确认')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /确\s*认导入/ })).not.toBeInTheDocument()
   })
 
   it('retry success restarts polling and invalidates caches', async () => {
@@ -210,7 +246,7 @@ describe('ImportDetailPage', () => {
     })
     // The backend response is written into the detail cache directly: the page
     // shows PENDING immediately without an extra detail fetch.
-    expect(await screen.findByText('PENDING')).toBeInTheDocument()
+    expect(await screen.findByText('等待处理')).toBeInTheDocument()
     expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(1)
   })
 
@@ -228,7 +264,7 @@ describe('ImportDetailPage', () => {
       expect(mockedImportsApi.cancel).toHaveBeenCalledWith('123', 'uuid-cancel-1')
     })
     // Cancel response lands in the cache: CANCELED renders immediately.
-    expect(await screen.findByText('CANCELED')).toBeInTheDocument()
+    expect(await screen.findByText('已取消')).toBeInTheDocument()
     expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(1)
   })
 
@@ -375,7 +411,7 @@ describe('ImportDetailPage attempt review', () => {
     })
 
     fireEvent.mouseDown(screen.getByLabelText(/严重级别/))
-    const errorOptions = await screen.findAllByText('ERROR')
+    const errorOptions = await screen.findAllByText('错误')
     fireEvent.click(errorOptions[errorOptions.length - 1])
 
     await waitFor(() => {
@@ -419,7 +455,7 @@ describe('ImportDetailPage cache lifecycle', () => {
     await act(async () => {
       queryClient.setQueryData(importKeys.detail('123'), terminal)
     })
-    expect(screen.getByText('PARSED')).toBeInTheDocument()
+    expect(screen.getByText('已解析')).toBeInTheDocument()
     expect(screen.getByText('尝试 #')).toBeInTheDocument()
     await waitFor(() => {
       expect(mockedImportsApi.listAttempts.mock.calls.length).toBeGreaterThanOrEqual(2)
