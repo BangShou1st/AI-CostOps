@@ -54,6 +54,12 @@ public class BudgetCommandService {
         var context = authorizationContexts.fresh(user);
         authorization.requireOrg(context, PERMISSION_BUDGET_MANAGE);
         validateScope(context.organizationId(), command);
+        // The OpenAPI POST /budgets contract has no 404: a period reference
+        // outside the organization is a client validation error. The fence
+        // below still owns locking and the OPEN requirement in-transaction.
+        if (!mapper.existsBillingPeriod(context.organizationId(), command.billingPeriodId())) {
+            throw validation("The billing period must exist in the current organization.");
+        }
         var now = clock.instant();
         try {
             return executeWithDeadlockRetry(() -> transactions.execute(status -> {

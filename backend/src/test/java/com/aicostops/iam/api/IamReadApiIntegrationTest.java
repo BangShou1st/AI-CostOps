@@ -80,6 +80,11 @@ class IamReadApiIntegrationTest extends AuthenticationContainersSupport {
     private void cleanDatabase() {
         jdbcTemplate.update("DELETE FROM audit_event");
         jdbcTemplate.update("DELETE FROM role_assignment");
+        // M6 close/reconciliation history references organization members.
+        jdbcTemplate.update("DELETE FROM period_close_check");
+        jdbcTemplate.update("DELETE FROM period_close_run");
+        jdbcTemplate.update("DELETE FROM reconciliation_case");
+        jdbcTemplate.update("DELETE FROM reconciliation_run");
         jdbcTemplate.update("DELETE FROM organization_member");
         jdbcTemplate.update("DELETE FROM cost_center");
         jdbcTemplate.update("DELETE FROM user_credential");

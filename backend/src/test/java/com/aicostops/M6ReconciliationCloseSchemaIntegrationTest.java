@@ -3,8 +3,10 @@ package com.aicostops;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +21,13 @@ class M6ReconciliationCloseSchemaIntegrationTest extends MySqlContainerSupport {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    // Fixture rows must not outlive the test: organization.api tests later in
+    // the suite delete organizations without touching billing_period children.
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
+    }
 
     @Test
     void migrationCreatesAllFourM6TablesAndSupportingIndexes() {

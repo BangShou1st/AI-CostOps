@@ -90,6 +90,11 @@ class M1AuthorizationApiIntegrationTest extends AuthenticationContainersSupport 
         jdbc.update("DELETE FROM team_member");
         jdbc.update("DELETE FROM project");
         jdbc.update("DELETE FROM team");
+        // M6 close/reconciliation history references organization members.
+        jdbc.update("DELETE FROM period_close_check");
+        jdbc.update("DELETE FROM period_close_run");
+        jdbc.update("DELETE FROM reconciliation_case");
+        jdbc.update("DELETE FROM reconciliation_run");
         jdbc.update("DELETE FROM organization_member");
         jdbc.update("DELETE FROM cost_center");
         jdbc.update("DELETE FROM user_credential");

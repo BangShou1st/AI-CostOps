@@ -3,9 +3,11 @@ package com.aicostops;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -45,6 +47,11 @@ class V11MigrationIntegrationTest extends MySqlContainerSupport {
         var suffix = fixture.incrementAndGet() + "-" + System.nanoTime();
         orgId = insertOrganization("V11 Org " + suffix, "v11-" + suffix);
         otherOrgId = insertOrganization("V11 Foreign " + suffix, "v11-foreign-" + suffix);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
     }
 
     @Test

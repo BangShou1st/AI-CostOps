@@ -60,6 +60,7 @@ public abstract class ExpenseTestSupport extends MinioAuthenticationContainersSu
         createPermissionRole("EXPENSE_FINANCE", FINANCE_PERMISSIONS);
         assign("EXPENSE_EMPLOYEE", orgId, employeeMemberId);
         assign("EXPENSE_FINANCE", orgId, financeMemberId);
+        insertOpenAugustPeriod(orgId);
     }
 
     @AfterEach
@@ -79,6 +80,20 @@ public abstract class ExpenseTestSupport extends MinioAuthenticationContainersSu
     }
 
     // -- fixtures --------------------------------------------------------------
+
+    /**
+     * M6 approve admission fences the claim's expense date behind an OPEN
+     * covering BillingPeriod, so every expense fixture organization carries an
+     * OPEN August 2026 period covering the seeded expense dates.
+     */
+    protected void insertOpenAugustPeriod(long org) {
+        jdbc.update("""
+                INSERT INTO billing_period(
+                    org_id,period_start,period_end,status,close_generation,closed_at,version,created_at,updated_at)
+                VALUES (?, '2026-08-01 00:00:00.000000','2026-09-01 00:00:00.000000',
+                    'OPEN',0,NULL,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, org);
+    }
 
     protected long insertExpenseDraft() {
         return insertExpenseDraftFor(orgId, employeeMemberId, "100.00000000", "CNY", "DRAFT");

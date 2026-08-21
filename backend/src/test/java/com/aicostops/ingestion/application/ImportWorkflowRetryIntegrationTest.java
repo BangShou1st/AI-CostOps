@@ -131,16 +131,17 @@ class ImportWorkflowRetryIntegrationTest extends AuthenticationContainersSupport
     }
 
     @Test
-    void knownClosedPeriodRetryIsRejectedWithoutSuccessor() {
-        assertThatThrownBy(() -> commands.retry(user(), closedPeriodFailedBatchId,
-                "idem-closed-retry"))
-                .isInstanceOf(DomainException.class)
-                .satisfies(this::isPeriodNotOpen);
+    void closedPeriodBatchRetryAdmitsSuccessorAndDefersToFenceAtConfirm() {
+        // Retry only creates an unconfirmed successor, so the organization-level
+        // admission stays legal while no period is CLOSING. The CLOSED period
+        // itself is fenced later by Confirm's canonical-period admission.
+        var detail = commands.retry(user(), closedPeriodFailedBatchId, "idem-closed-retry");
 
+        assertThat(detail.status().name()).isEqualTo("PENDING");
+        assertThat(detail.latestAttempt().attemptNo()).isEqualTo(2);
+        assertThat(detail.latestAttempt().triggerType().name()).isEqualTo("MANUAL_RETRY");
         assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
-                String.class, closedPeriodFailedBatchId)).isEqualTo("FAILED");
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM import_attempt WHERE import_batch_id=?",
-                Integer.class, closedPeriodFailedBatchId)).isEqualTo(1);
+                String.class, closedPeriodFailedBatchId)).isEqualTo("PENDING");
     }
 
     @Test
@@ -286,10 +287,6 @@ class ImportWorkflowRetryIntegrationTest extends AuthenticationContainersSupport
 
     private void isStateConflict(Throwable throwable) {
         assertDomain(throwable, 409, "STATE_CONFLICT");
-    }
-
-    private void isPeriodNotOpen(Throwable throwable) {
-        assertDomain(throwable, 409, "PERIOD_NOT_OPEN");
     }
 
     private void isNotFound(Throwable throwable) {
