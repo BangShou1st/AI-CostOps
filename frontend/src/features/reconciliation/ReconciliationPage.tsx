@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Col, Empty, Input, Row, Select, Skeleton, Statistic, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Col, Empty, Row, Select, Skeleton, Statistic, Table, Tag, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
@@ -12,8 +12,8 @@ import { periodCloseKeys } from '../period-close/api/periodCloseKeys'
 import { formatBillingPeriodStatus } from '../period-close/presentation'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
-import { createIdempotencyKey, formatReconciliationRunStatus, reconciliationRunTagColor, summaryCount } from './presentation'
-import type { ReconciliationRunResponse, ReconciliationRunStatus } from './types'
+import { createIdempotencyKey, formatReconciliationRunStatus, reconciliationRunTagColor } from './presentation'
+import type { ReconciliationRunResponse } from './types'
 
 const PAGE_SIZE = 30
 
@@ -30,19 +30,12 @@ function M6ErrorAlert({ title, error }: { title: string; error: unknown }) {
   )
 }
 
-function runMatchesProvider(run: ReconciliationRunResponse, providerId: string): boolean {
-  if (!providerId.trim()) return true
-  return JSON.stringify(run.summary).includes(providerId.trim())
-}
-
 export function ReconciliationPage() {
   const auth = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const canRun = hasPermission(auth.user?.permissions, 'RECONCILIATION_RUN')
   const [periodId, setPeriodId] = useState('')
-  const [status, setStatus] = useState<ReconciliationRunStatus | undefined>()
-  const [providerId, setProviderId] = useState('')
   const [page, setPage] = useState(0)
 
   const periods = useQuery({
@@ -71,11 +64,8 @@ export function ReconciliationPage() {
   })
 
   const period = periods.data?.find((item) => item.id === periodId)
-  const visibleRuns = useMemo(() => (runs.data?.items ?? []).filter((run) => (
-    (!status || run.status === status) && runMatchesProvider(run, providerId)
-  )), [providerId, runs.data?.items, status])
+  const visibleRuns = runs.data?.items ?? []
   const completedCount = visibleRuns.filter((run) => run.status === 'COMPLETED').length
-  const caseCount = visibleRuns.reduce((total, run) => total + (summaryCount(run.summary, ['caseCount', 'cases', 'differenceCount']) ?? 0), 0)
   const listProblem = runs.error ?? periods.error
   const mutationProblem = createRun.error
 
@@ -124,20 +114,11 @@ export function ReconciliationPage() {
             }))}
             onChange={(value) => { setPage(0); setPeriodId(value) }}
           /></label>
-          <label>运行状态<Select<ReconciliationRunStatus>
-            allowClear
-            aria-label="运行状态"
-            value={status}
-            placeholder="全部运行状态"
-            options={(['CREATED', 'RUNNING', 'COMPLETED', 'FAILED'] as const).map((value) => ({ value, label: formatReconciliationRunStatus(value) }))}
-            onChange={(value) => { setPage(0); setStatus(value) }}
-          /></label>
-          <label>供应商账号<Input aria-label="供应商账号" placeholder="输入供应商账号 ID" value={providerId} onChange={(event) => { setPage(0); setProviderId(event.target.value) }} /></label>
         </div>
-        <Typography.Text type="secondary" className="m6-filter-hint">供应商筛选依据运行摘要中的服务端快照，不会在浏览器重新计算金额。</Typography.Text>
+        <Typography.Text type="secondary" className="m6-filter-hint">运行历史按服务端账期分页展示；供应商账号明细请进入具体运行查看。</Typography.Text>
       </Card>
 
-      <Card className="m6-section-card" title={<span>运行历史 {caseCount > 0 ? <Typography.Text type="secondary">· 发现 {caseCount} 个差异案例</Typography.Text> : null}</span>}>
+      <Card className="m6-section-card" title="运行历史">
         {periods.isLoading || (periodId.length > 0 && runs.isLoading) ? (
           <Skeleton active paragraph={{ rows: 5 }} />
         ) : (
@@ -153,7 +134,7 @@ export function ReconciliationPage() {
               { title: '状态', dataIndex: 'status', width: 120, render: (value: string) => <Tag color={reconciliationRunTagColor(value)}>{formatReconciliationRunStatus(value)}</Tag> },
               { title: '算法版本', dataIndex: 'algorithmVersion', width: 150 },
               { title: '容差', dataIndex: 'toleranceAmount', width: 150, render: (value: string) => formatMoney(value) },
-              { title: '差异案例', width: 120, render: (_: unknown, row: ReconciliationRunResponse) => summaryCount(row.summary, ['caseCount', 'cases', 'differenceCount']) ?? '—' },
+              { title: '差异案例', width: 120, render: (_: unknown, row: ReconciliationRunResponse) => row.summary.discrepancyCount },
               { title: '查看', width: 100, render: () => <Button type="link">查看详情</Button> },
             ]}
           />

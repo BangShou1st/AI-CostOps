@@ -54,6 +54,12 @@ export const importsApi = {
       headers: { 'Idempotency-Key': idempotencyKey },
     })).data
   },
+  /** One explicit command invocation carries exactly one Idempotency-Key. */
+  async confirm(importId: string, idempotencyKey: string) {
+    return (await apiClient.post<ImportSummary>(`/imports/${encodeURIComponent(importId)}/confirm`, undefined, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    })).data
+  },
   async uploadProviderImport(input: {
     file: File
     providerAccountId: string

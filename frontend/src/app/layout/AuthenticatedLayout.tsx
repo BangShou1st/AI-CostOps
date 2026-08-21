@@ -95,7 +95,7 @@ export function AuthenticatedLayout() {
       ? [{ type: 'divider' as const, key: 'finance-divider' }]
       : []),
     ...(financeEntries.length > 0
-      ? [{ type: 'group' as const, key: 'finance-group', label: 'Finance', children: financeEntries.map(menuEntry) }]
+      ? [{ type: 'group' as const, key: 'finance-group', label: '财务', children: financeEntries.map(menuEntry) }]
       : []),
   ]
   const menuItems = [

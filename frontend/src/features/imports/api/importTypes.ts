@@ -1,6 +1,6 @@
 /** Browser-facing Import workflow types; every identifier is a decimal string. */
 
-export type ImportBatchStatus = 'PENDING' | 'PROCESSING' | 'PARSED' | 'FAILED' | 'CANCELED'
+export type ImportBatchStatus = 'PENDING' | 'PROCESSING' | 'PARSED' | 'READY_FOR_REVIEW' | 'CONFIRMED' | 'FAILED' | 'CANCELED'
 export type ImportAttemptStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED'
 export type ImportAttemptTrigger = 'INITIAL' | 'LEASE_RECOVERY' | 'MANUAL_RETRY'
 export type IssueSeverity = 'WARN' | 'ERROR'
@@ -21,6 +21,7 @@ export interface ImportSummary {
   createdByMemberId: string
   createdAt: string
   updatedAt: string
+  confirmedAttemptId: string | null
   retryable: boolean
   cancelable: boolean
 }

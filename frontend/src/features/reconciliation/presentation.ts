@@ -44,29 +44,6 @@ export function reconciliationCaseTagColor(status: string): string {
   return 'warning'
 }
 
-export function summaryString(summary: Record<string, unknown>, keys: readonly string[]): string | null {
-  for (const key of keys) {
-    const value = summary[key]
-    if (typeof value === 'string' && value.length > 0) return value
-  }
-  return null
-}
-
-export function summaryCount(summary: Record<string, unknown>, keys: readonly string[]): number | null {
-  for (const key of keys) {
-    const value = summary[key]
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-    if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value)
-  }
-  return null
-}
-
-export function formatBasisFreshness(value: unknown): string {
-  if (value === true || value === 'FRESH' || value === 'fresh') return '基准数据新鲜'
-  if (value === false || value === 'STALE' || value === 'stale') return '基准数据已变化'
-  return '后端未提供新鲜度结论'
-}
-
 export function createIdempotencyKey(): string {
   return typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
 }

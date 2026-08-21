@@ -10,12 +10,13 @@ import { importKeys } from './api/importKeys'
 import { importsApi } from './api/importsApi'
 import type { ImportSummary } from './api/importTypes'
 import { formatBusinessDate, formatEventDateTime } from '../../lib/dateTime'
+import { createImportIdempotencyKey, formatImportAttemptStatus, formatImportSourceType, formatImportStatus } from './presentation'
 
 /** Only the lightweight Import detail polls; Issues/Raw Records never do. */
 const ACTIVE_POLL_INTERVAL_MS = 3000
 
 const ACTIVE_STATUSES = new Set(['PENDING', 'PROCESSING'])
-const TERMINAL_STATUSES = new Set(['PARSED', 'FAILED', 'CANCELED'])
+const TERMINAL_STATUSES = new Set(['PARSED', 'READY_FOR_REVIEW', 'CONFIRMED', 'FAILED', 'CANCELED'])
 
 export function ImportDetailPage({ importId: propImportId }: { importId?: string } = {}) {
   const auth = useAuth()
@@ -27,6 +28,7 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
 
   const canRetry = hasPermission(auth.user?.permissions, 'IMPORT_RETRY')
   const canCancel = hasPermission(auth.user?.permissions, 'IMPORT_CANCEL')
+  const canConfirm = hasPermission(auth.user?.permissions, 'IMPORT_CONFIRM')
 
   const detail = useQuery({
     queryKey: importKeys.detail(importId),
@@ -96,6 +98,21 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
     },
   })
 
+  const confirmCommand = useMutation({
+    mutationFn: (key: string) => importsApi.confirm(importId, key),
+    retry: false,
+    onSuccess: (result) => {
+      setCommandError(null)
+      queryClient.setQueryData(importKeys.detail(importId), result)
+      invalidateLineage()
+      invalidateEvidenceImports(result.evidence.id)
+    },
+    onError: (error: unknown) => {
+      setCommandError(presentProblemDetail(toProblemDetail(error)) ?? problemTitle(toProblemDetail(error)))
+      void queryClient.invalidateQueries({ queryKey: importKeys.detail(importId) })
+    },
+  })
+
   if (detail.isError) {
     const problem = toProblemDetail(detail.error)
     return (
@@ -119,11 +136,20 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
   }
 
   const handleRetry = () => {
-    retryCommand.mutate(crypto.randomUUID())
+    retryCommand.mutate(createImportIdempotencyKey())
   }
 
   const handleCancel = () => {
-    cancelCommand.mutate(crypto.randomUUID())
+    cancelCommand.mutate(createImportIdempotencyKey())
+  }
+
+  const confirmable = canConfirm
+    && data.status === 'READY_FOR_REVIEW'
+    && data.latestAttempt?.status === 'SUCCEEDED'
+    && data.latestAttempt.errorCount === 0
+
+  const handleConfirm = () => {
+    confirmCommand.mutate(createImportIdempotencyKey())
   }
 
   const tabs = [
@@ -142,6 +168,9 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
           {canCancel && data.cancelable && (
             <Button danger loading={cancelCommand.isPending} onClick={handleCancel}>取消</Button>
           )}
+          {confirmable && (
+            <Button type="primary" loading={confirmCommand.isPending} onClick={handleConfirm}>确认导入</Button>
+          )}
         </div>
       </header>
       {commandError && <Alert type="error" showIcon title="操作失败" description={commandError} />}
@@ -153,17 +182,17 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
 function Overview({ data }: { data: ImportSummary }) {
   return (
     <Descriptions column={1} bordered size="small">
-      <Descriptions.Item label="状态">{data.status ?? '—'}</Descriptions.Item>
+      <Descriptions.Item label="状态">{formatImportStatus(data.status)}</Descriptions.Item>
       <Descriptions.Item label="证据文件">{data.evidence.originalFilename}</Descriptions.Item>
-      <Descriptions.Item label="Provider 账号">{data.providerAccount.displayName}</Descriptions.Item>
-      <Descriptions.Item label="期望 Provider">{data.expectedProviderCode}</Descriptions.Item>
-      <Descriptions.Item label="来源类型">{data.sourceType ?? '—'}</Descriptions.Item>
+      <Descriptions.Item label="供应商账号">{data.providerAccount.displayName}</Descriptions.Item>
+      <Descriptions.Item label="期望供应商">{data.expectedProviderCode}</Descriptions.Item>
+      <Descriptions.Item label="来源类型">{formatImportSourceType(data.sourceType)}</Descriptions.Item>
       <Descriptions.Item label="解析器版本">{data.parserVersion}</Descriptions.Item>
       <Descriptions.Item label="周期开始">{formatBusinessDate(data.periodStart)}</Descriptions.Item>
       <Descriptions.Item label="周期结束">{formatBusinessDate(data.periodEnd)}</Descriptions.Item>
       <Descriptions.Item label="最近尝试">
         {data.latestAttempt
-          ? `#${data.latestAttempt.attemptNo} ${data.latestAttempt.status ?? '—'}`
+          ? `#${data.latestAttempt.attemptNo} ${formatImportAttemptStatus(data.latestAttempt.status)}`
           : '—'}
       </Descriptions.Item>
       <Descriptions.Item label="创建时间">{formatEventDateTime(data.createdAt)}</Descriptions.Item>

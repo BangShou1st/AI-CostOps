@@ -12,8 +12,14 @@ import {
 describe('decimal8 money helpers', () => {
   it('formats scale-8 strings with grouping and a currency symbol', () => {
     expect(formatMoney('1234.56000000', 'USD')).toBe('$1,234.56')
-    expect(formatMoney('-1234.56700000', 'CNY')).toBe('-¥1,234.57')
+    expect(formatMoney('-1234.56700000', 'CNY')).toBe('-¥1,234.567')
     expect(formatMoney('1000000.00000000')).toBe('1,000,000.00')
+  })
+
+  it('preserves meaningful scale-8 reconciliation differences', () => {
+    expect(formatMoney('1.23450000', 'USD')).toBe('$1.2345')
+    expect(formatMoney('0.00000001', 'USD')).toBe('$0.00000001')
+    expect(formatMoney('-0.00000001', 'CNY')).toBe('-¥0.00000001')
   })
 
   it('parses scale-8 strings to bigint minor units', () => {

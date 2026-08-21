@@ -77,8 +77,10 @@ public class ImportWorkflowCommandService {
                 return responseSerializer.importDetailFromJson(decision.responseBody());
             }
 
-            admitBatchForMutation(context.organizationId(),
-                    batchMapper.findByIdAndOrganization(importId, context.organizationId()));
+            // Retry only creates a new unconfirmed attempt and cannot change
+            // confirmed external truth. Keep the organization-level workflow
+            // admission, while the later Confirm fences canonical periods.
+            closeAdmission.lockAndRequireNoClosingPeriod(context.organizationId());
             var latest = attemptMapper.findLatestByBatchForUpdate(importId);
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
@@ -172,7 +174,15 @@ public class ImportWorkflowCommandService {
                 return replayed;
             }
 
-            admitBatchForMutation(context.organizationId(), preRead);
+            if (preRead == null || preRead.organizationId() != context.organizationId()) {
+                throw notFound();
+            }
+            // Validate the immutable pre-admission shape before taking any
+            // workflow row lock. The actual mutation is revalidated after the
+            // organization + period locks below.
+            requireConfirmable(preRead, preLatest);
+            closeAdmission.lockAndRequireOpenPeriodsForAttempt(context.organizationId(), preLatest.id());
+
             var batch = batchMapper.findByIdForUpdate(importId);
             if (batch == null || batch.organizationId() != context.organizationId()) {
                 throw notFound();
@@ -253,14 +263,6 @@ public class ImportWorkflowCommandService {
         if (batch == null) {
             throw notFound();
         }
-    }
-
-    private void admitBatchForMutation(long organizationId, ImportBatch batch) {
-        if (batch != null && batch.periodStart() != null && batch.periodEnd() != null) {
-            closeAdmission.lockAndRequireOpenPeriod(organizationId, batch.periodStart());
-            return;
-        }
-        closeAdmission.lockAndRequireNoClosingPeriod(organizationId);
     }
 
     private ImportSummary currentDetail(long organizationId, long importId) {

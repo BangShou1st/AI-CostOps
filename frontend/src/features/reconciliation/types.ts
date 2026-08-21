@@ -3,7 +3,12 @@ import type { PageResponse } from '../../api/pagination'
 export type ReconciliationRunStatus = 'CREATED' | 'RUNNING' | 'COMPLETED' | 'FAILED'
 export type ReconciliationCaseStatus = 'OPEN' | 'INVESTIGATING' | 'RESOLVED'
 
-export type ReconciliationSummary = Record<string, unknown>
+/** Canonical summary emitted by ReconciliationRunService. */
+export interface ReconciliationSummary {
+  totalKeys: number
+  matchedCount: number
+  discrepancyCount: number
+}
 
 export interface ReconciliationRunResponse {
   id: string

@@ -111,6 +111,16 @@ describe('importsApi', () => {
     })
   })
 
+  it('confirms with the idempotency key header and no body', async () => {
+    mockedPost.mockResolvedValue({ data: { id: '123', status: 'CONFIRMED' } })
+
+    await importsApi.confirm('123', 'idem-3')
+
+    expect(mockedPost).toHaveBeenCalledWith('/imports/123/confirm', undefined, {
+      headers: { 'Idempotency-Key': 'idem-3' },
+    })
+  })
+
   it('uploads provider import as multipart fields', async () => {
     mockedPost.mockResolvedValue({
       data: { evidenceId: '1', importBatchId: '2', latestAttemptId: '3', batchStatus: 'PENDING' },

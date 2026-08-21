@@ -77,6 +77,7 @@ const importSummary: ImportSummary = {
   updatedAt: '2026-08-01T00:00:00Z',
   retryable: false,
   cancelable: true,
+  confirmedAttemptId: null,
 }
 const pageOf = <T,>(items: T[], total = items.length): PageResponse<T> =>
   ({ items, page: 0, size: 50, totalElements: total, totalPages: 1 })

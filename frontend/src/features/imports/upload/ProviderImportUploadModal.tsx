@@ -7,6 +7,7 @@ import { settingsKeys } from '../../settings/api/settingsKeys'
 import type { ProviderAccount } from '../../settings/api/settingsTypes'
 import { importsApi } from '../api/importsApi'
 import type { ImportSourceType, ProviderImportResult } from '../api/importTypes'
+import { formatImportSourceType } from '../presentation'
 import { providerSourceTypes } from './providerSourceTypes'
 import { READABLE_SELECT_PROPS, readableOption } from '../../../lib/selectPresentation'
 
@@ -22,9 +23,9 @@ interface ProviderImportUploadModalProps {
 }
 
 const SOURCE_TYPE_LABELS: Record<ImportSourceType, string> = {
-  FILE_EXPORT: '文件导出（FILE_EXPORT）',
-  USAGE_API_JSON: '用量 API JSON（USAGE_API_JSON）',
-  COSTS_API_JSON: '成本 API JSON（COSTS_API_JSON）',
+  FILE_EXPORT: formatImportSourceType('FILE_EXPORT'),
+  USAGE_API_JSON: formatImportSourceType('USAGE_API_JSON'),
+  COSTS_API_JSON: formatImportSourceType('COSTS_API_JSON'),
 }
 
 /**
@@ -83,7 +84,7 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
   return (
     <Modal
       open={open}
-      title="上传 Provider 账单"
+      title="上传供应商账单"
       onCancel={onClose}
       onOk={() => void submit()}
       okText="上传"
@@ -94,13 +95,13 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
       <Form form={form} layout="vertical" disabled={upload.isPending}>
         <Form.Item
           name="providerAccountId"
-          label="Provider 账号"
-          rules={[{ required: true, message: '请选择 Provider 账号' }]}
+          label="供应商账号"
+          rules={[{ required: true, message: '请选择供应商账号' }]}
         >
           <Select
             {...READABLE_SELECT_PROPS}
             style={{ width: '100%' }}
-            placeholder="选择 Provider 账号"
+            placeholder="选择供应商账号"
             options={(accountsQuery.data ?? []).map((account: ProviderAccount) => ({
               ...readableOption(account.id, account.displayName),
             }))}
@@ -137,8 +138,8 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
           <Alert
             type="warning"
             showIcon
-            title="该 Provider 暂不支持上传"
-            description="当前 Provider 没有已注册的 M2 上传来源类型。"
+            title="该供应商暂不支持上传"
+            description="当前供应商没有已注册的 M2 上传来源类型。"
           />
         )}
         {upload.isError && (() => {

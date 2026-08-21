@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Col, Descriptions, Empty, Input, Row, Select, Skeleton, Statistic, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Col, Descriptions, Empty, Row, Select, Skeleton, Statistic, Table, Tag, Typography } from 'antd'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
@@ -9,7 +9,7 @@ import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
-import { createIdempotencyKey, formatBasisFreshness, formatReconciliationCaseStatus, formatReconciliationCaseType, formatReconciliationRunStatus, reconciliationCaseTagColor, reconciliationRunTagColor, summaryCount, summaryString } from './presentation'
+import { createIdempotencyKey, formatReconciliationCaseStatus, formatReconciliationCaseType, formatReconciliationRunStatus, reconciliationCaseTagColor, reconciliationRunTagColor } from './presentation'
 import type { ReconciliationCaseResponse, ReconciliationCaseStatus } from './types'
 
 const PAGE_SIZE = 50
@@ -26,12 +26,10 @@ export function ReconciliationRunDetailPage() {
   const queryClient = useQueryClient()
   const canRun = hasPermission(auth.user?.permissions, 'RECONCILIATION_RUN')
   const [caseStatus, setCaseStatus] = useState<ReconciliationCaseStatus | undefined>()
-  const [providerId, setProviderId] = useState('')
-  const [currency, setCurrency] = useState('')
-  const [caseType, setCaseType] = useState('')
+  const [casePage, setCasePage] = useState(0)
 
   const run = useQuery({ queryKey: reconciliationKeys.run(runId), queryFn: () => reconciliationApi.getRun(runId), enabled: runId.length > 0 })
-  const caseParams = useMemo(() => ({ runId, page: 0, size: PAGE_SIZE, status: caseStatus }), [caseStatus, runId])
+  const caseParams = useMemo(() => ({ runId, page: casePage, size: PAGE_SIZE, status: caseStatus }), [casePage, caseStatus, runId])
   const cases = useQuery({ queryKey: reconciliationKeys.cases(caseParams), queryFn: () => reconciliationApi.listCases(caseParams), enabled: runId.length > 0 && Boolean(run.data) })
   const rerun = useMutation({
     mutationFn: () => reconciliationApi.createRun({ billingPeriodId: run.data!.billingPeriodId }, createIdempotencyKey()),
@@ -42,19 +40,11 @@ export function ReconciliationRunDetailPage() {
     },
   })
 
-  const visibleCases = useMemo(() => (cases.data?.items ?? []).filter((item) => (
-    (!providerId || item.providerAccountId.includes(providerId))
-    && (!currency || item.currency === currency.toUpperCase())
-    && (!caseType || item.caseType === caseType)
-  )), [caseType, cases.data?.items, currency, providerId])
-
   if (run.isLoading) return <main className="settings-page m6-page"><Skeleton active paragraph={{ rows: 8 }} /></main>
   if (run.error || !run.data) return <main className="settings-page m6-page"><DetailError error={run.error ?? new Error('missing run')} /></main>
   const data = run.data
-  const matchedCount = summaryCount(data.summary, ['matchedCount', 'matched', 'matchCount'])
-  const differenceCount = summaryCount(data.summary, ['caseCount', 'cases', 'differenceCount'])
-  const basisFreshness = summaryString(data.summary, ['basisFreshness', 'basisStatus', 'freshness'])
-  const basisAt = summaryString(data.summary, ['basisAt', 'basisAsOf', 'evaluatedAt'])
+  const matchedCount = data.summary.matchedCount
+  const differenceCount = data.summary.discrepancyCount
 
   return (
     <main className="settings-page m6-page">
@@ -80,8 +70,7 @@ export function ReconciliationRunDetailPage() {
           <Descriptions.Item label="状态"><Tag color={reconciliationRunTagColor(data.status)}>{formatReconciliationRunStatus(data.status)}</Tag></Descriptions.Item>
           <Descriptions.Item label="算法版本">{data.algorithmVersion}</Descriptions.Item>
           <Descriptions.Item label="对账容差">{formatMoney(data.toleranceAmount)}</Descriptions.Item>
-          <Descriptions.Item label="基准新鲜度">{formatBasisFreshness(basisFreshness)}</Descriptions.Item>
-          <Descriptions.Item label="基准时间">{basisAt ? formatEventDateTime(basisAt) : '后端未提供'}</Descriptions.Item>
+          <Descriptions.Item label="匹配键总数">{data.summary.totalKeys}</Descriptions.Item>
           <Descriptions.Item label="启动时间">{formatEventDateTime(data.startedAt)}</Descriptions.Item>
           <Descriptions.Item label="完成时间">{formatEventDateTime(data.finishedAt)}</Descriptions.Item>
           <Descriptions.Item label="基准快照">{data.basisHash ? '已生成' : '尚未生成'}</Descriptions.Item>
@@ -100,16 +89,19 @@ export function ReconciliationRunDetailPage() {
 
       <Card className="m6-section-card" title="差异案例" extra={<Typography.Text type="secondary">金额以服务端结果为准</Typography.Text>}>
         <div className="m6-filter-grid m6-case-filters">
-          <label>案例状态<Select<ReconciliationCaseStatus> allowClear aria-label="案例状态" value={caseStatus} placeholder="全部案例状态" options={(['OPEN', 'INVESTIGATING', 'RESOLVED'] as const).map((value) => ({ value, label: formatReconciliationCaseStatus(value) }))} onChange={setCaseStatus} /></label>
-          <label>供应商账号<Input aria-label="案例供应商账号" placeholder="输入账号 ID" value={providerId} onChange={(event) => setProviderId(event.target.value)} /></label>
-          <label>币种<Input aria-label="案例币种" placeholder="如 USD" value={currency} onChange={(event) => setCurrency(event.target.value)} /></label>
-          <label>差异类型<Select allowClear aria-label="差异类型" value={caseType || undefined} placeholder="全部差异类型" options={['MISSING_INTERNAL', 'MISSING_EXTERNAL', 'AMOUNT_MISMATCH'].map((value) => ({ value, label: formatReconciliationCaseType(value) }))} onChange={(value) => setCaseType(value ?? '')} /></label>
+          <label>案例状态<Select<ReconciliationCaseStatus> allowClear aria-label="案例状态" value={caseStatus} placeholder="全部案例状态" options={(['OPEN', 'INVESTIGATING', 'RESOLVED'] as const).map((value) => ({ value, label: formatReconciliationCaseStatus(value) }))} onChange={(value) => { setCasePage(0); setCaseStatus(value) }} /></label>
         </div>
         {cases.error ? <DetailError error={cases.error} /> : cases.isLoading ? <Skeleton active paragraph={{ rows: 5 }} /> : (
           <Table<ReconciliationCaseResponse>
             rowKey="id"
-            dataSource={visibleCases}
-            pagination={false}
+            dataSource={cases.data?.items ?? []}
+            pagination={{
+              current: casePage + 1,
+              pageSize: PAGE_SIZE,
+              total: cases.data?.totalElements ?? 0,
+              showSizeChanger: false,
+              onChange: (nextPage) => setCasePage(nextPage - 1),
+            }}
             scroll={{ x: 1080 }}
             locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有符合筛选条件的差异案例" /> }}
             onRow={(record) => ({ onClick: () => navigate(`/reconciliation/cases/${record.id}`), className: 'm6-clickable-row' })}

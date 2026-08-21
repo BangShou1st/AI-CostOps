@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Col, Descriptions, Empty, Form, Input, Modal, Row, Skeleton, Space, Statistic, Table, Tag, Typography } from 'antd'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 import { formatBusinessDateRange, formatEventDateTime } from '../../lib/dateTime'
@@ -74,6 +74,8 @@ export function PeriodClosePage() {
   const [reopenConfirmOpen, setReopenConfirmOpen] = useState(false)
   const [reasonCode, setReasonCode] = useState('')
   const [reasonNote, setReasonNote] = useState('')
+  const [closeRunPage, setCloseRunPage] = useState(0)
+  const closeRunParams = useMemo(() => ({ page: closeRunPage, size: PAGE_SIZE }), [closeRunPage])
 
   const periods = useQuery({ queryKey: periodCloseKeys.periods(), queryFn: periodCloseApi.listBillingPeriods })
   const period = periods.data?.find((item) => item.id === periodId)
@@ -83,8 +85,8 @@ export function PeriodClosePage() {
     enabled: periodId.length > 0,
   })
   const closeRuns = useQuery({
-    queryKey: periodCloseKeys.closeRuns(periodId, { page: 0, size: PAGE_SIZE }),
-    queryFn: () => periodCloseApi.listCloseRuns(periodId, { page: 0, size: PAGE_SIZE }),
+    queryKey: periodCloseKeys.closeRuns(periodId, closeRunParams),
+    queryFn: () => periodCloseApi.listCloseRuns(periodId, closeRunParams),
     enabled: periodId.length > 0,
   })
   const refresh = () => {
@@ -177,22 +179,27 @@ export function PeriodClosePage() {
       </Card>
 
       <Card className="m6-section-card" title="关闭历史">
-        {closeRuns.data?.items.length ? (
-          <Table<CloseRunResponse>
-            rowKey="runId"
-            dataSource={closeRuns.data.items}
-            pagination={false}
-            scroll={{ x: 900 }}
-            columns={[
-              { title: '尝试次数', dataIndex: 'attemptNo', width: 110, render: (value: number) => `第 ${value} 次` },
-              { title: '关闭代数', dataIndex: 'closeGeneration', width: 120 },
-              { title: '结果', dataIndex: 'runStatus', width: 130, render: (value: string) => <Tag color={closeRunTagColor(value)}>{formatCloseRunStatus(value)}</Tag> },
-              { title: '开始时间', dataIndex: 'startedAt', width: 180, render: (value: string) => formatEventDateTime(value) },
-              { title: '完成时间', dataIndex: 'finishedAt', width: 180, render: (value: string | null) => formatEventDateTime(value) },
-              { title: '校验项', width: 100, render: (_: unknown, row: CloseRunResponse) => `${row.checks.length} 项` },
-            ]}
-          />
-        ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关闭尝试记录" />}
+        <Table<CloseRunResponse>
+          rowKey="runId"
+          dataSource={closeRuns.data?.items ?? []}
+          pagination={{
+            current: closeRunPage + 1,
+            pageSize: PAGE_SIZE,
+            total: closeRuns.data?.totalElements ?? 0,
+            showSizeChanger: false,
+            onChange: (page) => setCloseRunPage(page - 1),
+          }}
+          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无关闭尝试记录" /> }}
+          scroll={{ x: 900 }}
+          columns={[
+            { title: '尝试次数', dataIndex: 'attemptNo', width: 110, render: (value: number) => `第 ${value} 次` },
+            { title: '关闭代数', dataIndex: 'closeGeneration', width: 120 },
+            { title: '结果', dataIndex: 'runStatus', width: 130, render: (value: string) => <Tag color={closeRunTagColor(value)}>{formatCloseRunStatus(value)}</Tag> },
+            { title: '开始时间', dataIndex: 'startedAt', width: 180, render: (value: string) => formatEventDateTime(value) },
+            { title: '完成时间', dataIndex: 'finishedAt', width: 180, render: (value: string | null) => formatEventDateTime(value) },
+            { title: '校验项', width: 100, render: (_: unknown, row: CloseRunResponse) => `${row.checks.length} 项` },
+          ]}
+        />
       </Card>
 
       <Modal

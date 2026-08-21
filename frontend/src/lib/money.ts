@@ -73,10 +73,11 @@ export function compareDecimal8(left: bigint, right: bigint): number {
 }
 
 /**
- * Formats an API scale-8 money string for people, without converting it to a
- * JavaScript number. Values are rounded half-up to two display decimals and
- * grouped with thousands separators. The currency is presentation-only; the
- * original scale-8 string remains the value sent back to the API.
+ * Formats an API scale-8 money string for people without converting it to a
+ * JavaScript number. Ordinary values keep two display decimals; when any
+ * meaningful precision exists beyond cents, the exact scale-8 value is shown
+ * with trailing zeroes removed so a real reconciliation difference never
+ * becomes a misleading 0.00.
  */
 export function formatMoney(amount: string | null | undefined, currency?: string | null): string {
   if (!amount) return '—'
@@ -90,13 +91,16 @@ export function formatMoney(amount: string | null | undefined, currency?: string
 
   const negative = minorUnits < 0n
   const absolute = negative ? -minorUnits : minorUnits
-  const roundedCents = (absolute + 500000n) / 1000000n
-  const whole = roundedCents / 100n
-  const cents = (roundedCents % 100n).toString().padStart(2, '0')
+  const whole = absolute / SCALE_FACTOR
+  const exactFraction = (absolute % SCALE_FACTOR).toString().padStart(8, '0')
+  const significantFraction = exactFraction.replace(/0+$/, '')
+  const fraction = significantFraction.length > 2
+    ? significantFraction
+    : significantFraction.padEnd(2, '0')
   const groupedWhole = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  const numberText = `${negative ? '-' : ''}${groupedWhole}.${cents}`
+  const numberText = `${negative ? '-' : ''}${groupedWhole}.${fraction}`
   const normalizedCurrency = currency?.trim().toUpperCase()
   const symbol = normalizedCurrency ? CURRENCY_SYMBOLS[normalizedCurrency] : undefined
-  if (symbol) return `${negative ? '-' : ''}${symbol}${groupedWhole}.${cents}`
+  if (symbol) return `${negative ? '-' : ''}${symbol}${groupedWhole}.${fraction}`
   return normalizedCurrency ? `${numberText} ${normalizedCurrency}` : numberText
 }
