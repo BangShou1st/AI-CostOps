@@ -621,6 +621,33 @@ class ModuleDependencyArchitectureTest {
     }
 
     @Test
+    void reportingIsReadOnlyAndNeverTouchesBusinessModules() {
+        // 01-module-boundaries.md: reporting may only read via its own MySQL
+        // read queries plus Redis cache. It must not reach into any business
+        // module (and therefore can never obtain a financial mutation
+        // repository); authorization context comes from iam, errors from
+        // shared.
+        var productionClasses = new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+                .importPackages("com.aicostops");
+
+        ArchRule reportingRule = classes()
+                .that().resideInAPackage("com.aicostops.reporting..")
+                .should().onlyDependOnClassesThat().resideInAnyPackage(
+                        "com.aicostops.reporting..",
+                        "com.aicostops.iam..",
+                        "com.aicostops.shared..",
+                        "java..",
+                        "jakarta..",
+                        "org.springframework..",
+                        "org.apache.ibatis..",
+                        "tools.jackson..",
+                        "com.fasterxml.jackson..");
+
+        reportingRule.check(productionClasses);
+    }
+
+    @Test
     void ledgerApplicationDoesNotReachForeignInfrastructure() {
         var productionClasses = new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
