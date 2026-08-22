@@ -8,6 +8,9 @@ aicostops:
     worker-enabled: false
 
 spring:
+  data:
+    # Lettuce's 500ms default times out under host storage-latency spikes.
+    timeout: 5000
   datasource:
     hikari:
       # Spring caches multiple integration-test contexts against one shared MySQL container.
