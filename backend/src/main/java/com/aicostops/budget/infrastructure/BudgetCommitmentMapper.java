@@ -280,7 +280,7 @@ public interface BudgetCommitmentMapper {
                    aa.from_state,aa.to_state,aa.comment,aa.created_at
             FROM approval_action aa
             WHERE aa.org_id=#{organizationId} AND aa.approval_case_id=#{approvalCaseId}
-            ORDER BY aa.created_at ASC, aa.id ASC
+            ORDER BY aa.id ASC
             """)
     List<CommitmentApprovalAction> selectApprovalActionsByCase(
             @Param("organizationId") long organizationId,
@@ -291,7 +291,7 @@ public interface BudgetCommitmentMapper {
             SELECT actor_member_id FROM approval_action
             WHERE org_id=#{organizationId} AND approval_case_id=#{approvalCaseId}
               AND action_type='SUBMIT'
-            ORDER BY created_at ASC, id ASC
+            ORDER BY id ASC
             LIMIT 1
             """)
     Long selectSubmitActor(

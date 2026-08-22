@@ -144,6 +144,9 @@ public class SecurityConfiguration {
                                 "/api/v1/reconciliation-cases/{caseId}/resolve",
                                 "/api/v1/billing-periods/{periodId}/close",
                                 "/api/v1/billing-periods/{periodId}/reopen").authenticated()
+                        // M7 read-only workbench aggregation. Section content
+                        // is permission-trimmed by the reporting service.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/workbench").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

@@ -52,6 +52,9 @@ vi.mock('../../features/ledger/LedgerEntryDetailPage', () => ({
 vi.mock('../../features/settings/users/UsersPage', () => ({
   UsersPage: () => <h1>Users page</h1>,
 }))
+vi.mock('../../features/workbench/WorkbenchPage', () => ({
+  WorkbenchPage: () => <h1>Workbench page</h1>,
+}))
 
 const mockedUseAuth = vi.mocked(useAuth)
 
@@ -168,10 +171,10 @@ describe('AppRouter application landing', () => {
     expect(screen.getByRole('heading', { name: 'Import list page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnCostsForCostReadOnlyUser', () => {
+  it('appRootLandsOnWorkbenchForCostReadOnlyUser', () => {
     renderRouter(['COST_READ'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Costs list page' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 
   it('appRootLandsOnRulesForRuleManageOnlyUser', () => {
@@ -232,16 +235,16 @@ describe('AppRouter budget gates', () => {
     expect(screen.getByRole('heading', { name: 'Commitment detail page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnBudgetsForBudgetReadOnlyUser', () => {
+  it('appRootLandsOnWorkbenchForBudgetReadOnlyUser', () => {
     renderRouter(['BUDGET_READ'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Budgets list page' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnExpensesBeforeBudgetsWhenBothReadable', () => {
+  it('appRootLandsOnWorkbenchWhenBudgetsAndExpensesAreReadable', () => {
     renderRouter(['BUDGET_READ', 'EXPENSE_READ_OWN'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Expenses list page' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 })
 

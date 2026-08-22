@@ -451,6 +451,8 @@ class M1OpenApiContractTest {
         add(operations, "POST /commitments/{commitmentId}/cancel", "200", "400", "401", "403", "404", "409");
         add(operations, "POST /commitments/{commitmentId}/release", "200", "400", "401", "403", "404", "409");
         add(operations, "GET /billing-periods", "200", "401", "403", "404");
+        // M7 read-only workbench aggregation (permission-trimmed sections).
+        add(operations, "GET /workbench", "200", "400", "401", "403");
         return Map.copyOf(operations);
     }
 

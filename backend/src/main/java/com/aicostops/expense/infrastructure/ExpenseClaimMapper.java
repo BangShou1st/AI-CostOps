@@ -321,7 +321,7 @@ public interface ExpenseClaimMapper {
                    aa.from_state,aa.to_state,aa.comment,aa.created_at
             FROM approval_action aa
             WHERE aa.org_id=#{organizationId} AND aa.approval_case_id=#{approvalCaseId}
-            ORDER BY aa.created_at ASC, aa.id ASC
+            ORDER BY aa.id ASC
             """)
     List<ApprovalAction> selectApprovalActionsByCase(
             @Param("organizationId") long organizationId,

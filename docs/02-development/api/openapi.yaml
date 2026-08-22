@@ -893,6 +893,95 @@ components:
         version: { type: integer, minimum: 0 }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    WorkbenchResponse:
+      type: object
+      description: Read-only workbench aggregation. Sections the caller has no ORG read grant for are null; amounts are grouped per currency and never summed across currencies.
+      properties:
+        period:
+          type: object
+          description: Present only with PERIOD_READ.
+          required: [billingPeriodId, periodStart, periodEnd, status]
+          properties:
+            billingPeriodId: { $ref: '#/components/schemas/Id' }
+            periodStart: { type: string, format: date-time }
+            periodEnd: { type: string, format: date-time }
+            status: { type: string, enum: [OPEN, CLOSING, CLOSED] }
+        costByProvider:
+          type: array
+          description: Present only with COST_READ. Confirmed-import CLEAN charges of the period.
+          items:
+            type: object
+            required: [providerCode, currency, totalAmount, chargeCount]
+            properties:
+              providerCode: { type: string }
+              currency: { type: string }
+              totalAmount: { $ref: '#/components/schemas/Money' }
+              chargeCount: { type: integer, minimum: 0 }
+        costByProject:
+          type: array
+          description: Present only with COST_READ. CONFIRMED allocation lines targeting projects for CHARGE_FACT subjects in the period.
+          items:
+            type: object
+            required: [projectId, projectName, currency, totalAmount]
+            properties:
+              projectId: { $ref: '#/components/schemas/Id' }
+              projectName: { type: string }
+              currency: { type: string }
+              totalAmount: { $ref: '#/components/schemas/Money' }
+        budgetVariance:
+          type: array
+          description: Present only with BUDGET_READ. availableAmount is server-computed total - actual - committed.
+          items:
+            type: object
+            required: [budgetId, scopeType, scopeId, currency, totalAmount, actualAmount, committedAmount, availableAmount, overBudget]
+            properties:
+              budgetId: { $ref: '#/components/schemas/Id' }
+              scopeType: { $ref: '#/components/schemas/ScopeType' }
+              scopeId: { $ref: '#/components/schemas/Id' }
+              currency: { type: string }
+              totalAmount: { $ref: '#/components/schemas/Money' }
+              actualAmount: { $ref: '#/components/schemas/Money' }
+              committedAmount: { $ref: '#/components/schemas/Money' }
+              availableAmount: { $ref: '#/components/schemas/Money' }
+              overBudget: { type: boolean }
+        unallocatedCharges:
+          type: array
+          description: Present only with ALLOCATION_READ. Same basis as the M6 UNALLOCATED_CHARGES close blocker, grouped by currency.
+          items:
+            type: object
+            required: [currency, amount, chargeCount]
+            properties:
+              currency: { type: string }
+              amount: { $ref: '#/components/schemas/Money' }
+              chargeCount: { type: integer, minimum: 0 }
+        duplicateCandidates:
+          type: object
+          description: Present only with DUPLICATE_REVIEW.
+          required: [openCount]
+          properties:
+            openCount: { type: integer, minimum: 0 }
+        pendingApprovals:
+          type: object
+          description: Present only with EXPENSE_REVIEW.
+          required: [submittedCount, needsInfoCount]
+          properties:
+            submittedCount: { type: integer, minimum: 0 }
+            needsInfoCount: { type: integer, minimum: 0 }
+        openReconciliations:
+          type: object
+          description: Present only with RECONCILIATION_READ.
+          required: [activeRunCount, openCaseCount]
+          properties:
+            activeRunCount: { type: integer, minimum: 0 }
+            openCaseCount: { type: integer, minimum: 0 }
+        closeStatus:
+          type: object
+          description: Present only with PERIOD_READ.
+          required: [status, closing, closed]
+          properties:
+            status: { type: string, enum: [OPEN, CLOSING, CLOSED] }
+            closing: { type: boolean }
+            closed: { type: boolean }
     PageResponseBudget:
       allOf:
         - { $ref: '#/components/schemas/PageResponse' }
@@ -1469,6 +1558,10 @@ paths:
   /billing-periods:
     get:
       responses: { '200': { description: Current-organization billing periods ordered by period start descending and id descending, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/BillingPeriodResponse' } } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /workbench:
+    get:
+      parameters: [{ name: billingPeriodId, in: query, schema: { type: integer, format: int64 } }]
+      responses: { '200': { description: Read-only workbench aggregation for one billing period (default the latest); sections the caller has no ORG read grant for are omitted as null, content: { application/json: { schema: { $ref: '#/components/schemas/WorkbenchResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
   /budgets:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: billingPeriodId, in: query, schema: { type: integer, format: int64 } }, { name: scopeType, in: query, schema: { $ref: '#/components/schemas/ScopeType' } }, { name: scopeId, in: query, schema: { type: integer, format: int64 } }]

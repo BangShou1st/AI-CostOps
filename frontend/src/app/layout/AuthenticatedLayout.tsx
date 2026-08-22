@@ -1,5 +1,6 @@
 import {
   AccountBookOutlined,
+  AppstoreOutlined,
   BookOutlined,
   AuditOutlined,
   CloudOutlined,
@@ -31,6 +32,7 @@ const SIDEBAR_COLLAPSED_KEY = 'aicostops:settings-sidebar-collapsed'
 const DESKTOP_QUERY = '(min-width: 1024px)'
 
 export const NAV_ICONS: Record<string, ReactNode> = {
+  '/workbench': <AppstoreOutlined />,
   '/evidence': <FileTextOutlined />,
   '/imports': <ImportOutlined />,
   '/costs': <PayCircleOutlined />,
