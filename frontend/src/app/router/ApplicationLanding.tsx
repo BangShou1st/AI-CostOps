@@ -1,17 +1,22 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { hasPermission, SETTINGS_NAV } from '../../features/settings/permissions'
+import { hasWorkbenchAccess } from '../layout/appNavigation'
 import { ForbiddenPage } from './ForbiddenPage'
 
 /**
  * Business-aware application landing for /app (and the authenticated
- * wildcard): the first readable business route wins (Evidence before Imports),
- * then the first permitted settings route; with no read permission at all it
- * renders the authenticated Forbidden page instead of redirecting to /login.
+ * wildcard): the workbench wins whenever the caller holds any ORG section
+ * grant, then the first readable business route, then the first permitted
+ * settings route; with no read permission at all it renders the
+ * authenticated Forbidden page instead of redirecting to /login.
  */
 export function ApplicationLanding() {
   const auth = useAuth()
   const permissions = auth.user?.permissions
+  if (hasWorkbenchAccess(permissions)) {
+    return <Navigate to="/workbench" replace />
+  }
   if (hasPermission(permissions, 'EVIDENCE_READ')) {
     return <Navigate to="/evidence" replace />
   }

@@ -36,6 +36,7 @@ import { ProtectedRoute } from './ProtectedRoute'
 import { PublicRoute } from './PublicRoute'
 import { PermissionRoute } from './PermissionRoute'
 import { SettingsRedirect } from './SettingsRedirect'
+import { WorkbenchPage } from '../../features/workbench/WorkbenchPage'
 
 export function AppRouter() {
   const auth = useAuth()
@@ -48,6 +49,7 @@ export function AppRouter() {
     </Route>
     <Route element={<ProtectedRoute isAuthenticated={auth.status === 'authenticated'} />}>
       <Route element={<AuthenticatedLayout />}>
+        <Route path="/workbench" element={<WorkbenchPage />} />
         <Route path="/evidence" element={<PermissionRoute permission="EVIDENCE_READ" />}>
           <Route index element={<EvidenceListPage />} />
           <Route path=":id" element={<EvidenceDetailPage />} />

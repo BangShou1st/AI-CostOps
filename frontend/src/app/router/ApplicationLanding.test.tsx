@@ -20,6 +20,7 @@ function renderAppRoot(permissions: string[]) {
     <MemoryRouter initialEntries={['/app']}>
       <Routes>
         <Route path="/app" element={<ApplicationLanding />} />
+        <Route path="/workbench" element={<h1>Workbench page</h1>} />
         <Route path="/evidence" element={<h1>Evidence page</h1>} />
         <Route path="/imports" element={<h1>Imports page</h1>} />
         <Route path="/expenses" element={<h1>Expenses page</h1>} />
@@ -56,19 +57,19 @@ describe('ApplicationLanding', () => {
   it('routes expense reviewers to the review queue when that is their only business permission', () => {
     renderAppRoot(['EXPENSE_REVIEW'])
 
-    expect(screen.getByRole('heading', { name: 'Expense reviews page' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 
   it('routes budget-only users to the budgets page', () => {
     renderAppRoot(['BUDGET_READ'])
 
-    expect(screen.getByRole('heading', { name: 'Budgets page' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 
   it('prefers expenses over budgets when both are readable', () => {
     renderAppRoot(['BUDGET_READ', 'EXPENSE_READ_OWN'])
 
-    expect(screen.getByRole('heading', { name: 'Expenses page' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 
   it('does not land on budgets without BUDGET_READ even with manage permissions', () => {

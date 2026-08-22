@@ -18,10 +18,24 @@ describe('visibleBusinessNav expense entries', () => {
     )
   })
 
+  it('admits the workbench with any ORG section grant and orders it first', () => {
+    const nav = visibleBusinessNav(['EXPENSE_REVIEW'])
+    expect(nav[0]).toEqual({ path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' })
+    expect(visibleBusinessNav(['COST_READ'])).toContainEqual(
+      { path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' },
+    )
+    expect(visibleBusinessNav(['EXPENSE_READ_OWN'])).not.toContainEqual(
+      { path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' },
+    )
+    expect(visibleBusinessNav([])).not.toContainEqual(
+      { path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' },
+    )
+  })
+
   it('shows expense review only to users with EXPENSE_REVIEW', () => {
-    expect(visibleBusinessNav(['EXPENSE_REVIEW'])).toEqual([
+    expect(visibleBusinessNav(['EXPENSE_REVIEW'])).toContainEqual(
       { path: '/expense-reviews', label: '报销审核', readPermission: 'EXPENSE_REVIEW' },
-    ])
+    )
     expect(visibleBusinessNav([])).not.toContainEqual(
       { path: '/expense-reviews', label: '报销审核', readPermission: 'EXPENSE_REVIEW' },
     )
