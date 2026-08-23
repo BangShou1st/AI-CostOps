@@ -73,7 +73,11 @@ class E2eProviderMainlineIntegrationTest extends AllocationApiTestSupport {
                 Long.class, orgId);
 
         // 4. Manual allocation to the fixture project, then confirm it.
-        var decisionId = Long.parseLong(mockMvc.perform(post(
+        // The decision response embeds lines[].id, so parse the FIRST "id"
+        // occurrence (repo-wide convention, cf. decisionIdFrom in
+        // AllocationDecisionApiIntegrationTest); a greedy regex would grab the
+        // line row's id and 404 on confirm once sequences diverge.
+        var decisionResponse = mockMvc.perform(post(
                         "/api/v1/costs/charges/{chargeFactId}/allocation-decisions/manual", chargeId)
                         .header("Authorization", bearer())
                         .header("Idempotency-Key", "e2e-provider-alloc")
@@ -81,8 +85,8 @@ class E2eProviderMainlineIntegrationTest extends AllocationApiTestSupport {
                         .content("{\"lines\":[{\"allocatedAmount\":\"1.25000000\","
                                 + "\"currency\":\"CNY\",\"projectId\":\"" + projectId + "\"}]}"))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString()
-                .replaceAll(".*\"id\":\"([0-9]+)\".*", "$1"));
+                .andReturn().getResponse().getContentAsString();
+        var decisionId = firstStringId(decisionResponse);
         mockMvc.perform(post("/api/v1/allocation-decisions/{decisionId}/confirm", decisionId)
                         .header("Authorization", bearer())
                         .header("Idempotency-Key", "e2e-provider-confirm-alloc"))
@@ -169,6 +173,13 @@ class E2eProviderMainlineIntegrationTest extends AllocationApiTestSupport {
             throw new AssertionError("Expected " + expected + " but was " + actual
                     + " for [" + query + "] id=" + id);
         }
+    }
+
+    /** First {@code "id":"<digits>"} occurrence — the decision id, not a line's. */
+    private static long firstStringId(String response) {
+        var start = response.indexOf("\"id\":\"") + "\"id\":\"".length();
+        var end = response.indexOf('"', start);
+        return Long.parseLong(response.substring(start, end));
     }
 
     private static byte[] zipOrThrow(Map<String, String> entries) {

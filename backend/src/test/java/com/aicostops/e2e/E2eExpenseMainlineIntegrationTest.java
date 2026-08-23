@@ -84,7 +84,11 @@ class E2eExpenseMainlineIntegrationTest extends AllocationApiTestSupport {
                 .andExpect(jsonPath("$.postingReady").value(false));
 
         // 5. Manual allocation of the full amount to the fixture project.
-        var decisionId = Long.parseLong(mockMvc.perform(post(
+        // The decision response embeds lines[].id, so parse the FIRST "id"
+        // occurrence (repo-wide convention, cf. decisionIdFrom in
+        // AllocationDecisionApiIntegrationTest); a greedy regex would grab the
+        // line row's id and 404 on confirm once sequences diverge.
+        var decisionResponse = mockMvc.perform(post(
                         "/api/v1/expenses/{expenseId}/allocation-decisions/manual", expenseId)
                         .header("Authorization", bearer())
                         .header("Idempotency-Key", "e2e-expense-alloc")
@@ -92,8 +96,8 @@ class E2eExpenseMainlineIntegrationTest extends AllocationApiTestSupport {
                         .content("{\"lines\":[{\"allocatedAmount\":\"88.00000000\","
                                 + "\"currency\":\"CNY\",\"projectId\":\"" + projectId + "\"}]}"))
                 .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString()
-                .replaceAll(".*\"id\":\"([0-9]+)\".*", "$1"));
+                .andReturn().getResponse().getContentAsString();
+        var decisionId = firstStringId(decisionResponse);
         mockMvc.perform(post("/api/v1/allocation-decisions/{decisionId}/confirm", decisionId)
                         .header("Authorization", bearer())
                         .header("Idempotency-Key", "e2e-expense-confirm-alloc"))
@@ -142,19 +146,11 @@ class E2eExpenseMainlineIntegrationTest extends AllocationApiTestSupport {
      */
     private void seedEmployee() {
         var suffix = "e2e-exp-" + System.nanoTime();
-        var roleCreated = false;
-        try {
-            createPermissionRole("E2E_EXP_EMPLOYEE", List.of(
-                    "EXPENSE_CREATE_OWN", "EXPENSE_READ_OWN", "EXPENSE_SUBMIT_OWN",
-                    "EVIDENCE_UPLOAD_OWN"));
-            roleCreated = true;
-        } catch (RuntimeException alreadySeeded) {
-            // seeded roles persist across fixtures in this support class only
-            // for the built-in sets; custom roles are recreated per test.
-        }
-        if (!roleCreated) {
-            throw new IllegalStateException("could not seed employee role");
-        }
+        // custom roles live for one test only: deleteCustomRoles() recreates a
+        // clean catalog before every test and removes E2E roles after cleanup.
+        createPermissionRole("E2E_EXP_EMPLOYEE", List.of(
+                "EXPENSE_CREATE_OWN", "EXPENSE_READ_OWN", "EXPENSE_SUBMIT_OWN",
+                "EVIDENCE_UPLOAD_OWN"));
         employeeUserId = insertUser(suffix + "@example.com");
         employeeMemberId = insertMember(orgId, employeeUserId);
         assign("E2E_EXP_EMPLOYEE", "ORG", orgId, employeeMemberId);
@@ -188,5 +184,12 @@ class E2eExpenseMainlineIntegrationTest extends AllocationApiTestSupport {
             throw new AssertionError("Expected " + expected + " but was " + actual
                     + " for [" + query + "] id=" + id);
         }
+    }
+
+    /** First {@code "id":"<digits>"} occurrence — the decision id, not a line's. */
+    private static long firstStringId(String response) {
+        var start = response.indexOf("\"id\":\"") + "\"id\":\"".length();
+        var end = response.indexOf('"', start);
+        return Long.parseLong(response.substring(start, end));
     }
 }
