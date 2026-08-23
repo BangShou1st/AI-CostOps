@@ -6,6 +6,8 @@ import com.aicostops.iam.infrastructure.JwtTokenService;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
+import java.time.Duration;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -113,6 +115,37 @@ class LoginServiceIntegrationTest extends AuthenticationContainersSupport {
         assertThat(limited.code()).isEqualTo(ProblemCode.AUTH_RATE_LIMITED);
         assertThat(limited.retryAfterSeconds()).isBetween(1L, 900L);
         assertThat(redis.keys("aicostops:v1:auth:refresh:*")).isEmpty();
+    }
+
+    @Test
+    void redisRestartFailsClosedDuringLoginAndRecoversWithoutIssuingPartialSession() {
+        var registered = register("restart@auth.test");
+
+        AUTH_REDIS.getDockerClient().pauseContainerCmd(AUTH_REDIS.getContainerId()).exec();
+        try {
+            var unavailable = capture(new LoginCommand(
+                    "restart@auth.test", "valid-password", "203.0.113.15", "browser"));
+
+            assertThat(unavailable.status().value()).isEqualTo(503);
+            assertThat(unavailable.code()).isEqualTo(ProblemCode.REDIS_UNAVAILABLE_FOR_AUTH);
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM audit_event WHERE event_type='LOGIN_SUCCESS'",
+                    Integer.class)).isZero();
+        } finally {
+            AUTH_REDIS.getDockerClient().unpauseContainerCmd(AUTH_REDIS.getContainerId()).exec();
+            awaitRedisRecovery();
+        }
+
+        var recovered = loginService.login(new LoginCommand(
+                "restart@auth.test", "valid-password", "203.0.113.15", "browser"));
+        assertThat(recovered.userId()).isEqualTo(registered.userId());
+        assertThat(redis.keys("aicostops:v1:auth:refresh:*")).hasSize(1);
+    }
+
+    private void awaitRedisRecovery() {
+        Awaitility.await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(redis.opsForValue().increment("m8:redis-recovery")).isPositive());
+        redis.delete("m8:redis-recovery");
     }
 
     private RegisteredIdentity register(String email) {

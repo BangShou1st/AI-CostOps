@@ -4,17 +4,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.allocation.AllocationApiTestSupport;
+import com.aicostops.budget.application.BillingPeriodClosePort;
 import com.aicostops.ledger.application.LedgerPostingCommands.CommitmentLink;
 import com.aicostops.ledger.application.LedgerPostingCommands.PostSourceCommand;
 import com.aicostops.ledger.application.ProviderChargePostingService;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import java.math.BigDecimal;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.junit.jupiter.api.Tag;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Provider posting happy path and stable-key replay against migrated MySQL. */
 @SpringBootTest
@@ -23,7 +31,12 @@ class ProviderChargePostingIntegrationTest extends AllocationApiTestSupport {
 
     @Autowired
     private ProviderChargePostingService postings;
+    @Autowired
+    private BillingPeriodClosePort closePeriods;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
+    private final java.util.concurrent.ExecutorService raceExecutor = Executors.newFixedThreadPool(2);
     private long periodId;
     private long chargeId;
     private long decisionId;
@@ -31,6 +44,11 @@ class ProviderChargePostingIntegrationTest extends AllocationApiTestSupport {
     private long exactBudgetId;
     private long orgBudgetId;
     private long commitmentId;
+
+    @AfterEach
+    void stopRaceExecutor() {
+        raceExecutor.shutdownNow();
+    }
 
     @BeforeEach
     void enableLedgerPosting() {
@@ -123,6 +141,54 @@ class ProviderChargePostingIntegrationTest extends AllocationApiTestSupport {
                 "SELECT COUNT(*) FROM budget_commitment_usage WHERE budget_commitment_id=?",
                 Integer.class, commitmentId)).isEqualTo(usageCount);
         assertThat(auditCount("LEDGER_CHARGE_POSTED")).isEqualTo(auditCount);
+    }
+
+    @Test
+    void closeWinningRaceRejectsEligibleLedgerPostWithoutFinancialMutation() throws Exception {
+        var periodLocked = new CountDownLatch(1);
+        var releaseClose = new CountDownLatch(1);
+
+        var closer = raceExecutor.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+            closePeriods.lockOrganizationAdmission(orgId);
+            var period = closePeriods.lockPeriod(orgId, periodId);
+            periodLocked.countDown();
+            try {
+                if (!releaseClose.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("test close release timeout");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+            return closePeriods.markClosing(orgId, periodId, period.version(),
+                    java.time.Instant.parse("2026-01-15T00:00:00Z"));
+        }));
+        assertThat(periodLocked.await(5, TimeUnit.SECONDS)).isTrue();
+
+        var posting = raceExecutor.submit(() -> postings.post(
+                new AuthenticatedUser(actorUserId, 7), chargeId,
+                new PostSourceCommand(java.util.List.of(
+                        new CommitmentLink(firstLineId, commitmentId)))));
+        assertThatThrownBy(() -> posting.get(1, TimeUnit.SECONDS))
+                .isInstanceOf(TimeoutException.class);
+
+        releaseClose.countDown();
+        assertThat(closer.get(5, TimeUnit.SECONDS).status().name()).isEqualTo("CLOSING");
+        assertThatThrownBy(() -> posting.get(5, TimeUnit.SECONDS))
+                .isInstanceOf(java.util.concurrent.ExecutionException.class)
+                .hasRootCauseInstanceOf(DomainException.class);
+
+        assertThat(jdbc.queryForObject("SELECT status FROM billing_period WHERE id=?",
+                String.class, periodId)).isEqualTo("CLOSING");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
+                Integer.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_entry WHERE org_id=?",
+                Integer.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, exactBudgetId)).isEqualByComparingTo("0.00000000");
+        assertThat(jdbc.queryForObject("SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                BigDecimal.class, commitmentId)).isEqualByComparingTo("3.00000000");
+        assertThat(auditCount("LEDGER_CHARGE_POSTED")).isZero();
     }
 
     @Test
