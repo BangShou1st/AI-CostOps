@@ -168,10 +168,15 @@ Assert-True (-not [string]::IsNullOrWhiteSpace($bootstrapEmail)) "Development bo
 Assert-True (-not [string]::IsNullOrWhiteSpace($bootstrapPassword)) "Development bootstrap password is empty"
 
 $zipPath = $null
+$smokeRunId = [guid]::NewGuid().ToString("N")
+$smokeRunSuffix = $smokeRunId.Substring(0, 12)
+$smokeProviderDisplayName = "Compose Smoke DeepSeek $smokeRunSuffix"
+$smokeProviderExternalRef = "synthetic-compose-smoke-$smokeRunSuffix"
 try {
     Write-Stage "Compose service health"
     Wait-ServicesHealthy $composeServices
     Write-Output "[PASS] mysql, redis, minio, backend and frontend are healthy"
+    Write-Output "[INFO] smoke run id: $smokeRunId"
     $smokeBusinessDates = Get-SmokeBusinessDates
     Write-Output "[INFO] smoke business date: $($smokeBusinessDates.ExpenseDate) UTC"
 
@@ -179,8 +184,14 @@ try {
     $mysqlUser = Get-EnvValue "MYSQL_USER"
     $mysqlPassword = Get-EnvValue "MYSQL_PASSWORD"
     $mysqlDatabase = Get-EnvValue "MYSQL_DATABASE"
-    $mysqlResult = (& docker compose --env-file $EnvFile exec -T mysql mysql "-u$mysqlUser" "-p$mysqlPassword" $mysqlDatabase -Nse "SELECT 1" 2>$null).Trim()
-    Assert-True ($mysqlResult -eq "1") "MySQL readiness query failed"
+    $mysqlResult = (
+        & docker compose --env-file $EnvFile exec -T `
+            -e "MYSQL_PWD=$mysqlPassword" `
+            mysql `
+            mysql "-u$mysqlUser" "$mysqlDatabase" -Nse "SELECT 1;"
+    ).Trim()
+    Assert-True ($LASTEXITCODE -eq 0) "MySQL readiness query failed"
+    Assert-True ($mysqlResult -eq "1") "MySQL readiness query did not return 1"
     $redisPassword = Get-EnvValue "REDIS_PASSWORD"
     $redisResult = (& docker compose --env-file $EnvFile exec -T redis redis-cli -a $redisPassword --no-auth-warning ping 2>$null).Trim()
     Assert-True ($redisResult -eq "PONG") "Redis readiness query failed"
@@ -224,8 +235,8 @@ try {
     Write-Stage "Provider account and DeepSeek import"
     $provider = Invoke-Json "Post" "$BaseUrl/provider-accounts" $headers @{
         providerCode = "DEEPSEEK"
-        displayName = "Compose Smoke DeepSeek"
-        externalAccountRef = "synthetic-compose-smoke"
+        displayName = $smokeProviderDisplayName
+        externalAccountRef = $smokeProviderExternalRef
     } $session
     $providerAccountId = [long]$provider.id
     Assert-True ($providerAccountId -gt 0) "Provider account creation did not return an id"
