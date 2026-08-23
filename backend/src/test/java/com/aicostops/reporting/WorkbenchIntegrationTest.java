@@ -5,13 +5,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.aicostops.allocation.AllocationApiTestSupport;
+import java.time.Duration;
 import java.util.List;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 /**
@@ -26,6 +29,8 @@ class WorkbenchIntegrationTest extends AllocationApiTestSupport {
 
     @Autowired
     private MockMvc mockMvc;
+    @Autowired
+    private StringRedisTemplate redis;
 
     @AfterEach
     void dropWorkbenchRoles() {
@@ -158,6 +163,39 @@ class WorkbenchIntegrationTest extends AllocationApiTestSupport {
         mockMvc.perform(get("/api/v1/workbench").header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.costByProvider[0].totalAmount").value("25.00000000"));
+    }
+
+    @Test
+    void redisRestartFallsBackToMysqlAndQueriesRemainCorrectAfterRecovery() throws Exception {
+        grant("WORKBENCH_FINANCE", List.of("PERIOD_READ", "COST_READ"));
+        insertOpenJanuaryPeriod();
+        insertCharge("10.00000000");
+
+        mockMvc.perform(get("/api/v1/workbench").header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.costByProvider[0].totalAmount").value("10.00000000"));
+
+        AUTH_REDIS.getDockerClient().pauseContainerCmd(AUTH_REDIS.getContainerId()).exec();
+        try {
+            mockMvc.perform(get("/api/v1/workbench").header("Authorization", bearer()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.costByProvider[0].totalAmount").value("10.00000000"))
+                    .andExpect(jsonPath("$.costByProvider[0].currency").value("CNY"));
+        } finally {
+            AUTH_REDIS.getDockerClient().unpauseContainerCmd(AUTH_REDIS.getContainerId()).exec();
+            awaitRedisRecovery();
+        }
+
+        mockMvc.perform(get("/api/v1/workbench").header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.costByProvider[0].totalAmount").value("10.00000000"));
+    }
+
+    private void awaitRedisRecovery() {
+        Awaitility.await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                org.assertj.core.api.Assertions.assertThat(
+                        redis.opsForValue().increment("m8:redis-recovery")).isPositive());
+        redis.delete("m8:redis-recovery");
     }
 
     private void grant(String roleCode, List<String> permissions) {
