@@ -19,6 +19,26 @@ function Assert-True([bool]$Condition, [string]$Message) {
     }
 }
 
+function Get-SmokeBusinessDates {
+    $utcNow = [DateTime]::UtcNow
+    $periodStart = [DateTime]::SpecifyKind(
+        [DateTime]::new($utcNow.Year, $utcNow.Month, 1),
+        [DateTimeKind]::Utc)
+    $periodEnd = $periodStart.AddMonths(1)
+    $transactionStart = $periodStart.AddDays(1)
+    $transactionEnd = $transactionStart.AddHours(1)
+
+    Assert-True ($transactionStart -ge $periodStart -and $transactionEnd -lt $periodEnd) `
+        "Smoke transaction date is outside the current UTC billing period"
+
+    return [pscustomobject]@{
+        ProviderStartIso = $transactionStart.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        ProviderEndIso   = $transactionEnd.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        ExpenseDate      = $transactionStart.ToString("yyyy-MM-dd")
+        FixtureMonth     = $periodStart.ToString("yyyy-MM")
+    }
+}
+
 function Get-EnvValue([string]$Name) {
     $escaped = [regex]::Escape($Name)
     $line = Get-Content -LiteralPath $EnvFile |
@@ -112,20 +132,20 @@ function Invoke-MultipartJson([string]$Uri, [string]$AccessToken, [string]$ZipPa
     }
 }
 
-function New-DeepSeekSmokeZip {
+function New-DeepSeekSmokeZip($BusinessDates) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-costops-smoke-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $root -Force | Out-Null
     $amount = @(
         "user_id,start_time_iso,end_time_iso,model,api_key_name,api_key,type,price,amount",
-        "synthetic-user,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,deepseek-chat,smoke-key,sk-SECRET-SENTINEL-DO-NOT-PERSIST,api_call,0.000002,125"
+        "synthetic-user,$($BusinessDates.ProviderStartIso),$($BusinessDates.ProviderEndIso),deepseek-chat,smoke-key,sk-SECRET-SENTINEL-DO-NOT-PERSIST,api_call,0.000002,125"
     ) -join "`n"
     $cost = @(
         "user_id,start_time_iso,end_time_iso,model,wallet_type,cost,currency",
-        "synthetic-user,2026-08-01T00:00:00Z,2026-08-01T01:00:00Z,deepseek-chat,main_wallet,1.25,CNY"
+        "synthetic-user,$($BusinessDates.ProviderStartIso),$($BusinessDates.ProviderEndIso),deepseek-chat,main_wallet,1.25,CNY"
     ) -join "`n"
-    [System.IO.File]::WriteAllText((Join-Path $root "amount-2026-08.csv"), $amount)
-    [System.IO.File]::WriteAllText((Join-Path $root "cost-2026-08.csv"), $cost)
+    [System.IO.File]::WriteAllText((Join-Path $root "amount-$($BusinessDates.FixtureMonth).csv"), $amount)
+    [System.IO.File]::WriteAllText((Join-Path $root "cost-$($BusinessDates.FixtureMonth).csv"), $cost)
     $zipPath = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-costops-smoke-" + [guid]::NewGuid().ToString("N") + ".zip")
     [System.IO.Compression.ZipFile]::CreateFromDirectory($root, $zipPath)
     Remove-Item -LiteralPath $root -Recurse -Force
@@ -152,6 +172,8 @@ try {
     Write-Stage "Compose service health"
     Wait-ServicesHealthy $composeServices
     Write-Output "[PASS] mysql, redis, minio, backend and frontend are healthy"
+    $smokeBusinessDates = Get-SmokeBusinessDates
+    Write-Output "[INFO] smoke business date: $($smokeBusinessDates.ExpenseDate) UTC"
 
     Write-Stage "Dependency readiness"
     $mysqlUser = Get-EnvValue "MYSQL_USER"
@@ -207,7 +229,7 @@ try {
     } $session
     $providerAccountId = [long]$provider.id
     Assert-True ($providerAccountId -gt 0) "Provider account creation did not return an id"
-    $zipPath = New-DeepSeekSmokeZip
+    $zipPath = New-DeepSeekSmokeZip $smokeBusinessDates
     $upload = Invoke-MultipartJson "$BaseUrl/provider-imports" $login.accessToken $zipPath $providerAccountId
     $importId = [long]$upload.importBatchId
     Assert-True ($upload.batchStatus -eq "PENDING") "Provider upload did not enter PENDING"
@@ -230,7 +252,7 @@ try {
 
     Write-Stage "Employee expense submit"
     $expense = Invoke-Json "Post" "$BaseUrl/expenses" ($headers + @{ "Idempotency-Key" = "compose-smoke-expense-create-$([guid]::NewGuid().ToString('N'))" }) @{
-        expenseDate = "2026-08-23"
+        expenseDate = $smokeBusinessDates.ExpenseDate
         amount = "12.34000000"
         currency = "CNY"
     } $session
