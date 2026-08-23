@@ -2,31 +2,11 @@
 
 面向研发团队的多 AI Provider 成本归集、费用核算、预算治理、对账与账期管理平台。
 
-长期目标：
-
-> 无论 AI 消费发生在哪里，最终进入企业统一、可信、可追溯的一本 AI 成本账。
-
-## 当前阶段
-
-```text
-V0.2 Architecture Baseline
-+
-V1 Detailed Design 1.1
-+
-V1 Implementation Plan 1.0
-```
-
-当前已建立：
-
-```text
-M0 — Repository Foundation（AIC-002～AIC-008、AIC-010）
-```
-
-仓库已具备后端、前端、真实 MySQL 集成测试、容器镜像、完整 Compose 与 CI 基础；M1+ 业务代码尚未开始实现。
+当前仓库处于 **M8 Stage 2 / PR3 — V1 Release Candidate**。AIC-071（稳定 Docker Compose Smoke）与 AIC-072（V1 RC 收口）已实现并等待人工验收；本仓库不声称生产环境验证、完整 Provider 覆盖、FOCUS Compliance 或未实测的规模能力。
 
 ## V1 主链路
 
-```text
+~~~text
 Provider Statement / Expense Evidence
               ↓
       Evidence & Ingestion
@@ -40,195 +20,103 @@ Provider Statement / Expense Evidence
             Ledger
           ↙       ↘
 Reconciliation   Period Close
-```
+~~~
+
+V1 已覆盖 Provider Import、费用证据、Canonical Cost、归属、Budget / Commitment、Approval、Ledger、Reconciliation、Billing Period、审计查询和 Workbench 基础能力。
+
+## 本地完整 Compose Quick Start
+
+PowerShell：
+
+~~~powershell
+Copy-Item .env.example .env
+docker compose --env-file .env build
+docker compose --env-file .env up -d
+docker compose --env-file .env ps
+~~~
+
+默认浏览器入口为 'http://localhost:8080'，后端通过 Nginx 的同源 '/api/v1' 反向代理访问。健康检查：
+
+~~~powershell
+Invoke-WebRequest http://localhost:8080 -UseBasicParsing
+docker compose --env-file .env exec backend curl -fsS http://localhost:8080/actuator/health/liveness
+~~~
+
+.env.example 使用 local-only 占位值。它开启仅限 'dev' profile 的开发 bootstrap：容器启动后创建本地合成管理员、当前自然月 OPEN billing period，并从环境变量读取密码；密码不会写入日志。生产环境必须关闭 'AICOSTOPS_DEV_BOOTSTRAP_ENABLED' 并使用正式身份、Secret 与账期流程。
+
+如果默认端口 8080 已被本机其他进程占用，可使用一次性覆盖：
+
+~~~powershell
+$env:FRONTEND_PORT = '18080'
+$env:AICOSTOPS_ALLOWED_ORIGINS = 'http://localhost:18080'
+docker compose --env-file .env up -d
+~~~
+
+完成后保留数据地停止：
+
+~~~powershell
+docker compose --env-file .env down
+~~~
+
+只有明确需要销毁本项目数据库、Redis 和 MinIO 数据时才使用 'docker compose ... down -v'；不要使用全局 prune。
+
+## RC Smoke
+
+~~~powershell
+.\scripts\smoke-v1.ps1 -EnvFile .env.example -BaseUrl http://localhost:8080/api/v1
+~~~
+
+脚本会在有界超时内检查五个 Compose 服务、MySQL / Redis / MinIO readiness、Flyway、真实登录与权限、Workbench、合成 DeepSeek import / confirm、费用证据提交和 audit query，并输出 'SMOKE_V1_PASS'。它不会打印密码、token 或 Provider key，也不会执行全局清理。完整证据见 [docs/superpowers/specs/2026-08-23-m8-compose-smoke.md](docs/superpowers/specs/2026-08-23-m8-compose-smoke.md) 与 [docs/03-acceptance/v1-release-candidate-evidence.md](docs/03-acceptance/v1-release-candidate-evidence.md)。
+
+## Provider 支持边界
+
+| Provider | Adapter / canonical mapping | Fixture / test status |
+|---|---|---|
+| DeepSeek | 已实现 | 合成 Compose smoke、M7 E2E、M8 benchmark |
+| MiMo | 已实现 | fixture / adapter tests |
+| Kimi | 已实现 | fixture / adapter tests |
+| GLM | 已实现 | fixture / adapter tests |
+| OpenAI | 已实现 | fixture / adapter tests |
+
+M8 的真实 Compose smoke 和 benchmark 使用合成 DeepSeek export；其余 Provider 不应被解释为已完成真实生产导入认证。
 
 ## 技术基线
 
-```text
-Backend
-Java 21
-Spring Boot 4.1
-Spring Security
-Plain MyBatis（Spring Boot Starter 4.1.0 / Core 3.5.19，不使用 MyBatis-Plus）
-Flyway
+Java 21 / Spring Boot 4.1 / Plain MyBatis / Flyway / MySQL 8.4 LTS / Redis / MinIO / React 19 / TypeScript / Vite / TanStack Query / Ant Design / ECharts / Docker Compose / Nginx / GitHub Actions。
 
-Data
-MySQL 8.4 LTS
-Redis
-MinIO / S3
+架构、领域约束与 API 机器可读基线分别见 [docs/01-blueprint/README.md](docs/01-blueprint/README.md)、[docs/02-development/README.md](docs/02-development/README.md) 和 [docs/02-development/api/openapi.yaml](docs/02-development/api/openapi.yaml)。
 
-Frontend
-React 19
-TypeScript
-Vite
-TanStack Query
-Ant Design
-ECharts
+## 日常开发与测试
 
-Delivery
-Docker
-Docker Compose
-Nginx
-GitHub Actions
-```
+日常开发只启动 MySQL / Redis / MinIO，见 [docs/02-development/implementation/05-bootstrap-local-development-runbook.md](docs/02-development/implementation/05-bootstrap-local-development-runbook.md)。
 
-## 本地启动
+后端（Windows PowerShell）：
 
-### 日常开发（推荐）— Daily Development Mode
-
-日常开发不需要 Docker 构建前后端镜像：Spring Boot 与 Vite 直接在 Windows 本机运行，Docker 只提供 MySQL / Redis / MinIO 基础设施。
-
-首次使用（或仓库还没有 `.env` 时）：
-
-```powershell
-Copy-Item .env.example .env
-```
-
-三个终端分别启动：
-
-```powershell
-# Terminal 1 — Docker 基础设施
-# （会先安全停止 Full Integration 的 backend/frontend 容器，
-#   再启动 mysql/redis/minio；不构建任何镜像，不触碰 volume，可重复执行）
-.\scripts\dev\start-infra.ps1
-
-# Terminal 2 — Spring Boot 后端（本机 http://localhost:8081）
+~~~powershell
 cd backend
-.\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local
+.\mvnw.cmd -B "-DexcludedGroups=architecture,integration" test
+.\mvnw.cmd -B "-Dgroups=architecture" test
+.\mvnw.cmd -B "-Dgroups=integration" verify
+~~~
 
-# Terminal 3 — Vite 前端（本机 http://localhost:5173，HMR）
+前端：
+
+~~~powershell
 cd frontend
-npm ci        # 首次或依赖变更时
-npm run dev
-```
+npm ci
+npm run lint
+npm test -- --run
+npm run build
+~~~
 
-浏览器打开 `http://localhost:5173`。`local` profile 默认开放公开注册，登录 / refresh cookie / 权限流程与容器模式一致。
+## 文档与验收
 
-停止基础设施（保留全部数据）：
-
-```powershell
-.\scripts\dev\stop-infra.ps1
-```
-
-### 完整集成模式 — Full Integration Mode
-
-仅用于需要完整容器环境的场合（PR 前 smoke test、Dockerfile / CI / 部署路径验证）：
-
-```powershell
-docker compose up -d --build
-```
-
-浏览器入口为 `http://localhost:8080`，后端经 Nginx 同源 `/api/v1` 反向代理访问。
-
-### Docker / WSL 资源说明
-
-Daily Development 模式只启动 mysql / redis / minio 三个容器，不产生 backend / frontend 镜像构建，也就不会持续积累 BuildKit cache。本机 Java / Node 进程的内存占用与 Docker 无关；Docker 镜像、layer 与 cache 只占磁盘不占内存。删除镜像 / 清理 cache 后，WSL2 虚拟磁盘文件不会自动收缩，可选维护方法见 `docs/02-development/implementation/05-bootstrap-local-development-runbook.md`。
-
-完整的 IDE / 测试 / PR 流程见 `docs/02-development/implementation/05-bootstrap-local-development-runbook.md`。
-
-## 文档结构
-
-```text
-docs/
-├── 01-blueprint/       # 产品、领域、架构、ADR、Provider 研究
-├── 02-development/     # 数据模型、事务、API、权限、实施计划
-└── 03-acceptance/      # PR、Milestone、V1 发布验收
-```
-
-### 第一次理解项目
-
-从：
-
-```text
-docs/01-blueprint/README.md
-```
-
-开始。
-
-### 正在开发
-
-从：
-
-```text
-docs/02-development/README.md
-```
-
-开始。
-
-API 开发统一使用：
-
-```text
-docs/02-development/api/openapi.yaml
-```
-
-作为 HTTP Path / Method / Request / Response / Schema 的机器可读基线。
-
-### 正在 Review / 测试 / 发布
-
-从：
-
-```text
-docs/03-acceptance/README.md
-```
-
-开始。
-
-## 核心原则
-
-```text
-MySQL = Business / Financial Truth
-Redis = Session / TTL / Rate Limit / Cache
-MinIO/S3 = Original Evidence
-```
-
-Budget：
-
-```text
-available
-= total
-- actual
-- outstanding commitments
-```
-
-已经发生的 Provider Cost 即使导致超预算，也必须如实进入 Ledger。
-
-Ledger：
-
-```text
-POSTED Entry 不直接修改
-Correction 通过新增 Reversal / Replacement 完成
-```
+验收入口为 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。M8 专项证据包括 AIC-066 schema / query review、AIC-067 import benchmark、AIC-068 financial concurrency、AIC-069 runtime failure injection、AIC-070 security review，以及 AIC-071 Compose smoke / AIC-072 RC evidence。
 
 ## Git 协作
 
-```text
-Issue
-→ Short-lived Branch
-→ Pull Request
-→ CI
-→ Optional Review / Discussion
-→ Squash Merge
-→ main
-```
+~~~text
+Issue → Short-lived Branch → Pull Request → CI → Human Acceptance → Squash Merge → main
+~~~
 
-`main` 不直接开发。
-
-## 真实性边界
-
-本项目设计基于：
-
-```text
-Provider 官方文档
-真实 Provider 导出 Schema
-部分实际账户记录
-明确标注的 Synthetic Data
-```
-
-不声称：
-
-```text
-真实企业生产环境验证
-所有 Provider 完整支持
-FOCUS Compliance
-未实测的性能与规模能力
-```
+当前 RC 的 AIC-073 保持冻结；未创建 'v1.0.0' tag，未创建 GitHub Release，未合并到 'main'。

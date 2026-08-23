@@ -102,3 +102,9 @@ aicostops:
     password-reset-limit: ${AICOSTOPS_PASSWORD_RESET_LIMIT:5}
     dev-mailbox-path: ${AICOSTOPS_DEV_MAILBOX_PATH:.local-dev/mailbox}
     dev-reset-page-url: ${AICOSTOPS_DEV_RESET_PAGE_URL:http://localhost:8080/reset-password}
+    # The dev profile may create one local-only operator on an empty database.
+    # Keep disabled unless the caller explicitly opts in through the environment.
+    dev-bootstrap-enabled: ${AICOSTOPS_DEV_BOOTSTRAP_ENABLED:false}
+    dev-bootstrap-email: ${AICOSTOPS_DEV_BOOTSTRAP_EMAIL:admin@example.test}
+    dev-bootstrap-display-name: ${AICOSTOPS_DEV_BOOTSTRAP_DISPLAY_NAME:AI CostOps Local Admin}
+    dev-bootstrap-password: ${AICOSTOPS_DEV_BOOTSTRAP_PASSWORD:}

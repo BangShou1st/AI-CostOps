@@ -122,6 +122,23 @@ MinIO     compose.dev.yaml 映射到 localhost:9000 / 9001
 
 注意：`docker compose up -d --build` 会真实构建 backend / frontend 两张镜像并产生 BuildKit cache，不是日常开发方式；日常开发请使用第 3 节的 Daily Development Mode。
 
+### M8 V1 RC Compose Smoke
+
+PR3 的完整 Compose 验收使用仓库根目录的 `.env.example`，不依赖人工 SQL、手工密码或外部 Provider：
+
+```powershell
+docker compose --env-file .env.example down -v --remove-orphans
+docker compose --env-file .env.example build
+$env:FRONTEND_PORT = '8080'
+$env:AICOSTOPS_ALLOWED_ORIGINS = 'http://localhost:8080'
+docker compose --env-file .env.example up -d
+.\scripts\smoke-v1.ps1 -EnvFile .env.example -BaseUrl http://localhost:8080/api/v1 -TimeoutSeconds 180
+```
+
+如果本机 8080 已被其他程序占用，可把两个环境变量和 `BaseUrl` 一起改成同一个未占用端口，例如 `18080`。Smoke 会验证服务健康、依赖 readiness、Flyway V1→V17、dev bootstrap 登录、Workbench、合成 DeepSeek import / confirm、费用证据提交和 audit query；它会在失败时退出且不会执行全局 prune。完整记录见 `docs/superpowers/specs/2026-08-23-m8-compose-smoke.md`。
+
+`.env.example` 中的 dev bootstrap 仅用于本地 RC 验收：密码必须通过环境变量提供，不应写入日志或提交真实凭据。生产环境关闭 `AICOSTOPS_DEV_BOOTSTRAP_ENABLED`。
+
 ## 5. 自动测试数据库
 
 Integration Test 使用 Testcontainers。
