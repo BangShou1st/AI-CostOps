@@ -23,6 +23,6 @@ public abstract class AuthenticationContainersSupport extends MySqlContainerSupp
         registry.add("spring.data.redis.host", AUTH_REDIS::getHost);
         registry.add("spring.data.redis.port", () -> AUTH_REDIS.getMappedPort(6379));
         registry.add("spring.data.redis.password", () -> REDIS_PASSWORD);
-        registry.add("spring.data.redis.timeout", () -> "500ms");
+        registry.add("spring.data.redis.timeout", () -> "5000ms");
     }
 }
