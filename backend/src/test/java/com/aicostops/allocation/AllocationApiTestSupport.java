@@ -2,8 +2,8 @@ package com.aicostops.allocation;
 
 import com.aicostops.iam.infrastructure.JwtTokenService;
 import com.aicostops.shared.security.AuthenticatedUser;
-import com.aicostops.testsupport.AuthenticationContainersSupport;
 import com.aicostops.testsupport.M2DatabaseCleaner;
+import com.aicostops.testsupport.MinioAuthenticationContainersSupport;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,8 +15,17 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * Shared fixtures for the allocation workflow tests: an actor with the full
  * allocation permission set, a confirmed-import charge chain, and ACTIVE
  * targets. Mirrors the duplicate-review test fixture style.
+ *
+ * <p>Extends {@link MinioAuthenticationContainersSupport} so every context in
+ * this fixture family binds {@code aicostops.storage.*} to the shared MinIO
+ * Testcontainer. The mainline E2E suites drive uploads across the real HTTP
+ * boundary (expense evidence, provider imports), and without storage wiring
+ * those contexts fall back to the production defaults on localhost:9000,
+ * where nothing listens in CI — the fail-closed object store then answers 503.
+ * Storage-free suites simply never touch an upload path, so they are
+ * unaffected by the extra container.
  */
-public abstract class AllocationApiTestSupport extends AuthenticationContainersSupport {
+public abstract class AllocationApiTestSupport extends MinioAuthenticationContainersSupport {
 
     protected static final String JAN_1 = "2026-01-01 00:00:00.000000";
     protected static final String FEB_1 = "2026-02-01 00:00:00.000000";
@@ -473,9 +482,11 @@ public abstract class AllocationApiTestSupport extends AuthenticationContainersS
         jdbc.update("""
                 DELETE rp FROM role_permission rp
                 JOIN `role` r ON r.id=rp.role_id
-                WHERE r.code IN ('ALLOC_WORKER','ALLOC_READER','ALLOC_EDITOR','ALLOC_FINANCE')
+                WHERE r.code IN ('ALLOC_WORKER','ALLOC_READER','ALLOC_EDITOR','ALLOC_FINANCE',
+                    'E2E_FINANCE_ALL','E2E_EXP_EMPLOYEE','E2E_FINANCE')
                 """);
-        jdbc.update("DELETE FROM `role` WHERE code IN ('ALLOC_WORKER','ALLOC_READER','ALLOC_EDITOR','ALLOC_FINANCE')");
+        jdbc.update("DELETE FROM `role` WHERE code IN ('ALLOC_WORKER','ALLOC_READER','ALLOC_EDITOR',"
+                + "'ALLOC_FINANCE','E2E_FINANCE_ALL','E2E_EXP_EMPLOYEE','E2E_FINANCE')");
     }
 
     protected void createPermissionRole(String roleCode, List<String> permissions) {
