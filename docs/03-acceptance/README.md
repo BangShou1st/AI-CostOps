@@ -64,3 +64,14 @@ Known Limitations
 ```
 
 性能数字只能在真实 Benchmark 后写入 README / 简历。
+
+## M8 Stage 2 / PR3 — V1 Release Candidate
+
+当前 RC 的范围是 AIC-071 + AIC-072。执行证据与边界见：
+
+```text
+superpowers/specs/2026-08-23-m8-compose-smoke.md
+v1-release-candidate-evidence.md
+```
+
+AIC-073 保持 FROZEN / NOT EXECUTED；人工验收完成前不创建 `v1.0.0` tag、不创建 GitHub Release、不合并 `main`。

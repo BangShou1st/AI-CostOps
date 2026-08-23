@@ -76,6 +76,10 @@ AICOSTOPS_STORAGE_SECRET_KEY
 
 AICOSTOPS_JWT_SIGNING_KEY
 AICOSTOPS_ALLOW_PUBLIC_REGISTRATION
+AICOSTOPS_DEV_BOOTSTRAP_ENABLED
+AICOSTOPS_DEV_BOOTSTRAP_EMAIL
+AICOSTOPS_DEV_BOOTSTRAP_DISPLAY_NAME
+AICOSTOPS_DEV_BOOTSTRAP_PASSWORD
 ```
 
 Spring 已有标准变量就用标准；自定义统一 `AICOSTOPS_*`。
@@ -102,9 +106,15 @@ MINIO_ROOT_PASSWORD=change-me-local-only
 
 AICOSTOPS_JWT_SIGNING_KEY=replace-with-local-development-key
 AICOSTOPS_ALLOW_PUBLIC_REGISTRATION=true
+AICOSTOPS_DEV_BOOTSTRAP_ENABLED=true
+AICOSTOPS_DEV_BOOTSTRAP_EMAIL=admin@example.test
+AICOSTOPS_DEV_BOOTSTRAP_DISPLAY_NAME=AI CostOps Local Admin
+AICOSTOPS_DEV_BOOTSTRAP_PASSWORD=change-me-local-only
 ```
 
 这些只是 Local Example，不是 Production Credential。
+
+`AICOSTOPS_DEV_BOOTSTRAP_*` 只服务于 `dev` profile 的完整 Compose / 本地验收：开启时创建本地合成 operator、授予验收所需的开发角色，并建立当前自然月 OPEN billing period。密码从环境变量读取且不写入日志；生产环境必须关闭该开关，并使用正式身份与账期管理流程。
 
 真实 `.env` Ignore。
 
