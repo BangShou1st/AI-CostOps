@@ -44,6 +44,38 @@ class M7OpenApiContractTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void auditEventQueryOperationIsPublished() {
+        var paths = (Map<String, Object>) document.get("paths");
+        var auditEvents = (Map<String, Object>) paths.get("/audit-events");
+        assertThat(auditEvents).as("path /audit-events").isNotNull();
+
+        var get = (Map<String, Object>) auditEvents.get("get");
+        assertThat(get).isNotNull();
+        var responses = (Map<String, Object>) get.get("responses");
+        assertThat(responses).containsKeys("200", "400", "401", "403");
+
+        var parameters = (List<Map<String, Object>>) get.get("parameters");
+        var names = parameters.stream()
+                .map(parameter -> parameter.containsKey("$ref")
+                        ? ((String) parameter.get("$ref")).substring(parameter.get("$ref").toString().lastIndexOf('/') + 1)
+                        : (String) parameter.get("name"))
+                .toList();
+        assertThat(names).containsExactly("orgId", "eventType", "from", "to", "Page", "Size");
+
+        var schemas = (Map<String, Object>) ((Map<String, Object>) document.get("components"))
+                .get("schemas");
+        assertThat(schema(schemas, "AuditEventResponse")).isNotNull();
+        assertThat(schema(schemas, "PageResponseAuditEvent")).isNotNull();
+
+        // BIGINT ids are strings per the global API convention.
+        var auditEvent = schema(schemas, "AuditEventResponse");
+        var properties = (Map<String, Object>) auditEvent.get("properties");
+        assertThat((String) ((Map<String, Object>) properties.get("id")).get("$ref"))
+                .isEqualTo("#/components/schemas/Id");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void workbenchSchemaUsesMoneyStringsAndPermissionTrimmedSections() {
         var schemas = (Map<String, Object>) ((Map<String, Object>) document.get("components"))
                 .get("schemas");

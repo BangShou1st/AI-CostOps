@@ -147,6 +147,10 @@ public class SecurityConfiguration {
                         // M7 read-only workbench aggregation. Section content
                         // is permission-trimmed by the reporting service.
                         .requestMatchers(HttpMethod.GET, "/api/v1/workbench").authenticated()
+                        // M7 read-only audit query (AIC-065). AUDIT_READ @ ORG
+                        // is enforced by the audit application service; the
+                        // orgId parameter can never cross organizations.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/audit-events").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

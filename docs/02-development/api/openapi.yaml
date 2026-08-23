@@ -987,6 +987,38 @@ components:
         - { $ref: '#/components/schemas/PageResponse' }
         - type: object
           properties: { items: { type: array, items: { $ref: '#/components/schemas/BudgetResponse' } } }
+    AuditEventResponse:
+      type: object
+      description: One persisted audit event. Ids are strings; metadata is the stored secret-free JSON document (never credentials or tokens); createdAt is UTC ISO-8601.
+      required: [id, eventType, metadata, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        orgId:
+          oneOf:
+            - { $ref: '#/components/schemas/Id' }
+            - type: 'null'
+          description: Null for cross-organization events such as failed logins before identity resolution.
+        actorUserId:
+          oneOf:
+            - { $ref: '#/components/schemas/Id' }
+            - type: 'null'
+          description: Null for system or unauthenticated actors.
+        eventType: { type: string, maxLength: 100 }
+        subjectType:
+          oneOf:
+            - { type: string, maxLength: 100 }
+            - type: 'null'
+        subjectId:
+          oneOf:
+            - { $ref: '#/components/schemas/Id' }
+            - type: 'null'
+        metadata: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+    PageResponseAuditEvent:
+      allOf:
+        - { $ref: '#/components/schemas/PageResponse' }
+        - type: object
+          properties: { items: { type: array, items: { $ref: '#/components/schemas/AuditEventResponse' } } }
     CreateBudgetRequest:
       type: object
       required: [billingPeriodId, scopeType, scopeId, currency, totalAmount]
@@ -1562,6 +1594,17 @@ paths:
     get:
       parameters: [{ name: billingPeriodId, in: query, schema: { type: integer, format: int64 } }]
       responses: { '200': { description: Read-only workbench aggregation for one billing period (default the latest); sections the caller has no ORG read grant for are omitted as null, content: { application/json: { schema: { $ref: '#/components/schemas/WorkbenchResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /audit-events:
+    get:
+      description: Read-only audit event query (AUDIT_READ at ORG scope). The query is pinned to the caller's own organization; another orgId is a privacy-preserving 404. Invalid page or size returns ProblemDetail with code VALIDATION_FAILED (HTTP 400).
+      parameters:
+        - { name: orgId, in: query, required: true, schema: { $ref: '#/components/schemas/Id' } }
+        - { name: eventType, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses: { '200': { description: Paged audit events of the caller's organization ordered newest-first with id as the stable tie-breaker, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseAuditEvent' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
   /budgets:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }, { name: billingPeriodId, in: query, schema: { type: integer, format: int64 } }, { name: scopeType, in: query, schema: { $ref: '#/components/schemas/ScopeType' } }, { name: scopeId, in: query, schema: { type: integer, format: int64 } }]
