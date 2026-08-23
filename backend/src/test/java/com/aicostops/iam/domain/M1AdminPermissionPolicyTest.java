@@ -62,6 +62,10 @@ class M1AdminPermissionPolicyTest {
                 Arguments.of("RECONCILIATION_RESOLVE", Set.of(ScopeType.ORG)),
                 Arguments.of("PERIOD_READ", Set.of(ScopeType.ORG)),
                 Arguments.of("PERIOD_CLOSE", Set.of(ScopeType.ORG)),
-                Arguments.of("PERIOD_REOPEN", Set.of(ScopeType.ORG)));
+                Arguments.of("PERIOD_REOPEN", Set.of(ScopeType.ORG)),
+                // AIC-065: the audit log is an organization-wide compliance
+                // view; the V3 seed grants AUDIT_READ to finance/admin roles
+                // at ORG scope only.
+                Arguments.of("AUDIT_READ", Set.of(ScopeType.ORG)));
     }
 }

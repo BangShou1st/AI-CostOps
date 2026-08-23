@@ -61,7 +61,11 @@ public final class M1AdminPermissionPolicy {
             Map.entry("RECONCILIATION_RESOLVE", Set.of(ScopeType.ORG)),
             Map.entry("PERIOD_READ", Set.of(ScopeType.ORG)),
             Map.entry("PERIOD_CLOSE", Set.of(ScopeType.ORG)),
-            Map.entry("PERIOD_REOPEN", Set.of(ScopeType.ORG)));
+            Map.entry("PERIOD_REOPEN", Set.of(ScopeType.ORG)),
+            // AIC-065: the audit log is an organization-wide compliance view;
+            // the V3 seed grants AUDIT_READ to finance/admin roles at ORG
+            // scope only, so a query is always pinned to one organization.
+            Map.entry("AUDIT_READ", Set.of(ScopeType.ORG)));
 
     private M1AdminPermissionPolicy() {
     }

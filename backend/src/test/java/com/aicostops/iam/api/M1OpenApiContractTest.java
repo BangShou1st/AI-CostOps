@@ -453,6 +453,9 @@ class M1OpenApiContractTest {
         add(operations, "GET /billing-periods", "200", "401", "403", "404");
         // M7 read-only workbench aggregation (permission-trimmed sections).
         add(operations, "GET /workbench", "200", "400", "401", "403");
+        // M7 read-only audit event query (AIC-065): another org's orgId is a
+        // privacy-preserving 404, hence the extra status.
+        add(operations, "GET /audit-events", "200", "400", "401", "403", "404");
         return Map.copyOf(operations);
     }
 
