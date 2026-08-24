@@ -63,6 +63,43 @@ M7 的 E2E 继续覆盖 DeepSeek synthetic import → worker → confirm → all
 
 Frontend test output includes known jsdom advisory messages about getComputedStyle / navigation; no test failed。Vite reports a large generated JS chunk（约 1,556.18 kB）；这是现有 bundle-size follow-up，不是本 RC 的 correctness failure。
 
+## 4.5 Human UAT Results
+
+- 日期：2026-08-24
+- 结果：PASS
+
+### 覆盖范围
+
+| 检查项 | 结果 |
+|--------|------|
+| Functional scenarios | 32/32 PASS |
+| Critical state branches | 14/14 PASS |
+| P0/P1 defects | 0 |
+
+### Import
+
+- FAILED Import：FAILED → CANCELED — **PASS**
+
+### Close Flow
+
+- OPEN_IMPORT blockers：7/7 resolved — **PASS**
+- Period Close：**PASS**
+- Period status：CLOSED
+
+### Closed Period Guard
+
+- Request：`POST /expenses/{id}/approve`
+- Result：`409 PERIOD_NOT_OPEN`
+- Expected behavior：**PASS**
+
+### Reopen
+
+- Closed period reopen：**PASS**
+
+### Limitations
+
+- SMTP：Local environment only. No production mail delivery tested.
+
 ## 5. AIC-071 Compose evidence summary
 
 最终 full Compose 使用 Windows Docker Desktop；默认 8080 被本机另一个 Java 服务占用，因此用一次性 18080 host override 完成复验。五个服务、MySQL / Redis / MinIO readiness、Flyway V1→V17、backend liveness、frontend HTTP、dev bootstrap login、Workbench、合成 DeepSeek import / confirm、canonical charge、expense evidence / submit、audit query 均 PASS。

@@ -8,6 +8,21 @@ V1 目标：
 
 > 把已经发生的多 Provider AI 成本统一变成可信、可归属、可审批、可对账、可关账的一本内部成本账。
 
+## 当前阶段
+
+```text
+M8 Stage 2 / V1 Release Candidate
+```
+
+状态：
+
+```text
+M0–M8 全部完成
+AIC-001 ~ AIC-073 全部完成
+Release Candidate 已完成核心验证
+等待 v1.0.0 Release 收尾
+```
+
 ## V1 范围
 
 ```text
@@ -68,6 +83,37 @@ POSTED Immutable
 Correction Append-only
 ```
 
+## 验证状态
+
+```text
+Backend Unit Tests        437 PASS
+Backend Integration       795 PASS
+Backend Architecture       34 PASS
+Frontend Vitest           420 PASS
+Frontend Lint             PASS
+Compose Smoke             PASS
+Browser UAT              32/32 PASS
+State Branches           14/14 PASS
+P0/P1 Defects                0
+```
+
+## 已完成模块
+
+```text
+Backend
+Frontend
+Import
+Cost
+Allocation
+Budget
+Expense
+Ledger
+Reconciliation
+Period Close
+RBAC
+Audit
+```
+
 ## Repository
 
 ```text
@@ -101,14 +147,26 @@ docs/02-development/api/openapi.yaml
 AIC-001 ... AIC-073
 ```
 
-当前阶段：
+当前仓库可执行基线：Java 21 / Spring Boot 4.1.0 / MyBatis Spring Boot Starter 4.1.0（Core 3.5.19）、React 19 / TypeScript 6 / Vite 8、MySQL 8.4 / Redis / MinIO、Docker Compose 与 GitHub Actions。
+
+## Daily Development Mode
+
+日常开发只运行基础设施（MySQL / Redis / MinIO），Backend 与 Frontend 直接在本机运行：
 
 ```text
-M0 Repository Foundation
-AIC-001 Repository Governance（已完成）
-AIC-002～AIC-008、AIC-010 Foundation Implementation（已完成）
-AIC-009 Required Status Checks（已配置并完成失败 CI 阻断验证）
-M0 实现与仓库保护收尾已完成；Milestone 最终验收仍待第二位 Contributor 独立 clean-clone/bootstrap 证据。
+Frontend      localhost:5173    （Vite，本机，HMR）
+Backend       localhost:8080    （Spring Boot，本机）
+MySQL         localhost:3307    （Docker）
+Redis         localhost:6379    （Docker）
+MinIO         localhost:9000    （Docker API）
+              localhost:9001    （Docker Console）
 ```
 
-当前仓库可执行基线：Java 21 / Spring Boot 4.1.0 / MyBatis Spring Boot Starter 4.1.0（Core 3.5.19）、React 19 / TypeScript 6 / Vite 8、MySQL 8.4 / Redis / MinIO、Docker Compose 与 GitHub Actions。
+启动：`.\scripts\dev\start-infra.ps1`
+
+## 剩余事项
+
+```text
+Release 文档收尾
+v1.0.0 tag 创建
+```

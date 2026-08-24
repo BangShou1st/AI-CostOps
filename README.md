@@ -24,6 +24,28 @@ Reconciliation   Period Close
 
 V1 已覆盖 Provider Import、费用证据、Canonical Cost、归属、Budget / Commitment、Approval、Ledger、Reconciliation、Billing Period、审计查询和 Workbench 基础能力。
 
+## Local Development
+
+推荐日常开发模式：Docker 只运行基础设施（MySQL / Redis / MinIO），Backend 与 Frontend 直接在本机运行。
+
+```text
+Frontend      http://localhost:5173    （Vite，本机，HMR）
+Backend       http://localhost:8080    （Spring Boot，本机）
+MySQL         localhost:3307          （Docker）
+Redis         localhost:6379          （Docker）
+MinIO         localhost:9000 / 9001   （Docker API / Console）
+```
+
+启动：
+
+```powershell
+.\scripts\dev\start-infra.ps1
+cd backend && .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
+cd frontend && npm run dev
+```
+
+详细说明见 [docs/02-development/implementation/05-bootstrap-local-development-runbook.md](docs/02-development/implementation/05-bootstrap-local-development-runbook.md)。
+
 ## 本地完整 Compose Quick Start
 
 PowerShell：
@@ -67,6 +89,24 @@ docker compose --env-file .env down
 ~~~
 
 脚本会在有界超时内检查五个 Compose 服务、MySQL / Redis / MinIO readiness、Flyway、真实登录与权限、Workbench、合成 DeepSeek import / confirm、费用证据提交和 audit query，并输出 'SMOKE_V1_PASS'。它不会打印密码、token 或 Provider key，也不会执行全局清理。完整证据见 [docs/superpowers/specs/2026-08-23-m8-compose-smoke.md](docs/superpowers/specs/2026-08-23-m8-compose-smoke.md) 与 [docs/03-acceptance/v1-release-candidate-evidence.md](docs/03-acceptance/v1-release-candidate-evidence.md)。
+
+## Validation Status
+
+- Browser UAT：32/32 scenarios passed
+- State branches：14/14 passed
+- P0/P1：0
+- Compose Smoke：PASS
+- Backend tests：437 unit + 795 integration + 34 architecture = PASS
+- Frontend tests：420 Vitest + lint = PASS
+
+Validated flows：Import lifecycle, Cost allocation, Budget commitment, Expense workflow, Ledger posting, Reconciliation, Period close, CLOSED write protection, Reopen。
+
+## Known Limitations
+
+- SMTP delivery requires external mail service. Local development uses file-backed mailbox by default.
+- Import benchmark tested up to 1,024 rows (synthetic DeepSeek). Scale / concurrency limits beyond this are untested.
+- provider-account and allocation-rule audit producers are incomplete for create/update/archive actions.
+- Production mail integration is environment-specific and not included in V1 scope.
 
 ## Provider 支持边界
 
