@@ -5,6 +5,8 @@ import com.aicostops.ingestion.infrastructure.ImportBatchMapper;
 import com.aicostops.ingestion.infrastructure.ImportWorkerProperties;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.function.Supplier;
+import org.springframework.dao.DeadlockLoserDataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -20,6 +22,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class ImportLeaseService {
+
+    private static final int DEADLOCK_RETRIES = 3;
 
     private final ImportAttemptMapper attemptMapper;
     private final ImportBatchMapper batchMapper;
@@ -72,7 +76,7 @@ public class ImportLeaseService {
      * unless the automatic recovery budget is exhausted (Batch then FAILED).
      */
     public Optional<RecoveredLease> recoverExpiredLease() {
-        return transactions.execute(status -> {
+        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
             var expired = attemptMapper.findExpiredRunning();
             if (expired == null) {
                 return Optional.empty();
@@ -97,7 +101,19 @@ public class ImportLeaseService {
                 throw new IllegalStateException("Recovery successor must be readable");
             }
             return Optional.of(new RecoveredLease(successor.id(), successor.importBatchId()));
-        });
+        }));
+    }
+
+    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
+        for (var attempt = 1; ; attempt++) {
+            try {
+                return operation.get();
+            } catch (DeadlockLoserDataAccessException deadlock) {
+                if (attempt >= DEADLOCK_RETRIES) {
+                    throw deadlock;
+                }
+            }
+        }
     }
 
     public record ImportLease(long attemptId, long importBatchId, String leaseOwner, long leaseVersion) {
