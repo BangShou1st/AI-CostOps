@@ -3,6 +3,7 @@ import { Alert, Button, Space, Table, Tag, Typography } from 'antd'
 import { useState } from 'react'
 import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail, type ProblemDetail } from '../../api/problem'
 import { formatBusinessDate } from '../../lib/dateTime'
+import { formatMoney } from '../../lib/money'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
 import { duplicateKeys } from './api/duplicateKeys'
@@ -112,11 +113,11 @@ export function DuplicatesPage() {
             render: (_, candidate) => (
               <Space orientation="vertical" size={2}>
                 <Typography.Text>
-                  #{candidate.chargeFact.id} {candidate.chargeFact.amount} {candidate.chargeFact.currency}
+                  #{candidate.chargeFact.id} {formatMoney(candidate.chargeFact.amount, candidate.chargeFact.currency)}
                   （{formatBusinessDate(candidate.chargeFact.periodStart)}）
                 </Typography.Text>
                 <Typography.Text type="secondary">
-                  #{candidate.matchedChargeFact.id} {candidate.matchedChargeFact.amount} {candidate.matchedChargeFact.currency}
+                  #{candidate.matchedChargeFact.id} {formatMoney(candidate.matchedChargeFact.amount, candidate.matchedChargeFact.currency)}
                   （{formatBusinessDate(candidate.matchedChargeFact.periodStart)}）
                 </Typography.Text>
               </Space>

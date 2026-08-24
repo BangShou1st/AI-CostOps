@@ -10,6 +10,7 @@ import { allocationKeys } from '../api/allocationKeys'
 import {
   compareDecimal8,
   formatDecimal8,
+  formatMoney,
   parseDecimal8,
   parseUserDecimal8,
   subtractDecimal8,
@@ -105,7 +106,7 @@ export function AllocationLinesEditor({ sourceAmount, currency, lines, setLines,
 
   const remainingLabel = compareDecimal8(remaining, 0n) === 0
     ? '精确分配'
-    : remaining > 0n ? `未分配金额：${formatDecimal8(remaining)}` : `超额分配：${formatDecimal8(-remaining)}`
+    : remaining > 0n ? `未分配金额：${formatMoney(formatDecimal8(remaining), currency)}` : `超额分配：${formatMoney(formatDecimal8(-remaining), currency)}`
 
   const updateLine = useCallback((key: number, patch: Partial<AllocationEditorLine>) => {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)))
@@ -114,9 +115,9 @@ export function AllocationLinesEditor({ sourceAmount, currency, lines, setLines,
   return (
     <>
       <Typography.Text strong>
-        来源金额：{sourceAmount} {currency}
-        {'　'}已分配：{formatDecimal8(allocated)} {currency}
-        {'　'}{remainingLabel} {currency}
+        来源金额：{formatMoney(sourceAmount, currency)}
+        {'　'}已分配：{formatMoney(formatDecimal8(allocated), currency)}
+        {'　'}{remainingLabel}
       </Typography.Text>
       <Table<AllocationEditorLine>
         rowKey="key" size="small" dataSource={lines} pagination={false}

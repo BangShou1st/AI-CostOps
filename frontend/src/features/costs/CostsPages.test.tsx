@@ -94,10 +94,10 @@ describe('CostsListPage', () => {
 
     renderPage(['COST_READ'], <CostsListPage />)
 
-    await waitFor(() => expect(screen.getByText('10.00000000')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('10.00 CNY')).toBeInTheDocument())
     expect(screen.getAllByText('正常').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('GLM')).toBeInTheDocument()
-    expect(screen.getByText('CNY')).toBeInTheDocument()
+    expect(screen.queryByText('CNY')).not.toBeInTheDocument()
   })
 
   it('shows suspected duplicate label', async () => {
@@ -166,7 +166,7 @@ describe('CostDetailPage', () => {
     renderDetailPage(['COST_READ', 'ALLOCATION_READ'])
 
     await waitFor(() => expect(screen.getByText('成本详情 #11')).toBeInTheDocument())
-    expect(screen.getAllByText('10.00000000 CNY').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('10.00 CNY').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('确认导入谱系')).toBeInTheDocument()
     expect(screen.getByText('手动')).toBeInTheDocument()
     expect(screen.getByText('CONFIRMED')).toBeInTheDocument()

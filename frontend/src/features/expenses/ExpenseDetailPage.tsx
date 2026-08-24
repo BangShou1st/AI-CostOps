@@ -8,6 +8,7 @@ import { ApprovalHistory } from './components/ApprovalHistory'
 import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
 import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
 import { formatBusinessDate, formatEventDateTime } from '../../lib/dateTime'
+import { formatMoney } from '../../lib/money'
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', REJECTED: '已拒绝', CANCELED: '已取消',
@@ -84,7 +85,7 @@ export function ExpenseDetailPage() {
       }>
         <Descriptions column={2} size="small">
           <Descriptions.Item label="日期">{formatBusinessDate(expense.expenseDate)}</Descriptions.Item>
-          <Descriptions.Item label="金额">{expense.amount} {expense.currency}</Descriptions.Item>
+          <Descriptions.Item label="金额">{formatMoney(expense.amount, expense.currency)}</Descriptions.Item>
           <Descriptions.Item label="版本">v{expense.version}</Descriptions.Item>
           <Descriptions.Item label="审核状态">{expense.approvalStatus ?? '-'}</Descriptions.Item>
           <Descriptions.Item label="发布就绪">{expense.postingReady ? '✓' : '否'}</Descriptions.Item>

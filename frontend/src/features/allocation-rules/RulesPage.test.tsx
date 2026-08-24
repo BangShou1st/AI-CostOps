@@ -1,11 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Form } from 'antd'
+import dayjs from 'dayjs'
+import type { FormInstance } from 'antd'
 import { MemoryRouter } from 'react-router-dom'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { rulesApi, type AllocationRule } from './api/rulesApi'
 import { settingsApi } from '../settings/api/settingsApi'
-import { RulesPage } from './RulesPage'
+import { RulesPage, type RuleVersionFormValues } from './RulesPage'
 
 vi.mock('../auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('./api/rulesApi', () => ({
@@ -55,11 +58,25 @@ function renderPage(permissions: string[]) {
     refreshMe: vi.fn(),
     logout: vi.fn(),
   } as ReturnType<typeof useAuth>)
-  return render(
+
+  // The picker widget itself is exercised in the manual browser pass; the
+  // injected form instance is the seam that feeds picker-shaped values
+  // through the real validation and submission path.
+  const formRef: { current?: FormInstance<RuleVersionFormValues> } = {}
+  function Harness() {
+    const [instance] = Form.useForm<RuleVersionFormValues>()
+    formRef.current = instance
+    return <RulesPage externalForm={instance} />
+  }
+
+  render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter><RulesPage /></MemoryRouter>
+      <MemoryRouter><Harness /></MemoryRouter>
     </QueryClientProvider>,
   )
+  return {
+    get formInstance() { return formRef.current! },
+  }
 }
 
 beforeEach(() => {
@@ -79,6 +96,19 @@ beforeEach(() => {
   })
 })
 
+async function openEditor() {
+  await waitFor(() => expect(screen.getByRole('button', { name: '创建新版本' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '创建新版本' }))
+}
+
+function fillCoreFields(matchValue = 'key-abc-123') {
+  fireEvent.change(screen.getByLabelText('规则键'), { target: { value: 'openai-key' } })
+  fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'OpenAI Key v3' } })
+  fireEvent.change(screen.getByLabelText('供应商代码'), { target: { value: 'OPENAI' } })
+  fireEvent.change(screen.getByLabelText('匹配值'), { target: { value: matchValue } })
+  fireEvent.change(screen.getByLabelText('目标 ID'), { target: { value: '5' } })
+}
+
 describe('RulesPage', () => {
   it('renders the immutable rule versions with key/version/priority/target', async () => {
     renderPage(['ALLOCATION_RULE_MANAGE'])
@@ -91,19 +121,29 @@ describe('RulesPage', () => {
     expect(screen.getByText('ACTIVE')).toBeInTheDocument()
   })
 
+  it('offers local datetime pickers instead of free-text ISO inputs', async () => {
+    renderPage(['ALLOCATION_RULE_MANAGE'])
+    await openEditor()
+
+    const fromInput = screen.getByLabelText('生效时间') as HTMLInputElement
+    expect(fromInput.getAttribute('placeholder')).toBe('选择本地生效时间')
+    const toInput = screen.getByLabelText('失效时间（可选）') as HTMLInputElement
+    expect(toInput.getAttribute('placeholder')).toBe('选择本地失效时间')
+    // The old free-text hint must be gone: users are never asked for ISO text.
+    expect(fromInput.getAttribute('placeholder')).not.toContain('Z')
+    expect(toInput.getAttribute('placeholder')).not.toContain('Z')
+  })
+
   it('creates a new version through the real contract and refreshes', async () => {
     mockedRulesApi.createVersion.mockResolvedValue({ ...RULE, version: 3 })
-    renderPage(['ALLOCATION_RULE_MANAGE'])
+    const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE'])
+    await openEditor()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '创建新版本' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }))
-
-    fireEvent.change(screen.getByLabelText('规则键'), { target: { value: 'openai-key' } })
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'OpenAI Key v3' } })
-    fireEvent.change(screen.getByLabelText('供应商代码'), { target: { value: 'OPENAI' } })
-    fireEvent.change(screen.getByLabelText('匹配值'), { target: { value: 'key-abc-123' } })
-    fireEvent.change(screen.getByLabelText('目标 ID'), { target: { value: '5' } })
-    fireEvent.change(screen.getByLabelText('生效时间'), { target: { value: '2026-01-01T00:00:00Z' } })
+    fillCoreFields()
+    formInstance.setFieldsValue({
+      effectiveFrom: dayjs('2026-01-01T08:00:00'),
+      effectiveTo: null,
+    })
 
     fireEvent.click(screen.getByRole('button', { name: '创 建' }))
 
@@ -114,43 +154,53 @@ describe('RulesPage', () => {
     expect(definition.matchHintType).toBe('PROVIDER_PROJECT')
     expect(definition.priority).toBe(100)
     expect(definition.targetProjectId).toBe('5')
-    expect(definition.effectiveFrom).toBe('2026-01-01T00:00:00Z')
+    expect(definition.effectiveFrom).toBe(dayjs('2026-01-01T08:00:00').toISOString())
+    expect(definition.effectiveFrom.endsWith('.000Z')).toBe(true)
+    expect(dayjs(definition.effectiveFrom).format('YYYY-MM-DD')).toBe('2026-01-01')
+    expect(definition.effectiveTo).toBeNull()
     await waitFor(() => expect(mockedRulesApi.listRules).toHaveBeenCalledTimes(2))
   })
 
   it('keeps the exact matchValue characters including leading and trailing spaces', async () => {
     mockedRulesApi.createVersion.mockResolvedValue(RULE)
-    renderPage(['ALLOCATION_RULE_MANAGE'])
+    const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE'])
+    await openEditor()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '创建新版本' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }))
-
-    fireEvent.change(screen.getByLabelText('规则键'), { target: { value: 'glm-key' } })
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Exact rule' } })
-    fireEvent.change(screen.getByLabelText('供应商代码'), { target: { value: 'GLM' } })
-    fireEvent.change(screen.getByLabelText('匹配值'), { target: { value: ' abc ' } })
-    fireEvent.change(screen.getByLabelText('目标 ID'), { target: { value: '5' } })
-    fireEvent.change(screen.getByLabelText('生效时间'), { target: { value: '2026-01-01T00:00:00Z' } })
+    fillCoreFields(' abc ')
+    formInstance.setFieldsValue({ effectiveFrom: dayjs('2026-08-21T08:00:00') })
     fireEvent.click(screen.getByRole('button', { name: '创 建' }))
 
     await waitFor(() => expect(mockedRulesApi.createVersion).toHaveBeenCalledTimes(1))
     const [, definition] = mockedRulesApi.createVersion.mock.calls[0]
     expect(definition.matchValue).toBe(' abc ')
+    // An absent optional end stays a true null instead of an empty string.
+    expect(definition.effectiveTo).toBeNull()
+  })
+
+  it('blocks submission when the optional end time is not after the start time', async () => {
+    mockedRulesApi.createVersion.mockResolvedValue(RULE)
+    const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE'])
+    await openEditor()
+
+    fillCoreFields()
+    formInstance.setFieldsValue({
+      effectiveFrom: dayjs('2026-08-21T08:00:00'),
+      effectiveTo: dayjs('2026-08-20T08:00:00'),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '创 建' }))
+
+    expect(await screen.findByText('失效时间必须晚于生效时间')).toBeInTheDocument()
+    expect(mockedRulesApi.createVersion).not.toHaveBeenCalled()
   })
 
   it('submits the selected optional provider account with the new version', async () => {
     mockedRulesApi.createVersion.mockResolvedValue({ ...RULE, version: 3 })
-    renderPage(['ALLOCATION_RULE_MANAGE'])
+    const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE'])
+    await openEditor()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '创建新版本' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }))
-
-    fireEvent.change(screen.getByLabelText('规则键'), { target: { value: 'openai-key' } })
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'OpenAI Key v3' } })
-    fireEvent.change(screen.getByLabelText('供应商代码'), { target: { value: 'OPENAI' } })
-    fireEvent.change(screen.getByLabelText('匹配值'), { target: { value: 'key-abc-123' } })
-    fireEvent.change(screen.getByLabelText('目标 ID'), { target: { value: '5' } })
-    fireEvent.change(screen.getByLabelText('生效时间'), { target: { value: '2026-01-01T00:00:00Z' } })
+    fillCoreFields()
+    formInstance.setFieldsValue({ effectiveFrom: dayjs('2026-08-21T08:00:00') })
 
     // The optional provider-account dropdown loads asynchronously.
     const accountSelect = await screen.findByLabelText('供应商账号（可选）')
@@ -171,17 +221,11 @@ describe('RulesPage', () => {
       response: { data: { title: 'Forbidden', status: 403, detail: 'No access', code: 'FORBIDDEN', traceId: 't' } },
     })
     mockedRulesApi.createVersion.mockResolvedValue(RULE)
-    renderPage(['ALLOCATION_RULE_MANAGE'])
+    const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE'])
+    await openEditor()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '创建新版本' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }))
-
-    fireEvent.change(screen.getByLabelText('规则键'), { target: { value: 'glm-key' } })
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'GLM rule' } })
-    fireEvent.change(screen.getByLabelText('供应商代码'), { target: { value: 'GLM' } })
-    fireEvent.change(screen.getByLabelText('匹配值'), { target: { value: 'v' } })
-    fireEvent.change(screen.getByLabelText('目标 ID'), { target: { value: '5' } })
-    fireEvent.change(screen.getByLabelText('生效时间'), { target: { value: '2026-01-01T00:00:00Z' } })
+    fillCoreFields('v')
+    formInstance.setFieldsValue({ effectiveFrom: dayjs('2026-08-21T08:00:00') })
 
     // The optional dropdown disappears; the page must not break.
     await waitFor(() => expect(screen.queryByLabelText('供应商账号（可选）')).not.toBeInTheDocument())
@@ -218,16 +262,11 @@ describe('RulesPage', () => {
         },
       },
     })
-    renderPage(['ALLOCATION_RULE_MANAGE'])
+    const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE'])
+    await openEditor()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '创建新版本' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '创建新版本' }))
-    fireEvent.change(screen.getByLabelText('规则键'), { target: { value: 'bad' } })
-    fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'Bad' } })
-    fireEvent.change(screen.getByLabelText('供应商代码'), { target: { value: 'GLM' } })
-    fireEvent.change(screen.getByLabelText('匹配值'), { target: { value: 'v' } })
-    fireEvent.change(screen.getByLabelText('目标 ID'), { target: { value: '5' } })
-    fireEvent.change(screen.getByLabelText('生效时间'), { target: { value: '2026-01-01T00:00:00Z' } })
+    fillCoreFields('v')
+    formInstance.setFieldsValue({ effectiveFrom: dayjs('2026-08-21T08:00:00') })
     fireEvent.click(screen.getByRole('button', { name: '创 建' }))
 
     await waitFor(() => {

@@ -119,6 +119,29 @@ class ImportWorkflowReadApiIntegrationTest extends AuthenticationContainersSuppo
     }
 
     @Test
+    void importsListSupportsFullDomainStatusFilterIncludingConfirmed() throws Exception {
+        long confirmedEvidenceId = insertEvidence(organizationId, "3".repeat(64));
+        long reviewEvidenceId = insertEvidence(organizationId, "4".repeat(64));
+        long confirmedBatchId = insertBatch(organizationId, confirmedEvidenceId, accountId, "CONFIRMED",
+                "2026-08-06 09:00:00");
+        insertBatch(organizationId, reviewEvidenceId, accountId, "READY_FOR_REVIEW", "2026-08-07 09:00:00");
+
+        mockMvc.perform(get("/api/v1/imports?status=CONFIRMED").header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(String.valueOf(confirmedBatchId)))
+                .andExpect(jsonPath("$.items[0].status").value("CONFIRMED"));
+        mockMvc.perform(get("/api/v1/imports?status=READY_FOR_REVIEW").header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        // Invalid statuses must keep failing validation instead of degrading the filter.
+        mockMvc.perform(get("/api/v1/imports?status=INVENTED").header("Authorization", bearer()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
     void importDetailAndAttemptsExposeReviewFieldsOnly() throws Exception {
         mockMvc.perform(get("/api/v1/imports/{importId}", batchId).header("Authorization", bearer()))
                 .andExpect(status().isOk())

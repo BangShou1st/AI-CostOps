@@ -13,6 +13,7 @@ import {
   type ApprovalActionType,
 } from './api/commitmentApi'
 import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL, budgetCommandProblemMessage, commitmentStateLabel } from './presentation'
+import { formatMoney } from '../../lib/money'
 import { formatEventDateTime } from '../../lib/dateTime'
 
 const ACTION_LABEL: Record<ApprovalActionType, string> = {
@@ -152,9 +153,9 @@ export function BudgetCommitmentDetailPage() {
           extra={<Tag color={COMMITMENT_STATUS_COLOR[commitment.status]}>{COMMITMENT_STATUS_LABEL[commitment.status]}</Tag>}
         >
           <Descriptions column={2} size="small">
-            <Descriptions.Item label="申请金额">{`${commitment.requestedAmount} ${currency}`}</Descriptions.Item>
-            <Descriptions.Item label="批准金额">{commitment.approvedAmount === null ? '—' : `${commitment.approvedAmount} ${currency}`}</Descriptions.Item>
-            <Descriptions.Item label="剩余金额">{commitment.remainingAmount === null ? '—' : `${commitment.remainingAmount} ${currency}`}</Descriptions.Item>
+            <Descriptions.Item label="申请金额">{formatMoney(commitment.requestedAmount, currency)}</Descriptions.Item>
+            <Descriptions.Item label="批准金额">{commitment.approvedAmount === null ? '—' : formatMoney(commitment.approvedAmount, currency)}</Descriptions.Item>
+            <Descriptions.Item label="剩余金额">{commitment.remainingAmount === null ? '—' : formatMoney(commitment.remainingAmount, currency)}</Descriptions.Item>
             <Descriptions.Item label="预算 ID">{commitment.budgetId}</Descriptions.Item>
             <Descriptions.Item label="审批状态">{commitment.approvalStatus === null ? '—' : APPROVAL_STATUS_LABEL[commitment.approvalStatus]}</Descriptions.Item>
             <Descriptions.Item label="版本">{`v${commitment.version}`}</Descriptions.Item>
@@ -257,7 +258,7 @@ export function BudgetCommitmentDetailPage() {
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="承诺 ID">{commitment.id}</Descriptions.Item>
             <Descriptions.Item label="剩余金额">
-              {commitment.remainingAmount === null ? '—' : `${commitment.remainingAmount} ${currency}`}
+              {commitment.remainingAmount === null ? '—' : formatMoney(commitment.remainingAmount, currency)}
             </Descriptions.Item>
             <Descriptions.Item label="币种">{currency}</Descriptions.Item>
           </Descriptions>

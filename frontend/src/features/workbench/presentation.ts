@@ -1,3 +1,4 @@
+import { formatMoney } from '../../lib/money'
 import type {
   WorkbenchBudgetVarianceLine,
   WorkbenchCurrencyAmount,
@@ -5,7 +6,7 @@ import type {
 
 /** Fixed-scale decimal amounts are displayed as "amount currency" pairs. */
 export function moneyAmount(amount: string, currency: string): string {
-  return `${amount} ${currency}`
+  return formatMoney(amount, currency)
 }
 
 export function currencyAmounts(lines: WorkbenchCurrencyAmount[]): string[] {

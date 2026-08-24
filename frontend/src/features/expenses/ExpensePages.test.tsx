@@ -566,7 +566,7 @@ describe('ExpensePages', () => {
     // Not an empty allocation.
     expect(screen.queryByText('尚无分摊行')).not.toBeInTheDocument()
     // Sums read the confirmed lines, not an empty editor.
-    expect(screen.getByText(/已分配：129.50000000 CNY/)).toBeInTheDocument()
+    expect(screen.getByText(/已分配：129.50 CNY/)).toBeInTheDocument()
     expect(screen.getByText(/精确分配/)).toBeInTheDocument()
     // The confirmed state is final: no new draft, no confirm action.
     expect(screen.queryByRole('button', { name: '创建分摊草稿' })).not.toBeInTheDocument()

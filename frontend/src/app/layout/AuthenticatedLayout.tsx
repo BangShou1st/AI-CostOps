@@ -201,7 +201,9 @@ export function AuthenticatedLayout() {
             </>
           ) : (
             <>
-              <span className="settings-identity-user">{auth.user.displayName}</span>
+              <Tooltip title={auth.user.displayName} placement="top">
+                <span className="settings-identity-user">{auth.user.displayName}</span>
+              </Tooltip>
               <button type="button" onClick={() => void auth.logout()}>{SETTINGS_COPY.signOut}</button>
             </>
           )}

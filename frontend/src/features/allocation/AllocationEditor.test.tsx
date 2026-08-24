@@ -82,9 +82,9 @@ describe('AllocationEditor', () => {
     renderEditor({ draft: DRAFT })
 
     await waitFor(() => {
-      expect(screen.getByText(/来源金额：10.00000000 CNY/)).toBeInTheDocument()
+      expect(screen.getByText(/来源金额：10.00 CNY/)).toBeInTheDocument()
     })
-    expect(screen.getByText(/已分配：10.00000000 CNY/)).toBeInTheDocument()
+    expect(screen.getByText(/已分配：10.00 CNY/)).toBeInTheDocument()
     expect(screen.getByText(/精确分配/)).toBeInTheDocument()
   })
 
@@ -93,10 +93,10 @@ describe('AllocationEditor', () => {
     const amountInputs = screen.getAllByLabelText(/第 \d 行金额/)
     fireEvent.change(amountInputs[0], { target: { value: '3.00000000' } })
 
-    await waitFor(() => expect(screen.getByText(/未分配金额：1.00000000 CNY/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/未分配金额：1.00 CNY/)).toBeInTheDocument())
 
     fireEvent.change(amountInputs[0], { target: { value: '5.00000000' } })
-    await waitFor(() => expect(screen.getByText(/超额分配：1.00000000 CNY/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/超额分配：1.00 CNY/)).toBeInTheDocument())
   })
 
   it('disables confirm while remaining is not exact zero', async () => {

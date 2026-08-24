@@ -8,6 +8,7 @@ import { CorrectionAction } from './CorrectionAction'
 import { ledgerApi } from './api/ledgerApi'
 import { ledgerKeys } from './api/ledgerKeys'
 import { LEDGER_ENTRY_LABEL, lineageLabel } from './presentation'
+import { formatMoney } from '../../lib/money'
 
 export function LedgerEntryDetailPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -38,7 +39,7 @@ export function LedgerEntryDetailPage() {
       <Card size="small">
         <Descriptions column={2} size="small">
           <Descriptions.Item label="类型">{LEDGER_ENTRY_LABEL[detail.entry.entryType]}</Descriptions.Item>
-          <Descriptions.Item label="金额">{detail.entry.amount} {detail.entry.currency}</Descriptions.Item>
+          <Descriptions.Item label="金额">{formatMoney(detail.entry.amount, detail.entry.currency)}</Descriptions.Item>
           <Descriptions.Item label="目标">{detail.entry.targetType} · {detail.entry.targetId}</Descriptions.Item>
           <Descriptions.Item label="发布记录"><Link to={`/ledger/postings/${detail.posting.id}`}>{detail.posting.id}</Link></Descriptions.Item>
         </Descriptions>

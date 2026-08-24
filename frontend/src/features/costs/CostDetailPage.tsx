@@ -13,6 +13,7 @@ import { allocationApi } from '../allocation/api/allocationApi'
 import { AllocationEditor } from '../allocation/AllocationEditor'
 import { AllocationHistory } from '../allocation/AllocationHistory'
 import { formatBusinessDateRange } from '../../lib/dateTime'
+import { formatMoney } from '../../lib/money'
 import { PostingAction } from '../ledger/PostingAction'
 import { ledgerApi } from '../ledger/api/ledgerApi'
 import type { CommitmentLinkRequest } from '../ledger/api/ledgerApi'
@@ -113,7 +114,7 @@ export function CostDetailPage() {
         <Descriptions.Item label="供应商">{detail.providerCode}</Descriptions.Item>
         <Descriptions.Item label="类别">{detail.chargeCategory}</Descriptions.Item>
         <Descriptions.Item label="金额">
-          <Typography.Text strong>{detail.amount} {detail.currency}</Typography.Text>
+          <Typography.Text strong>{formatMoney(detail.amount, detail.currency)}</Typography.Text>
         </Descriptions.Item>
         <Descriptions.Item label="周期">
           {formatBusinessDateRange(detail.periodStart, detail.periodEnd)}

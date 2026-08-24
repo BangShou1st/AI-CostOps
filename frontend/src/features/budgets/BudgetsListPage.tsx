@@ -9,6 +9,7 @@ import { billingPeriodApi, billingPeriodKeys } from './api/billingPeriodApi'
 import { budgetApi, budgetKeys, type BudgetResponse, type BudgetScopeType } from './api/budgetApi'
 import { BUDGET_SCOPE_LABEL } from './presentation'
 import { formatBillingPeriodLabel } from '../../lib/dateTime'
+import { formatMoney } from '../../lib/money'
 import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
 
 const PAGE_SIZE = 50
@@ -102,11 +103,10 @@ export function BudgetsListPage() {
             render: (_: unknown, row: BudgetResponse) => `${BUDGET_SCOPE_LABEL[row.scopeType]} · ${row.scopeId}`,
           },
           { title: '账期', dataIndex: 'billingPeriodId', width: 120 },
-          { title: '币种', dataIndex: 'currency', width: 90 },
-          { title: '总额', dataIndex: 'totalAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
-          { title: '实际发生', dataIndex: 'actualAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
-          { title: '未结承诺', dataIndex: 'committedAmount', width: 210, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
-          { title: '可用额度', dataIndex: 'availableAmount', width: 180, render: (value: string, row: BudgetResponse) => `${value} ${row.currency}` },
+          { title: '总额', dataIndex: 'totalAmount', width: 180, render: (_, row: BudgetResponse) => formatMoney(row.totalAmount, row.currency) },
+          { title: '实际发生', dataIndex: 'actualAmount', width: 180, render: (_, row: BudgetResponse) => formatMoney(row.actualAmount, row.currency) },
+          { title: '未结承诺', dataIndex: 'committedAmount', width: 210, render: (_, row: BudgetResponse) => formatMoney(row.committedAmount, row.currency) },
+          { title: '可用额度', dataIndex: 'availableAmount', width: 180, render: (_, row: BudgetResponse) => formatMoney(row.availableAmount, row.currency) },
           {
             title: '超支状态',
             dataIndex: 'overBudget',

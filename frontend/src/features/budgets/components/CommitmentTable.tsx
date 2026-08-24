@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { ApprovalCaseStatus, CommitmentResponse, CommitmentStatus } from '../api/commitmentApi'
 import { APPROVAL_STATUS_LABEL, COMMITMENT_STATUS_COLOR, COMMITMENT_STATUS_LABEL } from '../presentation'
 import { formatEventDateTime } from '../../../lib/dateTime'
+import { formatMoney } from '../../../lib/money'
 
 interface CommitmentTableProps {
   items: CommitmentResponse[]
@@ -50,9 +51,9 @@ export function CommitmentTable({
             <Tag color={COMMITMENT_STATUS_COLOR[value]}>{COMMITMENT_STATUS_LABEL[value]}</Tag>
           ),
         },
-        { title: '申请金额', dataIndex: 'requestedAmount', width: 180, render: (value: string) => `${value} ${currency}` },
-        { title: '批准金额', dataIndex: 'approvedAmount', width: 180, render: (value: string | null) => value === null ? '—' : `${value} ${currency}` },
-        { title: '剩余金额', dataIndex: 'remainingAmount', width: 180, render: (value: string | null) => value === null ? '—' : `${value} ${currency}` },
+        { title: '申请金额', dataIndex: 'requestedAmount', width: 180, render: (value: string) => formatMoney(value, currency) },
+        { title: '批准金额', dataIndex: 'approvedAmount', width: 180, render: (value: string | null) => value === null ? '—' : formatMoney(value, currency) },
+        { title: '剩余金额', dataIndex: 'remainingAmount', width: 180, render: (value: string | null) => value === null ? '—' : formatMoney(value, currency) },
         {
           title: '审批状态',
           dataIndex: 'approvalStatus',

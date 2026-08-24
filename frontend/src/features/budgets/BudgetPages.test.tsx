@@ -160,9 +160,9 @@ describe('BudgetsListPage', () => {
 
     renderPage(['BUDGET_READ'])
 
-    await waitFor(() => expect(screen.getByText('100.00000000 CNY')).toBeInTheDocument())
-    expect(screen.getByText('30.00000000 CNY')).toBeInTheDocument()
-    expect(screen.getByText('20.00000000 CNY')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('100.00 CNY')).toBeInTheDocument())
+    expect(screen.getByText('30.00 CNY')).toBeInTheDocument()
+    expect(screen.getByText('20.00 CNY')).toBeInTheDocument()
     // scroll={{ x }} renders the header twice in jsdom; presence is the contract.
     expect(screen.getAllByText('总额').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('实际发生').length).toBeGreaterThanOrEqual(1)
@@ -180,8 +180,8 @@ describe('BudgetsListPage', () => {
 
     renderPage(['BUDGET_READ'])
 
-    await waitFor(() => expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument())
-    expect(screen.queryByText('50.00000000 CNY')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('48.50 CNY')).toBeInTheDocument())
+    expect(screen.queryByText('50.00 CNY')).not.toBeInTheDocument()
   })
 
   it('renders the typed scope and scope id', async () => {
@@ -193,7 +193,7 @@ describe('BudgetsListPage', () => {
 
     await waitFor(() => expect(screen.getByText('项目 · 42')).toBeInTheDocument())
     expect(screen.getByText('3')).toBeInTheDocument()
-    expect(screen.getByText('CNY')).toBeInTheDocument()
+    expect(screen.queryByText('CNY')).not.toBeInTheDocument()
   })
 
   it('shows the server overBudget flag as a visible tag', async () => {
@@ -214,7 +214,7 @@ describe('BudgetsListPage', () => {
 
     renderPage(['BUDGET_READ'])
 
-    await screen.findByText('100.00000000 CNY')
+    await screen.findByText('100.00 CNY')
     fireEvent.click(screen.getByTitle('2'))
 
     await waitFor(() => {
@@ -229,7 +229,7 @@ describe('BudgetsListPage', () => {
 
     renderPage(['BUDGET_READ'])
 
-    await screen.findByText('100.00000000 CNY')
+    await screen.findByText('100.00 CNY')
     fireEvent.click(screen.getByText('7'))
 
     await waitFor(() => expect(screen.getByText(/预算详情/)).toBeInTheDocument())
@@ -303,10 +303,10 @@ describe('BudgetDetailPage', () => {
     renderDetailPage(['BUDGET_READ'])
 
     await waitFor(() => expect(screen.getByText(/预算详情/)).toBeInTheDocument())
-    expect(screen.getByText('100.00000000 CNY')).toBeInTheDocument()
-    expect(screen.getByText('30.00000000 CNY')).toBeInTheDocument()
-    expect(screen.getByText('20.00000000 CNY')).toBeInTheDocument()
-    expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('100.00 CNY')).toBeInTheDocument()
+    expect(screen.getByText('30.00 CNY')).toBeInTheDocument()
+    expect(screen.getByText('20.00 CNY')).toBeInTheDocument()
+    expect(screen.getByText('48.50 CNY')).toBeInTheDocument()
     expect(screen.getByText('总额')).toBeInTheDocument()
     expect(screen.getByText('实际发生')).toBeInTheDocument()
     expect(screen.getByText('未结承诺')).toBeInTheDocument()
@@ -326,8 +326,8 @@ describe('BudgetDetailPage', () => {
   it('does not recompute the available sentinel on the detail page either', async () => {
     renderDetailPage(['BUDGET_READ'])
 
-    await waitFor(() => expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument())
-    expect(screen.queryByText('50.00000000 CNY')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('48.50 CNY')).toBeInTheDocument())
+    expect(screen.queryByText('50.00 CNY')).not.toBeInTheDocument()
   })
 
   it('flags over-budget from the server field with a visible alert', async () => {
@@ -352,7 +352,7 @@ describe('BudgetDetailPage', () => {
 
     await waitFor(() => expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1))
     expect(screen.getByText('9')).toBeInTheDocument()
-    expect(screen.getByText('50.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('50.00 CNY')).toBeInTheDocument()
     expect(screen.getByText('2026-01-03 08:00')).toBeInTheDocument()
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
     // Commitment table headers are localized ('状态' also labels the identity card).
@@ -429,7 +429,7 @@ describe('BudgetTotalEditor (total change is a sensitive action)', () => {
     fireEvent.click(screen.getByRole('button', { name: /修改总额/ }))
     fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '0' } })
 
-    expect(screen.getByText('0.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('0.00 CNY')).toBeInTheDocument()
     const confirm = screen.getByRole('button', { name: /确认修改/ })
     expect(confirm).toBeEnabled()
 
@@ -475,7 +475,7 @@ describe('BudgetTotalEditor (total change is a sensitive action)', () => {
     expect(screen.getAllByText('币种').length).toBeGreaterThanOrEqual(1)
     // Typing a short decimal shows the canonical scale-8 before/after preview.
     fireEvent.change(screen.getByLabelText('新的总额'), { target: { value: '150.5' } })
-    expect(screen.getByText('150.50000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('150.50 CNY')).toBeInTheDocument()
     // Nothing is sent before the confirm button.
     expect(mockedBudgetApi.update).not.toHaveBeenCalled()
   })
@@ -634,8 +634,8 @@ describe('RequestCommitment (budget detail)', () => {
     })
     // Server truth is untouched: committed is still the server value and no
     // requested amount ever appears as a budget metric.
-    expect(screen.getByText('20.00000000 CNY')).toBeInTheDocument()
-    expect(screen.getByText('48.50000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('20.00 CNY')).toBeInTheDocument()
+    expect(screen.getByText('48.50 CNY')).toBeInTheDocument()
     expect(screen.queryByText('60.50000000 CNY')).not.toBeInTheDocument()
   })
 

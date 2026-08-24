@@ -130,9 +130,9 @@ describe('BudgetCommitmentDetailPage', () => {
 
     await waitFor(() => expect(screen.getByText('承诺详情 #9')).toBeInTheDocument())
     // The currency comes from the owning budget query; wait for it to resolve.
-    await waitFor(() => expect(screen.getAllByText('50.00000000 CNY').length).toBeGreaterThanOrEqual(2))
+    await waitFor(() => expect(screen.getAllByText('50.00 CNY').length).toBeGreaterThanOrEqual(2))
     expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('40.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('40.00 CNY')).toBeInTheDocument()
     expect(screen.getByText('7')).toBeInTheDocument()
     expect(screen.getByText('已批准')).toBeInTheDocument()
     expect(screen.getByText('v3')).toBeInTheDocument()
@@ -509,7 +509,7 @@ describe('Commitment lifecycle actions', () => {
       expect(screen.getAllByText('剩余金额').length).toBeGreaterThanOrEqual(2)
       expect(screen.getAllByText('币种').length).toBeGreaterThanOrEqual(1)
       expect(screen.getAllByText('CNY').length).toBeGreaterThanOrEqual(1)
-      expect(screen.getAllByText('40.00000000 CNY').length).toBeGreaterThanOrEqual(2)
+      expect(screen.getAllByText('40.00 CNY').length).toBeGreaterThanOrEqual(2)
       // Nothing is released before the confirm button.
       expect(mockedCommitmentApi.release).not.toHaveBeenCalled()
     })

@@ -7,6 +7,7 @@ import { ApprovalHistory } from './components/ApprovalHistory'
 import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
 import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
 import { formatBusinessDate } from '../../lib/dateTime'
+import { formatMoney } from '../../lib/money'
 import { hasPermission } from '../settings/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { allocationApi } from '../allocation/api/allocationApi'
@@ -125,7 +126,7 @@ export function ExpenseReviewDetailPage() {
       }>
         <Descriptions column={2} size="small">
           <Descriptions.Item label="日期">{formatBusinessDate(expense.expenseDate)}</Descriptions.Item>
-          <Descriptions.Item label="金额">{expense.amount} {expense.currency}</Descriptions.Item>
+          <Descriptions.Item label="金额">{formatMoney(expense.amount, expense.currency)}</Descriptions.Item>
           <Descriptions.Item label="版本">v{expense.version}</Descriptions.Item>
           <Descriptions.Item label="发布就绪">{expense.postingReady ? '✓' : '否'}</Descriptions.Item>
         </Descriptions>

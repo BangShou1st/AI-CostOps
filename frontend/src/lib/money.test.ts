@@ -10,16 +10,37 @@ import {
 } from './money'
 
 describe('decimal8 money helpers', () => {
-  it('formats scale-8 strings with grouping and a currency symbol', () => {
-    expect(formatMoney('1234.56000000', 'USD')).toBe('$1,234.56')
-    expect(formatMoney('-1234.56700000', 'CNY')).toBe('-¥1,234.567')
+  it('formats display amounts with at least two decimals and a currency code suffix', () => {
+    expect(formatMoney('5.00000000', 'CNY')).toBe('5.00 CNY')
+    expect(formatMoney('1.25000000', 'CNY')).toBe('1.25 CNY')
+    expect(formatMoney('1234.56000000', 'USD')).toBe('1,234.56 USD')
+    expect(formatMoney('-1234.56700000', 'CNY')).toBe('-1,234.567 CNY')
     expect(formatMoney('1000000.00000000')).toBe('1,000,000.00')
+    // Unknown currency codes still render as a suffix.
+    expect(formatMoney('2.50000000', 'xyz')).toBe('2.50 XYZ')
   })
 
-  it('preserves meaningful scale-8 reconciliation differences', () => {
-    expect(formatMoney('1.23450000', 'USD')).toBe('$1.2345')
-    expect(formatMoney('0.00000001', 'USD')).toBe('$0.00000001')
-    expect(formatMoney('-0.00000001', 'CNY')).toBe('-¥0.00000001')
+  it('preserves meaningful scale-8 precision without rounding to zero', () => {
+    expect(formatMoney('1.23450000')).toBe('1.2345')
+    expect(formatMoney('1.23456789', 'USD')).toBe('1.23456789 USD')
+    expect(formatMoney('0.00000001', 'USD')).toBe('0.00000001 USD')
+    expect(formatMoney('0.00001234', 'USD')).toBe('0.00001234 USD')
+    expect(formatMoney('-0.00000001', 'CNY')).toBe('-0.00000001 CNY')
+  })
+
+  it('never loses precision on very large amounts', () => {
+    const huge = '12345678901234567890.12345678'
+    expect(formatMoney(huge)).toBe('12,345,678,901,234,567,890.12345678')
+    expect(formatMoney('-99999999999999999999.99999999', 'CNY'))
+      .toBe('-99,999,999,999,999,999,999.99999999 CNY')
+  })
+
+  it('renders missing or unparseable amounts as an em dash', () => {
+    expect(formatMoney(null)).toBe('—')
+    expect(formatMoney(undefined, 'CNY')).toBe('—')
+    expect(formatMoney('', 'CNY')).toBe('—')
+    expect(formatMoney('abc', 'CNY')).toBe('—')
+    expect(formatMoney('12', 'CNY')).toBe('—')
   })
 
   it('parses scale-8 strings to bigint minor units', () => {

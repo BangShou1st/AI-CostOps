@@ -123,11 +123,19 @@ button:disabled { opacity: .55; cursor: wait; }
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  /* Keep the menu scrollable but hide the scrollbar visual (RC-UAT-UI-04):
+     wheel/touch/keyboard scrolling still works, Chrome/Edge/Firefox all hide
+     the bar through these two properties. */
+  scrollbar-width: none;
 }
+.settings-nav-scroll::-webkit-scrollbar { display: none; }
 
 .settings-menu { background: transparent !important; border-inline-end: 0 !important; }
 .settings-menu .ant-menu-item { color: #c3cfe2 !important; }
 .settings-menu .ant-menu-item-selected { background: #1d4ed8 !important; color: #ffffff !important; }
+/* The dark rail made antd's default group title (dark gray) unreadable;
+   lift it to a light muted tone instead of changing the sidebar theme. */
+.settings-menu .ant-menu-item-group-title { color: #93a5c4 !important; }
 
 .settings-identity {
   margin-top: auto;
@@ -295,6 +303,18 @@ button:disabled { opacity: .55; cursor: wait; }
 /* =========================
    Responsive tweaks
    ========================= */
+/* RC-UAT-UI-02: wide content must scroll inside its own container instead of
+   stretching the whole document horizontally on narrow viewports. Tables keep
+   their nowrap cells; only the wrapper gains a local scrollbar, so wide
+   desktop layouts are unchanged. */
+.ant-table-wrapper {
+  max-width: 100%;
+}
+.ant-table-wrapper .ant-table-content,
+.ant-descriptions-view {
+  overflow-x: auto;
+}
+
 @media (max-width: 639px) {
   .settings-content { padding: 16px; }
   .settings-page { padding: 16px; border-radius: 10px; }

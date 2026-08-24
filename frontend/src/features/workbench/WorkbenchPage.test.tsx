@@ -53,13 +53,13 @@ describe('WorkbenchPage', () => {
     renderPage(['PERIOD_READ', 'COST_READ', 'BUDGET_READ', 'ALLOCATION_READ', 'DUPLICATE_REVIEW', 'EXPENSE_REVIEW', 'RECONCILIATION_READ'])
 
     await waitFor(() => expect(screen.getByText('未分摊成本')).toBeInTheDocument())
-    expect(screen.getByText('30.00000000 CNY')).toBeInTheDocument()
+    expect(screen.getByText('30.00 CNY')).toBeInTheDocument()
     expect(screen.getByText('重复候选')).toBeInTheDocument()
     expect(screen.getByText('待审批报销')).toBeInTheDocument()
     expect(screen.getAllByText('进行中对账').length).toBeGreaterThan(0)
     expect(screen.getByText('预算偏差')).toBeInTheDocument()
     expect(screen.getByText('供应商成本')).toBeInTheDocument()
-    expect(screen.getByText(/GLM:/)).toHaveTextContent('GLM: 30.00000000 CNY')
+    expect(screen.getByText(/GLM:/)).toHaveTextContent('GLM: 30.00 CNY')
     expect(screen.getByRole('link', { name: '去审查' })).toHaveAttribute('href', '/costs/duplicates')
   })
 

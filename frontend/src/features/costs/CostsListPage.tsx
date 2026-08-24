@@ -7,6 +7,7 @@ import { costKeys } from './api/costKeys'
 import { costsApi, type ChargeReviewStatus, type ChargeCostSummary } from './api/costsApi'
 import { REVIEW_STATUS_LABELS, reviewStatusColor } from './presentation'
 import { formatBusinessDate } from '../../lib/dateTime'
+import { formatMoney } from '../../lib/money'
 
 const PAGE_SIZE = 50
 
@@ -74,8 +75,7 @@ export function CostsListPage() {
         columns={[
           { title: 'ID', dataIndex: 'id', width: 90 },
           { title: '供应商', dataIndex: 'providerCode', width: 110 },
-          { title: '金额', dataIndex: 'amount', width: 140 },
-          { title: '币种', dataIndex: 'currency', width: 80 },
+          { title: '金额', dataIndex: 'amount', width: 160, render: (_, row: ChargeCostSummary) => formatMoney(row.amount, row.currency) },
           { title: '开始时间', dataIndex: 'periodStart', width: 130, render: (value: string | null) => formatBusinessDate(value) },
           { title: '结束时间', dataIndex: 'periodEnd', width: 130, render: (value: string | null) => formatBusinessDate(value) },
           {
