@@ -1,4 +1,4 @@
-import { Alert, Button, Descriptions, Tabs } from 'antd'
+import { Alert, Button, Descriptions, Popconfirm, Tabs } from 'antd'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -143,6 +143,13 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
     cancelCommand.mutate(createImportIdempotencyKey())
   }
 
+  const failed = data.status === 'FAILED'
+  const cancelLabel = failed ? '放弃导入' : '取消导入'
+  const cancelConfirmation = failed
+    ? '确定放弃这个失败导入吗？放弃后将不再阻塞账期关闭。'
+    : '确定取消这个导入吗？'
+  const cancelConfirmLabel = failed ? '确认放弃' : '确认取消'
+
   const confirmable = canConfirm
     && data.status === 'READY_FOR_REVIEW'
     && data.latestAttempt?.status === 'SUCCEEDED'
@@ -166,7 +173,14 @@ export function ImportDetailPage({ importId: propImportId }: { importId?: string
             <Button loading={retryCommand.isPending} onClick={handleRetry}>重试</Button>
           )}
           {canCancel && data.cancelable && (
-            <Button danger loading={cancelCommand.isPending} onClick={handleCancel}>取消</Button>
+            <Popconfirm
+              title={cancelConfirmation}
+              okText={cancelConfirmLabel}
+              cancelText="返回"
+              onConfirm={handleCancel}
+            >
+              <Button danger loading={cancelCommand.isPending}>{cancelLabel}</Button>
+            </Popconfirm>
           )}
           {confirmable && (
             <Button type="primary" loading={confirmCommand.isPending} onClick={handleConfirm}>确认导入</Button>

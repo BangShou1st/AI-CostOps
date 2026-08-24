@@ -1311,7 +1311,7 @@ paths:
   /imports/{importId}/cancel:
     post:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
-      responses: { '200': { description: Import detail after cancel, content: { application/json: { schema: { $ref: '#/components/schemas/ImportResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+      responses: { '200': { description: Import detail after explicit cancel of a PENDING, PROCESSING, or FAILED import, content: { application/json: { schema: { $ref: '#/components/schemas/ImportResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /imports/{importId}/attempts:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]

@@ -74,7 +74,9 @@ public final class ImportWorkflowReadModels {
                     (status == ImportBatchStatus.PENDING && latestAttempt != null
                             && latestAttempt.status() == ImportAttemptStatus.QUEUED)
                             || (status == ImportBatchStatus.PROCESSING && latestAttempt != null
-                            && latestAttempt.status() == ImportAttemptStatus.RUNNING));
+                            && latestAttempt.status() == ImportAttemptStatus.RUNNING)
+                            || (status == ImportBatchStatus.FAILED && latestAttempt != null
+                            && latestAttempt.status() == ImportAttemptStatus.FAILED));
         }
     }
 

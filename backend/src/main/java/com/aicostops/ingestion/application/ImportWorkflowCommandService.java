@@ -132,7 +132,9 @@ public class ImportWorkflowCommandService {
             requireCancelable(batch, latest);
 
             var now = clock.instant();
-            if (attemptMapper.cancelQueuedOrRunning(latest.id(), now) != 1) {
+            var activeAttempt = latest.status() == ImportAttemptStatus.QUEUED
+                    || latest.status() == ImportAttemptStatus.RUNNING;
+            if (activeAttempt && attemptMapper.cancelQueuedOrRunning(latest.id(), now) != 1) {
                 throw new IllegalStateException("ImportAttempt cancellation must update exactly one row");
             }
             if (batchMapper.updateStatus(importId, "CANCELED", now) != 1) {
@@ -240,9 +242,11 @@ public class ImportWorkflowCommandService {
                 && latest != null && latest.status() == ImportAttemptStatus.QUEUED;
         var processingRunning = batch.status() == ImportBatchStatus.PROCESSING
                 && latest != null && latest.status() == ImportAttemptStatus.RUNNING;
-        if (!pendingQueued && !processingRunning) {
+        var failed = batch.status() == ImportBatchStatus.FAILED
+                && latest != null && latest.status() == ImportAttemptStatus.FAILED;
+        if (!pendingQueued && !processingRunning && !failed) {
             throw stateConflict("Import cannot be canceled",
-                    "Only a PENDING import with a queued attempt or a PROCESSING import with a running attempt can be canceled.");
+                    "Only a PENDING import with a queued attempt, a PROCESSING import with a running attempt, or a FAILED import with a failed attempt can be canceled.");
         }
     }
 

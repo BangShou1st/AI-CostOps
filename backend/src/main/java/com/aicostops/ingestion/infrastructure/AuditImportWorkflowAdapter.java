@@ -38,8 +38,11 @@ public class AuditImportWorkflowAdapter implements ImportWorkflowAuditPort {
         auditService.append("IMPORT_CANCELED", orgId, actorUserId, SUBJECT_TYPE_IMPORT_BATCH, batchId,
                 Map.of(
                         "attemptId", attemptId,
+                        "latestAttemptId", attemptId,
                         "previousAttemptStatus", previousAttemptStatus,
-                        "previousBatchStatus", previousBatchStatus));
+                        "latestAttemptStatus", previousAttemptStatus,
+                        "previousBatchStatus", previousBatchStatus,
+                        "terminalBatchStatus", "CANCELED"));
     }
 
     @Override
