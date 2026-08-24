@@ -189,11 +189,11 @@ MinIO   localhost:9000 / 9001
 datasource / redis / storage 指向上述 localhost 端口，JWT 使用本地开发密钥，
 允许公开注册、refresh cookie 非 secure、允许的 Origin 为 `http://localhost:5173`
 （Vite dev server）。每个值都可用同名环境变量覆盖，规则与 `application.yml` 一致。
-Backend 默认监听 `localhost:8081`（`BACKEND_PORT`），避免与容器模式前端
-`localhost:8080` 冲突。
+Backend 默认监听 `localhost:8080`（`BACKEND_PORT`），Vite proxy 自动跟随。Full Compose
+模式下 containerized frontend 使用 8080，backend 运行在容器网络内部不暴露端口。
 
 本机 Frontend 依赖 Vite dev proxy：`vite.config.ts` 把 `/api/v1` 代理到
-`http://localhost:${BACKEND_PORT:-8081}`，浏览器视角保持同源
+`http://localhost:${BACKEND_PORT:-8080}`，浏览器视角保持同源
 （页面与 API 都在 `localhost:5173`），因此不引入额外 CORS hack，登录 /
 refresh cookie / 权限流程与 Nginx 容器模式一致。
 
