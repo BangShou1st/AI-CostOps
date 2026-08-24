@@ -25,15 +25,6 @@ export function parseDecimal8(amount: string): bigint {
 
 const USER_MONEY_PATTERN = /^-?[0-9]+(\.[0-9]{1,8})?$/
 
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  CNY: '¥',
-  EUR: '€',
-  GBP: '£',
-  JPY: '¥',
-  KRW: '₩',
-  USD: '$',
-}
-
 /**
  * Parses user-typed money (integer or up to 8 fractional digits) into scale-8
  * minor units. The API only accepts exact scale-8 strings, so the UI
@@ -77,7 +68,8 @@ export function compareDecimal8(left: bigint, right: bigint): number {
  * JavaScript number. Ordinary values keep two display decimals; when any
  * meaningful precision exists beyond cents, the exact scale-8 value is shown
  * with trailing zeroes removed so a real reconciliation difference never
- * becomes a misleading 0.00.
+ * becomes a misleading 0.00. The currency renders as an unambiguous code
+ * suffix (e.g. "1.25 CNY"), never a symbol.
  */
 export function formatMoney(amount: string | null | undefined, currency?: string | null): string {
   if (!amount) return '—'
@@ -100,7 +92,5 @@ export function formatMoney(amount: string | null | undefined, currency?: string
   const groupedWhole = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
   const numberText = `${negative ? '-' : ''}${groupedWhole}.${fraction}`
   const normalizedCurrency = currency?.trim().toUpperCase()
-  const symbol = normalizedCurrency ? CURRENCY_SYMBOLS[normalizedCurrency] : undefined
-  if (symbol) return `${negative ? '-' : ''}${symbol}${groupedWhole}.${fraction}`
   return normalizedCurrency ? `${numberText} ${normalizedCurrency}` : numberText
 }

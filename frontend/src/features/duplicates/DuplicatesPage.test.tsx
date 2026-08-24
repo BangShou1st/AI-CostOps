@@ -88,7 +88,7 @@ describe('DuplicatesPage', () => {
     renderPage(['COST_READ', 'DUPLICATE_REVIEW'])
 
     await waitFor(() => expect(screen.getByText('金额与周期完全一致')).toBeInTheDocument())
-    expect(screen.getAllByText(/10\.00000000/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText(/10\.00 CNY/).length).toBeGreaterThanOrEqual(2)
     expect(screen.getByRole('button', { name: '保留正常' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '排除源方 #11' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '排除匹配方 #12' })).toBeInTheDocument()

@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd'
+import type { FormInstance } from 'antd'
+import type { Dayjs } from 'dayjs'
 import { useState } from 'react'
 import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail, type ProblemDetail } from '../../api/problem'
 import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
@@ -13,8 +15,11 @@ import {
   type AllocationRuleMatchType,
   type RuleVersionInput,
 } from './api/rulesApi'
+import { endAfterStart, toInstant } from './rulesDateTime'
 
 const PAGE_SIZE = 50
+
+const RULE_DATETIME_FORMAT = 'YYYY-MM-DD HH:mm:ss'
 
 const MATCH_TYPE_LABELS: Record<AllocationRuleMatchType, string> = {
   PROVIDER_API_KEY: 'API Key',
@@ -22,13 +27,33 @@ const MATCH_TYPE_LABELS: Record<AllocationRuleMatchType, string> = {
   PROVIDER_USER: '用户',
 }
 
-export function RulesPage() {
+export interface RuleVersionFormValues {
+  ruleKey: string
+  name: string
+  providerCode: string
+  providerAccountId?: string
+  matchHintType: AllocationRuleMatchType
+  matchValue: string
+  priority: number
+  targetType: 'project' | 'costCenter' | 'team'
+  targetId: string
+  effectiveFrom: Dayjs
+  effectiveTo?: Dayjs | null
+}
+
+interface RulesPageProps {
+  /** Test seam: inject a form instance so tests can set picker values directly. */
+  externalForm?: FormInstance<RuleVersionFormValues>
+}
+
+export function RulesPage({ externalForm }: RulesPageProps) {
   const auth = useAuth()
   const queryClient = useQueryClient()
   const [page, setPage] = useState(0)
   const [problem, setProblem] = useState<ProblemDetail | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
-  const [form] = Form.useForm<RuleVersionFormValues>()
+  const [internalForm] = Form.useForm<RuleVersionFormValues>()
+  const form = externalForm ?? internalForm
 
   const canManage = hasPermission(auth.user?.permissions, 'ALLOCATION_RULE_MANAGE')
 
@@ -203,8 +228,8 @@ export function RulesPage() {
                 targetProjectId: targetType === 'project' ? targetId : null,
                 targetCostCenterId: targetType === 'costCenter' ? targetId : null,
                 targetTeamId: targetType === 'team' ? targetId : null,
-                effectiveFrom: values.effectiveFrom,
-                effectiveTo: values.effectiveTo || null,
+                effectiveFrom: toInstant(values.effectiveFrom)!,
+                effectiveTo: toInstant(values.effectiveTo ?? null),
               },
             })
           }}
@@ -270,28 +295,29 @@ export function RulesPage() {
           </Space>
           <Space style={{ display: 'flex' }} align="start">
             <Form.Item name="effectiveFrom" label="生效时间" rules={[{ required: true, message: '生效时间必填' }]}>
-              <Input placeholder="YYYY-MM-DDTHH:mm:ssZ" />
+              <DatePicker
+                showTime
+                format={RULE_DATETIME_FORMAT}
+                placeholder="选择本地生效时间"
+                style={{ width: '100%' }}
+              />
             </Form.Item>
-            <Form.Item name="effectiveTo" label="失效时间（可选）">
-              <Input placeholder="YYYY-MM-DDTHH:mm:ssZ" />
+            <Form.Item
+              name="effectiveTo"
+              label="失效时间（可选）"
+              dependencies={['effectiveFrom']}
+              rules={[endAfterStart('effectiveFrom')]}
+            >
+              <DatePicker
+                showTime
+                format={RULE_DATETIME_FORMAT}
+                placeholder="选择本地失效时间"
+                style={{ width: '100%' }}
+              />
             </Form.Item>
           </Space>
         </Form>
       </Modal>
     </main>
   )
-}
-
-interface RuleVersionFormValues {
-  ruleKey: string
-  name: string
-  providerCode: string
-  providerAccountId?: string
-  matchHintType: AllocationRuleMatchType
-  matchValue: string
-  priority: number
-  targetType: 'project' | 'costCenter' | 'team'
-  targetId: string
-  effectiveFrom: string
-  effectiveTo?: string
 }

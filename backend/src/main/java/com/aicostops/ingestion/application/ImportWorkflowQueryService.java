@@ -25,8 +25,10 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageRequest;
 import com.aicostops.shared.web.PageResponse;
 import com.aicostops.shared.web.ProblemCode;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
@@ -40,8 +42,11 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class ImportWorkflowQueryService {
 
-    private static final Set<String> VALID_IMPORT_STATUSES = Set.of(
-            "PENDING", "PROCESSING", "PARSED", "FAILED", "CANCELED");
+    // Derived from ImportBatchStatus so the list filter can never drift from the
+    // persisted domain statuses again (UAT found CONFIRMED/READY_FOR_REVIEW missing).
+    private static final Set<String> VALID_IMPORT_STATUSES = Arrays.stream(ImportBatchStatus.values())
+            .map(Enum::name)
+            .collect(Collectors.toUnmodifiableSet());
     private static final Set<String> VALID_ISSUE_SEVERITIES = Set.of("WARN", "ERROR");
     private static final Set<String> VALID_NORMALIZE_STATUSES = Set.of("NORMALIZED", "WARN", "ERROR");
 
@@ -68,7 +73,7 @@ public class ImportWorkflowQueryService {
         var pageRequest = validPage(page, size);
         if (status != null && !VALID_IMPORT_STATUSES.contains(status)) {
             throw validationFailed("Import status is invalid",
-                    "Import status must be one of PENDING, PROCESSING, PARSED, FAILED, CANCELED.");
+                    "Import status must be one of " + String.join(", ", VALID_IMPORT_STATUSES) + ".");
         }
         var offset = (long) pageRequest.page() * pageRequest.size();
         var rows = queryMapper.pageImports(context.organizationId(), status, providerAccountId,

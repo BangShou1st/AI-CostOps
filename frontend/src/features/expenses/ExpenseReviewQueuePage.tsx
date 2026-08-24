@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Card, Table, Tag, Button, Segmented } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { expenseApi, expenseKeys, type ExpenseClaimStatus, type ExpenseReviewStatusFilter } from './api/expenseApi'
+import { expenseApi, expenseKeys, type ExpenseClaimStatus, type ExpenseReviewStatusFilter, type ExpenseSummaryResponse } from './api/expenseApi'
+import { formatMoney } from '../../lib/money'
 import { useState } from 'react'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -48,8 +49,7 @@ export function ExpenseReviewQueuePage() {
         columns={[
           { title: 'ID', dataIndex: 'id', width: 80 },
           { title: '日期', dataIndex: 'expenseDate', width: 120 },
-          { title: '金额', dataIndex: 'amount', width: 140 },
-          { title: '币种', dataIndex: 'currency', width: 60 },
+          { title: '金额', dataIndex: 'amount', width: 160, render: (_, record: ExpenseSummaryResponse) => formatMoney(record.amount, record.currency) },
           {
             title: '状态', dataIndex: 'status', width: 100,
             render: (status: ExpenseClaimStatus) => <Tag color={STATUS_COLOR[status]}>{STATUS_LABEL[status]}</Tag>,

@@ -4,6 +4,7 @@ import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail 
 import { allocationKeys } from './api/allocationKeys'
 import { allocationApi, type AllocationDecision } from './api/allocationApi'
 import { formatEventDateTime } from '../../lib/dateTime'
+import { formatMoney } from '../../lib/money'
 
 const SOURCE_LABELS: Record<string, string> = { MANUAL: '手动', RULE: '规则' }
 const STATUS_COLORS: Record<string, string> = {
@@ -68,7 +69,7 @@ export function AllocationHistory({ chargeId }: { chargeId: string }) {
           {
             title: '分摊行',
             render: (_, decision) =>
-              decision.lines.map((line) => `${line.allocatedAmount} ${line.currency}`).join(' + ') || '—',
+              decision.lines.map((line) => formatMoney(line.allocatedAmount, line.currency)).join(' + ') || '—',
           },
           { title: '创建时间', dataIndex: 'createdAt', width: 170, render: (value: string) => formatEventDateTime(value) },
         ]}

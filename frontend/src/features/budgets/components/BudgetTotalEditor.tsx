@@ -1,7 +1,7 @@
 import { Alert, Button, Descriptions, Input, Modal, Space } from 'antd'
 import { useState } from 'react'
 import { toProblemDetail } from '../../../api/problem'
-import { formatDecimal8, parseUserDecimal8 } from '../../../lib/money'
+import { formatDecimal8, formatMoney, parseUserDecimal8 } from '../../../lib/money'
 import { budgetApi, type BudgetResponse } from '../api/budgetApi'
 import { budgetCommandProblemMessage } from '../presentation'
 
@@ -76,7 +76,7 @@ export function BudgetTotalEditor({ budget, onChanged }: { budget: BudgetRespons
           <Descriptions column={1} size="small" bordered>
             <Descriptions.Item label="当前总额">{`${budget.totalAmount} ${budget.currency}`}</Descriptions.Item>
             <Descriptions.Item label="币种">{budget.currency}</Descriptions.Item>
-            <Descriptions.Item label="新总额">{newAmount === null ? '—' : `${formatDecimal8(newAmount)} ${budget.currency}`}</Descriptions.Item>
+            <Descriptions.Item label="新总额">{newAmount === null ? '—' : formatMoney(formatDecimal8(newAmount), budget.currency)}</Descriptions.Item>
           </Descriptions>
           <Input
             aria-label="新的总额"

@@ -3,6 +3,7 @@ import { Alert, Button, Input, Modal, Select, Space, Typography } from 'antd'
 import { useState } from 'react'
 import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
 import { billingPeriodApi, billingPeriodKeys } from '../budgets/api/billingPeriodApi'
+import { formatMoney } from '../../lib/money'
 import { ledgerApi, type LedgerEntryResponse } from './api/ledgerApi'
 
 export function CorrectionAction({ entry, onCompleted }: { entry: LedgerEntryResponse; onCompleted: () => void }) {
@@ -49,7 +50,7 @@ export function CorrectionAction({ entry, onCompleted }: { entry: LedgerEntryRes
         onCancel={() => setOpen(false)}
       >
         <Space orientation="vertical" style={{ width: '100%' }}>
-          <Alert type="info" showIcon message="原始分录不可修改" description={`${entry.amount} ${entry.currency} · ${entry.targetType} ${entry.targetId}`} />
+          <Alert type="info" showIcon message="原始分录不可修改" description={`${formatMoney(entry.amount, entry.currency)} · ${entry.targetType} ${entry.targetId}`} />
           {periods.error && <Alert type="error" title={problemSummary(toProblemDetail(periods.error))} />}
           <label>纠正账期<Select style={{ width: '100%' }} placeholder="选择 OPEN 账期" value={correctionPeriodId} onChange={setCorrectionPeriodId} loading={periods.isLoading} options={(periods.data ?? []).filter((period) => period.status === 'OPEN').map((period) => ({ value: period.id, label: `${period.id} · ${period.periodStart} ~ ${period.periodEnd}` }))} /></label>
           <label>模式<Select style={{ width: '100%' }} value={mode} onChange={setMode} options={[{ value: 'REVERSAL_ONLY', label: '仅反转' }, { value: 'REPLACE', label: '反转并替换' }]} /></label>
