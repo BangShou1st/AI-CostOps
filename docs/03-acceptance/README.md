@@ -36,6 +36,8 @@ implementation/08-m0-foundation-evidence.md
 implementation/06-v1-release-acceptance.md
 02-Milestone验收证据矩阵.md
 implementation/07-risk-register.md
+v1-release-candidate-evidence.md
+aic-073-final-human-acceptance.md
 ```
 
 ## 重要原则
@@ -61,17 +63,34 @@ EXPLAIN
 Benchmark Report
 Compose Smoke
 Known Limitations
+Human UAT / Release Sign-off
 ```
 
 性能数字只能在真实 Benchmark 后写入 README / 简历。
 
-## M8 Stage 2 / PR3 — V1 Release Candidate
+## V1 Final Acceptance
 
-当前 RC 的范围是 AIC-071 + AIC-072。执行证据与边界见：
+AIC-071 + AIC-072 的 Release Candidate 证据见：
 
 ```text
 superpowers/specs/2026-08-23-m8-compose-smoke.md
 v1-release-candidate-evidence.md
 ```
 
-AIC-073 保持 FROZEN / NOT EXECUTED；人工验收完成前不创建 `v1.0.0` tag、不创建 GitHub Release、不合并 `main`。
+AIC-073 Final Human Acceptance / Release Sign-off 已完成，最终记录见：
+
+```text
+aic-073-final-human-acceptance.md
+```
+
+当前结论：
+
+```text
+AIC-073 = COMPLETED
+Human acceptance = ACCEPTED
+P0/P1 = 0
+Release blocker = NONE
+RELEASE_READY = YES
+```
+
+`v1.0.0` tag 与 GitHub Release 只能在 AIC-073 sign-off PR 合并后、以合并后的 `main` HEAD 创建。
