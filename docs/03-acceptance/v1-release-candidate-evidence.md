@@ -52,10 +52,10 @@ M7 的 E2E 继续覆盖 DeepSeek synthetic import → worker → confirm → all
 |---|---|---|
 | Backend unit / component | mvnw -B -DexcludedGroups=architecture,integration test | PASS；437 tests，Failures 0，Errors 0，Skipped 1 |
 | Backend architecture | mvnw -B -Dgroups=architecture test | PASS；34 tests，Failures 0，Errors 0，Skipped 0 |
-| Backend integration | mvnw -B -Dgroups=integration verify | PASS；795 tests，Failures 0，Errors 0，Skipped 0 |
+| Backend integration | mvnw -B -Dgroups=integration verify | PASS；800 tests，Failures 0，Errors 0，Skipped 0 |
 | Direct OpenAPI contract assertions | M1 / M5 / M6 / M7 contract tests | PASS；23 assertions，Failures 0，Errors 0，Skipped 0 |
 | Frontend lint | npm run lint | PASS |
-| Frontend Vitest | npm test -- --run | PASS；46 files，420 tests |
+| Frontend Vitest | npm test -- --run | PASS；47 files，432 tests |
 | Frontend build | npm run build | PASS；Vite 8.2.1 |
 | Docker images | docker compose --env-file .env.example build | PASS；backend、frontend |
 | Compose application smoke | scripts/smoke-v1.ps1 | PASS；SMOKE_V1_PASS |
@@ -154,3 +154,5 @@ GitHub Release: NOT CREATED
 Merge to main: NOT EXECUTED
 
 AIC-072 的代码、文档、测试和 Compose evidence 已准备为 Draft PR；最终 V1 发布仍以人工验收和后续明确发布动作作为 gate。
+
+AIC-073 Final Human Acceptance / Release Sign-off 待正式收尾。Browser UAT 技术验证已完成（32/32 PASS, 14/14 PASS, P0/P1=0），但 AIC-073 正式流程尚未在 GitHub 中关闭。

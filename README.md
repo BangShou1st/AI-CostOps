@@ -96,8 +96,8 @@ docker compose --env-file .env down
 - State branches：14/14 passed
 - P0/P1：0
 - Compose Smoke：PASS
-- Backend tests：437 unit + 795 integration + 34 architecture = PASS
-- Frontend tests：420 Vitest + lint = PASS
+- Backend tests：437 unit + 800 integration + 34 architecture = PASS
+- Frontend tests：432 Vitest + lint = PASS
 
 Validated flows：Import lifecycle, Cost allocation, Budget commitment, Expense workflow, Ledger posting, Reconciliation, Period close, CLOSED write protection, Reopen。
 

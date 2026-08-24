@@ -22,9 +22,10 @@ spring:
       password: ${AICOSTOPS_REDIS_PASSWORD:change-me-local-only}
 
 server:
-  # The host backend listens on 8081 by default so it never collides with
-  # the containerized frontend (http://localhost:8080) or a second instance.
-  port: ${BACKEND_PORT:8081}
+  # The host backend listens on 8080 by default. In Full Compose mode the
+  # containerized frontend also uses 8080, but the backend runs inside the
+  # Docker network and is not exposed on the host.
+  port: ${BACKEND_PORT:8080}
 
 aicostops:
   storage:

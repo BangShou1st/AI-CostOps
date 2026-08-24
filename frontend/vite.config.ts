@@ -8,9 +8,9 @@ export default defineConfig({
     proxy: {
       // Same-origin path as the Nginx container mode: the browser only ever
       // talks to the Vite dev server, which forwards /api/v1 to the locally
-      // run Spring Boot backend (8081 by default, see application-local.yml).
+      // run Spring Boot backend (8080 by default, see application-local.yml).
       '/api/v1': {
-        target: `http://localhost:${process.env.BACKEND_PORT ?? '8081'}`,
+        target: `http://localhost:${process.env.BACKEND_PORT ?? '8080'}`,
       },
     },
   },

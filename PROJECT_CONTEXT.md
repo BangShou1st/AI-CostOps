@@ -18,7 +18,8 @@ M8 Stage 2 / V1 Release Candidate
 
 ```text
 M0–M8 全部完成
-AIC-001 ~ AIC-073 全部完成
+AIC-001 ~ AIC-072 已完成
+AIC-073 Final Human Acceptance / Release Sign-off 待正式收尾
 Release Candidate 已完成核心验证
 等待 v1.0.0 Release 收尾
 ```
@@ -87,9 +88,9 @@ Correction Append-only
 
 ```text
 Backend Unit Tests        437 PASS
-Backend Integration       795 PASS
+Backend Integration       800 PASS
 Backend Architecture       34 PASS
-Frontend Vitest           420 PASS
+Frontend Vitest           432 PASS
 Frontend Lint             PASS
 Compose Smoke             PASS
 Browser UAT              32/32 PASS

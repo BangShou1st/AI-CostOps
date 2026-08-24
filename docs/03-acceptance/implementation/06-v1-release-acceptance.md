@@ -17,7 +17,7 @@
 [x] 空 MySQL 可从 Flyway 迁移到最新版本
 ```
 
-证据：v1-release-candidate-evidence.md Section 4（437 unit + 34 architecture + 795 integration + 420 frontend tests PASS），AIC-071 Compose smoke PASS。
+证据：v1-release-candidate-evidence.md Section 4（437 unit + 34 architecture + 800 integration + 432 frontend tests PASS），AIC-071 Compose smoke PASS。
 
 ## B. IAM / Security
 
@@ -37,7 +37,7 @@
 [x] Repo / Log 无 Secret
 ```
 
-证据：Backend integration tests（795 PASS），M1 E2E authentication evidence，AIC-070 security review。
+证据：Backend integration tests（800 PASS），M1 E2E authentication evidence，AIC-070 security review。
 
 ## C. Provider Import
 
@@ -141,7 +141,7 @@
 [x] 无跨币种假 Total
 ```
 
-证据：Frontend Vitest 420 tests PASS，Browser UAT 32/32 scenarios PASS。
+证据：Frontend Vitest 432 tests PASS，Browser UAT 32/32 scenarios PASS。
 
 ## I. Docker / Failure
 
