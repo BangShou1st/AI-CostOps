@@ -77,6 +77,8 @@ superpowers/specs/2026-08-23-m8-compose-smoke.md
 v1-release-candidate-evidence.md
 ```
 
+`v1-release-candidate-evidence.md` 的 Final boundary 记录的是 AIC-072 RC 冻结时点的历史状态；其中 `AIC-073: FROZEN / NOT EXECUTED` 与 `Human acceptance: PENDING` 已由后续 AIC-073 最终签署记录 supersede，不应再解释为当前状态。
+
 AIC-073 Final Human Acceptance / Release Sign-off 已完成，最终记录见：
 
 ```text
