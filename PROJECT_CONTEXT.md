@@ -11,17 +11,17 @@ V1 目标：
 ## 当前阶段
 
 ```text
-M8 Stage 2 / V1 Release Candidate
+V1.0.0 Release Sign-off
 ```
 
 状态：
 
 ```text
 M0–M8 全部完成
-AIC-001 ~ AIC-072 已完成
-AIC-073 Final Human Acceptance / Release Sign-off 待正式收尾
-Release Candidate 已完成核心验证
-等待 v1.0.0 Release 收尾
+AIC-001 ~ AIC-073 全部完成
+AIC-073 Final Human Acceptance / Release Sign-off = ACCEPTED
+Release blocker = NONE
+等待 v1.0.0 tag / GitHub Release
 ```
 
 ## V1 范围
@@ -98,6 +98,8 @@ State Branches           14/14 PASS
 P0/P1 Defects                0
 ```
 
+AIC-073 最终签署记录：`docs/03-acceptance/aic-073-final-human-acceptance.md`。
+
 ## 已完成模块
 
 ```text
@@ -168,6 +170,7 @@ MinIO         localhost:9000    （Docker API）
 ## 剩余事项
 
 ```text
-Release 文档收尾
+合并 AIC-073 sign-off PR
 v1.0.0 tag 创建
+GitHub Release 创建
 ```
