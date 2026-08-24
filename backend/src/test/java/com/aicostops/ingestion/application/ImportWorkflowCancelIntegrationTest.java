@@ -7,6 +7,7 @@ import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
 import com.aicostops.testsupport.M2DatabaseCleaner;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +29,8 @@ class ImportWorkflowCancelIntegrationTest extends AuthenticationContainersSuppor
     private StringRedisTemplate redis;
     @Autowired
     private ImportWorkflowCommandService commands;
+    @Autowired
+    private ImportCloseBlockerPort importCloseBlocker;
 
     private long organizationId;
     private long foreignOrganizationId;
@@ -38,6 +41,8 @@ class ImportWorkflowCancelIntegrationTest extends AuthenticationContainersSuppor
     private long processingBatchId;
     private long parsedBatchId;
     private long failedBatchId;
+    private long readyForReviewBatchId;
+    private long confirmedBatchId;
     private long canceledBatchId;
     private long foreignBatchId;
     private long queuedAttemptId;
@@ -65,6 +70,12 @@ class ImportWorkflowCancelIntegrationTest extends AuthenticationContainersSuppor
         insertAttempt(parsedBatchId, 1, "SUCCEEDED", "INITIAL", null);
         failedBatchId = insertBatch(organizationId, "FAILED");
         insertAttempt(failedBatchId, 1, "FAILED", "INITIAL", null);
+        readyForReviewBatchId = insertBatch(organizationId, "READY_FOR_REVIEW");
+        insertAttempt(readyForReviewBatchId, 1, "SUCCEEDED", "INITIAL", null);
+        confirmedBatchId = insertBatch(organizationId, "CONFIRMED");
+        var confirmedAttemptId = insertAttempt(confirmedBatchId, 1, "SUCCEEDED", "INITIAL", null);
+        jdbc.update("UPDATE import_batch SET confirmed_attempt_id=? WHERE id=?",
+                confirmedAttemptId, confirmedBatchId);
         canceledBatchId = insertBatch(organizationId, "CANCELED");
         insertAttempt(canceledBatchId, 1, "CANCELED", "INITIAL", null);
         foreignBatchId = insertBatch(foreignOrganizationId, "PENDING");
@@ -139,14 +150,33 @@ class ImportWorkflowCancelIntegrationTest extends AuthenticationContainersSuppor
     }
 
     @Test
+    void cancelsFailedBatchButPreservesFailedAttemptAsHistoricalFact() {
+        jdbc.update("UPDATE import_attempt SET error_code='ZIP_INVALID', error_summary='bad zip', finished_at=UTC_TIMESTAMP(6) WHERE import_batch_id=?",
+                failedBatchId);
+
+        var detail = commands.cancel(user(), failedBatchId, "idem-failed");
+
+        assertThat(detail.status().name()).isEqualTo("CANCELED");
+        assertThat(detail.latestAttempt().status().name()).isEqualTo("FAILED");
+        assertThat(detail.latestAttempt().errorCode()).isEqualTo("ZIP_INVALID");
+        assertThat(detail.latestAttempt().errorSummary()).isEqualTo("bad zip");
+        assertThat(detail.retryable()).isTrue();
+        assertThat(detail.cancelable()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT status FROM import_attempt WHERE import_batch_id=?",
+                String.class, failedBatchId)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("SELECT status FROM import_batch WHERE id=?",
+                String.class, failedBatchId)).isEqualTo("CANCELED");
+    }
+
+    @Test
     void terminalBatchesConflictWithNewKey() {
-        for (var batchId : List.of(parsedBatchId, failedBatchId, canceledBatchId)) {
+        for (var batchId : List.of(parsedBatchId, readyForReviewBatchId, confirmedBatchId, canceledBatchId)) {
             assertThatThrownBy(() -> commands.cancel(user(), batchId, "idem-term-" + batchId))
                     .isInstanceOf(DomainException.class).satisfies(this::isStateConflict);
         }
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM import_attempt WHERE import_batch_id IN (?,?,?)",
-                Integer.class, parsedBatchId, failedBatchId, canceledBatchId)).isEqualTo(3);
+                "SELECT COUNT(*) FROM import_attempt WHERE import_batch_id IN (?,?,?,?)",
+                Integer.class, parsedBatchId, readyForReviewBatchId, confirmedBatchId, canceledBatchId)).isEqualTo(4);
     }
 
     @Test
@@ -163,8 +193,38 @@ class ImportWorkflowCancelIntegrationTest extends AuthenticationContainersSuppor
         assertThat(((Number) audits.get(0).get("subject_id")).longValue()).isEqualTo(pendingBatchId);
         assertThat(((Number) audits.get(0).get("actor_user_id")).longValue()).isEqualTo(actorUserId);
         var metadata = String.valueOf(audits.get(0).get("metadata_json"));
-        assertThat(metadata).contains("attemptId", "previousAttemptStatus", "previousBatchStatus");
+        assertThat(metadata).contains("attemptId", "latestAttemptId", "previousAttemptStatus",
+                "latestAttemptStatus", "previousBatchStatus", "terminalBatchStatus");
         assertThat(metadata).doesNotContain("password", "secret", "token", "api_key");
+    }
+
+    @Test
+    void failedUnknownPeriodImportBlocksCloseUntilExplicitCancel() {
+        jdbc.update("UPDATE import_batch SET status='CANCELED' WHERE org_id=? AND id<>?",
+                organizationId, failedBatchId);
+        var periodStart = Instant.parse("2026-08-01T00:00:00Z");
+        var periodEnd = Instant.parse("2026-09-01T00:00:00Z");
+
+        assertThat(importCloseBlocker.countOpenImports(organizationId, periodStart, periodEnd)).isEqualTo(1);
+
+        commands.cancel(user(), failedBatchId, "idem-failed-close");
+
+        assertThat(importCloseBlocker.countOpenImports(organizationId, periodStart, periodEnd)).isZero();
+    }
+
+    @Test
+    void failedCancelRemainsAvailableWhileBillingPeriodIsClosing() {
+        jdbc.update("""
+                INSERT INTO billing_period(
+                    org_id,period_start,period_end,status,close_generation,version,created_at,updated_at)
+                VALUES (?, '2026-08-01 00:00:00.000000', '2026-09-01 00:00:00.000000',
+                    'CLOSING', 0, 0, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                """, organizationId);
+
+        var detail = commands.cancel(user(), failedBatchId, "idem-failed-closing");
+
+        assertThat(detail.status().name()).isEqualTo("CANCELED");
+        assertThat(detail.latestAttempt().status().name()).isEqualTo("FAILED");
     }
 
     @Test

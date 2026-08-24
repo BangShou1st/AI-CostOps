@@ -76,7 +76,7 @@ const importSummary: ImportSummary = {
   createdAt: '2026-08-01T00:00:00Z',
   updatedAt: '2026-08-01T00:00:00Z',
   retryable: true,
-  cancelable: false,
+  cancelable: true,
   confirmedAttemptId: null,
 }
 
@@ -257,8 +257,9 @@ describe('ImportDetailPage', () => {
     mockedImportsApi.cancel.mockResolvedValue({ ...processing, status: 'CANCELED', cancelable: false, retryable: true })
 
     renderPage(['IMPORT_READ', 'IMPORT_CANCEL'], 'detail')
-    await screen.findByRole('button', { name: /取\s*消/ })
-    fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }))
+    await screen.findByRole('button', { name: '取消导入' })
+    fireEvent.click(screen.getByRole('button', { name: '取消导入' }))
+    fireEvent.click(await screen.findByRole('button', { name: '确认取消' }))
 
     await waitFor(() => {
       expect(mockedImportsApi.cancel).toHaveBeenCalledWith('123', 'uuid-cancel-1')
@@ -266,6 +267,33 @@ describe('ImportDetailPage', () => {
     // Cancel response lands in the cache: CANCELED renders immediately.
     expect(await screen.findByText('已取消')).toBeInTheDocument()
     expect(mockedImportsApi.getImport).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows failed import discard action and cancels it after confirmation', async () => {
+    vi.spyOn(crypto, 'randomUUID').mockReturnValue('uuid-failed-cancel-1' as ReturnType<typeof crypto.randomUUID>)
+    mockedImportsApi.cancel.mockResolvedValue({ ...importSummary, status: 'CANCELED', cancelable: false, retryable: true })
+
+    renderPage(['IMPORT_READ', 'IMPORT_CANCEL'], 'detail')
+    fireEvent.click(await screen.findByRole('button', { name: '放弃导入' }))
+    expect(await screen.findByRole('button', { name: '确认放弃' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认放弃' }))
+
+    await waitFor(() => {
+      expect(mockedImportsApi.cancel).toHaveBeenCalledWith('123', 'uuid-failed-cancel-1')
+    })
+    expect(await screen.findByText('已取消')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '放弃导入' })).not.toBeInTheDocument()
+  })
+
+  it('does not show cancel action for a confirmed import', async () => {
+    mockedImportsApi.getImport.mockResolvedValue({
+      ...importSummary, status: 'CONFIRMED', cancelable: false, retryable: false,
+    })
+
+    renderPage(['IMPORT_READ', 'IMPORT_CANCEL'], 'detail')
+
+    await screen.findByText('已确认')
+    expect(screen.queryByRole('button', { name: /取消导入|放弃导入/ })).not.toBeInTheDocument()
   })
 
   it('409 conflict shows state-changed error and never auto-replays the mutation', async () => {
@@ -485,7 +513,9 @@ describe('ImportDetailPage cache lifecycle', () => {
 
     renderPage(['IMPORT_READ', 'IMPORT_CANCEL'], 'detail')
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }))
+    fireEvent.click(screen.getByRole('button', { name: '取消导入' }))
+    expect(screen.getByRole('button', { name: '确认取消' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认取消' }))
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(mockedImportsApi.cancel).toHaveBeenCalledTimes(1)
 

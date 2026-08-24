@@ -163,7 +163,7 @@ class ImportWorkflowCommandApiIntegrationTest extends AuthenticationContainersSu
     }
 
     @Test
-    void illegalStateTransitionReturnsStateConflict() throws Exception {
+    void retryIllegalStateTransitionConflictsButFailedCancelIsExplicitTerminalClose() throws Exception {
         mockMvc.perform(post("/api/v1/imports/{importId}/retry", pendingBatchId)
                         .header("Authorization", bearer())
                         .header("Idempotency-Key", "idem-conflict"))
@@ -174,8 +174,10 @@ class ImportWorkflowCommandApiIntegrationTest extends AuthenticationContainersSu
         mockMvc.perform(post("/api/v1/imports/{importId}/cancel", failedBatchId)
                         .header("Authorization", bearer())
                         .header("Idempotency-Key", "idem-conflict-2"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("STATE_CONFLICT"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELED"))
+                .andExpect(jsonPath("$.latestAttempt.status").value("FAILED"))
+                .andExpect(jsonPath("$.cancelable").value(false));
     }
 
     @Test

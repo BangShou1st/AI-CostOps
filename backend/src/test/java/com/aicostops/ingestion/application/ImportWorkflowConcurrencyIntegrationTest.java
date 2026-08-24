@@ -67,7 +67,7 @@ class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersS
         organizationId = insertOrganization("Race", "race");
         actorUserId = insertUser("racer@example.com");
         actorMemberId = insertMember(organizationId, actorUserId);
-        createPermissionRole("CANCELER", List.of("IMPORT_CANCEL"));
+        createPermissionRole("CANCELER", List.of("IMPORT_CANCEL", "IMPORT_RETRY"));
         assign("CANCELER", "ORG", organizationId);
 
         accountId = insertProviderAccount(organizationId, "TEST_PROVIDER", "Primary");
@@ -120,6 +120,51 @@ class ImportWorkflowConcurrencyIntegrationTest extends AuthenticationContainersS
                 assertThat(batchStatus).isEqualTo("READY_FOR_REVIEW");
                 assertThat(finishResult).isTrue();
             }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void failedRetryVersusCancelOnlyProducesLegalBatchAndLatestAttemptStates() throws Exception {
+        jdbc.update("UPDATE import_attempt SET status='FAILED', lease_owner=NULL, lease_until=NULL WHERE id=?",
+                attemptId);
+        jdbc.update("UPDATE import_batch SET status='FAILED' WHERE id=?", batchId);
+
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var start = new CountDownLatch(1);
+            var retry = pool.submit(() -> {
+                start.await();
+                return commands.retry(user(), batchId, "idem-retry-race");
+            });
+            var cancel = pool.submit(() -> {
+                start.await();
+                return commands.cancel(user(), batchId, "idem-cancel-race");
+            });
+            start.countDown();
+
+            var retryResult = retry.get(30, TimeUnit.SECONDS);
+            var cancelResult = cancel.get(30, TimeUnit.SECONDS);
+
+            assertThat(retryResult).isNotNull();
+            assertThat(cancelResult).isNotNull();
+            var batchStatus = jdbc.queryForObject(
+                    "SELECT status FROM import_batch WHERE id=?", String.class, batchId);
+            var latestAttemptStatus = jdbc.queryForObject("""
+                    SELECT status FROM import_attempt
+                    WHERE import_batch_id=? ORDER BY attempt_no DESC, id DESC LIMIT 1
+                    """, String.class, batchId);
+            assertThat(batchStatus).isIn("CANCELED", "PENDING");
+            if ("CANCELED".equals(batchStatus)) {
+                assertThat(latestAttemptStatus).isEqualTo("CANCELED");
+            } else {
+                assertThat(latestAttemptStatus).isEqualTo("QUEUED");
+            }
+            assertThat(jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM import_attempt
+                    WHERE import_batch_id=? AND status IN ('QUEUED','RUNNING')
+                    """, Integer.class, batchId)).isLessThanOrEqualTo(1);
         } finally {
             pool.shutdownNow();
         }
