@@ -11,7 +11,8 @@ V1 目标：
 ## 当前阶段
 
 ```text
-V1.0.0 Release Sign-off
+V1 COMPLETE / FROZEN
+Current stable release: v1.0.1
 ```
 
 状态：
@@ -21,8 +22,18 @@ M0–M8 全部完成
 AIC-001 ~ AIC-073 全部完成
 AIC-073 Final Human Acceptance / Release Sign-off = ACCEPTED
 Release blocker = NONE
-等待 v1.0.0 tag / GitHub Release
+v1.0.0 = RELEASED
+v1.0.1 = RELEASED
 ```
+
+发布基线：
+
+```text
+v1.0.0 → 982d06a0e9ec844ea687ed746d6b9d8f39d86686
+v1.0.1 → b96be614e2d843c101add49fe6daffb9d2343a56
+```
+
+`v1.0.1` 是 V1 发布后的补丁版本，通过 PR #103 加固 Import lease recovery 在 MySQL deadlock race 下的 bounded retry；不改变 API、Schema 或 V1 产品范围。
 
 ## V1 范围
 
@@ -100,6 +111,8 @@ P0/P1 Defects                0
 
 AIC-073 最终签署记录：`docs/03-acceptance/aic-073-final-human-acceptance.md`。
 
+PR #103 的 deadlock hardening 在 Java 21 GitHub Actions 上通过 7/7 CI，合并后的 `main@b96be61` push CI 也成功。
+
 ## 已完成模块
 
 ```text
@@ -144,11 +157,13 @@ docs/02-development/api/openapi.yaml
 
 ## 实施计划
 
-稳定计划 ID：
+V1 稳定计划 ID：
 
 ```text
 AIC-001 ... AIC-073
 ```
+
+V1 backlog 与 M0–M8 证据作为冻结历史计划保留，不再作为当前待办解释。
 
 当前仓库可执行基线：Java 21 / Spring Boot 4.1.0 / MyBatis Spring Boot Starter 4.1.0（Core 3.5.19）、React 19 / TypeScript 6 / Vite 8、MySQL 8.4 / Redis / MinIO、Docker Compose 与 GitHub Actions。
 
@@ -167,10 +182,18 @@ MinIO         localhost:9000    （Docker API）
 
 启动：`.\scripts\dev\start-infra.ps1`
 
-## 剩余事项
+## 下一阶段
 
 ```text
-合并 AIC-073 sign-off PR
-v1.0.0 tag 创建
-GitHub Release 创建
+V1 = CLOSED / FROZEN
+V2 = READY FOR DETAILED DESIGN / IMPLEMENTATION PLANNING
 ```
+
+V2 产品方向以仓库现有蓝图为准：
+
+```text
+docs/01-blueprint/product/05-product-scope.md
+docs/01-blueprint/product/11-roadmap.md
+```
+
+V2 目标是 Realtime AI Gateway：统一 API 流量入口、身份与归属、预算预占、实时计量、Provider Routing 与 Settlement，并继续以现有 MySQL Ledger 作为最终财务 truth。
