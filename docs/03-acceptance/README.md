@@ -4,6 +4,14 @@
 
 > “做完”到底怎么证明？什么时候可以 Merge？什么时候可以叫 V1 完成？
 
+当前状态：
+
+```text
+V1 = COMPLETE / FROZEN
+AIC-073 = COMPLETED / ACCEPTED
+Current stable release = v1.0.1
+```
+
 ## 日常 PR 验收
 
 先看：
@@ -85,7 +93,7 @@ AIC-073 Final Human Acceptance / Release Sign-off 已完成，最终记录见：
 aic-073-final-human-acceptance.md
 ```
 
-当前结论：
+最终结论：
 
 ```text
 AIC-073 = COMPLETED
@@ -95,4 +103,36 @@ Release blocker = NONE
 RELEASE_READY = YES
 ```
 
-`v1.0.0` tag 与 GitHub Release 只能在 AIC-073 sign-off PR 合并后、以合并后的 `main` HEAD 创建。
+## Release Outcome
+
+AIC-073 sign-off 后已完成正式发布：
+
+```text
+v1.0.0
+→ 982d06a0e9ec844ea687ed746d6b9d8f39d86686
+→ Published
+```
+
+发布后，main push CI 暴露出 Import lease recovery 在 cancel/recover race 下的 transient MySQL deadlock flake。PR #103 以 bounded deadlock retry 做最小加固，并在 Java 21 GitHub Actions 上通过 7/7 CI；合并后的 main push CI 也成功。随后发布：
+
+```text
+v1.0.1
+→ b96be614e2d843c101add49fe6daffb9d2343a56
+→ Published
+```
+
+`v1.0.0` tag 保持固定，不因后续补丁移动。`v1.0.1` 不改变 API、Schema 或 V1 产品范围。
+
+## Frozen Evidence Policy
+
+以下材料是 V1 的时间点历史证据，应保留其当时状态，不为了“看起来最新”而改写：
+
+```text
+v1-release-candidate-evidence.md
+AIC-071 / AIC-072 RC evidence
+AIC-073 final sign-off baseline
+M0–M8 milestone evidence
+V1 benchmark reports
+```
+
+当前入口文档负责说明“现在是什么状态”；历史证据负责说明“当时如何证明”。

@@ -2,7 +2,16 @@
 
 面向研发团队的多 AI Provider 成本归集、费用核算、预算治理、对账与账期管理平台。
 
-当前仓库处于 **M8 Stage 2 / PR3 — V1 Release Candidate**。AIC-071（稳定 Docker Compose Smoke）与 AIC-072（V1 RC 收口）已实现并等待人工验收；本仓库不声称生产环境验证、完整 Provider 覆盖、FOCUS Compliance 或未实测的规模能力。
+当前稳定版本：**v1.0.1**。V1 已完成并冻结：M0–M8、AIC-001～AIC-073、AIC-073 Final Human Acceptance / Release Sign-off、`v1.0.0` 与后续补丁 `v1.0.1` 均已完成。仓库当前不声称生产环境验证、完整 Provider 覆盖、FOCUS Compliance 或未实测的规模能力。
+
+发布记录：
+
+```text
+v1.0.0 → 982d06a0e9ec844ea687ed746d6b9d8f39d86686
+v1.0.1 → b96be614e2d843c101add49fe6daffb9d2343a56
+```
+
+`v1.0.1` 通过 PR #103 加固 Import lease recovery 在 MySQL deadlock race 下的 bounded retry；不改变 API、Schema 或 V1 产品范围。
 
 ## V1 主链路
 
@@ -57,14 +66,14 @@ docker compose --env-file .env up -d
 docker compose --env-file .env ps
 ~~~
 
-默认浏览器入口为 'http://localhost:8080'，后端通过 Nginx 的同源 '/api/v1' 反向代理访问。健康检查：
+默认浏览器入口为 `http://localhost:8080`，后端通过 Nginx 的同源 `/api/v1` 反向代理访问。健康检查：
 
 ~~~powershell
 Invoke-WebRequest http://localhost:8080 -UseBasicParsing
 docker compose --env-file .env exec backend curl -fsS http://localhost:8080/actuator/health/liveness
 ~~~
 
-.env.example 使用 local-only 占位值。它开启仅限 'dev' profile 的开发 bootstrap：容器启动后创建本地合成管理员、当前自然月 OPEN billing period，并从环境变量读取密码；密码不会写入日志。生产环境必须关闭 'AICOSTOPS_DEV_BOOTSTRAP_ENABLED' 并使用正式身份、Secret 与账期流程。
+`.env.example` 使用 local-only 占位值。它开启仅限 `dev` profile 的开发 bootstrap：容器启动后创建本地合成管理员、当前自然月 OPEN billing period，并从环境变量读取密码；密码不会写入日志。生产环境必须关闭 `AICOSTOPS_DEV_BOOTSTRAP_ENABLED` 并使用正式身份、Secret 与账期流程。
 
 如果默认端口 8080 已被本机其他进程占用，可使用一次性覆盖：
 
@@ -80,15 +89,15 @@ docker compose --env-file .env up -d
 docker compose --env-file .env down
 ~~~
 
-只有明确需要销毁本项目数据库、Redis 和 MinIO 数据时才使用 'docker compose ... down -v'；不要使用全局 prune。
+只有明确需要销毁本项目数据库、Redis 和 MinIO 数据时才使用 `docker compose ... down -v`；不要使用全局 prune。
 
-## RC Smoke
+## V1 Smoke / Release Evidence
 
 ~~~powershell
 .\scripts\smoke-v1.ps1 -EnvFile .env.example -BaseUrl http://localhost:8080/api/v1
 ~~~
 
-脚本会在有界超时内检查五个 Compose 服务、MySQL / Redis / MinIO readiness、Flyway、真实登录与权限、Workbench、合成 DeepSeek import / confirm、费用证据提交和 audit query，并输出 'SMOKE_V1_PASS'。它不会打印密码、token 或 Provider key，也不会执行全局清理。完整证据见 [docs/superpowers/specs/2026-08-23-m8-compose-smoke.md](docs/superpowers/specs/2026-08-23-m8-compose-smoke.md) 与 [docs/03-acceptance/v1-release-candidate-evidence.md](docs/03-acceptance/v1-release-candidate-evidence.md)。
+脚本会在有界超时内检查五个 Compose 服务、MySQL / Redis / MinIO readiness、Flyway、真实登录与权限、Workbench、合成 DeepSeek import / confirm、费用证据提交和 audit query，并输出 `SMOKE_V1_PASS`。它不会打印密码、token 或 Provider key，也不会执行全局清理。完整历史证据见 [docs/superpowers/specs/2026-08-23-m8-compose-smoke.md](docs/superpowers/specs/2026-08-23-m8-compose-smoke.md)、[docs/03-acceptance/v1-release-candidate-evidence.md](docs/03-acceptance/v1-release-candidate-evidence.md) 与 [docs/03-acceptance/aic-073-final-human-acceptance.md](docs/03-acceptance/aic-073-final-human-acceptance.md)。
 
 ## Validation Status
 
@@ -98,6 +107,7 @@ docker compose --env-file .env down
 - Compose Smoke：PASS
 - Backend tests：437 unit + 800 integration + 34 architecture = PASS
 - Frontend tests：432 Vitest + lint = PASS
+- PR #103：7/7 CI PASS；合并后的 `main@b96be61` push CI PASS
 
 Validated flows：Import lifecycle, Cost allocation, Budget commitment, Expense workflow, Ledger posting, Reconciliation, Period close, CLOSED write protection, Reopen。
 
@@ -151,7 +161,16 @@ npm run build
 
 ## 文档与验收
 
-验收入口为 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。M8 专项证据包括 AIC-066 schema / query review、AIC-067 import benchmark、AIC-068 financial concurrency、AIC-069 runtime failure injection、AIC-070 security review，以及 AIC-071 Compose smoke / AIC-072 RC evidence。
+验收入口为 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。M8 专项证据包括 AIC-066 schema / query review、AIC-067 import benchmark、AIC-068 financial concurrency、AIC-069 runtime failure injection、AIC-070 security review，以及 AIC-071 Compose smoke / AIC-072 RC evidence / AIC-073 final sign-off。
+
+V1 的 RC、验收与 benchmark 文档作为冻结历史证据保留；后续不得把历史时间点状态改写成当前状态。
+
+## V2 方向
+
+V1 已关闭。V2 进入 Realtime AI Gateway 的详细设计与实施规划阶段，现有产品蓝图见：
+
+- [docs/01-blueprint/product/05-product-scope.md](docs/01-blueprint/product/05-product-scope.md)
+- [docs/01-blueprint/product/11-roadmap.md](docs/01-blueprint/product/11-roadmap.md)
 
 ## Git 协作
 
@@ -159,4 +178,4 @@ npm run build
 Issue → Short-lived Branch → Pull Request → CI → Human Acceptance → Squash Merge → main
 ~~~
 
-当前 RC 的 AIC-073 保持冻结；未创建 'v1.0.0' tag，未创建 GitHub Release，未合并到 'main'。
+当前 V1 状态：`COMPLETE / FROZEN`。当前稳定版本：`v1.0.1`。
