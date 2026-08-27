@@ -36,4 +36,24 @@ public class AuditAllocationAdapter implements AllocationAuditPort {
         auditService.append("ALLOCATION_DECISION_CONFIRMED", organizationId, actorUserId,
                 subjectType.name(), subjectId, metadata);
     }
+
+    @Override
+    public void ruleVersionPublished(long organizationId, long actorUserId,
+            long allocationRuleId, String ruleKey, int version) {
+        var metadata = new HashMap<String, Object>();
+        metadata.put("ruleKey", ruleKey);
+        metadata.put("version", version);
+        auditService.append("ALLOCATION_RULE_VERSION_PUBLISHED", organizationId, actorUserId,
+                "ALLOCATION_RULE", allocationRuleId, metadata);
+    }
+
+    @Override
+    public void ruleArchived(long organizationId, long actorUserId,
+            long allocationRuleId, String ruleKey, int version) {
+        var metadata = new HashMap<String, Object>();
+        metadata.put("ruleKey", ruleKey);
+        metadata.put("version", version);
+        auditService.append("ALLOCATION_RULE_ARCHIVED", organizationId, actorUserId,
+                "ALLOCATION_RULE", allocationRuleId, metadata);
+    }
 }

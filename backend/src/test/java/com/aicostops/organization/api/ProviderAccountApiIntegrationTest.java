@@ -237,6 +237,66 @@ class ProviderAccountApiIntegrationTest extends AuthenticationContainersSupport 
     }
 
     @Test
+    void providerAccountLifecycleWritesSecretSafeAuditEvents() throws Exception {
+        assign("PROVIDER_MANAGER", "ORG", organizationId);
+
+        var createdBody = mockMvc.perform(post("/api/v1/provider-accounts")
+                        .header("Authorization", bearer())
+                        .contentType("application/json")
+                        .content("""
+                                {"providerCode":"OPENAI","displayName":"Primary",
+                                 "externalAccountRef":"acc-998877","metadata":{"region":"us-east-1"}}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        var providerAccountId = Long.parseLong(
+                com.jayway.jsonpath.JsonPath.<String>read(createdBody, "$.id"));
+
+        mockMvc.perform(patch("/api/v1/provider-accounts/{id}", providerAccountId)
+                        .header("Authorization", bearer()).contentType("application/json")
+                        .content("{\"displayName\":\"Primary Renamed\"}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(patch("/api/v1/provider-accounts/{id}", providerAccountId)
+                        .header("Authorization", bearer()).contentType("application/json")
+                        .content("{\"status\":\"ARCHIVED\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"));
+
+        assertThat(auditRows(providerAccountId))
+                .extracting(AuditRow::eventType)
+                .containsExactly(
+                        "PROVIDER_ACCOUNT_CREATED",
+                        "PROVIDER_ACCOUNT_UPDATED",
+                        "PROVIDER_ACCOUNT_ARCHIVED");
+        var auditMetadata = auditRows(providerAccountId).stream()
+                .map(AuditRow::metadataJson).toList();
+        assertThat(auditMetadata)
+                .doesNotContain("secret")
+                .doesNotContain("token")
+                .doesNotContain("apikey")
+                .doesNotContain("acc-998877");
+        assertThat(jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM audit_event
+                        WHERE org_id=? AND actor_user_id=?
+                          AND subject_type='PROVIDER_ACCOUNT' AND subject_id=?
+                        """, Integer.class, organizationId, actorUserId, providerAccountId))
+                .isEqualTo(3);
+    }
+
+    private record AuditRow(String eventType, String metadataJson) {
+    }
+
+    private List<AuditRow> auditRows(long subjectId) {
+        return jdbc.query("""
+                SELECT event_type, metadata_json FROM audit_event
+                WHERE subject_type='PROVIDER_ACCOUNT' AND subject_id=?
+                ORDER BY id
+                """, (rs, rowNum) -> new AuditRow(
+                rs.getString("event_type"), rs.getString("metadata_json")), subjectId);
+    }
+
+    @Test
     void providerLifecyclePreservesRow() throws Exception {
         assign("PROVIDER_MANAGER", "ORG", organizationId);
 

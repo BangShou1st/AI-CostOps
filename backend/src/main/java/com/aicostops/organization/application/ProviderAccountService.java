@@ -37,17 +37,20 @@ public class ProviderAccountService {
     private final ProviderAccountMapper mapper;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final OrganizationAuditPort audit;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProviderAccountService(
             AuthorizationContextService authorizationContexts,
             ProviderAccountMapper mapper,
             ObjectMapper objectMapper,
-            Clock clock) {
+            Clock clock,
+            OrganizationAuditPort audit) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.audit = audit;
     }
 
     public PageResponse<ProviderAccountResponse> list(
@@ -86,6 +89,8 @@ public class ProviderAccountService {
         if (providerAccount == null) {
             throw new IllegalStateException("Created provider account must be readable in its organization");
         }
+        audit.providerAccountCreated(context.organizationId(), authenticatedUser.userId(),
+                providerAccount.id(), providerAccount.providerCode(), providerAccount.status().name());
         return response(providerAccount);
     }
 
@@ -133,6 +138,14 @@ public class ProviderAccountService {
         var updated = mapper.findCurrentOrganization(providerAccountId, context.organizationId(), null);
         if (updated == null) {
             throw notFound();
+        }
+        if (updated.status() == MasterDataStatus.ARCHIVED
+                && providerAccount.status() != MasterDataStatus.ARCHIVED) {
+            audit.providerAccountArchived(context.organizationId(), authenticatedUser.userId(),
+                    providerAccountId, providerAccount.status().name());
+        } else {
+            audit.providerAccountUpdated(context.organizationId(), authenticatedUser.userId(),
+                    providerAccountId, updated.status().name());
         }
         return response(updated);
     }

@@ -66,3 +66,24 @@ Commitment Activate/Release、Ledger Post、Correction、Reconciliation Resolve�
 3. **PARTIAL**：`LOGOUT` / `SESSION_REVOKED` / `PASSWORD_CHANGED` 以 `org_id=NULL` 写入，本 PR 的 org-scoped 查询查不到；建议回填组织或引入 platform 级审计视图。
 4. **PARTIAL**：项目/团队/成本中心实体 CRUD 未审计（成员变更已覆盖）。
 5. **证据强度**：reconciliation run/case/close 多数事件仅有 producer + 流程级测试，无逐事件 audit 断言；`LOGOUT`/`SESSION_REVOKED` 仅有负向 verify。
+
+---
+
+## M9 Follow-up（AIC-074，2026-08-28）
+
+> 上文 M7 矩阵保持冻结历史，本段只记录 AIC-074 的实际关闭结果，不重写 M7 判定。
+
+### 关闭结果
+
+| Follow-up | M9 处置 | 证据 |
+|---|---|---|
+| 1. Provider Account 审计 GAP | **CLOSED** | 新增 `OrganizationAuditPort` + `AuditOrganizationAdapter`，在 `ProviderAccountService` 同一事务内发出 `PROVIDER_ACCOUNT_CREATED/UPDATED/ARCHIVED`；metadata 仅含 `providerCode/status/previousStatus`，`external_account_ref` 与 raw metadata 显式不入 audit。集成测试 `ProviderAccountApiIntegrationTest.providerAccountLifecycleWritesSecretSafeAuditEvents` 直接断言事件顺序、org/actor/subject 绑定与 secret-safe metadata |
+| 2. Allocation Rule 审计 GAP | **CLOSED** | `AllocationAuditPort` 扩展 `ruleVersionPublished` / `ruleArchived`，由 `AllocationRuleCommandService` 在持久化成功后的同一事务内发出 `ALLOCATION_RULE_VERSION_PUBLISHED` / `ALLOCATION_RULE_ARCHIVED`；metadata 仅含 `ruleKey/version`，matchValue 等规则定义不入 audit。集成测试 `AllocationRuleApiIntegrationTest.ruleVersionPublishAndArchiveRecordSecretSafeAudit` 直接断言 |
+| 3. LOGOUT/SESSION_REVOKED/PASSWORD_CHANGED 正向断言 | **PARTIALLY CLOSED（证据补齐，org 可见性不变）** | `RefreshAndLogoutApiIntegrationTest.loginLogoutAndLogoutAllWritePositiveAuditRows` 增加正向 DB 断言（LOGIN_SUCCESS/LOGOUT/SESSION_REVOKED）。`org_id=NULL` 的平台事件仍无法被 org-scoped 审计查询命中——该行为属于设计决策（跨组织事件），platform 级审计视图不在 M9 范围 |
+| 5. reconciliation/close 逐事件断言 | **CLOSED** | `PeriodReopenIntegrationTest` 增加直接 DB 断言：`RECONCILIATION_RUN_COMPLETED`、`PERIOD_CLOSED`、`PERIOD_REOPENED` 各恰一条 |
+
+### 未关闭 / 范围外
+
+4. 项目/团队/成本中心实体 CRUD 审计仍未实现——不在 AIC-074 交付文件清单内，维持非阻塞 follow-up 状态。
+
+事务性保证：两个新 producer 都在调用方事务内写 audit，audit 写失败会使整个 mutation 回滚（`AllocationRuleCommandService` 的 emit 位于 `TransactionTemplate` 内；`ProviderAccountService` 方法为 `@Transactional`）。

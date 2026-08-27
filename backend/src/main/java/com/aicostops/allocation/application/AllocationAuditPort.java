@@ -27,4 +27,19 @@ public interface AllocationAuditPort {
             Long allocationRuleId,
             int lineCount,
             String currency);
+
+    /**
+     * Appends {@code ALLOCATION_RULE_VERSION_PUBLISHED} after a new immutable
+     * rule version is durably created. Metadata is limited to the rule key and
+     * version; rule definitions or match values never reach the audit trail.
+     */
+    void ruleVersionPublished(long organizationId, long actorUserId,
+            long allocationRuleId, String ruleKey, int version);
+
+    /**
+     * Appends {@code ALLOCATION_RULE_ARCHIVED} after an ACTIVE rule version is
+     * durably archived. Metadata is limited to the rule key and version.
+     */
+    void ruleArchived(long organizationId, long actorUserId,
+            long allocationRuleId, String ruleKey, int version);
 }

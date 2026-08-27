@@ -139,6 +139,34 @@ class RefreshAndLogoutApiIntegrationTest extends AuthenticationContainersSupport
     }
 
     @Test
+    void loginLogoutAndLogoutAllWritePositiveAuditRows() throws Exception {
+        var login = login();
+        var access = com.jayway.jsonpath.JsonPath.<String>read(
+                login.getResponse().getContentAsString(), "$.accessToken");
+        var cookie = login.getResponse().getCookie("aicostops_refresh");
+
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .header("Authorization", "Bearer " + access)
+                        .header("Origin", "http://localhost:8080").cookie(cookie))
+                .andExpect(status().isNoContent());
+        mockMvc.perform(post("/api/v1/auth/logout-all")
+                        .header("Authorization", "Bearer " + access))
+                .andExpect(status().isNoContent());
+
+        var userId = jdbc.queryForObject(
+                "SELECT id FROM app_user WHERE email_normalized='lifecycle@auth.test'", Long.class);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_event WHERE event_type='LOGIN_SUCCESS' AND actor_user_id=?",
+                Integer.class, userId)).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_event WHERE event_type='LOGOUT' AND actor_user_id=?",
+                Integer.class, userId)).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_event WHERE event_type='SESSION_REVOKED' AND actor_user_id=?",
+                Integer.class, userId)).isEqualTo(1);
+    }
+
+    @Test
     void rejectsForeignOriginAndLogoutAllDurablyInvalidatesOldJwtAndRefresh() throws Exception {
         var login = login();
         var access = com.jayway.jsonpath.JsonPath.<String>read(login.getResponse().getContentAsString(), "$.accessToken");
