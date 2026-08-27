@@ -6,6 +6,7 @@ import com.aicostops.budget.domain.BillingPeriodStatus;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.iam.domain.AuthorizationContext;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.reconciliation.application.PeriodCloseReadModels.PeriodCloseView;
 import com.aicostops.reconciliation.domain.CloseBlockerCode;
 import com.aicostops.reconciliation.domain.PeriodCloseCheckResult;
@@ -44,6 +45,7 @@ public final class PeriodCloseService {
     private final CloseBlockerRegistry blockers;
     private final ReconciliationAuditPort audit;
     private final ObjectMapper objectMapper;
+    private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -55,6 +57,7 @@ public final class PeriodCloseService {
             CloseBlockerRegistry blockers,
             ReconciliationAuditPort audit,
             ObjectMapper objectMapper,
+            AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -64,6 +67,7 @@ public final class PeriodCloseService {
         this.blockers = blockers;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -80,7 +84,10 @@ public final class PeriodCloseService {
                 context.organizationId(), begun.period().id(),
                 begun.period().periodStart(), begun.period().periodEnd());
         var results = evaluateAll(blockerContext);
-        return finalizeClose(context, begun.run().id(), results);
+        var closeView = finalizeClose(context, begun.run().id(), results);
+        metrics.periodClose(closeView.run().status() == PeriodCloseRunStatus.CLOSED
+                ? "CLOSED" : "BLOCKED");
+        return closeView;
     }
 
     BeginResult beginOrResume(AuthorizationContext context, long periodId) {
@@ -163,6 +170,7 @@ public final class PeriodCloseService {
         if (result == null) {
             throw new IllegalStateException("Reopen transaction returned no result");
         }
+        metrics.periodReopen("REOPENED");
         return result;
     }
 

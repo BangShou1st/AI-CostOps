@@ -5,6 +5,7 @@ import com.aicostops.cost.application.ReconciliationExternalTruthPort;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.ledger.application.ReconciliationInternalTruthPort;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.reconciliation.infrastructure.ReconciliationMapper;
 import com.aicostops.shared.security.AuthenticatedUser;
 import java.time.Clock;
@@ -32,6 +33,7 @@ public final class ReconciliationRunService {
     private final ReconciliationMapper mapper;
     private final ReconciliationAuditPort audit;
     private final ObjectMapper objectMapper;
+    private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
     private final TransactionTemplate snapshotTransactions;
     private final Clock clock;
@@ -47,6 +49,7 @@ public final class ReconciliationRunService {
             ReconciliationMapper mapper,
             ReconciliationAuditPort audit,
             ObjectMapper objectMapper,
+            AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -59,6 +62,7 @@ public final class ReconciliationRunService {
         this.mapper = mapper;
         this.audit = audit;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.snapshotTransactions = new TransactionTemplate(transactionManager);
         this.snapshotTransactions.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
@@ -129,8 +133,10 @@ public final class ReconciliationRunService {
             if (completed == null) {
                 throw new IllegalStateException("Reconciliation finalize transaction returned no result");
             }
+            metrics.reconciliationRun("COMPLETED");
             return completed;
         } catch (RuntimeException failure) {
+            metrics.reconciliationRun("FAILED");
             failRun(context.organizationId(), context.userId(), billingPeriodId, started.runId());
             throw failure;
         }

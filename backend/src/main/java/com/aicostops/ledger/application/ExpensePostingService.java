@@ -20,6 +20,7 @@ import com.aicostops.ledger.application.LedgerReadModels.LedgerPostingDetail;
 import com.aicostops.ledger.domain.LedgerEntryType;
 import com.aicostops.ledger.domain.LedgerSourceType;
 import com.aicostops.ledger.infrastructure.LedgerPostingMapper;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -57,6 +58,7 @@ public class ExpensePostingService {
     private final LedgerPostingMapper ledger;
     private final CommitmentConsumeService commitmentConsume;
     private final LedgerAuditPort audit;
+    private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -68,6 +70,7 @@ public class ExpensePostingService {
             LedgerPostingMapper ledger,
             CommitmentConsumeService commitmentConsume,
             LedgerAuditPort audit,
+            AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -77,6 +80,7 @@ public class ExpensePostingService {
         this.ledger = ledger;
         this.commitmentConsume = commitmentConsume;
         this.audit = audit;
+        this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -94,6 +98,7 @@ public class ExpensePostingService {
         var postingKey = "EXPENSE:" + expenseId;
         var existing = ledger.selectPostingByKey(context.organizationId(), postingKey);
         if (existing != null) {
+            metrics.ledgerPosting("EXPENSE", "POSTED");
             return detail(existing);
         }
 
@@ -101,12 +106,16 @@ public class ExpensePostingService {
         var preEntries = preAllocation.lines().stream().map(ExpensePostingService::toScopeAmount).toList();
 
         try {
-            return withDeadlockRetry(() -> transactions.execute(status -> postInTransaction(
+            var posted = withDeadlockRetry(() -> transactions.execute(status -> postInTransaction(
                     context.organizationId(), context.userId(), context.organizationMemberId(),
                     expenseId, decisionId, requested, preSource, preAllocation, preEntries)));
+            metrics.ledgerPosting("EXPENSE", "POSTED");
+            return posted;
         } catch (DuplicateKeyException concurrentPostingKey) {
-            return transactions.execute(status -> detail(ledger.selectPostingByKey(
+            var winner = transactions.execute(status -> detail(ledger.selectPostingByKey(
                     context.organizationId(), "EXPENSE:" + expenseId)));
+            metrics.ledgerPosting("EXPENSE", "POSTED");
+            return winner;
         }
     }
 

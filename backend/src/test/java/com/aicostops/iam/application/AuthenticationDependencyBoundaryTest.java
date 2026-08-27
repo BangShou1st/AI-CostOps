@@ -10,6 +10,7 @@ import com.aicostops.audit.application.AuditService;
 import com.aicostops.iam.infrastructure.IamMapper;
 import com.aicostops.iam.infrastructure.JwtTokenService;
 import com.aicostops.iam.infrastructure.LoginIdentityRecord;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.iam.infrastructure.RedisPasswordResetRepository;
 import com.aicostops.iam.infrastructure.RedisRateLimiter;
 import com.aicostops.iam.infrastructure.RedisRefreshSessionRepository;
@@ -43,7 +44,8 @@ class AuthenticationDependencyBoundaryTest {
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString(),
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyMap());
         var service = new LoginService(limiter, iam, passwords, sessions,
-                new JwtTokenService("boundary-test-only-secret-with-more-than-32-bytes", Duration.ofMinutes(15), Clock.systemUTC()), audit);
+                new JwtTokenService("boundary-test-only-secret-with-more-than-32-bytes", Duration.ofMinutes(15), Clock.systemUTC()),
+                audit, mock(AiCostOpsMetrics.class));
 
         assertThatThrownBy(() -> service.login(new LoginCommand("user@example.com", "password", "ip", "device")))
                 .isInstanceOf(DataIntegrityViolationException.class);

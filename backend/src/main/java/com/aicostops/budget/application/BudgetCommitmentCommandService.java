@@ -19,6 +19,7 @@ import com.aicostops.iam.domain.AuthorizationContext;
 import com.aicostops.iam.domain.M1AdminPermissionPolicy;
 import com.aicostops.iam.domain.ScopeType;
 import com.aicostops.iam.domain.ScopedPermissionGrant;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -48,6 +49,7 @@ public class BudgetCommitmentCommandService {
     private final CommitmentIdempotency idempotency;
     private final CommitmentAuditPort audit;
     private final CommitmentResponseCodec responseCodec;
+    private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -59,6 +61,7 @@ public class BudgetCommitmentCommandService {
             CommitmentIdempotency idempotency,
             CommitmentAuditPort audit,
             CommitmentResponseCodec responseCodec,
+            AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -68,6 +71,7 @@ public class BudgetCommitmentCommandService {
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseCodec = responseCodec;
+        this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -194,6 +198,7 @@ public class BudgetCommitmentCommandService {
                             "The budget must be ACTIVE before activation.");
                 }
                 if (currentBudget.available().compareTo(amount) < 0) {
+                    metrics.budgetActivation("CONFLICT");
                     throw insufficientBudget("The budget available ("
                             + currentBudget.available().toPlainString()
                             + ") is insufficient for the requested amount "
@@ -225,6 +230,7 @@ public class BudgetCommitmentCommandService {
             audit.activated(context.organizationId(), context.userId(), commitmentId,
                     budgetLocked.id(), amount, updatedCase.id(), "REQUESTED", "ACTIVE");
             idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
+            metrics.budgetActivation("ACTIVATED");
             return detail;
         }));
     }

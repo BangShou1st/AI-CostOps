@@ -17,6 +17,7 @@ import com.aicostops.ledger.domain.LedgerEntry;
 import com.aicostops.ledger.domain.LedgerEntryType;
 import com.aicostops.ledger.domain.LedgerSourceType;
 import com.aicostops.ledger.infrastructure.LedgerPostingMapper;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -48,6 +49,7 @@ public class LedgerCorrectionService {
     private final LedgerPostingMapper ledger;
     private final LedgerAuditPort audit;
     private final LedgerCorrectionIdempotency idempotency;
+    private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -58,6 +60,7 @@ public class LedgerCorrectionService {
             LedgerPostingMapper ledger,
             LedgerAuditPort audit,
             LedgerCorrectionIdempotency idempotency,
+            AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -66,6 +69,7 @@ public class LedgerCorrectionService {
         this.ledger = ledger;
         this.audit = audit;
         this.idempotency = idempotency;
+        this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -78,9 +82,11 @@ public class LedgerCorrectionService {
         validateCommand(command);
         var requestHash = idempotency.requestHash(context.organizationId(),
                 context.organizationMemberId(), command);
-        return withDeadlockRetry(() -> transactions.execute(status -> correctInTransaction(
+        var result = withDeadlockRetry(() -> transactions.execute(status -> correctInTransaction(
                 context.organizationId(), context.userId(), context.organizationMemberId(),
                 command, idempotencyKey, requestHash)));
+        metrics.correction(command.mode().name(), "POSTED");
+        return result;
     }
 
     private CorrectionResult correctInTransaction(long organizationId, long actorUserId,

@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import com.aicostops.budget.infrastructure.BudgetCommitmentMapper;
 import com.aicostops.budget.infrastructure.BudgetMapper;
 import com.aicostops.iam.application.AuthorizationContextService;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
@@ -86,6 +87,7 @@ class M8FinancialDeadlockRetryTest {
                     mock(CommitmentIdempotency.class),
                     mock(CommitmentAuditPort.class),
                     mock(CommitmentResponseCodec.class),
+                    mock(AiCostOpsMetrics.class),
                     mock(PlatformTransactionManager.class),
                     Clock.systemUTC());
         }
