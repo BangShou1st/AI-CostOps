@@ -1,24 +1,34 @@
-# 11. 版本路线图 — V0.2
+# 11. 版本路线图 — V1 → V2
 
-## V0 — Research & Design
-
-已完成：
-
-- 5 Provider research；
-- FOCUS/FinOps baseline；
-- Provider mapping；
-- Canonical Domain；
-- Business Invariants；
-- V1 scope；
-- MySQL/Redis/React/Docker 技术方向；
-- IAM/Auth design；
-- Test strategy。
-
-# V0.5 — V1 Detailed Design
-
-Before coding:
+## 当前状态
 
 ```text
+V1 = COMPLETE / FROZEN
+Current stable = v1.0.1
+V1.1 / M9 = NEXT IMPLEMENTATION MILESTONE
+V2 Gateway = ARCHITECTURE DIRECTION APPROVED; M10 DETAILED DESIGN REQUIRED BEFORE FEATURE CODING
+```
+
+V1 的冻结历史、AIC-001～AIC-073、M0～M8 与最终验收证据继续保留，不改写为当前待办。
+
+V1 → V2 总体设计基线：
+
+```text
+docs/superpowers/specs/2026-08-27-v1-to-v2-production-gateway-design.md
+```
+
+---
+
+# V0 / V0.5 — Research & V1 Detailed Design
+
+已完成并冻结：
+
+```text
+Provider research
+FOCUS / FinOps baseline
+Canonical Domain
+Business Invariants
+V1 scope
 Module boundaries
 Data model
 State machines
@@ -28,175 +38,430 @@ Permission matrix
 Redis contracts
 Provider import contracts
 Frontend IA
-Error/observability
+Error / observability design
 Git governance
 ```
 
-After human approval:
-
-```text
-Detailed Design
-→ Implementation Plan 1.0 (`docs/implementation/`)
-→ GitHub Milestones / Issues
-→ Coding
-```
+---
 
 # V1 — AI Spend Ledger
 
 ## 目标
 
-> **把已经花出去的 AI 钱算明白，并提供完整可用的企业后台身份/权限闭环。**
+> **把已经花出去的 AI 钱算明白，并提供完整可用的企业后台身份、权限、财务与关账闭环。**
 
-### 技术栈
+## 当前结果
 
 ```text
-Java 21
-Spring Boot 4.1
-Spring Security
-Plain MyBatis（Spring Boot Starter 4.x；MyBatis Core 3.5.x）
-MySQL 8.4 LTS
-Redis
-Flyway
-MinIO/S3
-React 19
-TypeScript
-Ant Design
-TanStack Query
-Docker Compose
-Nginx
+v1.0.0 RELEASED
+v1.0.1 RELEASED
+M0–M8 COMPLETE
+AIC-001–AIC-073 COMPLETE
+Final Human Acceptance = ACCEPTED
+P0/P1 = 0
 ```
 
-### 业务范围
+## V1 业务范围
+
+```text
+IAM / Organization
+Evidence
+Provider Import
+Raw Record / Canonical Cost Facts
+Duplicate Review
+Allocation
+Expense / Approval
+Budget / Commitment
+Immutable Ledger / Correction
+Reconciliation
+Billing Period Close / Reopen
+Audit
+Workbench / Reporting
+```
+
+## V1 最终原则
+
+```text
+MySQL = Identity + Financial Truth
+Redis = Session / TTL / Rate Limit / Cache
+MinIO/S3 = Evidence Object
+POSTED Ledger = Immutable
+Correction = Append-only
+Already-incurred cost is never discarded because of insufficient budget
+```
+
+V1 不再继续扩产品范围；真实 bug 可按 patch release 修复。
+
+---
+
+# V1.1 / M9 — Production Foundation
+
+## 目标
+
+> **把已经完成的 V1 财务闭环提升为能够可靠承载 V2 Gateway 的生产工程基础。**
+
+M9 不实现 Realtime Gateway 业务功能。
+
+## Scope
+
+```text
+Audit closure
+Production configuration hardening
+Metrics / Prometheus
+Grafana / alerting
+Browser E2E automation
+Security CI
+Backup / restore drills
+Real Provider certification path
+Import scale benchmark
+Read-model performance evidence
+Operational / incident runbooks
+Release evidence
+```
+
+## 关键 DoD
+
+```text
+High-value audit gaps closed
+Prometheus scrape PASS
+Grafana operational dashboard usable
+At least one alert failure-injection verified
+Critical V1 browser E2E automated
+Production profile dev-only configuration fails fast
+Security/dependency/container/secret scans produce CI evidence
+MySQL restore drill PASS
+Evidence restore drill PASS
+At least one real-but-sanitized Provider certification completed
+10k / 100k / 500k import benchmark reported from real execution
+MQ decision based on evidence, not architecture fashion
+```
+
+目标发布：
+
+```text
+v1.1.0
+```
+
+Transactional Outbox / RabbitMQ 不是 M9 默认 DoD。先 measure → SQL/index/batch/concurrency tuning；只有证据证明现有 DB-backed worker 不足时再引入。
+
+---
+
+# M10 — V2 Detailed Design
+
+## 目标
+
+> **冻结 Realtime AI Gateway 的领域、状态机、数据模型、API、Redis 原子协议和失败恢复语义。**
+
+M10 仍是设计里程碑，不进行大规模 Gateway feature coding。
+
+必须冻结：
+
+```text
+Control Plane / Data Plane boundary
+Gateway credential model
+Provider credential policy
+Provider / Model catalog
+Pricing version model
+Request identity / attribution
+Request state machine
+Budget reservation algorithm
+Redis Lua / atomicity contract
+Rate limit / quota semantics
+Streaming disconnect semantics
+Usage normalization
+Settlement transaction / idempotency
+Orphan recovery
+Routing policy
+Security / privacy
+Observability
+API contract
+Deployment boundary
+Migration strategy
+Test strategy
+```
+
+---
+
+# V2 Runtime Architecture
+
+采用：
+
+```text
+Monorepo
+├─ frontend/   React / TypeScript Admin UI
+├─ backend/    Java / Spring MVC Control Plane
+└─ gateway/    Java / Spring WebFlux + Reactor Netty Data Plane
+```
+
+核心原则：
+
+> **一个 Monorepo、两个 Deployable、一个最终财务 Truth。**
+
+Control Plane 继续持有：
 
 ```text
 IAM
-Evidence Import
-Raw Record
-Normalize
-Allocation
-Expense/Approval
-Budget Commitment
+Organization
+Budget
 Ledger
 Reconciliation
 Period Close
 Audit
+Admin / Reporting
 ```
 
-### Redis 在 V1 的职责
-
-```text
-Refresh Session
-Verification/Reset TTL
-Login Rate Limit
-Permission Cache
-Dashboard Cache
-```
-
-### Definition of Done
-
-- auth refresh/logout/revoke；
-- role/data scope；
-- duplicate import no duplicate posting；
-- crash/retry；
-- MySQL budget concurrency correctness；
-- posted ledger immutable；
-- correction traceable；
-- reconciliation cases；
-- closed period guard；
-- Redis loss does not corrupt financial truth；
-- full Docker Compose smoke；
-- CI green。
-
-# V1.5 — 稳定性与工程强化
-
-按测量结果加入：
-
-```text
-Transactional Outbox
-RabbitMQ
-Prometheus
-Grafana
-batch tuning
-index tuning
-failure injection
-```
-
-Benchmark：
-
-```text
-100k
-500k
-1m facts
-```
-
-只报告实测数字。
-
-# V2 — 实时 AI Gateway
-
-## 目标
-
-> **开始控制钱是怎么花出去的。**
-
-Stack extension：
-
-```text
-Spring WebFlux
-Netty
-Redis + Lua
-Resilience4j
-```
-
-Scope：
+Gateway Data Plane 新增：
 
 ```text
 OpenAI-compatible API
-Streaming Proxy
-Internal Credentials
-Identity/Attribution
+Internal Gateway Credentials
+Request Identity / Attribution
+Rate Limit / Quota
 Budget Reservation
-Provider Routing
+Streaming Proxy
 Realtime Metering
+Provider Routing
 Settlement
-Existing MySQL Ledger
+Gateway Metrics / Audit
+```
+
+最终财务 Truth：
+
+```text
+MySQL Ledger
 ```
 
 Redis V2：
 
 ```text
 rate limit
+quota window
 short idempotency window
 budget reservation
-request state
-reserve → settle → release
+request ephemeral state
+provider health / circuit state
 ```
 
-最终财务 truth：
+Redis 不承担 Final Ledger、Final Budget、Final Settlement History。
+
+---
+
+# M11 — Gateway Edge MVP
+
+只建立最小真实链路：
 
 ```text
-MySQL Ledger
+Internal API Key
+→ OpenAI-compatible endpoint
+→ one Provider
+→ non-streaming + SSE streaming
+→ response
 ```
 
-# V3 — 混合治理
+同时完成：
 
 ```text
-Realtime API ------\
-                    > MySQL Ledger
-Statements --------/
+request / trace id
+provider credential isolation
+safe structured logging
+connect / header / idle / hard timeouts
+basic rate limit
+controlled mock upstream failure tests
 ```
 
-Budget：
+M11 不做五 Provider routing。
+
+---
+
+# M12 — Identity / Attribution / Budget Reservation
+
+请求在进入 Provider 前完成：
 
 ```text
-Total
-Committed
-Reserved
-Actual
-Available
+organization
+credential
+user/service identity
+project
+optional team/cost center
+pricing context
+budget context
 ```
+
+预算运行时视图扩展为：
+
+```text
+Realtime Available
+= Total
+- Actual
+- Outstanding Commitments
+- Active Reservations
+```
+
+实现：
+
+```text
+reserve
+release
+TTL
+fencing / recovery
+rate limit
+quota
+Redis atomicity
+```
+
+财务 durable truth 仍在 MySQL。
+
+---
+
+# M13 — Realtime Metering / Settlement
+
+主链：
+
+```text
+Provider usage
+→ Usage normalization
+→ Pricing version
+→ Cost calculation
+→ Reservation finalization
+→ Durable settlement
+→ Existing MySQL Ledger
+```
+
+必须证明：
+
+```text
+no duplicate settlement
+no duplicate ledger posting
+no silent reservation leak
+client retry is idempotent
+settlement retry is idempotent
+partial/missing usage is explicit
+Redis failure cannot fabricate budget availability
+```
+
+若出现可靠跨事务事件发布需求，优先评估 Transactional Outbox；Outbox 不等于必须引入 RabbitMQ。
+
+---
+
+# M14 — Multi-provider Routing / Resilience
+
+加入：
+
+```text
+multiple Provider adapters
+model mapping
+static routing policy
+health-aware routing
+circuit breaker
+bounded retry
+safe failover
+```
+
+优先：
+
+```text
+correct
+predictable
+explainable
+auditable
+```
+
+不优先做复杂“智能路由”。
+
+---
+
+# M15 — Hybrid Reconciliation
+
+V2 的差异化闭环：
+
+```text
+Realtime Gateway Usage
+→ Settlement
+→ Ledger
+
+Provider Statement Import
+→ Canonical Charge
+→ Reconciliation
+→ Correction / Ledger
+```
+
+至少处理：
+
+```text
+pricing drift
+discount
+rounding
+provider correction
+late charge
+missing gateway usage
+unknown provider charge
+duplicate external charge
+```
+
+---
+
+# M16 — V2 Production Acceptance
+
+最终验收必须包括：
+
+```text
+load
+concurrent streams
+client disconnect
+provider timeout / outage
+Redis outage
+MySQL failure / recovery
+reservation leak recovery
+duplicate requests
+settlement retry
+credential revoke
+budget exhaustion
+routing failover
+statement difference
+```
+
+发布要求：
+
+```text
+No lost settlement
+No duplicate ledger
+No silent reservation leak
+No budget overspend caused by race
+No Provider secret leak
+No prompt/response content leak by default
+```
+
+目标发布：
+
+```text
+v2.0.0
+```
+
+---
+
+# V2.1 / V3 候选
+
+不进入 V2.0 Core：
+
+```text
+SAML / SCIM
+Full FOCUS conformance
+Automatic FX Engine
+ERP / GL integration
+Advanced approval policy
+Cost anomaly detection
+Forecast / savings recommendation
+Provider contract discount modeling
+multi-region
+```
+
+按真实业务需求进入后续设计。
+
+---
 
 # V4 — 工程单位经济性（可选）
 
-候选：
+只有业务 outcome 定义可靠后再考虑：
 
 ```text
 Cost / successful agent task
@@ -205,16 +470,17 @@ Cost / issue
 Cost / eval pass
 ```
 
-只有业务 outcome 定义可靠后再做。
+---
 
 # 技术栈守门规则
 
-任何新增技术先问：
+任何新增基础设施先回答：
 
-1. 解决什么明确问题？
-2. 现有 MySQL/Redis/模块不能合理解决吗？
-3. 能否被 benchmark/test 证明？
-4. 两人团队维护成本是否合理？
+1. 解决哪个已观测问题？
+2. 现有 MySQL / Redis / DB-backed worker 不能合理解决吗？
+3. 能否被 benchmark / failure test 证明？
+4. 两人团队能否稳定维护？
+5. 是否改善 correctness / recoverability / observability，而不是只增加组件？
 
 默认不加入：
 
@@ -223,8 +489,8 @@ Kafka
 Elasticsearch
 Kubernetes
 service mesh
-microservices
-XXL-JOB
+microservice explosion
+custom distributed scheduler
 ```
 
-除非后续真实需求推动。
+RabbitMQ 只有在真实异步吞吐/解耦需求且 DB-backed Outbox Worker 不足时再评估。
