@@ -39,6 +39,7 @@ public class AllocationRuleCommandService {
     private final AllocationOrganizationLockMapper organizationLocks;
     private final AllocationIdempotency idempotency;
     private final AllocationResponseCodec codec;
+    private final AllocationAuditPort audit;
     private final TransactionTemplate transactions;
 
     public AllocationRuleCommandService(
@@ -48,6 +49,7 @@ public class AllocationRuleCommandService {
             AllocationOrganizationLockMapper organizationLocks,
             AllocationIdempotency idempotency,
             AllocationResponseCodec codec,
+            AllocationAuditPort audit,
             PlatformTransactionManager transactionManager) {
         this.authorizationContexts = authorizationContexts;
         this.rules = rules;
@@ -55,6 +57,7 @@ public class AllocationRuleCommandService {
         this.organizationLocks = organizationLocks;
         this.idempotency = idempotency;
         this.codec = codec;
+        this.audit = audit;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -102,6 +105,10 @@ public class AllocationRuleCommandService {
                     .orElseThrow(() -> new IllegalStateException(
                             "A just-written rule version must be readable"));
             idempotency.finalize(reserved.id(), 200, codec.ruleToJson(created));
+            // Emit inside the same transaction: an audit write failure rolls
+            // back both the published version and its idempotency record.
+            audit.ruleVersionPublished(context.organizationId(), user.userId(),
+                    created.id(), created.ruleKey(), created.version());
             return created;
         }));
     }
@@ -131,6 +138,10 @@ public class AllocationRuleCommandService {
                     .orElseThrow(() -> new IllegalStateException(
                             "A just-archived rule version must be readable"));
             idempotency.finalize(reserved.id(), 200, codec.ruleToJson(archived));
+            // Emit inside the same transaction: an audit write failure rolls
+            // back the archive and its idempotency record.
+            audit.ruleArchived(context.organizationId(), user.userId(),
+                    archived.id(), archived.ruleKey(), archived.version());
             return archived;
         }));
     }

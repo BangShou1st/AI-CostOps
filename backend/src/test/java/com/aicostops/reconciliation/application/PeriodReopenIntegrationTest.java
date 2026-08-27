@@ -75,6 +75,19 @@ class PeriodReopenIntegrationTest extends AllocationApiTestSupport {
                 "SELECT COUNT(*) FROM reconciliation_run WHERE org_id=? AND billing_period_id=?",
                 Long.class, orgId, periodId)).isEqualTo(reconciliationRowsBefore);
 
+        // Reconciliation, close, and reopen each leave a durable audit row.
+        assertThat(jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM audit_event
+                        WHERE org_id=? AND event_type='RECONCILIATION_RUN_COMPLETED'
+                        """, Integer.class, orgId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM audit_event
+                        WHERE org_id=? AND event_type='PERIOD_CLOSED'
+                        """, Integer.class, orgId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM audit_event
+                        WHERE org_id=? AND event_type='PERIOD_REOPENED'
+                        """, Integer.class, orgId)).isEqualTo(1);
         var auditJson = jdbc.queryForObject("""
                 SELECT metadata_json FROM audit_event
                 WHERE org_id=? AND event_type='PERIOD_REOPENED'

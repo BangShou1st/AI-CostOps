@@ -319,6 +319,53 @@ class AllocationRuleApiIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
+    void ruleVersionPublishAndArchiveRecordSecretSafeAudit() throws Exception {
+        var createdBody = mockMvc.perform(post("/api/v1/allocation-rules/{ruleKey}/versions", "audit-key")
+                        .header("Authorization", bearer())
+                        .header("Idempotency-Key", "rule-audit-v1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VERSION_BODY.formatted(projectId)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var ruleId = Long.parseLong(
+                com.jayway.jsonpath.JsonPath.<String>read(createdBody, "$.id"));
+
+        mockMvc.perform(post("/api/v1/allocation-rules/{ruleId}/archive", ruleId)
+                        .header("Authorization", bearer())
+                        .header("Idempotency-Key", "rule-audit-arch"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ARCHIVED"));
+
+        assertThat(auditRows(ruleId))
+                .extracting(AuditRow::eventType)
+                .containsExactly(
+                        "ALLOCATION_RULE_VERSION_PUBLISHED",
+                        "ALLOCATION_RULE_ARCHIVED");
+        var auditMetadata = auditRows(ruleId).stream().map(AuditRow::metadataJson).toList();
+        assertThat(auditMetadata)
+                .noneMatch(json -> json.contains("key-abc-123"))
+                .noneMatch(json -> json.contains("secret"));
+        assertThat(jdbc.queryForObject("""
+                        SELECT COUNT(*) FROM audit_event
+                        WHERE org_id=? AND actor_user_id=?
+                          AND subject_type='ALLOCATION_RULE' AND subject_id=?
+                        """, Integer.class, orgId, actorUserId, ruleId))
+                .isEqualTo(2);
+    }
+
+    private record AuditRow(String eventType, String metadataJson) {
+    }
+
+    private List<AuditRow> auditRows(long subjectId) {
+        return jdbc.query("""
+                SELECT event_type, metadata_json FROM audit_event
+                WHERE subject_type='ALLOCATION_RULE' AND subject_id=?
+                ORDER BY id
+                """, (rs, rowNum) -> new AuditRow(
+                rs.getString("event_type"), rs.getString("metadata_json")), subjectId);
+    }
+
+    @Test
     void ruleManagePermissionIsRequired() throws Exception {
         revokeAllAssignments();
         createPermissionRole("ALLOC_EDITOR", List.of(
