@@ -1,0 +1,31 @@
+# Production profile: deny-by-default policy overrides only.
+# No credentials are stored here; every value below is a safety default that
+# operators can tighten further. Secrets come exclusively from the runtime
+# environment (see deploy/production/README.md).
+#
+# The prod profile is fail-fast: ProductionConfigurationValidator rejects
+# unsafe or dev-only resolved settings before the application becomes ready.
+
+aicostops:
+  auth:
+    # Public registration and dev bootstrap must stay OFF in production. An
+    # operator that knowingly deploys an explicitly approved allow policy can
+    # override this profile file, but the fail-fast validator still refuses
+    # both unless the resolved defaults are present.
+    allow-public-registration: false
+    refresh-cookie-secure: true
+    dev-bootstrap-enabled: false
+  storage:
+    # Buckets are provisioned by the deployment, never created on first use
+    # with default credentials.
+    auto-create-bucket: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
