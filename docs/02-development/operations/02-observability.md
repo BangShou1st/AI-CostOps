@@ -2,8 +2,9 @@
 
 Optional Prometheus + Grafana stack layered on top of the core AI-CostOps
 Compose deployment. It is **opt-in**: the core stack (`compose.yaml`) remains
-fully usable on its own, and `prometheus` is only exposed when the observability
-overlay is loaded.
+fully usable on its own, and this overlay additionally enables `prometheus`
+scraping. (The production profile also exposes `prometheus` by design, behind
+the private-backend deployment boundary; it is not gated on this overlay.)
 
 ## What is added
 
@@ -34,16 +35,24 @@ Then open:
 
 ## Prometheus exposure boundary
 
-The backend only exposes `/actuator/prometheus` when the overlay is loaded. The
-overlay appends to the backend environment (key-by-key merge, base env preserved):
+The default/core Compose configuration exposes only `health,info`. This
+observability overlay additionally enables `prometheus` by appending to the
+backend environment (key-by-key merge, base env preserved):
 
 ```yaml
 MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
 ```
 
-Core Compose continues to expose only `health,info`. `env`, `configprops`,
-`beans`, `heapdump`, etc. are never exposed. This is preferred over adding a new
-Spring profile or editing the default `application.yml`.
+The production profile (`application-prod.yml`) also enables `prometheus` by
+design; production safety does **not** depend on the overlay being absent. It
+depends on the documented deployment boundary:
+
+- the backend is private and is not directly Internet-exposed;
+- the frontend proxy / ingress does not route `/actuator/*`.
+
+In all cases `env`, `configprops`, `beans`, `heapdump`, etc. are never exposed.
+This is preferred over adding a new Spring profile or editing the default
+`application.yml`.
 
 ## Metrics
 

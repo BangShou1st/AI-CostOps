@@ -8,23 +8,27 @@
 # they do NOT become a dependency of the core stack (backend does not depend on
 # Grafana, and Grafana only depends on Prometheus startup).
 #
-# Prometheus exposure is enabled ONLY in this overlay, by appending
+# This overlay enables Prometheus scraping by appending
 # MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE to the backend environment. The
 # environment map is merged key-by-key across Compose files, so the base backend
-# environment is preserved and `prometheus` is simply added. Core Compose
-# continues to expose only its existing default management endpoints.
+# environment is preserved and `prometheus` is simply added. The default/core
+# Compose configuration exposes only health,info; the production profile also
+# exposes prometheus by design. Production safety relies on the documented
+# deployment boundary (backend is private / not directly Internet-exposed, and
+# the frontend proxy does not route /actuator/*), not on Compose file presence.
 
 services:
   backend:
     # Key-by-key merge with base: adds prometheus to the actuator exposure
-    # without touching the other backend env vars. Core Compose default exposure
-    # (health,info) is unchanged when this overlay is not loaded.
+    # without touching the other backend env vars. Default/core Compose keeps
+    # health,info; the production profile also enables prometheus. Sensitive
+    # endpoints (env, configprops, beans, heapdump) remain unexposed.
     environment:
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,info,prometheus
-    # Isolated host port so the smoke script can call the login endpoint from the
-    # host without colliding with a concurrently running normal stack on 8080.
+    # Loopback-only host port so the smoke script can call the login endpoint
+    # from the host without exposing backend on the LAN. Never binds 0.0.0.0.
     ports:
-      - "18080:8080"
+      - "127.0.0.1:18080:8080"
 
   prometheus:
     image: prom/prometheus:v2.54.1
@@ -33,7 +37,7 @@ services:
     volumes:
       - ./deploy/observability/prometheus:/etc/prometheus:ro
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:9090/-/healthy"]
       interval: 10s
@@ -53,7 +57,7 @@ services:
       - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/observability/grafana/dashboards:/etc/grafana/dashboards-json:ro
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       prometheus:
         condition: service_started

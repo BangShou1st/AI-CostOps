@@ -128,8 +128,13 @@ foreach ($p in $ports) {
 # ---------------------------------------------------------------------------
 # 1. Start core + observability overlay (backend only; frontend not needed)
 # ---------------------------------------------------------------------------
+# Exception-safe cleanup contract: once the project is started, the finally
+# block stops ONLY this project no matter what (PASS / FAIL / exception).
+$projectStarted = $false
+try {
 Log "Starting project $ProjectName (backend/prometheus/grafana + deps)..."
 Invoke-Compose -ComposeArgs @('up','-d','backend','prometheus','grafana','mysql','redis','minio')
+$projectStarted = $true
 
 $Backend = "http://localhost:18080"
 $Prom = "http://localhost:9090"
@@ -226,12 +231,6 @@ if ($raw) {
 Assert-Or-Fail $dashOk 'grafana_dashboard_provisioned' "title=$dashTitle"
 
 # ---------------------------------------------------------------------------
-# 8. Cleanup ONLY this project
-# ---------------------------------------------------------------------------
-Log "Stopping only project $ProjectName ..."
-Invoke-Compose -ComposeArgs @('down')
-
-# ---------------------------------------------------------------------------
 # 9. Write real evidence
 # ---------------------------------------------------------------------------
 $sha = (git -C $RepoRoot rev-parse HEAD)
@@ -276,12 +275,29 @@ Rule: sum(increase(aicostops_login_result_total{result="INVALID_CREDENTIALS"}[1m
 
 ## Notes
 
-- Core Compose remains usable without the observability overlay; prometheus is
-  exposed only when compose.observability.yaml is loaded.
+- Core Compose remains usable without the observability overlay. The default/core
+  Compose configuration exposes only health,info; this overlay additionally
+  enables prometheus. The production profile also exposes prometheus by design,
+  with production safety relying on the documented deployment boundary (the
+  backend is private / not directly Internet-exposed and the frontend proxy does
+  not route /actuator/*). Sensitive endpoints (env, configprops, beans,
+  heapdump) remain unexposed in all cases.
 - No global Docker prune and no unrelated project was stopped by this script.
 "@
 Set-Content -Path $EvidencePath -Value $md -Encoding UTF8
 Log "Evidence written to $EvidencePath"
+}
+finally {
+    if ($projectStarted) {
+        try {
+            Log "Stopping only project $ProjectName ..."
+            Invoke-Compose -ComposeArgs @('down')
+        }
+        catch {
+            Write-Warning "Failed to clean up project $ProjectName : $_"
+        }
+    }
+}
 
 if ($failed) { Write-Error "SMOKE FAILED"; exit 1 }
 Log "SMOKE PASSED"
