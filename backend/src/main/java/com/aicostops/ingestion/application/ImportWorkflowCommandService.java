@@ -10,6 +10,7 @@ import com.aicostops.ingestion.domain.ImportBatchStatus;
 import com.aicostops.ingestion.infrastructure.ImportAttemptMapper;
 import com.aicostops.ingestion.infrastructure.ImportBatchMapper;
 import com.aicostops.ingestion.infrastructure.ImportWorkflowQueryMapper;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -35,6 +36,7 @@ public class ImportWorkflowCommandService {
     private final ImportWorkflowAuditPort audit;
     private final ImportCommandResponseSerializer responseSerializer;
     private final ImportCloseAdmissionPort closeAdmission;
+    private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -47,6 +49,7 @@ public class ImportWorkflowCommandService {
             ImportWorkflowAuditPort audit,
             ImportCommandResponseSerializer responseSerializer,
             ImportCloseAdmissionPort closeAdmission,
+            AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -57,6 +60,7 @@ public class ImportWorkflowCommandService {
         this.audit = audit;
         this.responseSerializer = responseSerializer;
         this.closeAdmission = closeAdmission;
+        this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -212,6 +216,9 @@ public class ImportWorkflowCommandService {
             }
             audit.importConfirmed(context.organizationId(), context.userId(), importId,
                     latest.id(), batch.status().name());
+            // Idempotent replays do not re-increment: only a genuinely new
+            // confirmation of a fresh attempt counts as a completed import.
+            metrics.importCompleted(batch.expectedProviderCode(), "SUCCEEDED");
 
             var detail = currentDetail(context.organizationId(), importId);
             idempotency.finalize(decision.id(), 200, responseSerializer.importDetailJson(detail));

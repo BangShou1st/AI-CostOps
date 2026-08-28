@@ -41,6 +41,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import com.aicostops.observability.AiCostOpsMetrics;
+
 /** ACID provider-charge posting orchestration with immutable Ledger history. */
 @Service
 public class ProviderChargePostingService {
@@ -56,6 +58,7 @@ public class ProviderChargePostingService {
     private final LedgerPostingMapper ledger;
     private final CommitmentConsumeService commitmentConsume;
     private final LedgerAuditPort audit;
+    private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -67,6 +70,7 @@ public class ProviderChargePostingService {
             LedgerPostingMapper ledger,
             CommitmentConsumeService commitmentConsume,
             LedgerAuditPort audit,
+            AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
@@ -76,6 +80,7 @@ public class ProviderChargePostingService {
         this.ledger = ledger;
         this.commitmentConsume = commitmentConsume;
         this.audit = audit;
+        this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
@@ -94,6 +99,7 @@ public class ProviderChargePostingService {
         var postingKey = "CHARGE:" + chargeFactId + ":ALLOCATION:" + decisionId;
         var existing = ledger.selectPostingByKey(context.organizationId(), postingKey);
         if (existing != null) {
+            metrics.ledgerPosting("CHARGE", "POSTED");
             return detail(existing);
         }
 
@@ -103,16 +109,20 @@ public class ProviderChargePostingService {
                 .toList();
 
         try {
-            return withDeadlockRetry(() -> transactions.execute(status -> postInTransaction(
+            var posted = withDeadlockRetry(() -> transactions.execute(status -> postInTransaction(
                     context.organizationId(), context.userId(), context.organizationMemberId(),
                     chargeFactId, decisionId, requested, preSource, preAllocation, preEntries)));
+            metrics.ledgerPosting("CHARGE", "POSTED");
+            return posted;
         } catch (DuplicateKeyException concurrentPostingKey) {
             // A unique-key loser may have a rollback-only transaction after the
             // INSERT error; read the winner in a fresh transaction instead of
             // querying from the doomed transaction.
-            return transactions.execute(status -> detail(ledger.selectPostingByKey(
+            var winner = transactions.execute(status -> detail(ledger.selectPostingByKey(
                     context.organizationId(),
                     "CHARGE:" + chargeFactId + ":ALLOCATION:" + decisionId)));
+            metrics.ledgerPosting("CHARGE", "POSTED");
+            return winner;
         }
     }
 
