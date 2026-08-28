@@ -94,8 +94,14 @@ real stack using a bounded, deterministic signal (invalid-credential logins). It
    number of failures so `increase()` has a real baseline;
 5. observes the chosen alert go `pending -> firing -> inactive`;
 6. verifies the Grafana dashboard is provisioned;
-7. stops **only** the project it started (never a global prune, never unrelated projects);
-8. writes `docs/03-acceptance/m9-observability-evidence.md` with real run data.
+7. stops **only** the project it started (never a global prune, never unrelated
+   projects) and machine-verifies the cleanup: the `down` exit code must be 0 and
+   `docker compose -p aicostops-obs ... ps -q` must be empty afterwards;
+8. writes `docs/03-acceptance/m9-observability-evidence.md` with real run data,
+   including the machine-verified cleanup result.
+
+The core Compose stack is validated separately by the repository's standard
+runtime smoke `scripts/smoke-v1.ps1`, run without this overlay.
 
 ```powershell
 pwsh -File scripts/observability-smoke.ps1

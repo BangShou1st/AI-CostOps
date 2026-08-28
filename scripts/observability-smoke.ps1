@@ -50,7 +50,12 @@ function Invoke-Compose {
     # automatic variable, and splatting `@Args` from a parameter of that name
     # silently produces a malformed command (docker prints its usage and does
     # nothing), which made `up -d` a no-op and the smoke hang in health-wait.
-    docker compose -p $ProjectName -f $ComposeBase -f $ComposeOverride @ComposeArgs
+    & docker compose -p $ProjectName -f $ComposeBase -f $ComposeOverride @ComposeArgs
+    # PowerShell does NOT throw on a non-zero exit from a native command even with
+    # $ErrorActionPreference='Stop', so check it explicitly (smoke-v1 does the same).
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker compose $($ComposeArgs -join ' ') failed with exit code $LASTEXITCODE"
+    }
 }
 
 function Get-HttpCode {
@@ -131,10 +136,12 @@ foreach ($p in $ports) {
 # Exception-safe cleanup contract: once the project is started, the finally
 # block stops ONLY this project no matter what (PASS / FAIL / exception).
 $projectStarted = $false
+$cleanupPassed = $false
+$mainException = $null
 try {
+$projectStarted = $true
 Log "Starting project $ProjectName (backend/prometheus/grafana + deps)..."
 Invoke-Compose -ComposeArgs @('up','-d','backend','prometheus','grafana','mysql','redis','minio')
-$projectStarted = $true
 
 $Backend = "http://localhost:18080"
 $Prom = "http://localhost:9090"
@@ -229,9 +236,40 @@ if ($raw) {
     if ($dj.dashboard) { $dashOk = $true; $dashTitle = $dj.dashboard.title }
 }
 Assert-Or-Fail $dashOk 'grafana_dashboard_provisioned' "title=$dashTitle"
+}
+catch {
+    Log "main checks threw: $($_.Exception.Message)"
+    $mainException = $_
+    $failed = $true
+}
+finally {
+    $cleanupPassed = $false
+    if ($projectStarted) {
+        try {
+            Log "Stopping only project $ProjectName ..."
+            Invoke-Compose -ComposeArgs @('down')
+            $remaining = & docker compose -p $ProjectName -f $ComposeBase -f $ComposeOverride ps -q
+            if ($LASTEXITCODE -ne 0) {
+                throw "docker compose ps -q failed with exit code $LASTEXITCODE"
+            }
+            if ([string]::IsNullOrWhiteSpace(($remaining | Out-String).Trim())) {
+                $cleanupPassed = $true
+            }
+            else {
+                throw "Containers remain after cleanup: $remaining"
+            }
+        }
+        catch {
+            $cleanupPassed = $false
+            $failed = $true
+            Write-Warning "Cleanup failed: $_"
+        }
+    }
+    $results['cleanup'] = if ($cleanupPassed) { 'PASS' } else { 'FAIL' }
+}
 
 # ---------------------------------------------------------------------------
-# 9. Write real evidence
+# 9. Write real evidence (after cleanup verification)
 # ---------------------------------------------------------------------------
 $sha = (git -C $RepoRoot rev-parse HEAD)
 $dockerVer = (docker version --format '{{.Server.Version}}' 2>$null)
@@ -263,6 +301,7 @@ $md = @"
 | alert_firing | $($results['alert_firing']) | pending=$pendingAt firing=$firingAt |
 | alert_recovered | $($results['alert_recovered']) | recoveredAt=$recoveredAt |
 | grafana_dashboard_provisioned | $($results['grafana_dashboard_provisioned']) | title=$dashTitle |
+| cleanup | $($results['cleanup']) | no running containers remain for project $ProjectName |
 
 ## Alert transition (deterministic fault injection)
 
@@ -283,21 +322,11 @@ Rule: sum(increase(aicostops_login_result_total{result="INVALID_CREDENTIALS"}[1m
   not route /actuator/*). Sensitive endpoints (env, configprops, beans,
   heapdump) remain unexposed in all cases.
 - No global Docker prune and no unrelated project was stopped by this script.
+- Cleanup is machine-verified: the `down` exit code is checked (non-zero fails the
+  smoke) and `docker compose -p $ProjectName ... ps -q` must be empty afterwards.
 "@
 Set-Content -Path $EvidencePath -Value $md -Encoding UTF8
 Log "Evidence written to $EvidencePath"
-}
-finally {
-    if ($projectStarted) {
-        try {
-            Log "Stopping only project $ProjectName ..."
-            Invoke-Compose -ComposeArgs @('down')
-        }
-        catch {
-            Write-Warning "Failed to clean up project $ProjectName : $_"
-        }
-    }
-}
 
 if ($failed) { Write-Error "SMOKE FAILED"; exit 1 }
 Log "SMOKE PASSED"
