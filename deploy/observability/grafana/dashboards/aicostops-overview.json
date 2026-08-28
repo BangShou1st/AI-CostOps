@@ -1,0 +1,127 @@
+{
+  "uid": "aicostops-overview",
+  "title": "AI-CostOps Operational Overview",
+  "tags": ["aicostops", "m9"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP Request Rate",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(http_server_requests_seconds_count[5m]))", "legendFormat": "req/s" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP 5xx Ratio",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 1)", "legendFormat": "5xx ratio" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "JVM Heap Used (bytes)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "refId": "A", "expr": "jvm_memory_used_bytes{area=\"heap\"}", "legendFormat": "heap" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "JVM GC Pause (rate)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "refId": "A", "expr": "rate(jvm_gc_pause_seconds_sum[5m])", "legendFormat": "gc/s" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "DB Pool (Hikari)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "refId": "A", "expr": "hikaricp_connections_active", "legendFormat": "active" },
+        { "refId": "B", "expr": "hikaricp_connections_max", "legendFormat": "max" },
+        { "refId": "C", "expr": "hikaricp_connections_idle", "legendFormat": "idle" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Redis Dependency Errors",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (dependency) (increase(aicostops_dependency_error_total[10m]))", "legendFormat": "{{dependency}}" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Import Outcome",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (result) (aicostops_import_completed_total)", "legendFormat": "import {{result}}" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Ledger Posting / Correction",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (result) (aicostops_ledger_posting_total)", "legendFormat": "posting {{result}}" },
+        { "refId": "B", "expr": "sum by (result) (aicostops_ledger_correction_total)", "legendFormat": "correction {{result}}" }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Budget Activation Conflicts",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "targets": [
+        { "refId": "A", "expr": "sum(aicostops_budget_activation_total{result=\"CONFLICT\"})", "legendFormat": "conflicts" }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Reconciliation Runs",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (result) (aicostops_reconciliation_run_total)", "legendFormat": "run {{result}}" }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Period Close / Reopen",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "targets": [
+        { "refId": "A", "expr": "sum by (result) (aicostops_period_close_total)", "legendFormat": "close {{result}}" },
+        { "refId": "B", "expr": "sum by (result) (aicostops_period_reopen_total)", "legendFormat": "reopen {{result}}" }
+      ]
+    }
+  ]
+}
