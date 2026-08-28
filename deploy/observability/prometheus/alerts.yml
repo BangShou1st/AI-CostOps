@@ -1,0 +1,42 @@
+# AIC-077 operational alert rules.
+#
+# Metric names below are the REAL Micrometer/Prometheus exports from AIC-076
+# (dots -> underscores, counters get a `_total` suffix). Do not rename to a
+# second, invented metric.
+groups:
+  - name: aicostops-operational
+    rules:
+      # Plan-required rule (real ops use; not exercised by the smoke).
+      - alert: AiCostOpsHigh5xxRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+          / clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 1)
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI-CostOps 5xx ratio above 5%"
+          description: "5xx ratio over 5m is {{ $value | humanizePercentage }}."
+
+      # Plan-required rule (real ops use; not exercised by the smoke).
+      - alert: AiCostOpsImportFailureSpike
+        expr: sum(increase(aicostops_import_completed_total{result!="SUCCEEDED"}[10m])) >= 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI-CostOps import failure spike"
+          description: "{{ $value }} failed imports in the last 10m."
+
+      # Smoke-verified rule (AIC-077 evidence). This is a deliberately short,
+      # bounded `for:` and a low threshold used ONLY to prove the alert pipeline
+      # end-to-end. It is NOT a production SLO/HA/capacity claim.
+      - alert: AiCostOpsLoginInvalidCredentialsSpike
+        expr: sum(increase(aicostops_login_result_total{result="INVALID_CREDENTIALS"}[1m])) >= 3
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI-CostOps invalid-credential login spike"
+          description: "{{ $value }} invalid-credential logins in the last 1m."

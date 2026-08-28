@@ -26,7 +26,7 @@ public class SecurityConfiguration {
                 }).accessDeniedHandler((request, response, exception) ->
                         problems.forbidden(request, response, "Access to this resource is forbidden.")))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/prometheus").permitAll()
                         .requestMatchers("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/password/forgot", "/api/v1/auth/password/reset").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/invitations/*/accept").permitAll()
