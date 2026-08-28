@@ -2,8 +2,8 @@
 
 > Real run output. NO SLO / HA / capacity claims are made.
 
-- Generated: 2026-08-28T13:36:35+08:00
-- Commit SHA: c5d7e507b89e29c3d725648a13dd3581f47d4bf6
+- Generated: 2026-08-28T22:26:07+08:00
+- Commit SHA: 116e6851e0c9694e50cafde495dd45ed95e75a80
 - Docker server version: 29.6.1
 - Docker Compose version: 5.3.0
 - Compose project: aicostops-obs (started/stopped only by this script)
@@ -19,18 +19,30 @@
 | grafana_health | PASS | /api/health |
 | target_up | PASS | up{job="aicostops-backend"}=1 |
 | business_series_nonempty | PASS | aicostops_login_result_total{result="INVALID_CREDENTIALS"}=1 |
-| alert_firing | PASS | pending=08/28/2026 13:35:46 firing=08/28/2026 13:36:02 |
-| alert_recovered | PASS | recoveredAt=08/28/2026 13:36:34 |
+| alert_firing | PASS | pending=08/28/2026 22:25:16 firing=08/28/2026 22:25:31 |
+| alert_recovered | PASS | recoveredAt=08/28/2026 22:26:03 |
 | grafana_dashboard_provisioned | PASS | title=AI-CostOps Operational Overview |
+| cleanup | PASS | no running containers remain for project aicostops-obs |
 
 ## Alert transition (deterministic fault injection)
 
 Signal: invalid-credential logins (metric aicostops_login_result_total{result="INVALID_CREDENTIALS"}).
 Rule: sum(increase(aicostops_login_result_total{result="INVALID_CREDENTIALS"}[1m])) >= 3, for: 15s.
 
-- pending observed at: 08/28/2026 13:35:46
-- firing observed at: 08/28/2026 13:36:02
-- recovered (inactive) at: 08/28/2026 13:36:34
+- pending observed at: 08/28/2026 22:25:16
+- firing observed at: 08/28/2026 22:25:31
+- recovered (inactive) at: 08/28/2026 22:26:03
+
+## Core Compose runtime (without observability overlay)
+
+- observability overlay loaded: NO (base `compose.yaml` only)
+- stack start command: `docker compose --env-file .env up -d`
+- core smoke command: `pwsh -File scripts/smoke-v1.ps1 -EnvFile .env`
+- services healthy: mysql / redis / minio / backend / frontend
+- smoke stages passed: Compose service health, Dependency readiness, Compose log
+  classification, Authentication and organization scope, Workbench read, Provider
+  account and DeepSeek import, Employee expense submit, Audit query
+- result: PASS (exit 0, final output `SMOKE_V1_PASS`)
 
 ## Notes
 
@@ -42,3 +54,5 @@ Rule: sum(increase(aicostops_login_result_total{result="INVALID_CREDENTIALS"}[1m
   not route /actuator/*). Sensitive endpoints (env, configprops, beans,
   heapdump) remain unexposed in all cases.
 - No global Docker prune and no unrelated project was stopped by this script.
+- Cleanup is machine-verified: the down exit code is checked (non-zero fails the
+  smoke) and docker compose -p aicostops-obs ... ps -q must be empty afterwards.
