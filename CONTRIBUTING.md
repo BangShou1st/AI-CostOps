@@ -156,3 +156,48 @@ Review / 验收：
 ```text
 docs/03-acceptance/
 ```
+
+## 10. 持续安全 CI（M9 / AIC-079）
+
+每次 PR 与 main push 都会运行 `Security` workflow，必须通过：
+
+```text
+codeql (java-kotlin)
+codeql (javascript-typescript)
+trivy (filesystem: vuln, misconfig, secret)
+trivy (backend image: vuln)
+trivy (frontend image: vuln)
+```
+
+- CodeQL Action v4，语言为 `java-kotlin` 与 `javascript-typescript`，使用仓库真实 Java / TypeScript build。
+- Trivy 固定 `0.73.0`（docker 镜像方式运行，与本地复现完全一致）。
+- 策略：`HIGH,CRITICAL` 默认 blocking；secret finding 默认 blocking；禁止 blanket ignore。
+- `.trivyignore` 只允许逐项记录：exact finding、reason、owner/context、expiry/review date。
+- 只有 `codeql` job 拥有 `security-events: write`；workflow 默认 `contents: read`。
+
+本地复现（PowerShell）：
+
+```powershell
+Set-Location "E:\AI-CostOps"
+
+# 1. filesystem scan（等价 CI 策略）
+docker run --rm `
+  -v "${PWD}:/workspace" `
+  -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
+  aquasec/trivy:0.73.0 `
+  fs --scanners vuln,misconfig,secret `
+  --severity HIGH,CRITICAL `
+  --exit-code 1 `
+  --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/backend/target,/workspace/.trivy-cache `
+  /workspace
+
+# 2. backend / frontend 镜像扫描
+docker build --tag ai-costops-backend:local backend
+docker build --tag ai-costops-frontend:local frontend
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
+  aquasec/trivy:0.73.0 image --severity HIGH,CRITICAL --exit-code 1 ai-costops-backend:local
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
+  aquasec/trivy:0.73.0 image --severity HIGH,CRITICAL --exit-code 1 ai-costops-frontend:local
+```
+
+首次出现 findings 时逐项处理：`upgrade/fix`、`prove false positive`、或 `explicit accepted risk`（必须写入 evidence 与 `.trivyignore` 的对应条目）。

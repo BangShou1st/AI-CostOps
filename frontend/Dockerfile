@@ -6,8 +6,14 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.28.3-alpine
+FROM nginxinc/nginx-unprivileged:1.28-alpine
 
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/dist /usr/share/nginx/html
-EXPOSE 80
+# Non-root runtime (uid 101 = nginx); binds 8080 because <1024 ports require
+# root. The entrypoint config hooks need write access to conf.d and the runtime
+# dirs, so ownership is handed to uid 101 before dropping privileges.
+USER 0
+RUN chown -R 101:101 /etc/nginx/conf.d /var/cache/nginx /var/log/nginx
+USER 101
+EXPOSE 8080
