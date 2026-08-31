@@ -65,17 +65,22 @@ jobs:
       - name: Build frontend image
         run: docker build --tag ai-costops-frontend:security frontend
 
-      # Filesystem scan of the source tree (build output and vendored
-      # dependencies are covered by the image scans; dev-only dirs and the git
-      # store are skipped so the policy targets the reviewed source).
-      - name: Trivy filesystem scan (vuln, misconfig, secret)
+      # Filesystem scan of the source tree for misconfigurations and secrets.
+      # Vulnerability scanning deliberately stays with the backend/frontend
+      # image scans below: they read the actually-built dependency sets, which
+      # is strictly more accurate than the fs pom.xml graph, and this keeps CI
+      # independent of Maven Central (whose rate limiting was flaking the fs
+      # scan). Build output and vendored deps are covered by the image scans;
+      # dev-only dirs and the git store are skipped so the policy targets the
+      # reviewed source.
+      - name: Trivy filesystem scan (misconfig, secret)
         run: |
           docker run --rm \
             -v "${PWD}:/workspace" \
             -v "${PWD}/.trivy-cache:/root/.cache/trivy" \
             aquasec/trivy:0.73.0 \
             fs \
-            --scanners vuln,misconfig,secret \
+            --scanners misconfig,secret \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/.trivy-cache \

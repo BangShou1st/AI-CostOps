@@ -32,11 +32,18 @@ and a reviewed, time-bounded exception policy (none needed so far → no
 
 ```text
 ran with: aquasec/trivy:0.73.0
-scanners: vuln, misconfig, secret
+filesystem scan: misconfig, secret
+image scans:     vuln (backend + frontend)
 severity:  HIGH,CRITICAL
 exit-code: 1  (any finding blocks)
 ```
 
+- The filesystem scan covers misconfigurations and secrets; vulnerability
+  findings come from the backend/frontend **image** scans, which read the
+  actually-built dependency sets (strictly more accurate than the fs pom
+  dependency graph). Splitting it this way keeps CI independent of Maven
+  Central, whose rate limiting repeatedly returned 429 on runner IPs and flaked
+  the fs `vuln` scan.
 - Filesystem scan skips `.git`, `node_modules`, `dist`, `target` and the E2E
   artifact dirs (build output and vendored deps are covered by the image scans).
 - Secret findings are always blocking.
@@ -121,8 +128,14 @@ CodeQL uses real builds — `./mvnw -B -DskipTests package` for Java/Kotlin and
 - `compose.yaml` could not be locally scanned with the full checks bundle
   (embedded fallback checks cover Dockerfiles only); the CI `fs` scan runs the
   current bundle over the whole repository including Compose files.
-- npm/Maven dependency vulnerability findings (fs `vuln` + image scans) can only
+- npm/Maven dependency vulnerability findings (image scans) can only
   be reported from a networked runner; if the first CI run surfaces new
   HIGH/CRITICAL entries they will be triaged one by one (fix / prove false
   positive / time-bounded accepted risk) before the security check is considered
   green.
+- The `fs` scanner was changed from `vuln,misconfig,secret` to
+  `misconfig,secret` after GitHub Actions runner IPs hit Maven Central 429 rate
+  limiting while Trivy resolved the pom dependency graph (twice, ~30 min
+  retry-after each). The image scans cover the same dependency sets, so no
+  coverage was lost; this is documented here so a later PR does not silently
+  restore the flaky combination.

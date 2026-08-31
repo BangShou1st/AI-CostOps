@@ -164,13 +164,14 @@ docs/03-acceptance/
 ```text
 codeql (java-kotlin)
 codeql (javascript-typescript)
-trivy (filesystem: vuln, misconfig, secret)
+trivy (filesystem: misconfig, secret)
 trivy (backend image: vuln)
 trivy (frontend image: vuln)
 ```
 
 - CodeQL Action v4，语言为 `java-kotlin` 与 `javascript-typescript`，使用仓库真实 Java / TypeScript build。
 - Trivy 固定 `0.73.0`（docker 镜像方式运行，与本地复现完全一致）。
+- 漏洞扫描位于 backend / frontend 镜像扫描（读取实际构建出的依赖集合，比 fs 的 pom 依赖图更准确）；filesystem 扫描负责 `misconfig` 与 `secret`。这样 CI 不依赖 Maven Central（其限流曾导致 fs 扫描偶发失败）。
 - 策略：`HIGH,CRITICAL` 默认 blocking；secret finding 默认 blocking；禁止 blanket ignore。
 - `.trivyignore` 只允许逐项记录：exact finding、reason、owner/context、expiry/review date。
 - 只有 `codeql` job 拥有 `security-events: write`；workflow 默认 `contents: read`。
@@ -180,12 +181,12 @@ trivy (frontend image: vuln)
 ```powershell
 Set-Location "E:\AI-CostOps"
 
-# 1. filesystem scan（等价 CI 策略）
+# 1. filesystem scan（misconfig + secret；等价 CI 策略）
 docker run --rm `
   -v "${PWD}:/workspace" `
   -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
   aquasec/trivy:0.73.0 `
-  fs --scanners vuln,misconfig,secret `
+  fs --scanners misconfig,secret `
   --severity HIGH,CRITICAL `
   --exit-code 1 `
   --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/backend/target,/workspace/.trivy-cache `
