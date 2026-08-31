@@ -1,0 +1,20 @@
+# Trivy accepted-risk registry — AIC-079.
+# Policy: HIGH/CRITICAL findings are blocking unless listed here.
+# Budget rule: each entry is an explicit time-bounded accepted risk for the
+# frontend image's nginx package. Upstream fixed versions were not available at
+# scan time: nginx 1.28.3 has not been published to the nginx.org Alpine repo
+# or the nginxinc/nginx-unprivileged image tags yet (latest 1.28.2).
+# Revisit: 2026-11-30 — re-run `docker pull nginxinc/nginx-unprivileged:1.28-alpine`,
+# then re-scan; when 1.28.3 ships, drop these entries.
+# Owner: BangShou1st (M9 benchmark/maintainer).
+# Secret findings are NEVER ignored (secret scan stays fully blocking).
+CVE-2026-27651 # nginx 1.28.2-r1 rewrite module DoS; fixed upstream in 1.28.3-r1; reviewer: nginx security; revisit 2026-11-30
+CVE-2026-27654 # nginx 1.28.2-r1; fixed upstream in 1.28.3-r1; revisit 2026-11-30
+CVE-2026-32647 # nginx 1.28.2-r1; fixed upstream in 1.28.3-r1; revisit 2026-11-30
+CVE-2026-42055 # nginx 1.28.2-r1; fixed upstream in 1.28.3-r1; revisit 2026-11-30
+CVE-2026-42533 # nginx 1.28.2-r1; fixed upstream in 1.28.3-r1; revisit 2026-11-30
+CVE-2026-42945 # nginx 1.28.2-r1 arbitrary code execution; fixed upstream in 1.28.3-r1; revisit 2026-11-30
+CVE-2026-42946 # nginx 1.28.2-r1 scgi/uwsgi module; fixed upstream in 1.28.3-r1; revisit 2026-11-30
+CVE-2026-49975 # nginx 1.28.2-r1; fixed upstream in 1.28.3-r1; revisit 2026-11-30
+CVE-2026-60005 # nginx 1.28.2-r1 slice module memory disclosure/DoS; fixed upstream in 1.28.3-r1; revisit 2026-11-30
+CVE-2026-9256  # nginx 1.28.2-r1 rewrite module code execution/DoS; fixed upstream in 1.28.3-r1; revisit 2026-11-30

@@ -173,7 +173,7 @@ trivy (frontend image: vuln)
 - Trivy 固定 `0.73.0`（docker 镜像方式运行，与本地复现完全一致）。
 - 漏洞扫描位于 backend / frontend 镜像扫描（读取实际构建出的依赖集合，比 fs 的 pom 依赖图更准确）；filesystem 扫描负责 `misconfig` 与 `secret`。这样 CI 不依赖 Maven Central（其限流曾导致 fs 扫描偶发失败）。
 - 策略：`HIGH,CRITICAL` 默认 blocking；secret finding 默认 blocking；禁止 blanket ignore。
-- `.trivyignore` 只允许逐项记录：exact finding、reason、owner/context、expiry/review date。
+- `.trivyignore` 只允许逐项记录：exact finding、reason、owner/context、expiry/review date。当前唯一条目是 frontend 镜像 nginx 1.28.2 的 10 个 CVE（上游修复版 1.28.3 尚未发布到 nginx.org Alpine 仓库 / nginx-unprivileged 镜像 tag；revisit 2026-11-30 后应移除）。
 - 只有 `codeql` job 拥有 `security-events: write`；workflow 默认 `contents: read`。
 
 本地复现（PowerShell）：

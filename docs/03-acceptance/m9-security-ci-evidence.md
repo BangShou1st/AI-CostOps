@@ -53,6 +53,8 @@ exit-code: 1  (any finding blocks)
 | Finding | Severity | Decision | Evidence |
 |---|---|---|---|
 | `frontend/Dockerfile` DS-0002 "Specify at least 1 USER command" — nginx ran as root | HIGH | **fixed** (upgrade/fix) | docker build + `docker run` verified: `html=200`, process `uid=101(nginx)`; compose recreate reported `healthy` |
+| frontend image base Alpine + nginx 1.28.2-r1 known HIGH/CRITICAL CVEs (37 initially) | HIGH/CRITICAL | **fixed** (apk upgrade) | `RUN apk upgrade --no-cache` in the frontend Dockerfile; non-nginx packages (Alpine libcrypto3/curl/musl/zlib/libpng/libxml2/libexpat/c-ares) all upgraded to fixed versions |
+| nginx 1.28.2-r1 remaining 10 CVEs (CVE-2026-27651, 27654, 32647, 42055, 42533, 42945, 42946, 49975, 60005, 9256) | HIGH/CRITICAL | **time-bounded accepted risk** | `.trivyignore` entries with owner + revisit 2026-11-30; upstream fixed in nginx 1.28.3 which was not yet published to nginx.org Alpine repo / nginx-unprivileged image tags at scan time. **No secret finding is ever ignored** |
 
 Result after the fix, mirroring the CI policy (bounded local run of the exact
 scanned artifacts + full source trees):
@@ -64,7 +66,10 @@ frontend/Dockerfile dockerfile   0 misconfigs
 EXIT=0
 ```
 
-No accepted-risk entries; no `.trivyignore` file is created.
+The frontend image vuln scan reports `0 HIGH/CRITICAL` after the apk upgrade
+plus the 10 explicitly-listed nginx accepted-risk entries in `.trivyignore`
+(verified: `docker save` + `trivy image --ignorefile .trivyignore` exits 0 with
+`Some vulnerabilities have been ignored/suppressed`).
 
 ## Local reproduction (Windows, PowerShell)
 
