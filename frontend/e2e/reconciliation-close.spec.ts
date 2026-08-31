@@ -37,18 +37,16 @@ test.describe('reconciliation and period close', () => {
       // COMPLETED runs display the 已完成 status tag.
       await expect(page.getByText('已完成').first()).toBeVisible({ timeout: 120_000 })
 
-      // The case table loads asynchronously after the run status; do not start
-      // resolving until the first data row (or the empty state) has rendered.
-      await page
-        .locator('tr.ant-table-row')
-        .first()
-        .waitFor({ state: 'visible', timeout: 30_000 })
-        .catch(() => {
-          // No cases: nothing to resolve.
-        })
-
-      // Resolve every open case through the case UI until none remain.
+      // The case table is a separate react-query fetch from the run status and
+      // can lag behind it. Never decide "no cases" from a still-loading
+      // skeleton: wait in every loop iteration for the cases query to settle
+      // (the explicit empty state OR at least one row), then act on real data.
       for (let guard = 0; guard < 10; guard += 1) {
+        await expect(
+          page
+            .getByText('当前没有符合筛选条件的差异案例')
+            .or(page.locator('tr.ant-table-row').first()),
+        ).toBeVisible({ timeout: 30_000 })
         const pendingRow = page.locator('tr.ant-table-row').filter({ hasText: '待处理' }).first()
         if ((await pendingRow.count()) === 0) {
           break
@@ -70,6 +68,13 @@ test.describe('reconciliation and period close', () => {
         await page.reload()
         await expect(page.getByRole('heading', { name: '对账运行详情', level: 1 })).toBeVisible({ timeout: 20_000 })
       }
+      // Guard the final assertion with the same settled-data wait: a
+      // still-loading table is empty and must not be mistaken for "no cases".
+      await expect(
+        page
+          .getByText('当前没有符合筛选条件的差异案例')
+          .or(page.locator('tr.ant-table-row').first()),
+      ).toBeVisible({ timeout: 30_000 })
       await expect(page.locator('tr.ant-table-row').filter({ hasText: '待处理' })).toHaveCount(0, { timeout: 20_000 })
     })
 
