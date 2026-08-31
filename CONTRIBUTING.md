@@ -190,6 +190,7 @@ docker run --rm `
   --severity HIGH,CRITICAL `
   --exit-code 1 `
   --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/backend/target,/workspace/.trivy-cache `
+  --skip-files /workspace/backend/pom.xml `
   /workspace
 
 # 2. backend / frontend 镜像扫描

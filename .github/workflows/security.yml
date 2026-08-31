@@ -68,11 +68,12 @@ jobs:
       # Filesystem scan of the source tree for misconfigurations and secrets.
       # Vulnerability scanning deliberately stays with the backend/frontend
       # image scans below: they read the actually-built dependency sets, which
-      # is strictly more accurate than the fs pom.xml graph, and this keeps CI
-      # independent of Maven Central (whose rate limiting was flaking the fs
-      # scan). Build output and vendored deps are covered by the image scans;
-      # dev-only dirs and the git store are skipped so the policy targets the
-      # reviewed source.
+      # is strictly more accurate than the fs pom.xml graph. The fs scan also
+      # skips pom.xml itself because Trivy resolves its dependency/BOM graph
+      # against Maven Central even in misconfig mode, and Maven Central's rate
+      # limiting was repeatedly failing the CI (429 on runner IPs). Build
+      # output and vendored deps are covered by the image scans; dev-only dirs
+      # and the git store are skipped so the policy targets the reviewed source.
       - name: Trivy filesystem scan (misconfig, secret)
         run: |
           docker run --rm \
@@ -84,6 +85,7 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/.trivy-cache \
+            --skip-files /workspace/backend/pom.xml \
             /workspace
 
       - name: Trivy backend image scan (vuln)
