@@ -10,7 +10,7 @@ This matrix is the live M9 acceptance index. It starts as `NOT EXECUTED`; eviden
 | AIC-077 | Observability | Prometheus target + Grafana dashboard + alert injection/recovery | NOT EXECUTED |
 | AIC-078 | Browser E2E | Playwright critical-flow report + CI run | NOT EXECUTED |
 | AIC-079 | Security CI | CodeQL + Trivy final green evidence / accepted risks | NOT EXECUTED |
-| AIC-080 | Recovery | MySQL + Evidence restore drill with `M9_RESTORE_DRILL_PASS` | NOT EXECUTED |
+| AIC-080 | Recovery | MySQL + Evidence restore drill with `M9_RESTORE_DRILL_PASS` | EXECUTED — `M9_RESTORE_DRILL_PASS`; evidence in [m9-backup-restore-evidence.md](m9-backup-restore-evidence.md) |
 | AIC-081 | Scale | 10k / 100k / 500k import report + reporting benchmark | NOT EXECUTED |
 | AIC-082 | Provider certification | one real-but-redacted Provider certification report | NOT EXECUTED |
 | AIC-083 | Final acceptance | clean final verification + GitHub checks + human sign-off | NOT EXECUTED |
