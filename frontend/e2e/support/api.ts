@@ -139,11 +139,25 @@ export interface ReconciliationCase {
   type?: string
 }
 
+export type CloseBlockerCode =
+  | 'OPEN_IMPORTS'
+  | 'UNRESOLVED_DUPLICATES'
+  | 'UNALLOCATED_CHARGES'
+  | 'UNPOSTED_APPROVED_EXPENSES'
+  | 'OPEN_MATERIAL_RECONCILIATION'
+  | 'PENDING_CORRECTIONS'
+  | 'LEDGER_INTEGRITY'
+
 export interface CloseCheck {
-  name: string
-  result: 'PASS' | 'FAIL'
+  blockerCode: CloseBlockerCode
+  result: 'PASS' | 'FAIL' | 'ERROR'
   itemCount: number
   summary?: Record<string, unknown> | null
+}
+
+export interface CloseReadiness {
+  ready: boolean
+  checks: CloseCheck[]
 }
 
 /** API helpers used only to create prerequisites the browser flow is not testing. */
@@ -220,7 +234,7 @@ export class ApiClient {
     const path = expense.expenseId
       ? `/expenses/${expense.expenseId}/allocation-decisions/manual`
       : `/costs/charges/${expense.chargeId}/allocation-decisions/manual`
-    return this.json('post', path, token, lines)
+    return this.json('post', path, token, { lines })
   }
 
   async confirmAllocation(token: string, decisionId: number): Promise<AllocationDecision> {
@@ -342,7 +356,7 @@ export class ApiClient {
     return this.json('post', `/reconciliation-cases/${caseId}/resolve`, token, input)
   }
 
-  async closeReadiness(token: string, periodId: number): Promise<{ checks: CloseCheck[] }> {
+  async closeReadiness(token: string, periodId: number): Promise<CloseReadiness> {
     return this.json('get', `/billing-periods/${periodId}/close-readiness`, token)
   }
 
