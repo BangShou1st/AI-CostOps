@@ -182,6 +182,16 @@ class M9ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
                     fixture.inputRows(), fixture.bytes().length, uploadMillis, workerMillis, confirmMillis,
                     totalMillis, confirmed.status().name());
         } catch (Throwable failure) {
+            if (!isRecognizedResourceCeiling(failure)) {
+                if (failure instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (failure instanceof Error err) {
+                    throw err;
+                }
+                throw new AssertionError("M9 import benchmark failed with non-ceiling throwable at "
+                        + scale.name().toLowerCase(Locale.ROOT) + " run " + run, failure);
+            }
             var maxHeapMiB = memory == null ? 0 : memory.getHeapMemoryUsage().getMax() / (1024 * 1024);
             var usedAfterMiB = memory == null ? 0 : memory.getHeapMemoryUsage().getUsed() / (1024 * 1024);
             var message = String.valueOf(failure.getMessage());
@@ -382,6 +392,38 @@ class M9ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
 
     private static GcDelta gcDelta(GcSample before, GcSample after) {
         return new GcDelta(after.count() - before.count(), after.timeMillis() - before.timeMillis());
+    }
+
+    private static boolean isRecognizedResourceCeiling(Throwable failure) {
+        if (failure instanceof OutOfMemoryError) {
+            return true;
+        }
+        var name = failure.getClass().getName();
+        var msg = String.valueOf(failure.getMessage()).toLowerCase(Locale.ROOT);
+        // OOM-like messages from various layers
+        if (msg.contains("outofmemory") || msg.contains("java heap space")
+                || msg.contains("gc overhead limit exceeded")
+                || msg.contains("unable to create new native thread")
+                || msg.contains("memory exhausted")
+                || msg.contains("container killed")
+                || msg.contains("killed because")) {
+            return true;
+        }
+        // Testcontainers / Docker resource exhaustion
+        if (name.contains("ContainerLaunchException") || name.contains("ContainerFetchException")) {
+            if (msg.contains("memory") || msg.contains("killed") || msg.contains("oom")) {
+                return true;
+            }
+        }
+        // Benchmark-owned bounded timeout (the poll deadline) — only the
+        // benchmark's own awaitAttempt timeout, not arbitrary SQL timeouts
+        if (msg.contains("m9 import attempt") && msg.contains("did not reach")) {
+            return true;
+        }
+        // Explicitly NOT ceilings (must fail the benchmark):
+        // AssertionError, BadSqlGrammarException, DataAccessException,
+        // NullPointerException, IllegalStateException, IllegalArgumentException, etc.
+        return false;
     }
 
     enum Scale {
