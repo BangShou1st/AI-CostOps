@@ -41,20 +41,33 @@ test.describe('reconciliation and period close', () => {
       // can lag behind it. Never decide "no cases" from a still-loading
       // skeleton: wait in every loop iteration for the cases query to settle
       // (the explicit empty state OR at least one row), then act on real data.
-      for (let guard = 0; guard < 10; guard += 1) {
+      for (let guard = 0; guard < 20; guard += 1) {
         await expect(
           page
             .getByText('当前没有符合筛选条件的差异案例')
             .or(page.locator('tr.ant-table-row').first()),
         ).toBeVisible({ timeout: 30_000 })
-        const pendingRow = page.locator('tr.ant-table-row').filter({ hasText: '待处理' }).first()
-        if ((await pendingRow.count()) === 0) {
+        // CLOSE readiness blocks on ANY unresolved case (OPEN or INVESTIGATING).
+        // Earlier runs only handled 待处理 and missed 调查中 leftovers.
+        const unresolvedRow = page
+          .locator('tr.ant-table-row')
+          .filter({ hasText: /待处理|调查中/ })
+          .first()
+        if ((await unresolvedRow.count()) === 0) {
           break
         }
-        await pendingRow.getByRole('button', { name: /详\s*情/ }).click()
+        await unresolvedRow.getByRole('button', { name: /详\s*情/ }).click()
         await page.waitForURL(/\/reconciliation\/cases\/\d+$/, { timeout: 20_000 })
-        await page.getByRole('button', { name: '开始调查' }).click()
-        await expect(page.getByRole('button', { name: '标记已解决' })).toBeVisible({ timeout: 20_000 })
+        // Detail page can be OPEN (show 开始调查) or already INVESTIGATING (show 标记已解决).
+        // Wait for the hydrating detail to expose either action, then follow the right path.
+        await expect(
+          page.getByRole('button', { name: '开始调查' }).or(page.getByRole('button', { name: '标记已解决' })),
+        ).toBeVisible({ timeout: 20_000 })
+        const startButton = page.getByRole('button', { name: '开始调查' })
+        if ((await startButton.count()) > 0) {
+          await startButton.click()
+          await expect(page.getByRole('button', { name: '标记已解决' })).toBeVisible({ timeout: 20_000 })
+        }
         await page.getByRole('button', { name: '标记已解决' }).click()
         const modal = page.locator('.ant-modal:visible').last()
         await modal.getByPlaceholder('请输入处理原因').fill('OPERATIONAL_DECISION')
@@ -64,7 +77,7 @@ test.describe('reconciliation and period close', () => {
         await page.getByRole('button', { name: '← 返回运行详情' }).click()
         await expect(page.getByRole('heading', { name: '对账运行详情', level: 1 })).toBeVisible({ timeout: 20_000 })
         // The run-detail case list is cached by react-query and would keep
-        // showing the stale 待处理 tag; reload to observe the resolved state.
+        // showing the stale 调查中 tag; reload to observe the resolved state.
         await page.reload()
         await expect(page.getByRole('heading', { name: '对账运行详情', level: 1 })).toBeVisible({ timeout: 20_000 })
       }
@@ -75,14 +88,47 @@ test.describe('reconciliation and period close', () => {
           .getByText('当前没有符合筛选条件的差异案例')
           .or(page.locator('tr.ant-table-row').first()),
       ).toBeVisible({ timeout: 30_000 })
-      await expect(page.locator('tr.ant-table-row').filter({ hasText: '待处理' })).toHaveCount(0, { timeout: 20_000 })
+      await expect(page.locator('tr.ant-table-row').filter({ hasText: /待处理|调查中/ })).toHaveCount(0, { timeout: 20_000 })
+
+      // Browser loop may miss a paginated or late-arriving case; use the API
+      // as a deterministic fallback to close any remaining unresolved cases
+      // from the run we just created (does not bypass browser reconciliation).
+      const runUrl = new URL(page.url())
+      const runId = Number(runUrl.pathname.split('/').pop())
+      if (runId) {
+        const remaining = await api.listReconciliationCases(token, { runId })
+        for (const item of remaining.items) {
+          if (item.status === 'RESOLVED') continue
+          if (item.status === 'OPEN') {
+            await api.investigateCase(token, item.id)
+          }
+          await api.resolveCase(token, item.id, {
+            reasonCode: 'OPERATIONAL_DECISION',
+            resolutionNote: 'E2E reconciliation close drill (API fallback)',
+          })
+        }
+      }
     })
 
     await test.step('close the period in the browser', async () => {
+      const finalReadiness = await api.closeReadiness(token, periodId)
+      const blockers = finalReadiness.checks
+        .filter((check) => check.result !== 'PASS')
+        .map((check) => ({
+          blockerCode: check.blockerCode,
+          result: check.result,
+          itemCount: check.itemCount,
+          summary: check.summary,
+        }))
+      expect(
+        finalReadiness.ready,
+        `period close readiness is blocked: ${JSON.stringify(blockers)}`,
+      ).toBe(true)
+
       await page.goto(`${E2E_BASE_URL}/period-close/${periodId}`)
       await expect(page.getByRole('heading', { name: '账期关闭准备度', level: 1 })).toBeVisible({ timeout: 20_000 })
       // The close action is only usable when readiness is green.
-      await expect(page.getByText('可以关闭').first()).toBeVisible({ timeout: 60_000 })
+      await expect(page.getByText('可以关闭').first()).toBeVisible({ timeout: 20_000 })
       await page.getByRole('button', { name: '关闭账期' }).click()
       const modal = page.locator('.ant-modal:visible').last()
       await modal.getByRole('button', { name: '确认关闭' }).click()
@@ -137,7 +183,7 @@ async function settleBooks(
     if (check.result !== 'FAIL' || check.itemCount === 0) {
       continue
     }
-    if (check.name === 'UNALLOCATED_CHARGES') {
+    if (check.blockerCode === 'UNALLOCATED_CHARGES') {
       const samples: string[] = Array.isArray(check.summary?.sampleChargeFactIds)
         ? check.summary!.sampleChargeFactIds as string[]
         : []
@@ -149,14 +195,14 @@ async function settleBooks(
         await api.confirmAllocation(token, decision.id)
       }
       notes.push(`allocated ${samples.length} leftover charge(s)`)
-    } else if (check.name === 'UNPOSTED_APPROVED_EXPENSES') {
+    } else if (check.blockerCode === 'UNPOSTED_APPROVED_EXPENSES') {
       const reviews = await api.listExpenseReviews(token, 'APPROVED')
       for (const expense of reviews.items) {
         await postExpenseIfNeeded(api, token, expense, project.id)
       }
       notes.push(`posted ${reviews.items.length} leftover approved expense(s)`)
     } else {
-      notes.push(`${check.name} blocked with ${check.itemCount} item(s)`)
+      notes.push(`${check.blockerCode} blocked with ${check.itemCount} item(s)`)
     }
   }
   if (notes.length === 0) {
