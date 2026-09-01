@@ -67,7 +67,7 @@ function Invoke-Compose([string[]]$Arguments, [hashtable]$ExtraEnv = @{}) {
     }
 }
 function Invoke-Json([string]$Method, [string]$Uri, [hashtable]$Headers, $Body = $null) {
-    $params = @{ Method = $Method; Uri = $Uri; Headers = $Headers; ErrorAction = "Stop" }
+    $params = @{ Method = $Method; Uri = $Uri; Headers = $Headers; ErrorAction = "Stop"; NoProxy = $true }
     if ($Method -ne "Get") {
         $params.Headers["Idempotency-Key"] = [guid]::NewGuid().ToString("N")
     }
@@ -161,13 +161,13 @@ try {
         $health = (& docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' $containerId 2>$null).Trim()
         Assert-True ($health -eq "healthy") "Source service '$service' is not healthy (health=$health)"
     }
-    (Invoke-WebRequest -UseBasicParsing -Uri "$SourceBaseUrl/../actuator/health/liveness" -ErrorAction Stop) | Out-Null
+    (Invoke-WebRequest -UseBasicParsing -NoProxy -Uri "$SourceBaseUrl/../actuator/health/liveness" -ErrorAction Stop) | Out-Null
     Write-Output "[PASS] source stack healthy ($SourceProject)"
 
     # --------------------------------------------------------- synthetic data
     Write-Stage "Create synthetic source data via the source API"
     $session = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
-    $login = (Invoke-WebRequest -UseBasicParsing -WebSession $session -Method Post `
+    $login = (Invoke-WebRequest -UseBasicParsing -NoProxy -WebSession $session -Method Post `
         -Uri "$SourceBaseUrl/auth/login" -ContentType "application/json" `
         -Body (@{ email = $bootstrapEmail; password = $bootstrapPassword } | ConvertTo-Json -Compress) `
         -ErrorAction Stop).Content | ConvertFrom-Json
@@ -298,7 +298,13 @@ try {
     $expensesS = ((Invoke-Json "Get" "$SourceBaseUrl/expenses?page=0&size=100" $headers $null $session).items).Count
     $postingsS = ((Invoke-Json "Get" "$SourceBaseUrl/ledger/postings?page=0&size=100" $headers $null $session).items).Count
     $entriesS = ((Invoke-Json "Get" "$SourceBaseUrl/ledger/entries?page=0&size=100" $headers $null $session).items).Count
-    $periodsS = @(Invoke-Json "Get" "$SourceBaseUrl/billing-periods" $headers $null $session)
+    $rawPeriodsS = Invoke-Json "Get" "$SourceBaseUrl/billing-periods" $headers $null $session
+    # The controller returns List<BillingPeriodResponse> directly; ensure we
+    # flatten any single-element wrapper around the list before filtering.
+    $periodsS = @($rawPeriodsS)
+    if ($periodsS.Count -eq 1 -and $periodsS[0] -is [System.Collections.IList] -and @($periodsS[0]).Count -gt 1) {
+        $periodsS = @($periodsS[0])
+    }
     $openPeriod = $periodsS | Where-Object { $_.status -eq "OPEN" } | Select-Object -First 1
     Assert-True ($null -ne $openPeriod) "No OPEN billing period on the source stack"
     $sourceEvidence = @(Invoke-Json "Get" "$SourceBaseUrl/evidence?page=0&size=100" $headers $null $session)
@@ -345,6 +351,21 @@ try {
             -McImage $McImage
         $evidenceManifest = Get-Content -LiteralPath (Join-Path $evidenceBackupOut "backup-manifest.json") -Raw | ConvertFrom-Json
         $evidenceBackupCount = @($evidenceManifest.files).Count
+        # Persist MinIO coords for the later verification stage (Set-StrictMode
+        # would otherwise flag $accessKey/$secretKey/$bucket as unset there).
+        $accessKey = Get-EnvValue "MINIO_ROOT_USER"
+        $secretKey = Get-EnvValue "MINIO_ROOT_PASSWORD"
+        $bucket = [string]$evidenceManifest.bucket
+    }
+    # Also handle the -AllowEvidenceMirrorBypass path where bucket was never set
+    if (-not (Test-Path variable:bucket) -or [string]::IsNullOrWhiteSpace($bucket)) {
+        $bucket = Get-EnvValue "MINIO_BUCKET"
+    }
+    if (-not (Test-Path variable:accessKey) -or [string]::IsNullOrWhiteSpace($accessKey)) {
+        $accessKey = Get-EnvValue "MINIO_ROOT_USER"
+    }
+    if (-not (Test-Path variable:secretKey) -or [string]::IsNullOrWhiteSpace($secretKey)) {
+        $secretKey = Get-EnvValue "MINIO_ROOT_PASSWORD"
     }
     $tBackup.Stop()
 
@@ -417,11 +438,14 @@ networks:
     # ------------------------------------------------------------- verification
     Write-Stage "Verify the restored stack"
     $tVerify.Start()
-    $probe = Invoke-WebRequest -UseBasicParsing -Uri "$DrillBaseUrl/../actuator/health/liveness" -ErrorAction Stop
+    # All loopback HTTP must bypass any system proxy; PowerShell 7's
+    # Invoke-WebRequest honors system proxy by default and was hanging on
+    # localhost:18082. -NoProxy forces direct connection.
+    $probe = Invoke-WebRequest -UseBasicParsing -NoProxy -Uri "$DrillBaseUrl/../actuator/health/liveness" -ErrorAction Stop
     Assert-True ([int]$probe.StatusCode -eq 200) "Restored backend liveness failed"
 
     $drillSession = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
-    $drillLogin = (Invoke-WebRequest -UseBasicParsing -WebSession $drillSession -Method Post `
+    $drillLogin = (Invoke-WebRequest -UseBasicParsing -NoProxy -WebSession $drillSession -Method Post `
         -Uri "$DrillBaseUrl/auth/login" -ContentType "application/json" `
         -Body (@{ email = $bootstrapEmail; password = $bootstrapPassword } | ConvertTo-Json -Compress) `
         -ErrorAction Stop).Content | ConvertFrom-Json
@@ -433,19 +457,40 @@ networks:
     $expensesR = ((Invoke-Json "Get" "$DrillBaseUrl/expenses?page=0&size=100" $drillHeaders $null $drillSession).items).Count
     $postingsR = ((Invoke-Json "Get" "$DrillBaseUrl/ledger/postings?page=0&size=100" $drillHeaders $null $drillSession).items).Count
     $entriesR = ((Invoke-Json "Get" "$DrillBaseUrl/ledger/entries?page=0&size=100" $drillHeaders $null $drillSession).items).Count
-    $periodsR = @(Invoke-Json "Get" "$DrillBaseUrl/billing-periods" $drillHeaders $null $drillSession)
-    $openPeriodR = $periodsR | Where-Object { $_.id -eq $openPeriod.id } | Select-Object -First 1
+    $rawPeriodsR = Invoke-Json "Get" "$DrillBaseUrl/billing-periods" $drillHeaders $null $drillSession
+    $periodsR = @($rawPeriodsR)
+    if ($periodsR.Count -eq 1 -and $periodsR[0] -is [System.Collections.IList] -and @($periodsR[0]).Count -gt 1) {
+        $periodsR = @($periodsR[0])
+    }
+    # BillingPeriodResponse.id is serialized as String (Long.toString), so
+    # compare string forms to avoid type-coercion edge cases where -eq fails
+    # across string/int or array-expanded values.
+    $openPeriodIdStr = [string]$openPeriod.id
+    if ($openPeriodIdStr -match '\s') {
+        # Guard against the array-expansion bug where openPeriod was an array
+        # and .id expanded to "2 1"; take the first token as the intended id.
+        $openPeriodIdStr = ($openPeriodIdStr -split '\s+')[0]
+        Write-Output "[WARN] openPeriod.id was array-expanded to '$($openPeriod.id)' — using first id $openPeriodIdStr"
+    }
+    $openPeriodR = $periodsR | Where-Object { [string]$_.id -eq $openPeriodIdStr } | Select-Object -First 1
+    if ($null -eq $openPeriodR) {
+        Write-Output "[INFO] restored billing-periods: $(($periodsR | ForEach-Object { "$($_.id)/$($_.status)" }) -join ', ')"
+    }
 
     Assert-CountsEqual "charges" $chargesS $chargesR
     Assert-CountsEqual "expenses" $expensesS $expensesR
     Assert-CountsEqual "ledger postings" $postingsS $postingsR
     Assert-CountsEqual "ledger entries" $entriesS $entriesR
-    Assert-True ($null -ne $openPeriodR) "Restored stack lost the OPEN billing period $($openPeriod.id)"
-    Assert-True ($openPeriodR.status -eq "OPEN") "Restored period $($openPeriod.id) status is $($openPeriodR.status), expected OPEN"
+    Assert-True ($null -ne $openPeriodR) "Restored stack lost the OPEN billing period $openPeriodIdStr (restored ids: $(($periodsR | ForEach-Object { $_.id }) -join ', '))"
+    # $openPeriodR.status is a plain string; wrap in scalar to avoid array-valued
+    # expansion when $periodsR handling produces multiple matches.
+    $openPeriodRStatus = [string]$openPeriodR.status
+    if ($openPeriodRStatus -match '\s') { $openPeriodRStatus = ($openPeriodRStatus -split '\s+')[0] }
+    Assert-True ($openPeriodRStatus -eq "OPEN") "Restored period $openPeriodIdStr status is $openPeriodRStatus, expected OPEN"
 
     # Evidence availability + byte-for-byte download (works with or without the
     # bucket mirror; the mirror also proves object-level count/hash).
-    $evidenceDownload = Invoke-WebRequest -UseBasicParsing -Uri "$DrillBaseUrl/expenses/$expenseId/evidence/download" `
+    $evidenceDownload = Invoke-WebRequest -UseBasicParsing -NoProxy -Uri "$DrillBaseUrl/expenses/$expenseId/evidence/download" `
         -WebSession $drillSession -Headers $drillHeaders -ErrorAction Stop
     Assert-True ([int]$evidenceDownload.StatusCode -eq 200) "Evidence download failed on the restored stack"
     # PowerShell 7's Invoke-WebRequest returns Content as a string for text
