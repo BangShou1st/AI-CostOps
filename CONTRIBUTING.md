@@ -164,16 +164,16 @@ docs/03-acceptance/
 ```text
 codeql (java-kotlin)
 codeql (javascript-typescript)
-trivy (filesystem: misconfig, secret)
+trivy (filesystem: vuln, misconfig, secret — offline, DB cached)
 trivy (backend image: vuln)
 trivy (frontend image: vuln)
 ```
 
 - CodeQL Action v4，语言为 `java-kotlin` 与 `javascript-typescript`，使用仓库真实 Java / TypeScript build。
 - Trivy 固定 `0.73.0`（docker 镜像方式运行，与本地复现完全一致）。
-- 漏洞扫描位于 backend / frontend 镜像扫描（读取实际构建出的依赖集合，比 fs 的 pom 依赖图更准确）；filesystem 扫描负责 `misconfig` 与 `secret`。这样 CI 不依赖 Maven Central（其限流曾导致 fs 扫描偶发失败）。
+- Filesystem 扫描覆盖 `vuln + misconfig + secret`（`HIGH,CRITICAL` blocking），对 `backend/pom.xml` 与 `frontend/package-lock.json` 的依赖清单基于本地检出的 manifest 与缓存的漏洞 DB（`--offline-scan` + `actions/cache` 的 `.trivy-cache` 挂载），不 blanket 跳过 `backend/pom.xml`，也不依赖 runner 临时访问 Maven Central；镜像扫描额外验证实际构建出的依赖集合。
 - 策略：`HIGH,CRITICAL` 默认 blocking；secret finding 默认 blocking；禁止 blanket ignore。
-- `.trivyignore` 只允许逐项记录：exact finding、reason、owner/context、expiry/review date。当前唯一条目是 frontend 镜像 nginx 1.28.2 的 10 个 CVE（上游修复版 1.28.3 尚未发布到 nginx.org Alpine 仓库 / nginx-unprivileged 镜像 tag；revisit 2026-11-30 后应移除）。
+- `.trivyignore` 只在存在真实、已评审、限期的 HIGH/CRITICAL 且当前无法修复时才逐项记录（exact finding、reason、owner/context、expiry/review date）；当前 `Accepted risks: NONE`，不存在 `.trivyignore`。历史的 nginx 1.28.2 10 条 CVE 已随基线恢复到 `nginx:1.28.3-alpine` 而失效并移除。
 - 只有 `codeql` job 拥有 `security-events: write`；workflow 默认 `contents: read`。
 
 本地复现（PowerShell）：
@@ -181,21 +181,23 @@ trivy (frontend image: vuln)
 ```powershell
 Set-Location "E:\AI-CostOps"
 
-# 1. filesystem scan（misconfig + secret；等价 CI 策略）
+# Build images first (needed by the image scans)
+docker build --tag ai-costops-backend:local backend
+docker build --tag ai-costops-frontend:local frontend
+docker run --rm ai-costops-frontend:local id   # must be non-root (uid 101 nginx)
+
+# 1. filesystem scan — CI-identical (vuln + misconfig + secret, offline, DB cached)
 docker run --rm `
   -v "${PWD}:/workspace" `
   -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
   aquasec/trivy:0.73.0 `
-  fs --scanners misconfig,secret `
+  fs --scanners vuln,misconfig,secret `
   --severity HIGH,CRITICAL `
-  --exit-code 1 `
-  --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/backend/target,/workspace/.trivy-cache `
-  --skip-files /workspace/backend/pom.xml `
+  --exit-code 1 --offline-scan `
+  --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/.trivy-cache `
   /workspace
 
-# 2. backend / frontend 镜像扫描
-docker build --tag ai-costops-backend:local backend
-docker build --tag ai-costops-frontend:local frontend
+# 2. backend / frontend 镜像扫描（no ignorefile; any HIGH/CRITICAL blocks）
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
   aquasec/trivy:0.73.0 image --severity HIGH,CRITICAL --exit-code 1 ai-costops-backend:local
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}/.trivy-cache:/root/.cache/trivy" `

@@ -59,44 +59,56 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: .trivy-cache
+          key: trivy-db-v0.73.0-${{ hashFiles('backend/pom.xml', 'frontend/package-lock.json') }}
+          restore-keys: |
+            trivy-db-v0.73.0-
+
       - name: Build backend image
         run: docker build --tag ai-costops-backend:security backend
 
       - name: Build frontend image
         run: docker build --tag ai-costops-frontend:security frontend
 
-      # Filesystem scan of the source tree for misconfigurations and secrets.
-      # Vulnerability scanning deliberately stays with the backend/frontend
-      # image scans below: they read the actually-built dependency sets, which
-      # is strictly more accurate than the fs pom.xml graph. The fs scan also
-      # skips pom.xml itself because Trivy resolves its dependency/BOM graph
-      # against Maven Central even in misconfig mode, and Maven Central's rate
-      # limiting was repeatedly failing the CI (429 on runner IPs). Build
-      # output and vendored deps are covered by the image scans; dev-only dirs
-      # and the git store are skipped so the policy targets the reviewed source.
-      - name: Trivy filesystem scan (misconfig, secret)
+      # Filesystem scan must cover the approved AIC-079 surface:
+      #   vuln + misconfig + secret, severity HIGH,CRITICAL, exit-code 1.
+      # It must NOT blanket-skip backend/pom.xml or the backend tree.
+      # The previous 429 on Maven Central is mitigated without weakening
+      # the control:
+      #   - Trivy DB is cached via actions/cache (.trivy-cache) and mounted
+      #     into the container, so DB download is not repeated on every run.
+      #   - The scan runs with --offline-scan: Trivy does not attempt to
+      #     reach Maven Central / registries during the filesystem scan; it
+      #     evaluates the locally-checked-out dependency manifests (pom.xml,
+      #     package-lock.json) against the cached vulnerability DB.
+      #     This keeps Java + JS dependency coverage while removing the
+      #     runner-IP 429 dependency that previously flaked CI.
+      #   - No --skip-files for backend/pom.xml; no --continue-on-error.
+      - name: Trivy filesystem scan (vuln, misconfig, secret)
         run: |
+          mkdir -p .trivy-cache
           docker run --rm \
             -v "${PWD}:/workspace" \
             -v "${PWD}/.trivy-cache:/root/.cache/trivy" \
             aquasec/trivy:0.73.0 \
             fs \
-            --scanners misconfig,secret \
+            --scanners vuln,misconfig,secret \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
+            --offline-scan \
             --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/.trivy-cache \
-            --skip-files /workspace/backend/pom.xml \
             /workspace
 
       - name: Trivy backend image scan (vuln)
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${PWD}:/workspace" \
             -v "${PWD}/.trivy-cache:/root/.cache/trivy" \
             aquasec/trivy:0.73.0 \
             image \
-            --ignorefile /workspace/.trivyignore \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             ai-costops-backend:security
@@ -105,11 +117,9 @@ jobs:
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${PWD}:/workspace" \
             -v "${PWD}/.trivy-cache:/root/.cache/trivy" \
             aquasec/trivy:0.73.0 \
             image \
-            --ignorefile /workspace/.trivyignore \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             ai-costops-frontend:security

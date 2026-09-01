@@ -6,20 +6,20 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginxinc/nginx-unprivileged:1.28-alpine
+FROM nginx:1.28.3-alpine
 
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/dist /usr/share/nginx/html
-# Non-root runtime (uid 101 = nginx); binds 8080 because <1024 ports require
-# root. The entrypoint config hooks need write access to conf.d and the runtime
-# dirs, so ownership is handed to uid 101 before dropping privileges.
-USER 0
-# The pinned base image ships Alpine packages with known HIGH/CRITICAL fixes
-# (nginx 1.28.2-r1 -> 1.28.3-r1, openssl 3.5.5-r0 -> 3.5.6-r0, musl, curl,
-# zlib, libpng, libxml2, libexpat, c-ares). Upgrade the whole distribution so
-# the shipped image has no HIGH/CRITICAL findings; apk must run before
-# dropping privileges.
-RUN apk upgrade --no-cache
-RUN chown -R 101:101 /etc/nginx/conf.d /var/cache/nginx /var/log/nginx
-USER 101
+
+# Keep the 1.28.3 base (fixes known nginx CVEs) and run non-root.
+# nginx:alpine ships user `nginx` (uid 101 / gid 101); <1024 ports require
+# non-root bind, so the server listens on 8080 (see nginx/default.conf).
+# The pid and cache paths must be writable by that uid.
+RUN apk upgrade --no-cache && \
+    mkdir -p /var/cache/nginx /var/run && \
+    chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d /usr/share/nginx/html /var/run && \
+    chmod -R 755 /var/cache/nginx /var/log/nginx && \
+    touch /var/run/nginx.pid && chown nginx:nginx /var/run/nginx.pid
+
+USER nginx
 EXPOSE 8080
