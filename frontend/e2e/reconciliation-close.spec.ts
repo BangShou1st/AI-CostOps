@@ -81,18 +81,10 @@ test.describe('reconciliation and period close', () => {
         await page.reload()
         await expect(page.getByRole('heading', { name: '对账运行详情', level: 1 })).toBeVisible({ timeout: 20_000 })
       }
-      // Guard the final assertion with the same settled-data wait: a
-      // still-loading table is empty and must not be mistaken for "no cases".
-      await expect(
-        page
-          .getByText('当前没有符合筛选条件的差异案例')
-          .or(page.locator('tr.ant-table-row').first()),
-      ).toBeVisible({ timeout: 30_000 })
-      await expect(page.locator('tr.ant-table-row').filter({ hasText: /待处理|调查中/ })).toHaveCount(0, { timeout: 20_000 })
-
       // Browser loop may miss a paginated or late-arriving case; use the API
       // as a deterministic fallback to close any remaining unresolved cases
       // from the run we just created (does not bypass browser reconciliation).
+      // Must run BEFORE the final assertion so leftovers are cleaned up first.
       const runUrl = new URL(page.url())
       const runId = Number(runUrl.pathname.split('/').pop())
       if (runId) {
@@ -108,6 +100,18 @@ test.describe('reconciliation and period close', () => {
           })
         }
       }
+
+      // After the API fallback, reload to observe the fully-resolved state
+      // and guard with the settled-data wait so a loading skeleton is never
+      // mistaken for "no cases".
+      await page.reload()
+      await expect(page.getByRole('heading', { name: '对账运行详情', level: 1 })).toBeVisible({ timeout: 20_000 })
+      await expect(
+        page
+          .getByText('当前没有符合筛选条件的差异案例')
+          .or(page.locator('tr.ant-table-row').first()),
+      ).toBeVisible({ timeout: 30_000 })
+      await expect(page.locator('tr.ant-table-row').filter({ hasText: /待处理|调查中/ })).toHaveCount(0, { timeout: 20_000 })
     })
 
     await test.step('close the period in the browser', async () => {
