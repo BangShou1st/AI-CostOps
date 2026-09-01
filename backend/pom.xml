@@ -13,7 +13,7 @@
 
   <groupId>com.aicostops</groupId>
   <artifactId>backend</artifactId>
-  <version>0.0.1-SNAPSHOT</version>
+  <version>1.1.0</version>
   <name>AI CostOps Backend</name>
   <description>AI CostOps modular monolith backend</description>
 
