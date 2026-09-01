@@ -90,3 +90,9 @@ Thumbs.db
 # Review Artifacts
 # =========================
 *.patch
+
+# =========================
+# Local Backup / Restore Drill Artifacts (AIC-080)
+# =========================
+.local-backups/
+.local-restore-drill/

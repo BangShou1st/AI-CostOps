@@ -1,0 +1,125 @@
+name: Security
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: codeql
+    permissions:
+      contents: read
+      # Only this job may upload security events; the workflow stays read-only.
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [java-kotlin, javascript-typescript]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.14.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          config-file: .github/codeql/codeql-config.yml
+      # Real builds so the extractors observe actual code, not just syntax.
+      - name: Build real sources for the extractor
+        shell: bash
+        run: |
+          if [ "${{ matrix.language }}" = "java-kotlin" ]; then
+            (cd backend && ./mvnw -B -DskipTests package)
+          else
+            (cd frontend && npm ci && npm run build)
+          fi
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+
+  trivy:
+    name: trivy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: .trivy-cache
+          key: trivy-db-v0.73.0-${{ hashFiles('backend/pom.xml', 'frontend/package-lock.json') }}
+          restore-keys: |
+            trivy-db-v0.73.0-
+
+      - name: Build backend image
+        run: docker build --tag ai-costops-backend:security backend
+
+      - name: Build frontend image
+        run: docker build --tag ai-costops-frontend:security frontend
+
+      # Filesystem scan must cover the approved AIC-079 surface:
+      #   vuln + misconfig + secret, severity HIGH,CRITICAL, exit-code 1.
+      # It must NOT blanket-skip backend/pom.xml or the backend tree.
+      # The previous 429 on Maven Central is mitigated without weakening
+      # the control:
+      #   - Trivy DB is cached via actions/cache (.trivy-cache) and mounted
+      #     into the container, so DB download is not repeated on every run.
+      #   - The scan runs with --offline-scan: Trivy does not attempt to
+      #     reach Maven Central / registries during the filesystem scan; it
+      #     evaluates the locally-checked-out dependency manifests (pom.xml,
+      #     package-lock.json) against the cached vulnerability DB.
+      #     This keeps Java + JS dependency coverage while removing the
+      #     runner-IP 429 dependency that previously flaked CI.
+      #   - No --skip-files for backend/pom.xml; no --continue-on-error.
+      - name: Trivy filesystem scan (vuln, misconfig, secret)
+        run: |
+          mkdir -p .trivy-cache
+          docker run --rm \
+            -v "${PWD}:/workspace" \
+            -v "${PWD}/.trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.73.0 \
+            fs \
+            --scanners vuln,misconfig,secret \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --offline-scan \
+            --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/.trivy-cache \
+            /workspace
+
+      - name: Trivy backend image scan (vuln)
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}/.trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.73.0 \
+            image \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            ai-costops-backend:security
+
+      - name: Trivy frontend image scan (vuln)
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}/.trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.73.0 \
+            image \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            ai-costops-frontend:security

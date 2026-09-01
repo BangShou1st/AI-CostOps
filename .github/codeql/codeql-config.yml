@@ -1,0 +1,18 @@
+name: "AI CostOps CodeQL configuration"
+
+# Follow-security queries plus the app source trees. Build output, vendored
+# dependencies and generated test artifacts are intentionally excluded; the
+# dependency risk surface is covered by the Trivy image scans.
+queries:
+  - uses: security-and-quality
+
+paths:
+  - backend/src
+  - frontend/src
+
+paths-ignore:
+  - "**/target/**"
+  - "**/dist/**"
+  - "**/node_modules/**"
+  - "**/playwright-report/**"
+  - "**/test-results/**"
