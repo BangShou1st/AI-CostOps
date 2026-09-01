@@ -351,6 +351,27 @@ try {
     # ----------------------------------------------------- isolated drill project
     Write-Stage "Start isolated restore-drill project '$DrillProject'"
     $DrillProject = "aicostops-restore-drill-$drillTs"
+    # Derive the real frontend container port from the service definition so
+    # the drill stays compatible with #121's final 8080 runtime without
+    # hardcoding a branch-specific port. Prefer nginx config; fall back to
+    # compose.yaml.
+    $frontendContainerPort = 0
+    $nginxConfPath = Join-Path $repoRoot "frontend/nginx/default.conf"
+    if (Test-Path -LiteralPath $nginxConfPath) {
+        $nginxText = Get-Content -LiteralPath $nginxConfPath -Raw
+        $match = [regex]::Match($nginxText, 'listen\s+(\d+)')
+        if ($match.Success) { $frontendContainerPort = [int]$match.Groups[1].Value }
+    }
+    if ($frontendContainerPort -le 0) {
+        $composePath = Join-Path $repoRoot "compose.yaml"
+        if (Test-Path -LiteralPath $composePath) {
+            $composeText = Get-Content -LiteralPath $composePath -Raw
+            $composeMatch = [regex]::Match($composeText, '\$\{FRONTEND_PORT\}:(\d+)')
+            if ($composeMatch.Success) { $frontendContainerPort = [int]$composeMatch.Groups[1].Value }
+        }
+    }
+    if ($frontendContainerPort -le 0) { $frontendContainerPort = 8080 }
+    Write-Output "[INFO] derived frontend container port=$frontendContainerPort (from nginx/compose)"
     $overrideYaml = @"
 services:
   backend:
@@ -359,10 +380,10 @@ services:
     image: ai-costops-frontend:local
     # !override replaces (not appends) the compose.yaml port mapping: the drill
     # frontend must own exactly its isolated port and never steal the source
-    # stack's FRONTEND_PORT. The container side maps the nginx port that is
-    # actually listening (80 on main; AIC-079 moves it to 8080 later).
+    # stack's FRONTEND_PORT. Container port is derived from the real service
+    # definition (nginx default.conf / compose.yaml) for cross-PR compatibility.
     ports: !override
-      - "${DrillFrontendPort}:80"
+      - "${DrillFrontendPort}:$frontendContainerPort"
 networks:
   aicostops:
     name: $drillNetwork
@@ -435,9 +456,40 @@ networks:
     }
     Assert-True ($evidenceContent -eq $evidenceText) "Restored Evidence content mismatch"
     if ($mcAvailable) {
-        Assert-CountsEqual "evidence objects" $evidenceBackupCount $evidenceBackupCount
+        # Independently verify the restored bucket object count via the
+        # isolated MinIO, not by comparing the backup count to itself.
+        $restoredEvidenceCount = 0
+        $restoredListingJson = & docker run --rm `
+            --network $drillNetwork `
+            -e "MC_HOST_drill=http://$accessKey`:$secretKey@minio:9000" `
+            $McImage ls --recursive --json "drill/$bucket" 2>&1
+        if ($LASTEXITCODE -eq 0 -and $restoredListingJson) {
+            foreach ($line in $restoredListingJson) {
+                if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                try {
+                    $entry = $line | ConvertFrom-Json
+                    if ($entry.type -eq "file") { $restoredEvidenceCount += 1 }
+                } catch { continue }
+            }
+        }
+        Write-Output "[INFO] restored Evidence bucket object count: $restoredEvidenceCount (backup manifest count: $evidenceBackupCount)"
+        Assert-True ($restoredEvidenceCount -gt 0) "Restored Evidence bucket is empty (drill/$bucket)"
+        Assert-CountsEqual "evidence objects" $evidenceBackupCount $restoredEvidenceCount
     } else {
-        Assert-CountsEqual "evidence objects (API)" $evidenceCountS $evidenceCountS
+        # Mirror bypass: compare source API-visible evidence count vs restored
+        # API-visible count (two independent reads).
+        $restoredEvidence = @(Invoke-Json "Get" "$DrillBaseUrl/evidence?page=0&size=100" $drillHeaders $null $drillSession)
+        $restoredEvidenceCount = 0
+        if ($restoredEvidence.PSObject.Properties.Name -contains "items") {
+            # Paginated response
+            $restoredEvidenceCount = @($restoredEvidence.items).Count
+        } elseif ($restoredEvidence -and $restoredEvidence.Count -gt 0 -and $restoredEvidence[0].PSObject.Properties.Name -contains "items") {
+            $restoredEvidenceCount = @($restoredEvidence[0].items).Count
+        } else {
+            $restoredEvidenceCount = @($restoredEvidence).Count
+        }
+        Write-Output "[INFO] evidence counts source(API)=$evidenceCountS restored(API)=$restoredEvidenceCount"
+        Assert-CountsEqual "evidence objects (API)" $evidenceCountS $restoredEvidenceCount
     }
 
     $tVerify.Stop()

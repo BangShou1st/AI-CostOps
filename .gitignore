@@ -96,8 +96,3 @@ Thumbs.db
 # =========================
 .local-backups/
 .local-restore-drill/
-
-# =========================
-# Learning / Personal Notes
-# =========================
-docs/learning/
