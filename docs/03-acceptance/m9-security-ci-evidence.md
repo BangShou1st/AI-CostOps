@@ -2,42 +2,31 @@
 
 > Branch: `chore/m9-security-ci`
 > Tested implementation SHA: `e730bd32ca05b9c168702259bf6a35d84bea7dc8`
-> NGINX base: `nginx:1.30.4-alpine` (stable, patched)
-> Runtime: uid 101 (nginx) / non-root, container port 8080
+> NGINX base: `nginx:1.30.4-alpine`
+> Runtime: uid 101 (`nginx`) / non-root, container port 8080
 
 ## Scope
 
-Add repeatable security enforcement to CI without weakening the V1 integration
-suite: CodeQL Action v4 (Java/Kotlin + JavaScript/TypeScript), Trivy 0.73.0
-filesystem + backend/frontend image scans, least-privilege workflow permissions,
-no stale accepted risks.
+Add repeatable security enforcement to CI without weakening the V1 integration suite:
+CodeQL Action v4 (Java/Kotlin + JavaScript/TypeScript), Trivy 0.73.0 filesystem +
+backend/frontend image scans, least-privilege workflow permissions, and no stale
+accepted risks.
 
-## Files
+## Final frontend runtime contract
 
-| File | Purpose |
-|---|---|
-| `.github/workflows/security.yml` | CodeQL (matrix java-kotlin + javascript-typescript) and Trivy job |
-| `.github/codeql/codeql-config.yml` | Query pack + path allow/ignore (backend/src, frontend/src) |
-| `frontend/Dockerfile` | `nginx:1.30.4-alpine` base, `USER nginx` (uid 101), `listen 8080` |
-| `frontend/nginx/default.conf` | `listen 8080` (non-privileged) |
-| `compose.yaml` | Frontend maps `${FRONTEND_PORT}:8080`; healthcheck `127.0.0.1:8080` |
-| `CONTRIBUTING.md` | Section 10: check names + local reproduction commands |
-
-## Frontend runtime contract (final)
-
-| Property | Value | How verified |
+| Property | Final value | Verification |
 |---|---|---|
-| Base image | `nginx:1.30.4-alpine` | `frontend/Dockerfile` FROM line |
-| Runtime user | `nginx` (uid 101), `USER nginx` | `docker run --rm ai-costops-frontend:security id` → `uid=101(nginx)` |
-| Container port | `8080` | `nginx/default.conf` `listen 8080` + `compose.yaml` `${FRONTEND_PORT}:8080` + healthcheck `127.0.0.1:8080` |
-| HTML | `200` | `curl http://127.0.0.1:18081/` (isolated docker run with `--add-host backend:127.0.0.1`) → `200` with `<!doctype html>` |
-| API proxy | `/api/v1` → `backend:8080` | `nginx/default.conf` `proxy_pass http://backend:8080` |
-| Healthcheck | `wget --spider http://127.0.0.1:8080/` | `docker exec` inside running container → PASS |
+| Base image | `nginx:1.30.4-alpine` | `frontend/Dockerfile` |
+| Runtime user | `nginx` / uid 101 | `USER nginx`; local `docker run ... id` |
+| Container port | `8080` | nginx `listen 8080`, Dockerfile `EXPOSE 8080`, Compose `${FRONTEND_PORT}:8080` |
+| Healthcheck | `http://127.0.0.1:8080/` | local isolated runtime PASS |
+| API proxy | `/api/v1` -> `backend:8080` | `frontend/nginx/default.conf` |
 
-Nginx 1.30.4 is the current stable line (1.30.4 published 2026-04-?? via Docker Official Images).
-`apk upgrade` on 1.30.4 upgrades libcrypto/libssl/libexpat to latest Alpine 3.24.
+The prior 1.28.x accepted-risk path is superseded. This PR pins
+`nginx:1.30.4-alpine`; the final frontend image scan reports zero HIGH/CRITICAL
+findings without an ignore file.
 
-## Trivy policy (as enforced)
+## Trivy policy as enforced
 
 ```text
 runner image:        aquasec/trivy:0.73.0
@@ -45,59 +34,31 @@ filesystem:          --scanners vuln,misconfig,secret
                      --severity HIGH,CRITICAL
                      --exit-code 1
                      --offline-scan
-                     (DB cached via actions/cache -> .trivy-cache -> container mount)
-image scans:         backend image  --severity HIGH,CRITICAL --exit-code 1  (no --ignorefile)
-                     frontend image --severity HIGH,CRITICAL --exit-code 1  (no --ignorefile)
+image scans:         backend image  --severity HIGH,CRITICAL --exit-code 1
+                     frontend image --severity HIGH,CRITICAL --exit-code 1
+accepted-risk file:  NONE
 ```
 
-- Filesystem scan covers `vuln + misconfig + secret`. It does NOT skip
-  `backend/pom.xml` and does not use `continue-on-error` / `|| true`.
-- The Maven Central 429 that previously flaked the filesystem `vuln` scan is
-  addressed by caching the Trivy vulnerability DB (`actions/cache` on
-  `.trivy-cache`, mounted as `/root/.cache/trivy`) and passing
-  `--offline-scan` so the scan evaluates the checked-out manifests
-  (`backend/pom.xml`, `frontend/package-lock.json`) against the cached DB
-  without reaching out to Maven Central on the runner. Java and JS
-  dependency coverage therefore remains present in the filesystem scan; the
-  backend/frontend **image** scans additionally verify the actually-built
-  dependency sets.
-- Filesystem scan skips only build output / vendored deps / git store /
-  cache: `.git`, `frontend/node_modules`, `frontend/dist`,
-  `frontend/playwright-report`, `frontend/test-results`, `backend/target`,
-  `.trivy-cache`, `.local-backups`, `.local-restore-drill`, `frontend/.trivy-cache`.
-- Secret findings are always blocking; no `.trivyignore` is used for secrets.
-- Image scans have NO `--ignorefile` — `.trivyignore` is deleted because no suppression is needed.
+The filesystem scan does not skip `backend/pom.xml` and does not use
+`continue-on-error` / `|| true`. Trivy DB state is cached in `.trivy-cache` and
+mounted into the Trivy container; `--offline-scan` removes the Maven Central 429
+runtime dependency without removing Java/JS dependency-manifest coverage.
 
-### Local scan results (from FINAL_SHA `e730bd3`)
+Skipped directories are build output, vendored dependencies, VCS/cache state and
+local drill artifacts only: `.git`, `frontend/node_modules`, `frontend/dist`,
+`frontend/playwright-report`, `frontend/test-results`, `backend/target`,
+`.trivy-cache`, `.local-backups`, `.local-restore-drill`, and
+`frontend/.trivy-cache`.
 
-All scans below are from the committed `e730bd32ca05b9c168702259bf6a35d84bea7dc8` with `Trivy 0.73.0`:
+### Local scan results on tested implementation `e730bd3`
 
 ```text
-Trivy 0.73.0:
-  filesystem vuln       PASS  (backend/pom.xml 0, frontend/package-lock.json 0)
-  filesystem misconfig  PASS  (backend/Dockerfile 0, frontend/Dockerfile 0)
-  filesystem secret     PASS  (0 secrets)
-  backend image vuln    PASS  (ubuntu 24.04 OS 0 HIGH/CRITICAL; pom 0 via filesystem)
-  frontend image vuln   PASS  (alpine 3.24.1, nginx 1.30.4-r1, 0 HIGH/CRITICAL)
-```
-
-Raw Trivy outputs (abridged):
-
-```text
-filesystem:
-  backend/pom.xml            pom        0 vulns
-  frontend/package-lock.json npm        0 vulns
-  backend/Dockerfile         dockerfile 0 misconfigs
-  frontend/Dockerfile        dockerfile 0 misconfigs
-
-frontend image (alpine 3.24.1):
-  ai-costops-frontend:security  alpine  0 vulns
-
-backend image (ubuntu 24.04):
-  ai-costops-backend:security   ubuntu  0 vulns  (OS layer)
-  Note: Java library layer requires trivy-java-db download (flaky on local network);
-        verified via filesystem pom scan (0 HIGH/CRITICAL) + OS scan (0).
-        CI will perform the full image scan with cached DB.
+Trivy 0.73.0
+filesystem vuln       PASS  (backend/pom.xml 0, frontend/package-lock.json 0)
+filesystem misconfig  PASS  (backend/Dockerfile 0, frontend/Dockerfile 0)
+filesystem secret     PASS  (0 secrets)
+backend image vuln    PASS
+frontend image vuln   PASS  (alpine 3.24.1, nginx 1.30.4-r1, 0 HIGH/CRITICAL)
 ```
 
 ## Accepted risks
@@ -106,75 +67,96 @@ backend image (ubuntu 24.04):
 Accepted risks: NONE
 ```
 
-`.trivyignore` is deleted. No HIGH/CRITICAL suppression exists. The previous 5 nginx 1.28.3-r1
-entries (CVE-2026-42055, CVE-2026-42533, CVE-2026-49975, CVE-2026-60005, CVE-2026-9256) and the
-earlier 10 nginx 1.28.2 entries all resolved on `nginx:1.30.4-alpine` — verified by Trivy image
-scan `0` HIGH/CRITICAL without any ignorefile. The workflow no longer passes `--ignorefile`.
+`.trivyignore` is deleted and the workflow passes no `--ignorefile` argument.
+The previous nginx findings are resolved on the final 1.30.4 image:
 
-If a future scan surfaces a real HIGH/CRITICAL, it must be individually
-triaged with: exact finding, exposure/context, owner, and expiry — only then
-may an entry be added to `.trivyignore`, and secrets are never ignored.
+- CVE-2026-42055 — RESOLVED
+- CVE-2026-42533 — RESOLVED
+- CVE-2026-49975 — RESOLVED
+- CVE-2026-60005 — RESOLVED
+- CVE-2026-9256 — RESOLVED
 
-## Defects discovered and fixed (historical, now RESOLVED)
+Secrets are never suppressible. Any future HIGH/CRITICAL exception must be an
+individual, reviewed, time-bounded record with finding, exposure/context, owner
+and expiry.
+
+## Permissions and CodeQL
+
+- Workflow default: `permissions: contents: read`.
+- Only the CodeQL job adds `security-events: write`.
+- No `write-all` and no secret-upload path.
+- `github/codeql-action@v4` runs a matrix for `java-kotlin` and
+  `javascript-typescript`.
+- Extractors observe real builds: backend `./mvnw -B -DskipTests package`,
+  frontend `npm ci && npm run build`.
+
+## Authoritative GitHub Actions evidence
+
+Both workflows below ran on PR head
+`0881cb3a5a6a26e64e94a9f7f632aeb7c27a5224`, which already contains the merge of
+`main@63e781aafd4dd04b631c706a4b168dc7dcecb47d` (AIC-078 / PR #120).
+
+### Security workflow
+
+- Run ID: `33487158213`
+- Workflow run number: `9`
+- Result: **SUCCESS**
+- Jobs: **3/3 SUCCESS**
+
+| Job | Result |
+|---|---|
+| `codeql (java-kotlin)` | SUCCESS |
+| `codeql (javascript-typescript)` | SUCCESS |
+| `trivy` | SUCCESS |
+
+The `trivy` job completed these enforcement steps successfully:
+
+- Trivy filesystem scan (`vuln, misconfig, secret`)
+- Trivy backend image scan (`vuln`)
+- Trivy frontend image scan (`vuln`)
+
+### Core CI workflow
+
+- Run ID: `33487158178`
+- Workflow run number: `182`
+- Result: **SUCCESS**
+- Required core jobs: **7/7 SUCCESS**
+- Additional browser E2E job: **SUCCESS**
+
+| Job | Result |
+|---|---|
+| `backend-unit` | SUCCESS |
+| `backend-architecture` | SUCCESS |
+| `backend-integration` | SUCCESS |
+| `frontend-build` | SUCCESS |
+| `frontend-lint` | SUCCESS |
+| `frontend-test` | SUCCESS |
+| `docker-build` | SUCCESS |
+| `browser-e2e` | SUCCESS |
+
+The repository ruleset requires the seven core checks above with strict latest-base
+status-check policy. They were all successful on the recorded head.
+
+## Defects found and resolved during AIC-079
 
 | Finding | Resolution | Status |
 |---|---|---|
-| `DS-0002` frontend image ran as root, HIGH | Fixed: `USER nginx` + `listen 8080` + writable runtime dirs | RESOLVED |
-| Frontend image Alpine HIGH/CRITICAL (37 initially, then 10 nginx 1.28.2 CVE downgrade via `nginxinc/nginx-unprivileged:1.28-alpine`) | Fixed: base restored to `nginx:1.28.3-alpine` (nginx 1.28.3 published 2026-03-24), `apk upgrade` | RESOLVED |
-| Frontend image 5 HIGH on nginx 1.28.3-r1 (`CVE-2026-42055/42533/49975/60005/9256` on Alpine v3.23.3) | Fixed: base moved to `nginx:1.30.4-alpine` (stable line); all 5 findings eliminated (`0` HIGH/CRITICAL without ignorefile); `.trivyignore` deleted; Alpine r7 provides defect no longer relevant | RESOLVED |
-| Filesystem scan previously `misconfig,secret` only + skipped `backend/pom.xml` (429 workaround that weakened the AIC-079 control) | Fixed: restored `vuln,misconfig,secret` with `--offline-scan` + DB cache, no blanket skip | RESOLVED |
+| Frontend runtime was root | `USER nginx`, writable runtime dirs, non-privileged port 8080 | RESOLVED |
+| Temporary downgrade path exposed nginx 1.28.2 findings | Returned to official nginx image and then moved to patched 1.30.4 | RESOLVED |
+| nginx 1.28.3-r1 retained five HIGH findings | Moved final base to `nginx:1.30.4-alpine`; zero HIGH/CRITICAL without ignore file | RESOLVED |
+| Filesystem scan had dropped `vuln` / skipped `backend/pom.xml` to avoid 429 | Restored `vuln,misconfig,secret`; cached DB + `--offline-scan`; no blanket skip | RESOLVED |
 
-## Permissions audit
-
-- Workflow default: `permissions: contents: read`.
-- Only the `codeql` job declares `security-events: write` (required to upload
-  analysis results); the `trivy` job needs no extra scope.
-- No `write-all`; no token secrets are uploaded.
-
-## CodeQL
-
-- Action: `github/codeql-action@v4` (`init@v4`, `analyze@v4`)
-- Languages: `java-kotlin` and `javascript-typescript` (matrix)
-- Builds: real builds for the extractors — `backend: ./mvnw -B -DskipTests package`
-  and `frontend: npm ci && npm run build`
-- Results: both matrix legs must be SUCCESS (see CI runs below).
-
-## CI checks (latest runs on this branch)
-
-Filled after the push of the functional fixes above; latest runs on this head SHA:
-
-```text
-Security workflow:  <run id + link filled after push; 3 jobs: codeql (java-kotlin) SUCCESS,
-                    codeql (javascript-typescript) SUCCESS, trivy SUCCESS>
-Core CI workflow:   <run id + link filled after push; 7 jobs: backend-unit, backend-architecture,
-                    backend-integration, frontend-test, frontend-lint, frontend-build, docker-build>
-                    ALL SUCCESS>
-Counts described as: 3 Security jobs + 7 Core CI jobs (10 total, not 11).
-```
-
-Job / check count is stated as the actual number of jobs reported by GitHub
-Actions for the respective workflow (not an invented 11/11).
-
-## Local reproduction (PowerShell, CI-identical)
+## Local reproduction
 
 ```powershell
 Set-Location "E:\AI-CostOps"
 
-# Build images (must succeed for the image scans)
 docker build --tag ai-costops-backend:security backend
 docker build --tag ai-costops-frontend:security frontend
-docker run --rm ai-costops-frontend:security id   # must be non-root (uid 101 nginx)
-docker run --rm ai-costops-frontend:security nginx -v  # must be 1.30.4
+docker run --rm ai-costops-frontend:security id
+docker run --rm ai-costops-frontend:security nginx -v
 
-# Isolated runtime check (backend DNS not available outside compose)
-docker run -d --name ai-costops-frontend-test --add-host backend:127.0.0.1 -p 18081:8080 ai-costops-frontend:security
-# wait 3s, then:
-Invoke-WebRequest http://127.0.0.1:18081/ -UseBasicParsing  # must be 200
-docker exec ai-costops-frontend-test wget --quiet --spider http://127.0.0.1:8080/  # must exit 0
-docker exec ai-costops-frontend-test id  # uid=101(nginx)
-docker rm -f ai-costops-frontend-test
-
-# Filesystem: vuln + misconfig + secret (offline, DB must be cached or downloaded)
+# Filesystem: vuln + misconfig + secret
 docker run --rm `
   -v "${PWD}:/workspace" `
   -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
@@ -183,18 +165,16 @@ docker run --rm `
   --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/.trivy-cache,/workspace/.local-backups,/workspace/.local-restore-drill,/workspace/frontend/.trivy-cache `
   /workspace
 
-# Backend / frontend image vuln (no ignorefile; any HIGH/CRITICAL blocks)
+# Image scans: no ignore file; HIGH/CRITICAL block
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
   aquasec/trivy:0.73.0 image --severity HIGH,CRITICAL --exit-code 1 ai-costops-backend:security
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
   aquasec/trivy:0.73.0 image --severity HIGH,CRITICAL --exit-code 1 ai-costops-frontend:security
 ```
 
-## Known limitations
+## Known limitation
 
-- Dependency vulnerability scans require a cached or network-downloaded Trivy DB;
-  if the runner cannot download the DB the scan must be retried from cache
-  rather than weakening the policy to skip `vuln` or `backend/pom.xml`.
-- npm/Maven dependency findings surfaced by the scans are triaged one by one
-  (fix / prove false positive / time-bounded accepted risk) before the
-  security check is considered green; no blanket suppressions are allowed.
+Dependency vulnerability scans require a cached or network-downloaded Trivy DB.
+If that DB cannot be obtained, the correct response is retry/cache repair — not
+weakening the policy by dropping `vuln`, skipping `backend/pom.xml`, or adding a
+blanket ignore.
