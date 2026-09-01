@@ -59,7 +59,10 @@ param(
     [string]$ProjectName = "ai-costops",
 
     [Parameter(Mandatory = $false)]
-    [string]$EvidenceDir = ""
+    [string]$EvidenceDir = "",
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SelfTest
 )
 
 $ErrorActionPreference = "Stop"
@@ -68,6 +71,74 @@ Set-StrictMode -Version Latest
 function Write-Stage([string]$Name) { Write-Output "[PROVIDER-CERT] $Name" }
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
+}
+function Assert-Throws([scriptblock]$Body, [string]$Message) {
+    $threw = $false
+    try { & $Body } catch { $threw = $true }
+    Assert-True $threw $Message
+}
+function Assert-AcceptanceInvariants {
+    # Real acceptance gate: a PASS may only be produced when every invariant
+    # holds. Any violation throws and aborts before any PASS/evidence is written.
+    param(
+        [string]$AttemptStatus,
+        [long]$ErrorCount,
+        [string]$DetectedProvider,
+        [string]$RequestedProvider,
+        [long]$SourceRows,
+        [long]$RecordsSeen,
+        [long]$RecordsValid,
+        [long]$CanonicalCount,
+        [decimal]$Difference
+    )
+    $expectedDetectedProvider = $RequestedProvider.ToUpperInvariant()
+    Assert-True ($AttemptStatus -eq "SUCCEEDED") "Certification attempt is not SUCCEEDED: $AttemptStatus"
+    Assert-True ($ErrorCount -eq 0) "Certification contains import errors: $ErrorCount"
+    Assert-True ($DetectedProvider -eq $expectedDetectedProvider) `
+        "Detected provider mismatch: $DetectedProvider != $expectedDetectedProvider"
+    if ($RequestedProvider -eq "mimo") {
+        Assert-True ($SourceRows -eq $RecordsSeen) `
+            "Source row count ($SourceRows) does not match records_seen ($RecordsSeen)"
+    }
+    Assert-True ($RecordsSeen -eq $RecordsValid) `
+        "records_seen ($RecordsSeen) does not match records_valid ($RecordsValid)"
+    Assert-True ($CanonicalCount -eq $RecordsValid) `
+        "Canonical charge count ($CanonicalCount) does not match valid source records ($RecordsValid)"
+    Assert-True ([decimal]$Difference -eq [decimal]0) `
+        "Monetary reconciliation difference is non-zero: $Difference"
+}
+# Self-test: prove the acceptance invariants FAIL on each class of invalid input.
+# Opt-in, in-process, purely local; touches no real input and needs no framework.
+if ($SelfTest) {
+    function New-InvariantArgs {
+        return @{
+            AttemptStatus     = "SUCCEEDED"
+            ErrorCount        = [long]0
+            DetectedProvider  = "MIMO"
+            RequestedProvider = "mimo"
+            SourceRows        = [long]7
+            RecordsSeen       = [long]7
+            RecordsValid      = [long]7
+            CanonicalCount    = [long]7
+            Difference        = [decimal]0
+        }
+    }
+    $a = New-InvariantArgs; $a.AttemptStatus = "FAILED"
+    Assert-Throws { Assert-AcceptanceInvariants @a } "non-SUCCEEDED attempt did not fail the gate"
+    $a = New-InvariantArgs; $a.ErrorCount = [long]1
+    Assert-Throws { Assert-AcceptanceInvariants @a } "error_count != 0 did not fail the gate"
+    $a = New-InvariantArgs; $a.DetectedProvider = "OPENAI"
+    Assert-Throws { Assert-AcceptanceInvariants @a } "detected-provider mismatch did not fail the gate"
+    $a = New-InvariantArgs; $a.SourceRows = [long]6
+    Assert-Throws { Assert-AcceptanceInvariants @a } "MiMo sourceRows != recordsSeen did not fail the gate"
+    $a = New-InvariantArgs; $a.RecordsSeen = [long]5
+    Assert-Throws { Assert-AcceptanceInvariants @a } "recordsSeen != recordsValid did not fail the gate"
+    $a = New-InvariantArgs; $a.CanonicalCount = [long]6
+    Assert-Throws { Assert-AcceptanceInvariants @a } "canonical-count mismatch did not fail the gate"
+    $a = New-InvariantArgs; $a.Difference = [decimal]0.01
+    Assert-Throws { Assert-AcceptanceInvariants @a } "non-zero monetary difference did not fail the gate"
+    Write-Output "SELF_TEST_INVARIANTS_FAILED_AS_EXPECTED"
+    exit 0
 }
 function Get-EnvValue([string]$Name) {
     $escaped = [regex]::Escape($Name)
@@ -353,7 +424,20 @@ Write-Stage "Canonical: charge_fact=$($recon.charge_count) sum=$($recon.charge_s
 # ---------------------------------------------------------------- Step 7
 $testedSha = (& git -C $repoRoot rev-parse HEAD).Trim()
 $now = (Get-Date).ToUniversalTime().ToString("o")
-$result = if ($attemptStatus -eq "SUCCEEDED" -and $errorCount -eq 0) { "PASS" } else { "FAIL" }
+
+Write-Stage "Acceptance invariant fail-fast (no PASS without these)"
+Assert-AcceptanceInvariants `
+    -AttemptStatus $attemptStatus `
+    -ErrorCount $errorCount `
+    -DetectedProvider $detectedProvider `
+    -RequestedProvider $assertedProvider `
+    -SourceRows $source.rows `
+    -RecordsSeen $recordsSeen `
+    -RecordsValid $recordsValid `
+    -CanonicalCount $recon.charge_count `
+    -Difference $difference
+# Unreachable unless every invariant above held.
+$result = "PASS"
 $record = [ordered]@{
     provider                  = $assertedProvider
     parser_version            = $parserVersion
