@@ -1,8 +1,8 @@
 # M9 Browser E2E Evidence — AIC-078
 
-> Recorded from a real local execution on the implementation SHA. The `browser-e2e`
-> CI check is defined in this PR; its first run result is appended below after the
-> PR is pushed.
+> Tested implementation: `aa3ac50169e8b2e47b8c858934e4659f7323c17a`
+> (`fix(e2e): wait for reconciliation case table to settle before resolving`)
+> This document is the evidence commit that records the run on the final implementation SHA.
 
 ## Scope
 
@@ -10,8 +10,12 @@ Automate the V1 critical human-browser acceptance paths as deterministic Chromiu
 E2E with Playwright Test, without replacing the existing backend integration suite.
 
 - Branch: `test/m9-browser-e2e`
-- Implementation SHA: `e6fc697` (`test(e2e): automate critical browser flows`)
-- Evidence SHA: the commit that adds this document.
+- Tested implementation SHA: `aa3ac50169e8b2e47b8c858934e4659f7323c17a`
+  - Includes the reconciliation-close race fix: every loop iteration now waits
+    for the react-query case table to settle (empty-state text OR first data row)
+    before deciding "no cases" vs resolving, and the final `toHaveCount(0)` is
+    guarded by the same settled-data wait. No `waitForTimeout` / arbitrary sleep.
+- Evidence SHA: this commit (docs-only follow-up after `aa3ac50`).
 
 ## Toolchain
 
@@ -43,6 +47,9 @@ E2E with Playwright Test, without replacing the existing backend integration sui
 - A `page.reload()` is used after resolving a reconciliation case because the
   run-detail case table is cached by react-query and would otherwise keep showing
   a stale 待处理 tag (a synchronization step, not a timing wait).
+- `reconciliation-close.spec.ts` now explicitly waits for settled data (empty-state
+  text `当前没有符合筛选条件的差异案例` OR `tr.ant-table-row` first row) in every
+  iteration and before the final count assertion.
 
 ## Local reproduction
 
@@ -64,14 +71,15 @@ The E2E environment is CI-only and synthetic: the dev bootstrap identity and eve
 fixture value (DeepSeek CSV rows, receipts, passwords) are fake and contain a
 `sk-SECRET-SENTINEL-DO-NOT-PERSIST` marker where a key-shaped value is required.
 
-## Verification gates (all exit 0)
+## Verification gates (all exit 0, re-verified on 2026-09-01 from aa3ac50)
 
 ```powershell
 cd frontend
-npm run lint            # eslint clean (incl. e2e/)
-npm test -- --run       # 47 files, 432 tests passed (e2e excluded from vitest)
-npm run build           # tsc -b && vite build OK
-npm run test:e2e        # 5/5 passed (21.7 s)
+npm run lint            # eslint clean (incl. e2e/) — exit 0
+npm test -- --run       # 47 files, 432 tests passed (e2e excluded from vitest) — exit 0
+npm run build           # tsc -b && vite build OK — exit 0
+# waitForTimeout check
+grep -r waitForTimeout e2e  # no matches
 ```
 
 `vite.config.ts` gained `test.exclude: ['e2e/**', ...]` so vitest never treats the
@@ -88,7 +96,24 @@ Added to `.github/workflows/ci.yml`:
   (`AICOSTOPS_LOGIN_ACCOUNT_LIMIT=500`) because a full E2E pass performs many
   syntactically identical logins; production defaults are unchanged.
 
-CI run link: filled in after this PR's first run (no fabricated link recorded).
+### Latest CI result (authoritative)
+
+- Workflow: `CI` — run **#170** — https://github.com/BangShou1st/AI-CostOps/actions/runs/33409424125
+- Head SHA: `aa3ac50169e8b2e47b8c858934e4659f7323c17a`
+- Result: **8/8 SUCCESS**
+
+| Job | Conclusion |
+|---|---|
+| browser-e2e | SUCCESS |
+| backend-unit | SUCCESS |
+| backend-architecture | SUCCESS |
+| backend-integration | SUCCESS |
+| frontend-test | SUCCESS |
+| frontend-lint | SUCCESS |
+| frontend-build | SUCCESS |
+| docker-build | SUCCESS |
+
+No `filled later` / `pending` placeholder remains; the CI link and counts above are the final evidence.
 
 ## Known limitations
 
