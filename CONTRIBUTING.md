@@ -156,3 +156,52 @@ Review / 验收：
 ```text
 docs/03-acceptance/
 ```
+
+## 10. 持续安全 CI（M9 / AIC-079）
+
+每次 PR 与 main push 都会运行 `Security` workflow，必须通过：
+
+```text
+codeql (java-kotlin)
+codeql (javascript-typescript)
+trivy (filesystem: vuln, misconfig, secret — offline, DB cached)
+trivy (backend image: vuln)
+trivy (frontend image: vuln)
+```
+
+- CodeQL Action v4，语言为 `java-kotlin` 与 `javascript-typescript`，使用仓库真实 Java / TypeScript build。
+- Trivy 固定 `0.73.0`（docker 镜像方式运行，与本地复现完全一致）。
+- Filesystem 扫描覆盖 `vuln + misconfig + secret`（`HIGH,CRITICAL` blocking），对 `backend/pom.xml` 与 `frontend/package-lock.json` 的依赖清单基于本地检出的 manifest 与缓存的漏洞 DB（`--offline-scan` + `actions/cache` 的 `.trivy-cache` 挂载），不 blanket 跳过 `backend/pom.xml`，也不依赖 runner 临时访问 Maven Central；镜像扫描额外验证实际构建出的依赖集合。
+- 策略：`HIGH,CRITICAL` 默认 blocking；secret finding 默认 blocking；禁止 blanket ignore。
+- `.trivyignore` 只在存在真实、已评审、限期的 HIGH/CRITICAL 且当前无法修复时才逐项记录（exact finding、reason、owner/context、expiry/review date）；当前无 accepted risk（`Accepted risks: NONE`），`.trivyignore` 已随 `nginx:1.30.4-alpine` 升级而删除 — 升级前 5 条 nginx 1.28.3-r1 限期 accepted risk 及更早的 nginx 1.28.2 10 条 CVE 均已在 1.30.4 基线上消失。
+- 只有 `codeql` job 拥有 `security-events: write`；workflow 默认 `contents: read`。
+
+本地复现（PowerShell）：
+
+```powershell
+Set-Location "E:\AI-CostOps"
+
+# Build images first (needed by the image scans)
+docker build --tag ai-costops-backend:local backend
+docker build --tag ai-costops-frontend:local frontend
+docker run --rm ai-costops-frontend:local id   # must be non-root (uid 101 nginx)
+
+# 1. filesystem scan — CI-identical (vuln + misconfig + secret, offline, DB cached)
+docker run --rm `
+  -v "${PWD}:/workspace" `
+  -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
+  aquasec/trivy:0.73.0 `
+  fs --scanners vuln,misconfig,secret `
+  --severity HIGH,CRITICAL `
+  --exit-code 1 --offline-scan `
+  --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/.trivy-cache `
+  /workspace
+
+# 2. backend / frontend 镜像扫描（no ignorefile; any HIGH/CRITICAL blocks）
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
+  aquasec/trivy:0.73.0 image --severity HIGH,CRITICAL --exit-code 1 ai-costops-backend:local
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}/.trivy-cache:/root/.cache/trivy" `
+  aquasec/trivy:0.73.0 image --severity HIGH,CRITICAL --exit-code 1 ai-costops-frontend:local
+```
+
+首次出现 findings 时逐项处理：`upgrade/fix`、`prove false positive`、或 `explicit accepted risk`（必须写入 evidence 与 `.trivyignore` 的对应条目）。
