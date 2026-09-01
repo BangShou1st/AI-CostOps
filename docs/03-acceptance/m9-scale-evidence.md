@@ -34,7 +34,7 @@
 Default CI command (10k sample):
 
 ```powershell
-Set-Location "E:\AI-CostOpsackend"
+Set-Location "E:\AI-CostOps\backend"
 .\mvnw.cmd -B "-Dgroups=integration" "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" verify
 ```
 
@@ -74,7 +74,7 @@ SUM(charge_fact.amount) = 12500.00000000 (exact)
 single currency; audit_event=1; no secret key material persisted
 ```
 
-Measured worker rate at 10k: ~155 rows/s per worker (DB-backed worker,
+Measured worker rate at 10k: ~412.899 rows/s per worker (DB-backed worker,
 concurrency=1, default batch size).
 
 ## Reporting benchmark — 10k / 100k (PASS, with real EXPLAIN ANALYZE)
