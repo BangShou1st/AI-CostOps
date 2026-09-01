@@ -21,8 +21,8 @@ processed by the real MiMo provider adapter.
 | Import batch id | `31` (numeric local identifier; evidence correlation only) |
 | Latest attempt id | `32` |
 | Attempt status | `SUCCEEDED` (error_count=0, warning_count=1) |
-| Execution timestamp (UTC) | `2026-09-01T14:53:51Z` |
-| Tested implementation SHA (git HEAD at run) | `181f31e180f73cff0538186910a07d0940c9302b` |
+| Execution timestamp (UTC) | `2026-09-01T15:08:40Z` |
+| Tested implementation SHA (git HEAD at run) | `2f2976b2145ee3cbc35ee60cc9d0bb2c993c6581` |
 | Real input | YES |
 | Input tracked by Git | NO |
 | Input ignored by Git | YES |
