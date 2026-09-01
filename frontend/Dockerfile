@@ -6,12 +6,12 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.28.3-alpine
+FROM nginx:1.30.4-alpine
 
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/dist /usr/share/nginx/html
 
-# Keep the 1.28.3 base (fixes known nginx CVEs) and run non-root.
+# Use patched stable nginx 1.30.4 (fixes suppressed CVEs on 1.28.3-r1) and run non-root.
 # nginx:alpine ships user `nginx` (uid 101 / gid 101); <1024 ports require
 # non-root bind, so the server listens on 8080 (see nginx/default.conf).
 # The pid and cache paths must be writable by that uid.
