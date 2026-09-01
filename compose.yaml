@@ -29,6 +29,9 @@ services:
       AICOSTOPS_DEV_MAILBOX_PATH: /var/lib/aicostops/mailbox
       AICOSTOPS_DEV_RESET_PAGE_URL: http://localhost:${FRONTEND_PORT}/reset-password
       SERVER_FORWARD_HEADERS_STRATEGY: native
+      AICOSTOPS_LOGIN_RATE_LIMIT_WINDOW: ${AICOSTOPS_LOGIN_RATE_LIMIT_WINDOW:-15m}
+      AICOSTOPS_LOGIN_IP_LIMIT: ${AICOSTOPS_LOGIN_IP_LIMIT:-20}
+      AICOSTOPS_LOGIN_ACCOUNT_LIMIT: ${AICOSTOPS_LOGIN_ACCOUNT_LIMIT:-8}
     depends_on:
       mysql:
         condition: service_healthy
