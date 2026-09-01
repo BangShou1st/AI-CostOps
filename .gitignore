@@ -96,3 +96,8 @@ Thumbs.db
 # =========================
 .local-backups/
 .local-restore-drill/
+
+# =========================
+# Local Provider Certification Input (AIC-082) — real export never enters Git
+# =========================
+.local-provider-certification/
