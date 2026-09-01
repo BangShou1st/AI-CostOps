@@ -173,7 +173,7 @@ trivy (frontend image: vuln)
 - Trivy 固定 `0.73.0`（docker 镜像方式运行，与本地复现完全一致）。
 - Filesystem 扫描覆盖 `vuln + misconfig + secret`（`HIGH,CRITICAL` blocking），对 `backend/pom.xml` 与 `frontend/package-lock.json` 的依赖清单基于本地检出的 manifest 与缓存的漏洞 DB（`--offline-scan` + `actions/cache` 的 `.trivy-cache` 挂载），不 blanket 跳过 `backend/pom.xml`，也不依赖 runner 临时访问 Maven Central；镜像扫描额外验证实际构建出的依赖集合。
 - 策略：`HIGH,CRITICAL` 默认 blocking；secret finding 默认 blocking；禁止 blanket ignore。
-- `.trivyignore` 只在存在真实、已评审、限期的 HIGH/CRITICAL 且当前无法修复时才逐项记录（exact finding、reason、owner/context、expiry/review date）；当前 `Accepted risks: NONE`，不存在 `.trivyignore`。历史的 nginx 1.28.2 10 条 CVE 已随基线恢复到 `nginx:1.28.3-alpine` 而失效并移除。
+- `.trivyignore` 只在存在真实、已评审、限期的 HIGH/CRITICAL 且当前无法修复时才逐项记录（exact finding、reason、owner/context、expiry/review date）；当前包含 5 条 nginx 1.28.3-r1 的限期 accepted risk（revisit 2026-11-30，Alpine r7 provides 缺陷导致 `apk upgrade` 暂无法应用 r2–r7 修复）。历史的 nginx 1.28.2 10 条 CVE 已随基线恢复到 `nginx:1.28.3-alpine` 而失效并移除。
 - 只有 `codeql` job 拥有 `security-events: write`；workflow 默认 `contents: read`。
 
 本地复现（PowerShell）：

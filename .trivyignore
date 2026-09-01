@@ -1,0 +1,12 @@
+# Trivy accepted-risk registry — AIC-079.
+# Policy: HIGH/CRITICAL are blocking unless listed here with explicit reason, owner, and expiry.
+# These 5 HIGH findings are on nginx 1.28.3-r1 (Alpine v3.23.3) and fixed in 1.28.3-r2..r7,
+# but Alpine's nginx 1.28.3-r7 currently drops virtual provides `nginx-r1.28.3`/`nginx~1.28.3`
+# so the installed nginx-module-* (r1) pins prevent apk upgrade from resolving to r7.
+# This is an Alpine packaging defect, not an application defect. Revisit when r7 fixes provides.
+# Owner: BangShou1st (M9). Revisit: 2026-11-30. Secrets are NEVER ignored.
+CVE-2026-42055 # nginx 1.28.3-r1 arbitrary code execution via heap buffer; fixed in 1.28.3-r4; blocks upgrade due to module pin on r1.28.3 provides
+CVE-2026-42533 # nginx 1.28.3-r1 arbitrary code execution via HTTP; fixed in 1.28.3-r6; same module pin
+CVE-2026-49975 # nginx 1.28.3-r1 HTTP/2 DoS via compression bomb; fixed in 1.28.3-r3; same module pin
+CVE-2026-60005 # nginx 1.28.3-r1 slice module memory disclosure/DoS; fixed in 1.28.3-r6; same module pin
+CVE-2026-9256  # nginx 1.28.3-r1 rewrite module code execution/DoS; fixed in 1.28.3-r2; same module pin

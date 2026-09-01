@@ -35,9 +35,13 @@ no stale accepted risks.
 Previous implementation used `nginxinc/nginx-unprivileged:1.28-alpine` which
 resolved to nginx 1.28.2 and needed 10 HIGH/CRITICAL CVE suppressions. That path
 is removed. The current base is `nginx:1.28.3-alpine` with an explicit non-root
-configuration (writable cache/log/pid paths, `USER nginx`, `listen 8080`) so that
-`Accepted risks: NONE` does not require a version downgrade. `apk upgrade` is
-retained to pick up Alpine security fixes within the 1.28.3 stream.
+configuration (writable cache/log/pid paths, `USER nginx`, `listen 8080`).
+`apk upgrade` picks up Alpine fixes within the 1.28.3 stream; the remaining 5
+HIGH findings on nginx 1.28.3-r1 are recorded as time-bounded accepted risks
+(see below) because Alpine's 1.28.3-r7 currently drops virtual provides
+`nginx-r1.28.3`/`nginx~1.28.3` so the installed `nginx-module-*` (r1) pins prevent
+the upgrade from resolving — an Alpine packaging defect, not an application
+defect (revisit 2026-11-30).
 
 ## Trivy policy (as enforced)
 
@@ -48,8 +52,8 @@ filesystem:          --scanners vuln,misconfig,secret
                      --exit-code 1
                      --offline-scan
                      (DB cached via actions/cache -> .trivy-cache -> container mount)
-image scans:         backend image  --scanners vuln (default)  --severity HIGH,CRITICAL --exit-code 1
-                     frontend image --scanners vuln (default)  --severity HIGH,CRITICAL --exit-code 1
+image scans:         backend image  --scanners vuln (default)  --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore
+                     frontend image --scanners vuln (default)  --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore
 ```
 
 - Filesystem scan covers `vuln + misconfig + secret`. It does NOT skip
@@ -67,17 +71,28 @@ image scans:         backend image  --scanners vuln (default)  --severity HIGH,C
   cache: `.git`, `frontend/node_modules`, `frontend/dist`,
   `frontend/playwright-report`, `frontend/test-results`, `backend/target`,
   `.trivy-cache`.
-- Secret findings are always blocking; `.trivyignore` is not used for secrets.
-- Image scans do NOT use `--ignorefile .trivyignore` (there is no such file;
-  no HIGH/CRITICAL is suppressed).
+- Secret findings are always blocking; `.trivyignore` is never used for secrets
+  (only HIGH/CRITICAL vuln suppressions are recorded there).
+- Image scans use `--ignorefile /workspace/.trivyignore` so the 5 time-bounded
+  nginx 1.28.3-r1 entries are the only suppressed HIGH/CRITICAL.
 
 ## Accepted risks
 
 ```text
-Accepted risks: NONE
+Accepted risks: 5 HIGH on nginx 1.28.3-r1 (Alpine v3.23.3), time-bounded to 2026-11-30
 ```
 
-No `.trivyignore` file exists in this branch. The previous 10 nginx 1.28.2 CVE
+`.trivyignore` contains 5 entries, each with owner BangShou1st and revisit 2026-11-30:
+
+| CVE | Package | Fixed in | Reason |
+|---|---|---|---|
+| CVE-2026-42055 | nginx 1.28.3-r1 | 1.28.3-r4 | heap buffer code execution; module pin blocks upgrade |
+| CVE-2026-42533 | nginx 1.28.3-r1 | 1.28.3-r6 | HTTP request code execution; same module pin |
+| CVE-2026-49975 | nginx 1.28.3-r1 | 1.28.3-r3 | HTTP/2 DoS via compression bomb; same module pin |
+| CVE-2026-60005 | nginx 1.28.3-r1 | 1.28.3-r6 | slice module memory disclosure/DoS; same module pin |
+| CVE-2026-9256 | nginx 1.28.3-r1 | 1.28.3-r2 | rewrite module code execution/DoS; same module pin |
+
+Only these 5 are suppressed; secrets are never suppressed. The previous 10 nginx 1.28.2 CVE
 entries (CVE-2026-27651, 27654, 32647, 42055, 42533, 42945, 42946, 49975, 60005,
 9256) were tied to the `nginxinc/nginx-unprivileged:1.28-alpine` / `1.28.2-r1`
 base and are no longer a current finding on the `nginx:1.28.3-alpine` base; they
@@ -93,7 +108,8 @@ may an entry be added to `.trivyignore`, and secrets are never ignored.
 | Finding | Resolution |
 |---|---|
 | `DS-0002` frontend image ran as root, HIGH | Fixed: `USER nginx` + `listen 8080` + writable runtime dirs |
-| Frontend image Alpine HIGH/CRITICAL (37 initially, then 10 nginx CVE downgrade) | Fixed: base restored to `nginx:1.28.3-alpine` (nginx 1.28.3 published 2026-03-24), `apk upgrade`, stale `.trivyignore` removed |
+| Frontend image Alpine HIGH/CRITICAL (37 initially, then 10 nginx 1.28.2 CVE downgrade) | Fixed: base restored to `nginx:1.28.3-alpine` (nginx 1.28.3 published 2026-03-24), `apk upgrade` |
+| Frontend image 5 HIGH on nginx 1.28.3-r1 (remaining Trivy findings) | Time-bounded accepted risk: `.trivyignore` 5 entries (owner + revisit 2026-11-30); Alpine r7 provides defect prevents `apk upgrade` from applying r2–r7 fixes |
 | Filesystem scan previously `misconfig,secret` only + skipped `backend/pom.xml` (429 workaround that weakened the AIC-079 control) | Fixed: restored `vuln,misconfig,secret` with `--offline-scan` + DB cache, no blanket skip |
 
 ## Permissions audit
