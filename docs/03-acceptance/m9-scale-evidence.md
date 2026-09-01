@@ -15,10 +15,8 @@
   `EXPLAIN ANALYZE` for the dominant statements.
 
 - Branch: `perf/m9-scale-evidence`
-- Implementation SHAs: the commits that add the two test classes
-  (`backend/src/test/java/com/aicostops/M9ImportScaleBenchmarkIntegrationTest.java`,
-  `backend/src/test/java/com/aicostops/M9ReportingScaleBenchmarkIntegrationTest.java`)
-- Evidence SHA: the commit that adds this document.
+- Tested implementation SHA: `80bd8a20cd7f2cf4638456027d5c3099df6087a4` (`fix(perf): distinguish real scale ceilings from benchmark failures`)
+- Evidence SHA: this commit (docs-only follow-up after 80bd8a2).
 
 ## Environment
 
@@ -31,21 +29,39 @@
 | Spring Boot | 4.1.0 |
 | Default CI scale | 10k correctness sample (larger scales are opt-in properties) |
 
-## Import benchmark — 10k (PASS)
+## Import benchmark — 10k / 100k / 500k (all PASS, no ceiling)
 
-Command (CI default):
+Default CI command (10k sample):
 
 ```powershell
-Set-Location "E:\AI-CostOps\backend"
+Set-Location "E:\AI-CostOpsackend"
 .\mvnw.cmd -B "-Dgroups=integration" "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" verify
 ```
 
-Result (`Tests run: 1, Failures: 0, Errors: 0`, `BUILD SUCCESS`, 208.7 s):
+Larger scales (real measurement on this host):
+
+```powershell
+.\mvnw.cmd -B "-Dm9.benchmark.scales=100k" "-Dm9.benchmark.runs=1" "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" verify
+.\mvnw.cmd -B "-Dm9.benchmark.scales=500k" "-Dm9.benchmark.runs=1" "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" verify
+```
+
+Results (Testcontainers MySQL 8.4, no resource ceiling hit):
 
 ```text
-M9_IMPORT_BENCHMARK|warmup|scale=10k|input_rows=10000|input_bytes=65179|upload_ms=1263|worker_ms=70253|confirm_ms=233
-M9_IMPORT_BENCHMARK|measured|scale=t10k|run=1|input_rows=10000|input_bytes=65173|upload_ms=152|worker_ms=64447|confirm_ms=187|total_ms=64786|worker_records_per_sec=155.166|end_to_end_rows_per_sec=154.354|jvm_max_heap_mib=4024|jvm_used_heap_sample_mib=71|gc_count_delta=60|gc_time_ms_delta=375|batch_size=default|worker_concurrency=1
+# 10k (139.7 s, narrow ceiling classifier active)
+M9_IMPORT_BENCHMARK|warmup|scale=10k|input_rows=10000|input_bytes=64702|upload_ms=978|worker_ms=28646|confirm_ms=237
+M9_IMPORT_BENCHMARK|measured|scale=t10k|run=1|input_rows=10000|input_bytes=64696|upload_ms=268|worker_ms=24219|confirm_ms=75|total_ms=24562|worker_records_per_sec=412.899|end_to_end_rows_per_sec=407.133|jvm_max_heap_mib=4024|jvm_used_heap_sample_mib=77|gc_count_delta=42|gc_time_ms_delta=44
+
+# 100k (386.1 s, no ceiling)
+M9_IMPORT_BENCHMARK|warmup|scale=10k|input_rows=10000|input_bytes=64704|upload_ms=1422|worker_ms=34810|confirm_ms=150
+M9_IMPORT_BENCHMARK|measured|scale=t100k|run=1|input_rows=100000|input_bytes=634871|upload_ms=292|worker_ms=230398|confirm_ms=230|total_ms=230920|worker_records_per_sec=434.032|end_to_end_rows_per_sec=433.050|jvm_max_heap_mib=4024|jvm_used_heap_sample_mib=119|gc_count_delta=279|gc_time_ms_delta=551
+
+# 500k (1306 s / 21.8 min, no ceiling — linear scaling 412→434→442 rows/s)
+M9_IMPORT_BENCHMARK|warmup|scale=10k|input_rows=10000|input_bytes=64700|upload_ms=1094|worker_ms=31390|confirm_ms=227
+M9_IMPORT_BENCHMARK|measured|scale=t500k|run=1|input_rows=500000|input_bytes=3164766|upload_ms=408|worker_ms=1128954|confirm_ms=2360|total_ms=1131722|worker_records_per_sec=442.888|end_to_end_rows_per_sec=441.805|jvm_max_heap_mib=4024|jvm_used_heap_sample_mib=225|gc_count_delta=828|gc_time_ms_delta=1438
 ```
+
+All three: Tests run 1, Failures 0, Errors 0, BUILD SUCCESS. No M9_IMPORT_RESOURCE_CEILING — the narrow classifier did not suppress any AssertionError / SQL / business exception.
 
 Correctness assertions at this scale (all verified inside the test):
 
@@ -61,50 +77,41 @@ single currency; audit_event=1; no secret key material persisted
 Measured worker rate at 10k: ~155 rows/s per worker (DB-backed worker,
 concurrency=1, default batch size).
 
-## Reporting benchmark — 10k (PASS)
+## Reporting benchmark — 10k / 100k (PASS, with real EXPLAIN ANALYZE)
 
-Command (CI default):
+Commands:
 
 ```powershell
+# 10k (CI default)
 .\mvnw.cmd -B "-Dgroups=integration" "-Dit.test=M9ReportingScaleBenchmarkIntegrationTest" verify
+# 100k (real larger scale)
+.\mvnw.cmd -B "-Dgroups=integration" "-Dm9.reporting.rows=100000" "-Dit.test=M9ReportingScaleBenchmarkIntegrationTest" verify
 ```
 
-Result (`Tests run: 1, Failures: 0, Errors: 0`, `BUILD SUCCESS`, 332.5 s):
+Results (real local runs, EXPLAIN ANALYZE verbatim from MySQL):
 
 ```text
-M9_REPORTING_BENCHMARK|measured|rows=10000|fixture_ms=289428|workbench_ms=81|providers=3|projects=1|charges_sum=12500.00000000|period=OPEN
-M9_REPORTING_EXPLAIN|workbench_provider_cost|ms=29|plan=-> Limit: 100 row(s)  (actual time=20..20 rows=3 loops=1)
-M9_REPORTING_EXPLAIN|workbench_project_cost|ms=32|plan=-> Limit: 100 row(s)  (actual time=28.9..28.9 rows=1 loops=1)
-M9_REPORTING_EXPLAIN|workbench_unallocated_currency|ms=28|plan=-> Sort: amount DESC  (actual time=25.5..25.5 rows=0 loops=1)
+# 10k (293.2 s)
+M9_REPORTING_BENCHMARK|measured|rows=10000|fixture_ms=254664|workbench_ms=112|providers=3|projects=1|charges_sum=12500.00000000|period=OPEN
+M9_REPORTING_EXPLAIN|workbench_provider_cost|ms=31|plan=-> Limit: 100 row(s)  (actual time=20.7..20.7 rows=3 loops=1)
+M9_REPORTING_EXPLAIN|workbench_project_cost|ms=32|plan=-> Limit: 100 row(s)  (actual time=29..29 rows=1 loops=1)
+M9_REPORTING_EXPLAIN|workbench_unallocated_currency|ms=28|plan=-> Sort: amount DESC  (actual time=25.8..25.8 rows=0 loops=1)
+
+# 100k (7594 s / 126.6 min including fixture; workbench_ms=731)
+M9_REPORTING_BENCHMARK|measured|rows=100000|fixture_ms=7524015|workbench_ms=731|providers=3|projects=1|charges_sum=125000.00000000|period=OPEN
+M9_REPORTING_EXPLAIN|workbench_provider_cost|ms=252|plan=-> Limit: 100 row(s)  (actual time=213..213 rows=3 loops=1)
+M9_REPORTING_EXPLAIN|workbench_project_cost|ms=413|plan=-> Limit: 100 row(s)  (actual time=409..409 rows=1 loops=1)
+M9_REPORTING_EXPLAIN|workbench_unallocated_currency|ms=188|plan=-> Sort: amount DESC  (actual time=186..186 rows=0 loops=1)
 ```
 
-- `fixture_ms` inserts 10k raw records + 10k charges + 10k allocation
-  decisions + 10k allocation lines through batched JDBC (outside the measured
-  section).
-- `workbench_ms=81` is the real `WorkbenchQueryService.get(...)` response with
-  Redis cache flushed before the measured run, so the run hits MySQL again.
-- Correctness at scale: 3 providers, 1 project, `sum(charges)=12500.00000000`,
-  no unallocated charges, budget variance present, period status `OPEN`.
-- EXPLAIN ANALYZE output above comes from real MySQL (`EXPLAIN ANALYZE`),
-  verbatim statements from `WorkbenchQueryMapper`.
+- 10k: fixture 254s inserts 10k charges + allocations; workbench 112ms hits MySQL after Redis flush.
+- 100k: fixture 7524s inserts 100k charges; workbench 731ms — log-linear scaling, no timeout.
 
-## Larger scales (100k / 500k) — opt-in, not part of CI default
+## 500k reporting — not yet measured locally
 
-Both classes accept the scale property; full workloads are explicit opt-in
-because of the one-hour-plus worker runtime at the measured per-row rate and
-the 7790 MB Docker memory ceiling on this machine:
+Reporting at 500k rows (fixture inserts 500k charges + allocation lines via batched JDBC) was not completed on this developer host in this PR cycle due to the multi-hour fixture time under the 7.6 GB Docker ceiling. The 10k and 100k reporting runs above are the AIC-081 evidence; 500k reporting is tracked for AIC-083 with a larger-memory runner or fixture partitioning. The import 500k PASS above already demonstrates the system's ability to handle 500k canonical charges through the full ingest pipeline.
 
-```powershell
-# import full workload (3 runs each; 500k can take well over an hour)
-.\mvnw.cmd -B "-Dm9.benchmark.scales=10k,100k,500k" "-Dm9.benchmark.runs=3" failsafe:integration-test "-Dit.test=M9ImportScaleBenchmarkIntegrationTest"
-
-# reporting at 200k rows
-.\mvnw.cmd -B "-Dm9.reporting.rows=200000" failsafe:integration-test "-Dit.test=M9ReportingScaleBenchmarkIntegrationTest"
-```
-
-If a scale cannot complete on the local machine (OOM / timeout), the import
-harness records a real `M9_IMPORT_RESOURCE_CEILING` marker with heap/GC
-context instead of fabricating a PASS.
+If a future scale cannot complete (real OOM / container kill / benchmark timeout), the import harness records a real M9_IMPORT_RESOURCE_CEILING marker with heap/GC context instead of fabricating a PASS; AssertionError / SQL / business exceptions still fail via the narrow isRecognizedResourceCeiling classifier.
 
 ## Fixture repair history (how this run became green)
 
@@ -125,12 +132,10 @@ The previous run (with defect 1) failed with
 ## Worker decision (evidence-based)
 
 ```text
-KEEP DB-BACKED WORKER         <- chosen on current evidence
-TUNE DB-BACKED WORKER         <- measured ceiling: ~155 rows/s/worker at 10k
+KEEP DB-BACKED WORKER         <- chosen: 10k/100k/500k all PASS, linear scaling 412→434→442 rows/s
+TUNE DB-BACKED WORKER         <- not required at current evidence; monitor if rate degrades at higher concurrency
 EVALUATE TRANSACTIONAL OUTBOX <- open only if import rate becomes a P1 cost driver
-EVALUATE MESSAGE BROKER       <- no evidence today for RabbitMQ/Kafka; not introduced
+EVALUATE MESSAGE BROKER       <- no evidence for RabbitMQ/Kafka; not introduced (AIC-081 is evidence only)
 ```
 
-No message broker or outbox was introduced; the DB-backed worker stays and the
-10k sample is the CI gate. A dedicated 100k/500k run and cost analysis are
-tracked for AIC-083 before any tuning decision.
+No message broker or outbox was introduced. The DB-backed worker shows linear scaling across 10k→100k→500k (worker_records_per_sec 412→434→442) with no resource ceiling hit under the narrow classifier. Reporting scales linearly as well (10k: 112 ms, 100k: 731 ms). 500k reporting fixture is tracked for AIC-083.
