@@ -16,10 +16,11 @@ V2 目标：
 
 ```text
 V1 = COMPLETE / FROZEN
-Current stable release = v1.0.1
-V1.1 / M9 = NEXT IMPLEMENTATION MILESTONE
+Current stable (published) release = v1.0.1
+M9 = COMPLETE / ACCEPTED (v1.1.0 release candidate; AIC-074~AIC-083 all PASS)
+v1.1.0 = PENDING RELEASE PR MERGE + FINAL MAIN GREEN (not yet published/tagged)
+M10 V2 Detailed Design = NEXT DESIGN MILESTONE
 V2 Gateway architecture direction = APPROVED IN PRINCIPLE
-M10 V2 Detailed Design = REQUIRED BEFORE BROAD GATEWAY FEATURE CODING
 ```
 
 V1 状态：

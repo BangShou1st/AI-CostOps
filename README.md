@@ -2,7 +2,7 @@
 
 面向研发团队的多 AI Provider 成本归集、费用核算、预算治理、对账与账期管理平台。
 
-当前稳定版本：**v1.0.1**。V1 已完成并冻结：M0–M8、AIC-001～AIC-073、AIC-073 Final Human Acceptance / Release Sign-off、`v1.0.0` 与后续补丁 `v1.0.1` 均已完成。仓库当前不声称生产环境验证、完整 Provider 覆盖、FOCUS Compliance 或未实测的规模能力。
+当前版本方向：**v1.1.0（M9 Production Foundation，release candidate）**。V1 已完成并冻结：M0–M8、AIC-001～AIC-073、AIC-073 Final Human Acceptance / Release Sign-off、`v1.0.0` 与后续补丁 `v1.0.1` 均已完成。M9 已完成：AIC-074～AIC-083 全部验收（审计收口、生产配置加固、Metrics/Observability、Browser E2E、Security CI、Backup/Restore drill、Import/Reporting scale evidence、真实 Provider 认证），最终判决见 `docs/03-acceptance/aic-083-m9-final-acceptance.md`。`v1.1.0` 尚未发布：tag/release 需在该 release PR 合并且 main CI 全绿后进行。仓库当前不声称生产环境验证、完整 Provider 覆盖、FOCUS Compliance 或未实测的规模能力。
 
 发布记录：
 
@@ -12,6 +12,16 @@ v1.0.1 → b96be614e2d843c101add49fe6daffb9d2343a56
 ```
 
 `v1.0.1` 通过 PR #103 加固 Import lease recovery 在 MySQL deadlock race 下的 bounded retry；不改变 API、Schema 或 V1 产品范围。
+
+## M9 / v1.1.0 状态
+
+```text
+M9 PRODUCTION FOUNDATION = COMPLETE / ACCEPTED (release candidate, see AIC-083)
+AIC-074 ~ AIC-083 = PASS (082 = REAL_PROVIDER_CERTIFICATION_PASS, MiMo real export)
+Current stable (published) = v1.0.1
+v1.1.0 = pending release PR merge + final main green
+M10 (V2 Detailed Design) = NEXT DESIGN MILESTONE
+```
 
 ## V1 主链路
 
@@ -114,8 +124,8 @@ Validated flows：Import lifecycle, Cost allocation, Budget commitment, Expense 
 ## Known Limitations
 
 - SMTP delivery requires external mail service. Local development uses file-backed mailbox by default.
-- Import benchmark tested up to 1,024 rows (synthetic DeepSeek). Scale / concurrency limits beyond this are untested.
-- provider-account and allocation-rule audit producers are incomplete for create/update/archive actions.
+- Import scale measured by M9 (AIC-081): 10k / 100k / 500k import all PASS（412→434→442 rows/s，DB-backed worker，无 broker）；reporting 10k / 100k PASS；500k reporting fixture 未在本机 7.6 GB Docker 环境完成（documented non-blocking limitation，见 `docs/03-acceptance/m9-scale-evidence.md`）。
+- provider-account / allocation-rule audit 审计 producer 缺口已由 AIC-074 关闭。
 - Production mail integration is environment-specific and not included in V1 scope.
 
 ## Provider 支持边界
@@ -128,7 +138,7 @@ Validated flows：Import lifecycle, Cost allocation, Budget commitment, Expense 
 | GLM | 已实现 | fixture / adapter tests |
 | OpenAI | 已实现 | fixture / adapter tests |
 
-M8 的真实 Compose smoke 和 benchmark 使用合成 DeepSeek export；其余 Provider 不应被解释为已完成真实生产导入认证。
+M8 的真实 Compose smoke 和 benchmark 使用合成 DeepSeek export。M9（AIC-082）完成了一次真实 MiMo 导入认证（real-but-redacted，`REAL_PROVIDER_CERTIFICATION_PASS`，见 `docs/03-acceptance/m9-provider-certification-mimo.md`）；其余 Provider 未被解释为已完成真实生产导入认证。
 
 ## 技术基线
 
@@ -178,4 +188,4 @@ V1 已关闭。V2 进入 Realtime AI Gateway 的详细设计与实施规划阶�
 Issue → Short-lived Branch → Pull Request → CI → Human Acceptance → Squash Merge → main
 ~~~
 
-当前 V1 状态：`COMPLETE / FROZEN`。当前稳定版本：`v1.0.1`。
+当前 V1 状态：`COMPLETE / FROZEN`。M9 状态：`COMPLETE / ACCEPTED`（v1.1.0 release candidate）。当前稳定（已发布）版本：`v1.0.1`；`v1.1.0` 待 release PR 合并且 main CI 全绿后发布。
