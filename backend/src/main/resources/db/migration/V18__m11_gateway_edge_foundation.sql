@@ -339,3 +339,20 @@ CREATE TABLE gateway_route_attempt (
 ALTER TABLE gateway_request
     ADD CONSTRAINT fk_gateway_request_current_route_org
         FOREIGN KEY (current_route_attempt_id, org_id) REFERENCES gateway_route_attempt (id, org_id);
+
+-- AIC-096 (M11, Task 4) introduces PENDING_GATEWAY_FINANCIAL_WORK as a Close
+-- blocker code. V1-V17 migrations are never edited; extend the frozen V16
+-- CHECK forward so the Gateway financial-work blocker can persist its result.
+ALTER TABLE period_close_check
+    DROP CHECK chk_period_close_check_blocker;
+ALTER TABLE period_close_check
+    ADD CONSTRAINT chk_period_close_check_blocker CHECK (blocker_code IN (
+        'OPEN_IMPORTS',
+        'UNRESOLVED_DUPLICATES',
+        'UNALLOCATED_CHARGES',
+        'UNPOSTED_APPROVED_EXPENSES',
+        'OPEN_MATERIAL_RECONCILIATION',
+        'PENDING_CORRECTIONS',
+        'LEDGER_INTEGRITY',
+        'PENDING_GATEWAY_FINANCIAL_WORK'
+    ));

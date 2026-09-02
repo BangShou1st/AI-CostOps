@@ -125,7 +125,7 @@ class E2eExpenseMainlineIntegrationTest extends AllocationApiTestSupport {
                         .header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.periodStatus").value("CLOSED"))
-                .andExpect(jsonPath("$.checks.length()").value(7));
+                .andExpect(jsonPath("$.checks.length()").value(8));
         assertThatEqual("SELECT status FROM billing_period WHERE id=?", "CLOSED", periodId);
     }
 

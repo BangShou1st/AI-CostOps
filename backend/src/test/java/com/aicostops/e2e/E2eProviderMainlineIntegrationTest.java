@@ -110,12 +110,12 @@ class E2eProviderMainlineIntegrationTest extends AllocationApiTestSupport {
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
                 .andExpect(jsonPath("$.summary.discrepancyCount").value(0));
 
-        // 7. All seven blockers pass; the period closes.
+        // 7. All eight blockers pass (M11 adds PENDING_GATEWAY_FINANCIAL_WORK); the period closes.
         mockMvc.perform(post("/api/v1/billing-periods/{periodId}/close", periodId)
                         .header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.periodStatus").value("CLOSED"))
-                .andExpect(jsonPath("$.checks.length()").value(7));
+                .andExpect(jsonPath("$.checks.length()").value(8));
         assertThatPeriodStatus(periodId, "CLOSED");
     }
 
