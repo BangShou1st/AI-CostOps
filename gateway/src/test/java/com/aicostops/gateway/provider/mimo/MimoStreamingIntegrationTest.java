@@ -184,6 +184,9 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
             out.write(chunkResetFrame(1).getBytes(StandardCharsets.UTF_8));
             out.write(chunkResetFrame(2).getBytes(StandardCharsets.UTF_8));
             out.flush();
+            // Let the 200 header and partial chunks reach the Gateway before
+            // aborting, so the client observes a started stream being reset.
+            sleep(150);
             // RST on close: the Gateway sees an aborted transport after partial chunks.
             socket.setSoLinger(true, 0);
             socket.close();

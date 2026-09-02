@@ -6,13 +6,16 @@ import java.util.List;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.mysql.MySQLContainer;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.MySQLContainer;
 
 /**
  * Gateway integration-test support. The Gateway has no Flyway dependency (the
  * Backend is the sole production migration owner), so tests apply the exact
  * repository migration scripts V1..V18 directly from the Backend module over
- * the shared MySQL 8.4 container.
+ * the shared MySQL 8.4 container. A shared Redis container provides the
+ * runtime rate-limit/coordination dependency so an enabled mandatory limiter
+ * has a real broker.
  */
 public abstract class GatewayMySqlContainerSupport {
 
@@ -37,16 +40,20 @@ public abstract class GatewayMySqlContainerSupport {
             "V17__m8_budget_lookup_index.sql",
             "V18__m11_gateway_edge_foundation.sql");
 
-    protected static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4")
+    protected static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("aicostops_test")
             .withUsername("aicostops")
             .withPassword("aicostops-test-only")
             .withStartupTimeoutSeconds(STARTUP_TIMEOUT_SECONDS)
             .withConnectTimeoutSeconds(60);
 
+    protected static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8.8.1-alpine")
+            .withExposedPorts(6379);
+
     static {
         MYSQL.start();
         applyMigrations();
+        REDIS.start();
     }
 
     @DynamicPropertySource
@@ -54,6 +61,8 @@ public abstract class GatewayMySqlContainerSupport {
         registry.add("spring.datasource.url", () -> MYSQL.getJdbcUrl() + "?serverTimezone=UTC");
         registry.add("spring.datasource.username", MYSQL::getUsername);
         registry.add("spring.datasource.password", MYSQL::getPassword);
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
     }
 
     private static void applyMigrations() {

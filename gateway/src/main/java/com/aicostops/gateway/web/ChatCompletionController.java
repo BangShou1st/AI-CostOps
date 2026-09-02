@@ -2,11 +2,13 @@ package com.aicostops.gateway.web;
 
 import com.aicostops.gateway.auth.GatewayBearerWebFilter;
 import com.aicostops.gateway.auth.GatewayPrincipal;
+import com.aicostops.gateway.config.GatewayResourceLimiter;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
 import com.aicostops.gateway.provider.ProviderCredentialDecryptor;
+import com.aicostops.gateway.ratelimit.GatewayRateLimiter;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.request.GatewayRequestLifecycleService;
 import com.aicostops.gateway.request.GatewayRequestService;
@@ -21,6 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -59,6 +62,8 @@ public class ChatCompletionController {
     private final ProviderCredentialDecryptor credentialDecryptor;
     private final ProviderChatAdapter chatAdapter;
     private final GatewaySseEncoder sseEncoder;
+    private final GatewayRateLimiter rateLimiter;
+    private final GatewayResourceLimiter resourceLimiter;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final int maxRequestBytes;
@@ -71,6 +76,8 @@ public class ChatCompletionController {
             ProviderCredentialDecryptor credentialDecryptor,
             ProviderChatAdapter chatAdapter,
             GatewaySseEncoder sseEncoder,
+            GatewayRateLimiter rateLimiter,
+            GatewayResourceLimiter resourceLimiter,
             ObjectMapper objectMapper,
             com.aicostops.gateway.config.GatewayProperties properties,
             Clock clock) {
@@ -81,6 +88,8 @@ public class ChatCompletionController {
         this.credentialDecryptor = credentialDecryptor;
         this.chatAdapter = chatAdapter;
         this.sseEncoder = sseEncoder;
+        this.rateLimiter = rateLimiter;
+        this.resourceLimiter = resourceLimiter;
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.maxRequestBytes = properties.getMaxRequestBytes();
@@ -110,20 +119,49 @@ public class ChatCompletionController {
         var model = readMapper.findModelById(modelId);
         var effectiveMaxTokens = resolveEffectiveMaxTokens(request, model);
 
-        return requestService.authorizeAndFence(new AuthorizeCommand(
-                        principal, modelId, rawBody, idempotencyKey))
-                .flatMap(result -> request.stream()
-                        ? Mono.just(invokeStream(exchange, principal, result, request,
-                                effectiveMaxTokens))
+        // A stream permit is held for the whole streaming lifetime and always
+        // released (complete/error/cancel, or any early failure in this chain).
+        var permitHeld = new AtomicBoolean(false);
+        if (request.stream()) {
+            if (!resourceLimiter.tryAcquireStreamPermit()) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
+                        "Too many concurrent streams");
+            }
+            permitHeld.set(true);
+        }
+        Runnable releasePermit = () -> {
+            if (permitHeld.getAndSet(false)) {
+                resourceLimiter.releaseStreamPermit();
+            }
+        };
+
+        return rateLimiter.tryAcquire(principal.credentialId())
+                .flatMap(rateResult -> {
+                    if (!rateResult.allowed()) {
+                        throw new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
+                                "Rate limit exceeded", retryAfterSeconds(rateResult));
+                    }
+                    return requestService.authorizeAndFence(new AuthorizeCommand(
+                            principal, modelId, rawBody, idempotencyKey));
+                })
+                .flatMap((DispatchResult result) -> request.stream()
+                        ? streamResult(invokeStream(exchange, principal, result, request,
+                                effectiveMaxTokens, releasePermit))
                         : invokeProvider(exchange, principal, result, request, effectiveMaxTokens)
-                                .map(completion -> ResponseEntity.ok(
+                                .map(completion -> (ResponseEntity<?>) ResponseEntity.ok(
                                         buildResponse(exchange, principal, result, request,
-                                                completion))));
+                                                completion))))
+                .doFinally(ignored -> releasePermit.run());
+    }
+
+    private static Mono<ResponseEntity<?>> streamResult(
+            ResponseEntity<Flux<ServerSentEvent<String>>> entity) {
+        return Mono.just((ResponseEntity<?>) entity);
     }
 
     private ResponseEntity<Flux<ServerSentEvent<String>>> invokeStream(
             ServerWebExchange exchange, GatewayPrincipal principal, DispatchResult result,
-            ChatCompletionRequest request, int effectiveMaxTokens) {
+            ChatCompletionRequest request, int effectiveMaxTokens, Runnable releasePermit) {
         var context = buildProviderContext(principal, result);
         var command = new ChatCompletionCommand(
                 request.model(),
@@ -161,7 +199,8 @@ public class ChatCompletionController {
                 })
                 .doOnCancel(() -> streamingLifecycle
                         .cancelAfterDispatch(requestId, orgId)
-                        .subscribe());
+                        .subscribe())
+                .doFinally(ignored -> releasePermit.run());
 
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_EVENT_STREAM)
@@ -297,6 +336,11 @@ public class ChatCompletionController {
     private static String traceId(ServerWebExchange exchange) {
         var existing = exchange.getRequest().getHeaders().getFirst(TRACE_HEADER);
         return existing == null || existing.isBlank() ? "trc_" + UUID.randomUUID() : existing;
+    }
+
+    /** Bounded Retry-After seconds for the OpenAI-compatible 429/503 envelope. */
+    private static Integer retryAfterSeconds(GatewayRateLimiter.RateLimitResult result) {
+        return (int) Math.max(1, (result.retryAfterMillis() + 999) / 1000);
     }
 
     /** Provider timeout classes become TIMED_OUT_AFTER_DISPATCH, not FAILED_AFTER_DISPATCH. */
