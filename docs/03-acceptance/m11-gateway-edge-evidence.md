@@ -113,7 +113,9 @@ disposable image removed after evidence recorded
 ## 12. Local application Docker build count
 
 ```text
-local Docker application image builds performed: 1 (ai-costops-gateway, once)
+local Docker application image builds performed: 2 (ai-costops-gateway,
+  original Dockerfile verification + one follow-up after pinning Netty
+  4.2.16.Final => package contents changed, permitted by the disk guardrails)
 Gateway final Docker build: PASS
 Backend/Frontend image builds locally: 0
 repeated compose --build loop used: NO
