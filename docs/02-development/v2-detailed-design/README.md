@@ -1,8 +1,8 @@
 # V2 Detailed Design — M10 Source of Truth
 
 > Milestone: **M10 — V2 Detailed Design**  
-> Status: **DESIGN IN PROGRESS — AIC-093 FINAL FREEZE NOT YET PASSED**  
-> Runtime feature coding remains blocked until AIC-093 passes.
+> Status: **DESIGN IN PROGRESS — AIC-093 FINAL FREEZE NOT YET LANDED ON MAIN**  
+> Runtime feature coding remains blocked until the M10 design PR is accepted/merged.
 
 ## 1. Authority order
 
@@ -43,6 +43,7 @@ Therefore the interpretation order *inside M10* is:
 ```text
 V1/V1.1 frozen invariant
 → AIC-092 exact consolidated contract
+→ this README explicit supersession table
 → AIC-084..091 domain-specific explanation
 → Gateway OpenAPI machine shape
 ```
@@ -51,16 +52,19 @@ This does **not** allow AIC-092 to weaken an inherited financial invariant. It o
 
 The following supersessions are explicit and must not be treated as competing alternatives:
 
-| Earlier provisional wording | Final AIC-092 rule |
+| Earlier provisional wording | Final frozen rule |
 |---|---|
 | AIC-085 empty `gateway_credential_model` may mean all models | **Superseded:** credential model access is explicit-only / deny-by-default; at least one ACTIVE relation is required |
 | AIC-085/086 Provider Account / Provider Model / Pricing Version / route decision described as persisted immutable request snapshot | **Superseded:** route-specific commercial truth lives on append-only `gateway_route_attempt`; `gateway_request` owns stable client/business identity only |
 | AIC-086 request snapshot fields include route-specific Provider/Pricing ids | **Superseded:** request may point to `current_route_attempt_id` only as a convenience pointer; historical truth remains the attempt chain |
 | AIC-087 `UNIQUE(org_id, request_id)` reservation identity | **Superseded:** Reservation is per Route Attempt with `UNIQUE(org_id, route_attempt_id)` plus one-effective-hold-per-request uniqueness |
+| AIC-090 provisional `gateway_route_attempt.reservation_id` back-pointer | **Superseded:** exact schema keeps the authoritative relationship on `budget_reservation.route_attempt_id`; do not maintain a second mutable reservation pointer on Route Attempt |
 | AIC-087 budget mode described conceptually | **Resolved:** `gateway_credential.budget_enforcement_mode = REQUIRED | OPTIONAL` is durable governed policy |
 | AIC-088 Usage Fact may directly duplicate Provider Account / Provider Model identity and typed-vs-JSON dimensions was open | **Resolved:** Usage Fact points to `route_attempt_id`; normalized financial dimensions use typed `gateway_usage_dimension` rows; safe bounded provider metadata may use JSON |
 | AIC-088 normalized dimension set called candidate | **Resolved for V2 Core:** `INPUT_TOKEN`, `OUTPUT_TOKEN`, `CACHED_INPUT_TOKEN`, `REQUEST` |
+| AIC-088 earlier wording says one Provider-derived `usage_effective_at` drives later Pricing Version/BillingPeriod selection | **Superseded for realtime authorization:** route selection, Pricing Version, Reservation and BillingPeriod fence are frozen before dispatch using the dispatch context; later Provider timestamps are retained as reconciliation evidence and may trigger `RECONCILIATION_REQUIRED`, but they never silently reselect price/period after spend was authorized |
 | AIC-089 exact financial lock order left to AIC-092 | **Resolved:** BillingPeriod → sorted Budgets → sorted Commitments → Gateway Reservation/Settlement source rows as applicable → V1 source/allocation rows when applicable → Ledger uniqueness/insertion |
+| AIC-089 mentions a future reviewed close exception as a possible escape for `RECONCILIATION_REQUIRED` | **Superseded for V2 Core:** no Gateway close-exception bypass exists; unresolved possible-billable/reconciliation-required Gateway work blocks normal Close until resolved through explicit existing financial governance |
 | Earlier generic Gateway error treatment | **Resolved:** Control Plane retains ProblemDetail; Gateway `/v1` uses the OpenAI-compatible error envelope frozen in `gateway-openapi.yaml` |
 | Earlier successful response examples imply usage is always present | **Resolved:** public success `usage` is optional; absent usage must become INCOMPLETE/UNKNOWN financial metering, never fabricated zero |
 
@@ -127,15 +131,15 @@ The current repository runtime baseline stays Java 21 + Spring Boot 4.1.0 unless
 | Stable ID | Document | Status |
 |---|---|---|
 | AIC-084 | `01-scope-runtime-boundary.md` | FROZEN CANDIDATE |
-| AIC-085 | `02-credentials-catalog-pricing.md` | FROZEN CANDIDATE, subject to AIC-092 supersessions above |
-| AIC-086 | `03-request-state-machine.md` | FROZEN CANDIDATE, subject to AIC-092 supersessions above |
-| AIC-087 | `04-budget-redis-atomicity.md` | FROZEN CANDIDATE, subject to AIC-092 supersessions above |
-| AIC-088 | `05-provider-streaming-metering.md` | FROZEN CANDIDATE, subject to AIC-092 supersessions above |
-| AIC-089 | `06-settlement-financial-boundary.md` | FROZEN CANDIDATE, exact lock/schema contract in AIC-092 |
-| AIC-090 | `07-routing-resilience.md` | FROZEN CANDIDATE |
+| AIC-085 | `02-credentials-catalog-pricing.md` | FROZEN CANDIDATE, subject to AIC-092/README supersessions above |
+| AIC-086 | `03-request-state-machine.md` | FROZEN CANDIDATE, subject to AIC-092/README supersessions above |
+| AIC-087 | `04-budget-redis-atomicity.md` | FROZEN CANDIDATE, subject to AIC-092/README supersessions above |
+| AIC-088 | `05-provider-streaming-metering.md` | FROZEN CANDIDATE, subject to AIC-092/README supersessions above |
+| AIC-089 | `06-settlement-financial-boundary.md` | FROZEN CANDIDATE, exact lock/schema/close rule in AIC-092/README |
+| AIC-090 | `07-routing-resilience.md` | FROZEN CANDIDATE, exact relation direction in AIC-092/README |
 | AIC-091 | `08-security-observability-deployment.md` | FROZEN CANDIDATE |
 | AIC-092 | `09-data-api-migration-testing.md` | FROZEN CANDIDATE — final consolidation |
-| AIC-093 | `../../03-acceptance/m10-design-freeze-matrix.md` | FINAL FREEZE GATE |
+| AIC-093 | `../../03-acceptance/m10-design-freeze-matrix.md` | DESIGN FREEZE PASS ON BRANCH; merge gate still applies |
 
 ---
 
@@ -169,7 +173,7 @@ Allowed:
 
 ```text
 docs/**
-PROJECT_CONTEXT.md / roadmap / README only after final M10 acceptance
+PROJECT_CONTEXT.md / roadmap / README only after final M10 acceptance/merge
 ```
 
 Not allowed in the M10 design branch:
@@ -227,4 +231,4 @@ Any correctness/API/data-ownership decision that still says “implementation de
 BLOCKED
 ```
 
-M10 is not complete until the final freeze matrix is accepted and applicable PR checks have been reviewed.
+M10 is not complete on `main` until the final freeze matrix is accepted, applicable PR checks have been reviewed, and the design PR is merged with explicit human authorization.
