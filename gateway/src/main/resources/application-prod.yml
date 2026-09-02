@@ -1,0 +1,28 @@
+# Production profile: deny-by-default policy overrides only. No credentials
+# are stored here; every value below is a safety default that operators can
+# tighten further. Secrets come exclusively from the runtime environment.
+#
+# The prod profile is fail-fast: GatewayProductionConfigurationValidator
+# rejects unsafe or dev-only resolved settings before the application becomes
+# ready.
+spring:
+  datasource:
+    # Production datasource credentials are injected by the deployment; the
+    # URL default points at a service-local MySQL name.
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://mysql:3306/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+
+aicostops:
+  gateway:
+    # Dev bootstrap must stay OFF in production.
+    dev-bootstrap-enabled: false
+    rate-limit-enabled: ${AICOSTOPS_GATEWAY_RATE_LIMIT_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true

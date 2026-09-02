@@ -1,0 +1,32 @@
+# Local Day-to-Day Development profile (host-run Gateway, Docker DB/Redis).
+#
+# Every value below is a fallback default: an environment variable of the
+# same name still overrides it, exactly like application.yml. Secrets come
+# from the git-ignored local environment (see .m11-dev.env) and are never
+# committed.
+#
+# Activate with:
+#   .\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=local
+# or set SPRING_PROFILES_ACTIVE=local in the IDE run configuration.
+spring:
+  datasource:
+    # compose.dev.yaml publishes MySQL on ${MYSQL_PORT} (3307 by default).
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:aicostops}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me-local-only}
+  data:
+    redis:
+      host: ${AICOSTOPS_REDIS_HOST:localhost}
+      port: ${AICOSTOPS_REDIS_PORT:6379}
+      password: ${AICOSTOPS_REDIS_PASSWORD:change-me-local-only}
+
+server:
+  # The host Gateway listens on 8081 for day-to-day development.
+  port: ${AICOSTOPS_GATEWAY_PORT:8081}
+
+aicostops:
+  gateway:
+    # Local development opt-in; production forbids the dev bootstrap through
+    # the production validator.
+    dev-bootstrap-enabled: ${AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED:false}
+    dev-raw-key: ${AICOSTOPS_GATEWAY_DEV_RAW_KEY:}

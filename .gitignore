@@ -17,6 +17,7 @@ credentials/
 # Java / Maven
 # =========================
 backend/target/
+gateway/target/
 *.class
 *.log
 hs_err_pid*
