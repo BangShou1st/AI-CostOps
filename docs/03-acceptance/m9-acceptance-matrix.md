@@ -13,7 +13,7 @@ This matrix is the live M9 acceptance index. Evidence links are filled from real
 | AIC-080 | Recovery | MySQL + Evidence restore drill with `M9_RESTORE_DRILL_PASS` | PASS — PR #122, main `382c238`; `docs/03-acceptance/m9-backup-restore-evidence.md`, full drill `M9_RESTORE_DRILL_PASS` (scripts unchanged since tested SHA `cbb84b58`) |
 | AIC-081 | Scale | 10k / 100k / 500k import report + reporting benchmark | PASS — PR #123, main `e4b0c1b`; `docs/03-acceptance/m9-scale-evidence.md`: import 10k/100k/500k PASS (412→434→442 rows/s), reporting 10k/100k PASS; limitation: 500k reporting fixture not run on the 7.6 GB local host (documented non-blocking) |
 | AIC-082 | Provider certification | one real-but-redacted Provider certification report | PASS — PR #126, main `70fe5ad`; `docs/03-acceptance/m9-provider-certification-mimo.md`, `REAL_PROVIDER_CERTIFICATION_PASS` (MiMo real export, diff 0.000000) |
-| AIC-083 | Final acceptance | clean final verification + GitHub checks + human sign-off | PASS — release/v1.1.0 PR; `docs/03-acceptance/aic-083-m9-final-acceptance.md`; final decision documented below |
+| AIC-083 | Final acceptance | clean final verification + GitHub checks + human sign-off | PASS — PR #127; `docs/03-acceptance/aic-083-m9-final-acceptance.md`; final decision documented below |
 
 ## Release blockers
 
@@ -43,4 +43,4 @@ M9 = ACCEPTED WITH DOCUMENTED NON-BLOCKING LIMITATIONS
 M9 = BLOCKED
 ```
 
-**AIC-083 final decision: `M9 = ACCEPTED WITH DOCUMENTED NON-BLOCKING LIMITATIONS`**(see `docs/03-acceptance/aic-083-m9-final-acceptance.md`).
+**AIC-083 final decision: `M9 = ACCEPTED WITH DOCUMENTED NON-BLOCKING LIMITATIONS`** (see `docs/03-acceptance/aic-083-m9-final-acceptance.md`).
