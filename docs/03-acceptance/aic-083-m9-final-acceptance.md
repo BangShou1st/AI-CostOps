@@ -9,7 +9,7 @@
 ```text
 Base main (release branch base): 70fe5ad9d732cda1cad1287e16fc3a1f1f39c0b4
 Branch:                          release/v1.1.0
-Release PR:                      (#<PR>, this closure)
+Release PR:                      #127
 Target version:                  v1.1.0
 ```
 
@@ -98,12 +98,15 @@ Services: backend / frontend / mysql / redis / minio all `healthy`.
 
 ### Security / CI authenticity
 
-- GitHub base `70fe5ad` check-runs all `completed/success`:
-  backend-unit, backend-architecture, backend-integration, frontend-lint,
-  frontend-test, frontend-build, docker-build, browser-e2e, trivy,
+- Final release PR head `35d32750c3352131d61667ae3c7f534c8a23a6de` completed all release-gate checks successfully.
+- CI run `33531734600`: **8/8 SUCCESS** — backend-unit, backend-architecture,
+  backend-integration, frontend-lint, frontend-test, frontend-build,
+  docker-build, browser-e2e.
+- Security run `33531734465`: **3/3 SUCCESS** — trivy,
   codeql (java-kotlin), codeql (javascript-typescript).
-- No skipped required check, no `continue-on-error`, no `|| true`, no stale-SHA
-  green. Proof runs: repo workflows `33526242441`, `33526242481` (AIC-082 merge).
+- Browser E2E ran on the isolated fresh Compose stack and completed successfully.
+- No skipped required check, no `continue-on-error`, no `|| true`, and no stale-SHA green was used for the final release decision.
+- Base-main/AIC-082 merge checks also remained green before the release branch was cut; the final release decision is bound to the release-head runs above.
 
 ## Scale evaluation (AIC-081, honest record)
 
