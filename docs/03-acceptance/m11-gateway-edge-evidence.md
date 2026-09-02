@@ -7,7 +7,7 @@
 
 ```text
 code HEAD (schema/code/CI/docs of the milestone): 3ad6603
-branch HEAD at push: see git log after the evidence commit
+final branch HEAD at evidence update: 51df21c
 base: main (M10 design merged via PR #129/#130)
 ```
 
@@ -144,17 +144,26 @@ the real-provider certification path remains open for an operator-provided key.
 ## 15. CI
 
 ```text
-GitHub Actions runs after push (gateway-unit / gateway-integration /
-gateway-architecture / backend-* / frontend-* / docker-build / browser-e2e).
-Local evidence is the exact same Maven suites listed above.
+GitHub Actions on PR #131 (final run): all 15 checks PASS
+  backend-unit / backend-architecture / backend-integration
+  gateway-unit / gateway-architecture / gateway-integration
+  frontend-lint / frontend-test / frontend-build
+  docker-build (backend + frontend + gateway images)
+  browser-e2e
+  codeql (java-kotlin) / codeql (javascript-typescript) / CodeQL summary
 ```
 
 ## 16. Security
 
 ```text
-Security workflow (CodeQL java-kotlin + javascript-typescript, Trivy fs +
-backend/frontend/gateway image scans) runs after push; gateway/ source is now
-scanned by CodeQL and Trivy at HIGH/CRITICAL with exit-code 1.
+Security workflow on PR #131: PASS
+  CodeQL: 2 High alerts (Disabled Spring CSRF protection on the bearer
+    API-key data plane) triaged as intentional and excluded in
+    .github/codeql/codeql-config.yml with rationale (AIC-091 API-key
+    surface, no cookies/sessions); remaining scans clean
+  Trivy: vuln+misconfig+secret fs scan and backend/frontend/gateway image
+    scans PASS at HIGH/CRITICAL exit-code 1 after pinning Netty
+    4.2.16.Final in gateway/pom.xml
 ```
 
 ## 17. PR number + URL
@@ -178,7 +187,7 @@ PR #131 — https://github.com/BangShou1st/AI-CostOps/pull/131
 ## 19. git status
 
 ```text
-<recorded at push>
+on branch feat/m11-gateway-edge-mvp, synced with origin; clean working tree
 ```
 
 ## Frozen adversarial checklist (final pass)
