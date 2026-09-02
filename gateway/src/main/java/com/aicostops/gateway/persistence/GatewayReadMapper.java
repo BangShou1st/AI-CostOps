@@ -93,6 +93,18 @@ public interface GatewayReadMapper {
             """)
     String findBillingPeriodStatus(@Param("periodId") long periodId, @Param("orgId") long orgId);
 
+    @Select("""
+            SELECT ciphertext, nonce, encryption_key_version
+            FROM provider_credential
+            WHERE org_id=#{orgId} AND provider_account_id=#{accountId} AND status='ACTIVE'
+            ORDER BY id LIMIT 1
+            """)
+    ProviderCredentialRow findActiveProviderCredential(
+            @Param("orgId") long orgId, @Param("accountId") long providerAccountId);
+
+    @Select("SELECT id FROM model_catalog WHERE model_key=#{modelKey}")
+    Long findModelIdByKey(@Param("modelKey") String modelKey);
+
     record CredentialRow(
             long id,
             long orgId,
@@ -127,5 +139,8 @@ public interface GatewayReadMapper {
             String currency,
             String baseUrl,
             String adapterCode) {
+    }
+
+    record ProviderCredentialRow(byte[] ciphertext, byte[] nonce, short encryptionKeyVersion) {
     }
 }

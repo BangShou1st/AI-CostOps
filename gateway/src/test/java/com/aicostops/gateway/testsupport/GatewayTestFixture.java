@@ -17,12 +17,20 @@ public final class GatewayTestFixture {
     public static final String PROVIDER_CODE = "MIMO";
     public static final String PROVIDER_MODEL_NAME = "mimo-v2.5-pro";
     public static final String MODEL_KEY = "default-chat";
+    public static final String TEST_KEK = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
+    public static final String DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
 
     private GatewayTestFixture() {
     }
 
     /** @param rawKey a full aic_<prefix>_<secret> key; the digest is derived from its secret part. */
     public static SeededEnv seed(JdbcTemplate jdbc, String suffix, String hmacKeyBase64, String rawKey) {
+        return seed(jdbc, suffix, hmacKeyBase64, rawKey, TEST_KEK, "sk-test-secret", DEFAULT_BASE_URL);
+    }
+
+    /** Extended seed for controller tests: real encryption + mock upstream base URL. */
+    public static SeededEnv seed(JdbcTemplate jdbc, String suffix, String hmacKeyBase64, String rawKey,
+            String kekBase64, String providerSecret, String baseUrl) {
         var orgId = insertId(jdbc, "organization(name,slug,status,settings_json,created_at,updated_at)",
                 "VALUES (?,?,'ACTIVE',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
                 "M11 " + suffix, "gw-test-" + suffix);
@@ -66,9 +74,9 @@ public final class GatewayTestFixture {
             jdbc.update("""
                     INSERT INTO provider_catalog(
                       provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at)
-                    VALUES (?,'MiMo','MIMO','https://api.xiaomimimo.com/v1','ACTIVE',JSON_OBJECT(),
+                    VALUES (?,'MiMo','MIMO',?,'ACTIVE',JSON_OBJECT(),
                       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                    """, PROVIDER_CODE);
+                    """, PROVIDER_CODE, baseUrl);
         }
         var providerModelRows = jdbc.queryForList("""
                 SELECT id FROM provider_model
@@ -96,14 +104,15 @@ public final class GatewayTestFixture {
                 """, orgId, PROVIDER_CODE);
         var providerAccountId = insertLastId(jdbc);
 
+        var encrypted = encryptProviderSecret(providerSecret, kekBase64, orgId, providerAccountId);
         jdbc.update("""
                 INSERT INTO provider_credential(
                   org_id,provider_account_id,credential_type,ciphertext,nonce,
                   encryption_key_version,safe_label,status,predecessor_credential_id,
                   created_at,rotated_at,revoked_at)
-                VALUES (?,?,'API_KEY',?,'123456789012',1,'gw-test','ACTIVE',NULL,
+                VALUES (?,?,'API_KEY',?,?,1,'gw-test','ACTIVE',NULL,
                   UTC_TIMESTAMP(6),NULL,NULL)
-                """, orgId, providerAccountId, new byte[48]);
+                """, orgId, providerAccountId, encrypted.ciphertext(), encrypted.nonce());
         jdbc.update("""
                 INSERT INTO pricing_version(
                   org_id,provider_account_id,provider_model_id,version,currency,
@@ -141,7 +150,7 @@ public final class GatewayTestFixture {
 
         return new SeededEnv(orgId, periodId, modelId, providerAccountId, providerModelId,
                 pricingVersionId, credentialId, serviceIdentityId, projectId, rawKey,
-                parsed.prefix(), parsed.secretPart());
+                parsed.prefix(), parsed.secretPart(), MODEL_KEY + "-" + suffix);
     }
 
     /** FK-safe cleanup of all M11 rows for tests sharing one container. */
@@ -162,6 +171,29 @@ public final class GatewayTestFixture {
         jdbc.update("DELETE FROM provider_model");
         jdbc.update("DELETE FROM model_catalog");
         jdbc.update("DELETE FROM provider_catalog");
+    }
+
+    /** AES-256-GCM encryption mirroring the Control Plane encryptor AAD contract. */
+    private static Encrypted encryptProviderSecret(String secret, String kekBase64,
+            long orgId, long providerAccountId) {
+        try {
+            var nonce = new byte[12];
+            new java.security.SecureRandom().nextBytes(nonce);
+            var cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(javax.crypto.Cipher.ENCRYPT_MODE,
+                    new javax.crypto.spec.SecretKeySpec(
+                            Base64.getDecoder().decode(kekBase64.trim()), "AES"),
+                    new javax.crypto.spec.GCMParameterSpec(128, nonce));
+            var aad = ("aicostops:v2:provider-credential:v1\0" + orgId + "\0" + providerAccountId
+                    + "\0API_KEY\0" + "1").getBytes(StandardCharsets.UTF_8);
+            cipher.updateAAD(aad);
+            return new Encrypted(cipher.doFinal(secret.getBytes(StandardCharsets.UTF_8)), nonce);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Test crypto unavailable", ex);
+        }
+    }
+
+    private record Encrypted(byte[] ciphertext, byte[] nonce) {
     }
 
     private static long insertId(JdbcTemplate jdbc, String columns, String values, Object... args) {
@@ -205,7 +237,8 @@ public final class GatewayTestFixture {
             long projectId,
             String rawKey,
             String prefix,
-            String secretPart) {
+            String secretPart,
+            String modelKey) {
     }
 
     private record Parsed(String prefix, String secretPart) {

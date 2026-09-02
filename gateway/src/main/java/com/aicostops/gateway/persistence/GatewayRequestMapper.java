@@ -92,6 +92,43 @@ public interface GatewayRequestMapper {
     int markRouteAttemptDispatchIntent(
             @Param("attemptId") long attemptId, @Param("orgId") long orgId);
 
+    @Update("""
+            UPDATE gateway_request
+            SET state='UPSTREAM_ACTIVE', updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId} AND state='DISPATCH_INTENT'
+            """)
+    int markRequestUpstreamActive(@Param("requestId") long requestId, @Param("orgId") long orgId);
+
+    @Update("""
+            UPDATE gateway_request
+            SET state='TRANSPORT_COMPLETED', terminal_at=UTC_TIMESTAMP(6), updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId} AND state='UPSTREAM_ACTIVE'
+            """)
+    int markRequestTransportCompleted(@Param("requestId") long requestId, @Param("orgId") long orgId);
+
+    @Update("""
+            UPDATE gateway_request
+            SET state='FAILED_AFTER_DISPATCH', terminal_at=UTC_TIMESTAMP(6), updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId}
+              AND state IN ('DISPATCH_INTENT','UPSTREAM_ACTIVE')
+            """)
+    int markRequestFailedAfterDispatch(@Param("requestId") long requestId, @Param("orgId") long orgId);
+
+    @Update("""
+            UPDATE gateway_route_attempt
+            SET status='BILLABLE_POSSIBLE'
+            WHERE id=#{attemptId} AND org_id=#{orgId} AND status='DISPATCH_INTENT'
+            """)
+    int markAttemptBillablePossible(@Param("attemptId") long attemptId, @Param("orgId") long orgId);
+
+    @Update("""
+            UPDATE gateway_route_attempt
+            SET status='COMPLETED', completed_at=UTC_TIMESTAMP(6)
+            WHERE id=#{attemptId} AND org_id=#{orgId}
+              AND status IN ('BILLABLE_POSSIBLE','DISPATCH_INTENT')
+            """)
+    int markAttemptCompleted(@Param("attemptId") long attemptId, @Param("orgId") long orgId);
+
     record ExistingRequestRow(
             long id,
             long orgId,
