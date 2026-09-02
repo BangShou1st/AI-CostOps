@@ -17,3 +17,13 @@ paths-ignore:
   - "**/node_modules/**"
   - "**/playwright-report/**"
   - "**/test-results/**"
+
+# The Gateway data plane authenticates via a Bearer API-key filter, issues no
+# cookies and keeps no server session (frozen AIC-091: "API-key surface, not
+# a browser cookie product"). Spring Security's CSRF protection is therefore
+# intentionally disabled; CSRF is a cookie/session attack model that does not
+# apply to credentials carried only in request headers.
+query-filters:
+  - exclude:
+      id: java/spring-csrf-disabled
+      path: gateway/src/main/java
