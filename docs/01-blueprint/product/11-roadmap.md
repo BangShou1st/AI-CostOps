@@ -4,9 +4,9 @@
 
 ```text
 V1 = COMPLETE / FROZEN
-Current stable (published) = v1.0.1
-V1.1 / M9 = COMPLETE / ACCEPTED (v1.1.0 release candidate; AIC-074~AIC-083 all PASS)
-v1.1.0 = PENDING RELEASE PR MERGE + FINAL MAIN GREEN (not yet published/tagged)
+Current stable (published) = v1.1.0
+V1.1 / M9 = COMPLETE / ACCEPTED (v1.1.0 RELEASED; AIC-074~AIC-083 all PASS)
+v1.1.0 = RELEASED
 M10 V2 Detailed Design = NEXT DESIGN MILESTONE
 V2 Gateway = ARCHITECTURE DIRECTION APPROVED; M10 DETAILED DESIGN REQUIRED BEFORE FEATURE CODING
 ```
@@ -103,7 +103,7 @@ V1 不再继续扩产品范围；真实 bug 可按 patch release 修复。
 ```text
 ACCEPTED WITH DOCUMENTED NON-BLOCKING LIMITATIONS (see docs/03-acceptance/aic-083-m9-final-acceptance.md)
 AIC-074 ~ AIC-082 = PASS; real MiMo certification PASS; import 10k/100k/500k PASS; reporting 10k/100k PASS
-v1.1.0 = PENDING RELEASE PR MERGE + FINAL MAIN GREEN (not yet published/tagged)
+v1.1.0 = RELEASED
 ```
 
 ## 目标
@@ -146,7 +146,7 @@ At least one real-but-sanitized Provider certification completed
 MQ decision based on evidence, not architecture fashion
 ```
 
-目标发布：
+已发布：
 
 ```text
 v1.1.0
