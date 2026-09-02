@@ -22,10 +22,21 @@
     <mybatis-spring-boot.version>4.1.0</mybatis-spring-boot.version>
     <testcontainers.version>2.0.5</testcontainers.version>
     <archunit.version>1.4.2</archunit.version>
+    <!-- Trivy gate: spring-boot 4.1.0 manages Netty 4.2.15.Final which carries
+         HIGH netty-codec-compression findings fixed in 4.2.16.Final. Pin the
+         patch release for the data plane. -->
+    <netty.version>4.2.16.Final</netty.version>
   </properties>
 
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>${netty.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <dependency>
         <groupId>org.testcontainers</groupId>
         <artifactId>testcontainers-bom</artifactId>
