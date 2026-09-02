@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
@@ -26,21 +28,26 @@ import tools.jackson.databind.ObjectMapper;
  * MiMo OpenAI-compatible Chat Completions adapter. Only server-governed
  * destinations are used; the Provider secret is injected per request and
  * Provider error bodies are redacted. Never retries after a committed
- * DISPATCH_INTENT.
+ * DISPATCH_INTENT. Streaming parses/increments the upstream SSE without ever
+ * aggregating the full completion, using configured connect/header/idle/hard
+ * timeouts and no automatic retry.
  */
 @Component
 public class MimoChatAdapter implements ProviderChatAdapter {
 
     private static final String CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
+    private static final String DONE_MARKER = "[DONE]";
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
+    private final GatewayProperties properties;
 
     public MimoChatAdapter(
             WebClient.Builder builder,
             ObjectMapper objectMapper,
             GatewayProperties properties) {
         this.objectMapper = objectMapper;
+        this.properties = properties;
         var httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
@@ -85,9 +92,83 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     @Override
     public Flux<ProviderChatChunk> stream(
             ProviderCallContext context, ChatCompletionCommand command) {
-        // SSE streaming is implemented in AIC-098 (Task 6). M11 streams are
-        // rejected before dispatch by the request validation surface.
-        return Flux.error(new UnsupportedOperationException("SSE streaming not implemented"));
+        var wireRequest = new MimoWireDtos.WireRequest(
+                context.providerModelName(),
+                command.messages().stream()
+                        .map(message -> new MimoWireDtos.WireMessage(message.role(), message.content()))
+                        .toList(),
+                command.maxCompletionTokens(),
+                true);
+        var decoder = new MimoSseDecoder(properties.getMaxInMemoryBytes());
+        var hardTimeoutMs = properties.getHardTimeoutMs();
+        return Flux.defer(() -> {
+            var startNanos = System.nanoTime();
+            return webClient.post()
+                    .uri(context.baseUrl() + CHAT_COMPLETIONS_SUFFIX)
+                    .header(context.providerKeyHeader(),
+                            new String(context.providerSecret(), StandardCharsets.UTF_8))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(wireRequest)
+                    .exchangeToFlux(response -> {
+                        if (!response.statusCode().is2xxSuccessful()) {
+                            return response.bodyToMono(byte[].class)
+                                    .flatMapMany(body -> Flux.error(new GatewayErrorException(
+                                            GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
+                                            "Provider request failed with HTTP "
+                                                    + response.statusCode().value())));
+                        }
+                        return response.bodyToFlux(DataBuffer.class)
+                                .concatMap(buffer -> decodeEvents(decoder, buffer));
+                    })
+                    // Stream idle timeout: maximum interval between upstream events.
+                    .timeout(Duration.ofMillis(properties.getStreamIdleTimeoutMs()))
+                    // Hard deadline: maximum wall-clock lifetime of the whole stream,
+                    // checked as events keep arriving so a slow-but-active stream
+                    // cannot run past the configured deadline.
+                    .map(chunk -> enforceHardDeadline(chunk, startNanos, hardTimeoutMs))
+                    .onErrorResume(ex -> Flux.error(mapTransportError(ex)));
+        });
+    }
+
+    private static ProviderChatChunk enforceHardDeadline(
+            ProviderChatChunk chunk, long startNanos, int hardTimeoutMs) {
+        if (System.nanoTime() - startNanos > hardTimeoutMs * 1_000_000L) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_TIMEOUT,
+                    "Provider stream hard deadline exceeded");
+        }
+        return chunk;
+    }
+
+    private Flux<ProviderChatChunk> decodeEvents(MimoSseDecoder decoder, DataBuffer buffer) {
+        try {
+            var bytes = new byte[buffer.readableByteCount()];
+            buffer.read(bytes);
+            return Flux.fromIterable(decoder.feed(bytes)).map(this::parseChunk);
+        } finally {
+            DataBufferUtils.release(buffer);
+        }
+    }
+
+    private ProviderChatChunk parseChunk(String payload) {
+        if (DONE_MARKER.equals(payload)) {
+            return new ProviderChatChunk(null, 0L, null, null, true);
+        }
+        try {
+            var wire = objectMapper.readValue(payload, MimoWireDtos.WireChunk.class);
+            var choice = wire.choices() == null || wire.choices().isEmpty()
+                    ? null : wire.choices().get(0);
+            var content = choice == null || choice.delta() == null
+                    ? null : choice.delta().content();
+            return new ProviderChatChunk(
+                    wire.id(),
+                    wire.created() == null ? 0L : wire.created(),
+                    wire.model(),
+                    content,
+                    false);
+        } catch (Exception ex) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
+                    "Provider returned a malformed stream event");
+        }
     }
 
     private ProviderChatCompletion parseCompletion(ProviderCallContext context, byte[] body) {
@@ -123,6 +204,9 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     }
 
     private static GatewayErrorException mapTransportError(Throwable ex) {
+        if (ex instanceof GatewayErrorException gatewayError) {
+            return gatewayError;
+        }
         if (isTimeout(ex)) {
             return new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_TIMEOUT,
                     "Provider response-header timeout");

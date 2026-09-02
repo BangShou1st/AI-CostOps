@@ -115,6 +115,22 @@ public interface GatewayRequestMapper {
     int markRequestFailedAfterDispatch(@Param("requestId") long requestId, @Param("orgId") long orgId);
 
     @Update("""
+            UPDATE gateway_request
+            SET state='CANCELED_AFTER_DISPATCH', terminal_at=UTC_TIMESTAMP(6), updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId}
+              AND state IN ('DISPATCH_INTENT','UPSTREAM_ACTIVE')
+            """)
+    int markRequestCanceledAfterDispatch(@Param("requestId") long requestId, @Param("orgId") long orgId);
+
+    @Update("""
+            UPDATE gateway_request
+            SET state='TIMED_OUT_AFTER_DISPATCH', terminal_at=UTC_TIMESTAMP(6), updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId}
+              AND state IN ('DISPATCH_INTENT','UPSTREAM_ACTIVE')
+            """)
+    int markRequestTimedOutAfterDispatch(@Param("requestId") long requestId, @Param("orgId") long orgId);
+
+    @Update("""
             UPDATE gateway_route_attempt
             SET status='BILLABLE_POSSIBLE'
             WHERE id=#{attemptId} AND org_id=#{orgId} AND status='DISPATCH_INTENT'

@@ -33,4 +33,18 @@ public final class MimoWireDtos {
     public record WireUsage(
             Integer prompt_tokens, Integer completion_tokens, Integer total_tokens) {
     }
+
+    public record WireChunk(
+            String id,
+            String object,
+            Long created,
+            String model,
+            List<WireChunkChoice> choices) {
+    }
+
+    public record WireChunkChoice(Integer index, WireDelta delta, String finish_reason) {
+    }
+
+    public record WireDelta(String role, String content) {
+    }
 }
