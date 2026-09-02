@@ -30,7 +30,9 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-          cache-dependency-path: backend/pom.xml
+          cache-dependency-path: |
+            backend/pom.xml
+            gateway/pom.xml
       - uses: actions/setup-node@v6
         with:
           node-version: "24.14.0"
@@ -47,6 +49,7 @@ jobs:
         run: |
           if [ "${{ matrix.language }}" = "java-kotlin" ]; then
             (cd backend && ./mvnw -B -DskipTests package)
+            (cd gateway && ./mvnw -B -DskipTests package)
           else
             (cd frontend && npm ci && npm run build)
           fi
@@ -63,7 +66,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .trivy-cache
-          key: trivy-db-v0.73.0-${{ hashFiles('backend/pom.xml', 'frontend/package-lock.json') }}
+          key: trivy-db-v0.73.0-${{ hashFiles('backend/pom.xml', 'gateway/pom.xml', 'frontend/package-lock.json') }}
           restore-keys: |
             trivy-db-v0.73.0-
 
@@ -72,6 +75,9 @@ jobs:
 
       - name: Build frontend image
         run: docker build --tag ai-costops-frontend:security frontend
+
+      - name: Build gateway image
+        run: docker build --tag ai-costops-gateway:security gateway
 
       # Filesystem scan must cover the approved AIC-079 surface:
       #   vuln + misconfig + secret, severity HIGH,CRITICAL, exit-code 1.
@@ -99,7 +105,7 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             --offline-scan \
-            --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/.trivy-cache \
+            --skip-dirs /workspace/.git,/workspace/frontend/node_modules,/workspace/frontend/dist,/workspace/frontend/playwright-report,/workspace/frontend/test-results,/workspace/backend/target,/workspace/gateway/target,/workspace/.trivy-cache \
             /workspace
 
       - name: Trivy backend image scan (vuln)
@@ -123,3 +129,14 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             ai-costops-frontend:security
+
+      - name: Trivy gateway image scan (vuln)
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${PWD}/.trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.73.0 \
+            image \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            ai-costops-gateway:security

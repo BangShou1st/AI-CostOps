@@ -217,7 +217,15 @@ npm test -- --run
 npm run build
 ~~~
 
-Gateway 的具体本机启动/测试命令将在 M11 bootstrap 实现后写入正式 runbook；不要在实现前伪造不存在的命令。
+Gateway（本机 WebFlux 数据面）：
+
+~~~powershell
+cd gateway
+$env:SPRING_PROFILES_ACTIVE = "local"
+.\mvnw.cmd -B spring-boot:run
+~~~
+
+Gateway 本机启动、测试、smoke 与验证命令见 [06-m11-gateway-local-runbook.md](docs/02-development/implementation/06-m11-gateway-local-runbook.md)；M11 验收证据见 [m11-gateway-edge-evidence.md](docs/03-acceptance/m11-gateway-edge-evidence.md)。
 
 ## 文档与验收
 
