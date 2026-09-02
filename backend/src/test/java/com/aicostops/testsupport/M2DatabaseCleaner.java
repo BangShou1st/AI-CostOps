@@ -46,6 +46,21 @@ public final class M2DatabaseCleaner {
         jdbc.update("DELETE FROM approval_case");
         jdbc.update("DELETE FROM budget_commitment");
         jdbc.update("DELETE FROM budget");
+        // M11 gateway boundary: the request <-> route-attempt pair is
+        // circular (gateway_request.current_route_attempt_id), so the
+        // convenience pointer is cleared before either table is deleted.
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id = NULL");
+        jdbc.update("DELETE FROM gateway_route_attempt");
+        jdbc.update("DELETE FROM gateway_request");
+        jdbc.update("DELETE FROM gateway_credential_model");
+        jdbc.update("DELETE FROM gateway_credential");
+        jdbc.update("DELETE FROM provider_credential");
+        jdbc.update("DELETE FROM pricing_rate");
+        jdbc.update("DELETE FROM pricing_version");
+        jdbc.update("DELETE FROM service_identity");
+        jdbc.update("DELETE FROM provider_model");
+        jdbc.update("DELETE FROM model_catalog");
+        jdbc.update("DELETE FROM provider_catalog");
         jdbc.update("DELETE FROM billing_period");
         // current decision and duplicate pointers on charge_fact must be cleared
         // before their referenced decision/charge rows are deleted.
