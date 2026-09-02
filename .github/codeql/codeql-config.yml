@@ -25,6 +25,4 @@ paths-ignore:
 # apply to credentials carried only in request headers.
 query-filters:
   - exclude:
-      id: java/spring-csrf-disabled
-  - exclude:
-      id: java/csrf-unprotected-request-type
+      id: java/spring-disabled-csrf-protection
