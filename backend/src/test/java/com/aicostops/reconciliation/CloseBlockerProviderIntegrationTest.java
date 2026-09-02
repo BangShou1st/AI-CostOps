@@ -58,7 +58,7 @@ class CloseBlockerProviderIntegrationTest extends AllocationApiTestSupport {
                 .map(provider -> provider.evaluate(context))
                 .collect(Collectors.toMap(result -> result.code(), Function.identity()));
 
-        assertThat(results).hasSize(7);
+        assertThat(results).hasSize(CloseBlockerCode.values().length);
         assertThat(results.get(CloseBlockerCode.OPEN_IMPORTS).result())
                 .isEqualTo(PeriodCloseCheckResult.FAIL);
         assertThat(results.get(CloseBlockerCode.UNRESOLVED_DUPLICATES).result())
@@ -75,6 +75,8 @@ class CloseBlockerProviderIntegrationTest extends AllocationApiTestSupport {
                 .containsEntry("notApplicable", true);
         assertThat(results.get(CloseBlockerCode.LEDGER_INTEGRITY).result())
                 .isEqualTo(PeriodCloseCheckResult.FAIL);
+        assertThat(results.get(CloseBlockerCode.PENDING_GATEWAY_FINANCIAL_WORK).result())
+                .isEqualTo(PeriodCloseCheckResult.PASS);
     }
 
     private void insertUnknownPeriodPendingImport() {
