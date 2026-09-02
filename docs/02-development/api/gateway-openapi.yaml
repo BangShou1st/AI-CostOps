@@ -1,0 +1,515 @@
+openapi: 3.1.0
+info:
+  title: AI CostOps Gateway API
+  version: 2.0.0-design
+  description: |
+    Machine-readable contract for the AI-CostOps V2 Data Plane.
+    This is a deliberately bounded OpenAI Chat Completions compatibility subset.
+    Business/financial semantics are governed by docs/02-development/v2-detailed-design/.
+servers:
+  - url: /v1
+    description: Gateway Data Plane base path
+
+security:
+  - GatewayBearer: []
+
+paths:
+  /chat/completions:
+    post:
+      operationId: createChatCompletion
+      summary: Create an idempotent chat completion
+      description: |
+        Requires an AI-CostOps Gateway key and Idempotency-Key.
+        The same idempotency identity never authorizes a second Provider dispatch
+        after the durable financial safety fence.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Non-streaming JSON or streaming SSE success.
+          headers:
+            X-AI-CostOps-Request-Id:
+              $ref: '#/components/headers/GatewayRequestIdHeader'
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceIdHeader'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletion'
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                stream:
+                  summary: OpenAI-style SSE chunks terminated by [DONE]
+                  value: "data: {\"id\":\"chatcmpl_example\",\"object\":\"chat.completion.chunk\",\"created\":1788340000,\"model\":\"default-chat\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hi\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/RequestTooLarge'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '502':
+          $ref: '#/components/responses/UpstreamFailed'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+        '504':
+          $ref: '#/components/responses/UpstreamTimeout'
+
+  /gateway/requests/{requestId}:
+    get:
+      operationId: getGatewayRequestStatus
+      summary: Read bounded recovery status for an existing Gateway request
+      description: |
+        Returns request/metering/settlement status only. It never returns prompt,
+        completion, Provider secrets, Budget totals or Ledger detail. The authenticated
+        Gateway credential must own the request; otherwise the response is privacy-preserving 404.
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            $ref: '#/components/schemas/GatewayRequestId'
+      responses:
+        '200':
+          description: Gateway request status.
+          headers:
+            X-AI-CostOps-Request-Id:
+              $ref: '#/components/headers/GatewayRequestIdHeader'
+            X-Trace-Id:
+              $ref: '#/components/headers/TraceIdHeader'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GatewayRequestStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+
+components:
+  securitySchemes:
+    GatewayBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: AI-CostOps-Gateway-Key
+      description: AI-CostOps Gateway key in the form aic_<prefix>_<secret>.
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        1..128 visible ASCII characters. Raw value is never persisted or logged.
+        Reusing the same key with a different raw JSON body produces a deterministic conflict.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[!-~]{1,128}$'
+
+  headers:
+    GatewayRequestIdHeader:
+      description: Durable AI-CostOps Gateway request id when one exists.
+      schema:
+        $ref: '#/components/schemas/GatewayRequestId'
+    TraceIdHeader:
+      description: Operational trace correlation id.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+
+  schemas:
+    GatewayRequestId:
+      type: string
+      minLength: 40
+      maxLength: 40
+      pattern: '^gwr_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+      examples:
+        - gwr_123e4567-e89b-42d3-a456-426614174000
+
+    ChatCompletionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - model
+        - messages
+      properties:
+        model:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: '^[a-z0-9][a-z0-9._-]{0,99}$'
+          description: AI-CostOps logical model key, not a Provider wire model id.
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 256
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        max_completion_tokens:
+          type: integer
+          minimum: 1
+          maximum: 131072
+          description: |
+            Optional only when the governed model has a finite default output ceiling.
+            Gateway resolves and enforces a finite effective maximum before Provider dispatch.
+        stream:
+          type: boolean
+          default: false
+
+    ChatMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum:
+            - developer
+            - system
+            - user
+            - assistant
+        content:
+          type: string
+          maxLength: 1048576
+          description: M11 accepts text content only. The total decoded request body is limited to 1 MiB.
+
+    ChatCompletion:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - object
+        - created
+        - model
+        - choices
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        object:
+          type: string
+          const: chat.completion
+        created:
+          type: integer
+          format: int64
+          minimum: 0
+        model:
+          type: string
+          minLength: 1
+          maxLength: 100
+        choices:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ChatCompletionChoice'
+        usage:
+          allOf:
+            - $ref: '#/components/schemas/Usage'
+          description: |
+            Present when exact usage is available for the successful response. It may be
+            absent when the Provider/stream does not expose complete usage. Absence must
+            become INCOMPLETE/UNKNOWN metering and must never be fabricated as zero.
+
+    ChatCompletionChoice:
+      type: object
+      additionalProperties: false
+      required:
+        - index
+        - message
+        - finish_reason
+      properties:
+        index:
+          type: integer
+          minimum: 0
+        message:
+          $ref: '#/components/schemas/AssistantMessage'
+        finish_reason:
+          type:
+            - string
+            - 'null'
+          maxLength: 64
+
+    AssistantMessage:
+      type: object
+      additionalProperties: false
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          const: assistant
+        content:
+          type:
+            - string
+            - 'null'
+
+    Usage:
+      type: object
+      additionalProperties: false
+      required:
+        - prompt_tokens
+        - completion_tokens
+        - total_tokens
+      properties:
+        prompt_tokens:
+          type: integer
+          minimum: 0
+        completion_tokens:
+          type: integer
+          minimum: 0
+        total_tokens:
+          type: integer
+          minimum: 0
+
+    GatewayRequestStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - requestId
+        - requestState
+        - meteringStatus
+        - settlementStatus
+        - createdAt
+        - updatedAt
+      properties:
+        requestId:
+          $ref: '#/components/schemas/GatewayRequestId'
+        requestState:
+          type: string
+          enum:
+            - VALIDATED
+            - RESERVED
+            - DISPATCH_INTENT
+            - UPSTREAM_ACTIVE
+            - TRANSPORT_COMPLETED
+            - REJECTED_BUDGET
+            - CANCELED_PRE_DISPATCH
+            - FAILED_PRE_DISPATCH
+            - CANCELED_AFTER_DISPATCH
+            - TIMED_OUT_AFTER_DISPATCH
+            - FAILED_AFTER_DISPATCH
+        meteringStatus:
+          type:
+            - string
+            - 'null'
+          enum:
+            - FINAL
+            - INCOMPLETE
+            - UNKNOWN
+            - null
+        settlementStatus:
+          type:
+            - string
+            - 'null'
+          enum:
+            - PENDING
+            - RETRYABLE_FAILED
+            - RECONCILIATION_REQUIRED
+            - SETTLED
+            - null
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    GatewayErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/GatewayError'
+
+    GatewayError:
+      type: object
+      additionalProperties: false
+      required:
+        - message
+        - type
+        - param
+        - code
+      properties:
+        message:
+          type: string
+          maxLength: 1000
+        type:
+          type: string
+          enum:
+            - invalid_request_error
+            - authentication_error
+            - permission_error
+            - conflict_error
+            - insufficient_quota
+            - rate_limit_error
+            - server_error
+        param:
+          type:
+            - string
+            - 'null'
+          maxLength: 128
+        code:
+          type: string
+          enum:
+            - GATEWAY_REQUEST_INVALID
+            - GATEWAY_AUTH_INVALID
+            - GATEWAY_FORBIDDEN
+            - GATEWAY_REQUEST_NOT_FOUND
+            - GATEWAY_REQUEST_TOO_LARGE
+            - GATEWAY_IDEMPOTENCY_CONFLICT
+            - GATEWAY_REQUEST_IN_PROGRESS
+            - GATEWAY_RESPONSE_NOT_RETAINED
+            - GATEWAY_BUDGET_EXHAUSTED
+            - GATEWAY_RATE_LIMITED
+            - GATEWAY_DEPENDENCY_UNAVAILABLE
+            - GATEWAY_UPSTREAM_FAILED
+            - GATEWAY_UPSTREAM_TIMEOUT
+
+  responses:
+    BadRequest:
+      description: Malformed/unsupported/invalid Gateway request.
+      headers:
+        X-AI-CostOps-Request-Id:
+          $ref: '#/components/headers/GatewayRequestIdHeader'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    Unauthorized:
+      description: Missing or invalid Gateway key.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    Forbidden:
+      description: Authenticated Gateway key cannot use requested principal/scope/model context.
+      headers:
+        X-AI-CostOps-Request-Id:
+          $ref: '#/components/headers/GatewayRequestIdHeader'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    NotFound:
+      description: Request does not exist or is not owned by the authenticated credential.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    Conflict:
+      description: Idempotency conflict or replay whose original response body is not available.
+      headers:
+        X-AI-CostOps-Request-Id:
+          $ref: '#/components/headers/GatewayRequestIdHeader'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    RequestTooLarge:
+      description: Decoded request body exceeds 1 MiB.
+      headers:
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    TooManyRequests:
+      description: Budget/rate/quota policy rejected the request before Provider dispatch.
+      headers:
+        Retry-After:
+          description: Optional bounded seconds until retry when known.
+          schema:
+            type: integer
+            minimum: 0
+        X-AI-CostOps-Request-Id:
+          $ref: '#/components/headers/GatewayRequestIdHeader'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    DependencyUnavailable:
+      description: Correctness-critical dependency unavailable before safe Provider dispatch.
+      headers:
+        Retry-After:
+          description: Optional bounded seconds until retry when known.
+          schema:
+            type: integer
+            minimum: 0
+        X-AI-CostOps-Request-Id:
+          $ref: '#/components/headers/GatewayRequestIdHeader'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    UpstreamFailed:
+      description: Provider failed after the durable dispatch boundary or no safe completion response exists.
+      headers:
+        X-AI-CostOps-Request-Id:
+          $ref: '#/components/headers/GatewayRequestIdHeader'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
+
+    UpstreamTimeout:
+      description: Provider timed out after dispatch; same Idempotency-Key must not trigger blind re-dispatch.
+      headers:
+        X-AI-CostOps-Request-Id:
+          $ref: '#/components/headers/GatewayRequestIdHeader'
+        X-Trace-Id:
+          $ref: '#/components/headers/TraceIdHeader'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GatewayErrorEnvelope'
