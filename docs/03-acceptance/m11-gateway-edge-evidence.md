@@ -160,7 +160,7 @@ scanned by CodeQL and Trivy at HIGH/CRITICAL with exit-code 1.
 ## 17. PR number + URL
 
 ```text
-<filled after PR creation>
+PR #131 — https://github.com/BangShou1st/AI-CostOps/pull/131
 ```
 
 ## 18. Remaining limitations / blockers
