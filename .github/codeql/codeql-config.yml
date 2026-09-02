@@ -26,7 +26,5 @@ paths-ignore:
 query-filters:
   - exclude:
       id: java/spring-csrf-disabled
-      path: gateway/src/main/java
   - exclude:
       id: java/csrf-unprotected-request-type
-      path: gateway/src/main/java
