@@ -16,8 +16,10 @@ V2 目标：
 
 ```text
 V1 = COMPLETE / FROZEN
-Current stable release = v1.0.1
-V1.1 / M9 = NEXT IMPLEMENTATION MILESTONE
+Current stable (published) release = v1.0.1
+M9 = COMPLETE / ACCEPTED (v1.1.0 release candidate; AIC-074~AIC-083 all PASS)
+v1.1.0 = PENDING RELEASE PR MERGE + FINAL MAIN GREEN (not yet published/tagged)
+M10 V2 Detailed Design = NEXT DESIGN MILESTONE
 V2 Gateway architecture direction = APPROVED IN PRINCIPLE
 M10 V2 Detailed Design = REQUIRED BEFORE BROAD GATEWAY FEATURE CODING
 ```
@@ -312,9 +314,7 @@ Peer Review 按需，不作为全局 Merge Gate。
 ## 当前下一步
 
 ```text
-1. Merge V2 planning baseline docs
-2. Execute M9 implementation plan
-3. Complete M9 evidence / v1.1 acceptance
-4. Run M10 V2 Detailed Design
-5. Only after M10 review/freeze begin broad Gateway feature implementation
+1. Complete v1.1.0 release delivery after release PR merge + final main green
+2. Run M10 V2 Detailed Design
+3. Only after M10 review/freeze begin broad Gateway feature implementation
 ```

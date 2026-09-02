@@ -9,8 +9,12 @@
 ```text
 V1 = COMPLETE / FROZEN
 AIC-073 = COMPLETED / ACCEPTED
-Current stable release = v1.0.1
+M9 = COMPLETE / ACCEPTED (AIC-074 ~ AIC-083, v1.1.0 release candidate)
+Current stable (published) release = v1.0.1
+v1.1.0 = PENDING RELEASE PR MERGE + FINAL MAIN GREEN
 ```
+
+M9 总入口：`m9-acceptance-matrix.md`；最终收敛报告：`aic-083-m9-final-acceptance.md`；逐项证据见本目录 `m9-*.md`。
 
 ## 日常 PR 验收
 
