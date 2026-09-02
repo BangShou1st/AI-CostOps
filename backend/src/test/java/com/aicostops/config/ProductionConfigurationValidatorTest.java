@@ -16,6 +16,7 @@ import org.springframework.mock.env.MockEnvironment;
 class ProductionConfigurationValidatorTest {
 
     private static final String STRONG_KEY = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    private static final String M11_KEY = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
 
     @Test
     void blankJwtSigningKeyRejectsStartup() {
@@ -45,6 +46,46 @@ class ProductionConfigurationValidatorTest {
         assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_DEV_BOOTSTRAP_ENABLED");
+    }
+
+    @Test
+    void m11GatewayDevBootstrapEnabledRejectsStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.gateway.dev-bootstrap-enabled", "true");
+
+        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED");
+    }
+
+    @Test
+    void missingM11GatewayKeysRejectStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.gateway.provider-kek-v1", "  ");
+
+        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_PROVIDER_KEK_V1");
+    }
+
+    @Test
+    void malformedBase64M11KeyRejectsStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.gateway.credential-hmac-key-v1", "not-base64!!");
+
+        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1");
+    }
+
+    @Test
+    void wrongLengthM11KeyRejectsStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.gateway.request-hmac-key-v1", "c2hvcnQ=");
+
+        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1");
     }
 
     @Test
@@ -152,6 +193,10 @@ class ProductionConfigurationValidatorTest {
         env.setProperty("aicostops.storage.secret-key", "prod-storage-secret");
         env.setProperty("aicostops.storage.bucket", "aicostops-evidence-prod");
         env.setProperty("spring.datasource.password", "prod-db-secret");
+        env.setProperty("aicostops.gateway.dev-bootstrap-enabled", "false");
+        env.setProperty("aicostops.gateway.credential-hmac-key-v1", M11_KEY);
+        env.setProperty("aicostops.gateway.request-hmac-key-v1", M11_KEY);
+        env.setProperty("aicostops.gateway.provider-kek-v1", M11_KEY);
         return env;
     }
 }

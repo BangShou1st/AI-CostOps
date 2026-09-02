@@ -1,5 +1,6 @@
 package com.aicostops.config;
 
+import com.aicostops.gatewayadmin.security.GatewayKeyCodec;
 import java.util.Arrays;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.context.annotation.Profile;
@@ -41,6 +42,14 @@ public class ProductionConfigurationValidator implements InitializingBean {
         requireStrongJwtSecret();
         rejectResolvedTrue("AICOSTOPS_DEV_BOOTSTRAP_ENABLED", "aicostops.auth.dev-bootstrap-enabled",
                 "the dev bootstrap must stay disabled in production");
+        rejectResolvedTrue("AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED",
+                "aicostops.gateway.dev-bootstrap-enabled",
+                "the M11 Gateway dev bootstrap must stay disabled in production");
+        require32ByteKey("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1",
+                "aicostops.gateway.credential-hmac-key-v1");
+        require32ByteKey("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1",
+                "aicostops.gateway.request-hmac-key-v1");
+        require32ByteKey("AICOSTOPS_PROVIDER_KEK_V1", "aicostops.gateway.provider-kek-v1");
         rejectResolvedTrue("AICOSTOPS_ALLOW_PUBLIC_REGISTRATION", "aicostops.auth.allow-public-registration",
                 "public registration requires an explicit reviewer-approved allow policy");
         rejectResolvedFalse("AICOSTOPS_REFRESH_COOKIE_SECURE", "aicostops.auth.refresh-cookie-secure",
@@ -113,6 +122,14 @@ public class ProductionConfigurationValidator implements InitializingBean {
     private void requireNonBlank(String envName, String property) {
         if (normalized(property).isBlank()) {
             throw fail(envName, "must be set explicitly in production");
+        }
+    }
+
+    private void require32ByteKey(String envName, String property) {
+        try {
+            GatewayKeyCodec.decode32ByteKey(envName, normalized(property));
+        } catch (IllegalStateException ex) {
+            throw fail(envName, ex.getMessage());
         }
     }
 

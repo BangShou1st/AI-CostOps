@@ -7,6 +7,10 @@
 # unsafe or dev-only resolved settings before the application becomes ready.
 
 aicostops:
+  gateway:
+    # The M11 Gateway dev bootstrap must stay OFF in production; the fail-fast
+    # validator rejects an explicit enable regardless of this default.
+    dev-bootstrap-enabled: false
   auth:
     # Public registration and dev bootstrap must stay OFF in production. An
     # operator that knowingly deploys an explicitly approved allow policy can

@@ -55,6 +55,16 @@ server:
       internal-proxies: '127\.\d{1,3}\.\d{1,3}\.\d{1,3}|::1|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}'
 
 aicostops:
+  gateway:
+    # M11 Gateway boundary secrets (Base64 of exactly 32 bytes each). The
+    # Control Plane needs the credential-digest key and Provider KEK for
+    # dev provisioning; production forbids dev bootstrap and requires strong
+    # explicit key material through ProductionConfigurationValidator.
+    credential-hmac-key-v1: ${AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1:}
+    request-hmac-key-v1: ${AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1:}
+    provider-kek-v1: ${AICOSTOPS_PROVIDER_KEK_V1:}
+    dev-bootstrap-enabled: ${AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED:false}
+    dev-raw-key: ${AICOSTOPS_GATEWAY_DEV_RAW_KEY:}
   storage:
     endpoint: ${AICOSTOPS_STORAGE_ENDPOINT:http://localhost:9000}
     access-key: ${AICOSTOPS_STORAGE_ACCESS_KEY:aicostops}
