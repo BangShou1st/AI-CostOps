@@ -7,8 +7,9 @@ V1 = COMPLETE / FROZEN
 Current stable (published) = v1.1.0
 V1.1 / M9 = COMPLETE / ACCEPTED (v1.1.0 RELEASED; AIC-074~AIC-083 all PASS)
 v1.1.0 = RELEASED
-M10 V2 Detailed Design = NEXT DESIGN MILESTONE
-V2 Gateway = ARCHITECTURE DIRECTION APPROVED; M10 DETAILED DESIGN REQUIRED BEFORE FEATURE CODING
+M10 V2 Detailed Design = COMPLETE / FROZEN (AIC-084~AIC-093 PASS)
+M10 design merge = PR #129 / main@1ed62c68c09458570c5cd04f812a2525028db7a2
+M11 Gateway Edge MVP = NEXT IMPLEMENTATION MILESTONE
 ```
 
 V1 的冻结历史、AIC-001～AIC-073、M0～M8 与最终验收证据继续保留，不改写为当前待办。
@@ -17,6 +18,14 @@ V1 → V2 总体设计基线：
 
 ```text
 docs/superpowers/specs/2026-08-27-v1-to-v2-production-gateway-design.md
+```
+
+M10 冻结详细设计与验收：
+
+```text
+docs/02-development/v2-detailed-design/README.md
+docs/03-acceptance/m10-design-freeze-matrix.md
+docs/02-development/api/gateway-openapi.yaml
 ```
 
 ---
@@ -158,36 +167,59 @@ Transactional Outbox / RabbitMQ 不是 M9 默认 DoD。先 measure → SQL/index
 
 # M10 — V2 Detailed Design
 
-## 目标
-
-> **冻结 Realtime AI Gateway 的领域、状态机、数据模型、API、Redis 原子协议和失败恢复语义。**
-
-M10 仍是设计里程碑，不进行大规模 Gateway feature coding。
-
-必须冻结：
+## 结果
 
 ```text
-Control Plane / Data Plane boundary
+M10 = COMPLETE / FROZEN
+AIC-084 ~ AIC-093 = PASS / FROZEN
+Blocking design topics = 0
+AIC-093 DESIGN FREEZE = PASS
+Principal design PR = #129
+Frozen main baseline = 1ed62c68c09458570c5cd04f812a2525028db7a2
+```
+
+M10 是设计里程碑；没有在设计 PR 中偷渡 Gateway runtime feature code。
+
+## 已冻结范围
+
+```text
+Control Plane / Data Plane ownership
 Gateway credential model
 Provider credential policy
 Provider / Model catalog
-Pricing version model
+Pricing Version model
 Request identity / attribution
-Request state machine
-Budget reservation algorithm
-Redis Lua / atomicity contract
-Rate limit / quota semantics
-Streaming disconnect semantics
-Usage normalization
+Request and route-attempt state machines
+Durable DISPATCH_INTENT financial replay fence
+MySQL-authoritative Budget Reservation
+Redis rate-limit / quota / runtime coordination semantics
+Streaming disconnect / timeout semantics
+FINAL / INCOMPLETE / UNKNOWN usage normalization
 Settlement transaction / idempotency
+First-class GATEWAY_SETTLEMENT Ledger lineage
+SYSTEM financial posting actor
+BillingPeriod dispatch / close serialization
 Orphan recovery
-Routing policy
+Routing / retry / failover safety policy
 Security / privacy
 Observability
-API contract
-Deployment boundary
+Gateway API contract
+Deployment / DB privilege boundary
 Migration strategy
-Test strategy
+Concurrency / failure test strategy
+```
+
+关键冻结原则：
+
+```text
+MySQL = durable identity + financial truth + monetary reservation correctness
+Redis != financial truth and cannot independently authorize spend
+Gateway writes request / route / usage / reservation facts
+CostOps Core writes final Settlement / Ledger / Budget Actual / Commitment truth
+Provider may be called only after durable DISPATCH_INTENT
+Unknown post-dispatch retry safety = BILLABLE_POSSIBLE, no blind redispatch
+Missing usage != zero cost
+Prompt / Completion content is not persisted by default
 ```
 
 ---
@@ -218,6 +250,7 @@ Reconciliation
 Period Close
 Audit
 Admin / Reporting
+Final Settlement financial posting
 ```
 
 Gateway Data Plane 新增：
@@ -227,11 +260,11 @@ OpenAI-compatible API
 Internal Gateway Credentials
 Request Identity / Attribution
 Rate Limit / Quota
-Budget Reservation
+Budget Reservation request-time control
 Streaming Proxy
 Realtime Metering
 Provider Routing
-Settlement
+Gateway request / route / usage facts
 Gateway Metrics / Audit
 ```
 
@@ -241,29 +274,41 @@ Gateway Metrics / Audit
 MySQL Ledger
 ```
 
+Budget Reservation correctness：
+
+```text
+MySQL authoritative
+```
+
 Redis V2：
 
 ```text
 rate limit
 quota window
-short idempotency window
-budget reservation
-request ephemeral state
+short idempotency lookup cache
+request ephemeral coordination
 provider health / circuit state
+reservation expiry wake-up hints / non-authoritative cache
 ```
 
-Redis 不承担 Final Ledger、Final Budget、Final Settlement History。
+Redis 不承担 Final Ledger、Final Budget、Final Settlement History，也不能独立决定 monetary availability。
 
 ---
 
 # M11 — Gateway Edge MVP
 
+## 状态
+
+```text
+NEXT IMPLEMENTATION MILESTONE
+```
+
 只建立最小真实链路：
 
 ```text
-Internal API Key
-→ OpenAI-compatible endpoint
-→ one Provider
+Internal Gateway API Key
+→ OpenAI-compatible POST /v1/chat/completions
+→ one Provider Adapter (initial candidate: MiMo)
 → non-streaming + SSE streaming
 → response
 ```
@@ -271,15 +316,30 @@ Internal API Key
 同时完成：
 
 ```text
+Gateway Java/Spring WebFlux bootstrap
+Gateway OpenAPI contract test
 request / trace id
 provider credential isolation
 safe structured logging
 connect / header / idle / hard timeouts
-basic rate limit
+basic operational rate limit
 controlled mock upstream failure tests
+MiMo non-streaming / streaming behavior certification
+M10-compatible request / route evidence needed by the M11 slice
 ```
 
-M11 不做五 Provider routing。
+M11 必须遵守：
+
+```text
+required Idempotency-Key on the frozen Gateway API
+no blind Provider redispatch after DISPATCH_INTENT
+unknown / unsupported client fields rejected
+Prompt / Completion not persisted by default
+successful response may omit usage when Provider usage is unavailable
+missing usage never fabricated as zero
+```
+
+M11 不实现完整 M12 Budget Reservation、M13 Settlement 或 M14 multi-provider routing。
 
 ---
 
@@ -304,22 +364,27 @@ Realtime Available
 = Total
 - Actual
 - Outstanding Commitments
-- Active Reservations
+- Effective Active Reservations
 ```
 
 实现：
 
 ```text
-reserve
-release
-TTL
+MySQL-authoritative reserve / release
+route-attempt reservation lineage
+TTL as recovery trigger
 fencing / recovery
 rate limit
 quota
-Redis atomicity
+Redis atomic runtime coordination where applicable
 ```
 
-财务 durable truth 仍在 MySQL。
+冻结规则：
+
+```text
+Redis-only monetary reservation = NOT ALLOWED
+Redis loss cannot fabricate Budget availability
+```
 
 ---
 
@@ -330,11 +395,11 @@ Redis atomicity
 ```text
 Provider usage
 → Usage normalization
-→ Pricing version
+→ Pricing Version
 → Cost calculation
-→ Reservation finalization
-→ Durable settlement
+→ Durable Settlement
 → Existing MySQL Ledger
+→ Budget Actual / explicit Commitment effects
 ```
 
 必须证明：
@@ -347,6 +412,7 @@ client retry is idempotent
 settlement retry is idempotent
 partial/missing usage is explicit
 Redis failure cannot fabricate budget availability
+Period Close cannot race past unresolved possible-billable Gateway work
 ```
 
 若出现可靠跨事务事件发布需求，优先评估 Transactional Outbox；Outbox 不等于必须引入 RabbitMQ。
@@ -363,7 +429,7 @@ model mapping
 static routing policy
 health-aware routing
 circuit breaker
-bounded retry
+bounded evidence-based retry
 safe failover
 ```
 
@@ -376,7 +442,7 @@ explainable
 auditable
 ```
 
-不优先做复杂“智能路由”。
+冻结约束：只有上一 attempt 被积极证明为 `SAFE_NO_BILLABLE_EXECUTION` 才允许新的 Provider attempt；未知安全性按 `BILLABLE_POSSIBLE` 处理。不做并行 billable hedging。
 
 ---
 
@@ -407,6 +473,8 @@ missing gateway usage
 unknown provider charge
 duplicate external charge
 ```
+
+M11-M13 必须保留 M10 冻结的 request / route attempt / Provider request id / pricing / usage / settlement lineage，不能等到 M15 才补匹配证据。
 
 ---
 
