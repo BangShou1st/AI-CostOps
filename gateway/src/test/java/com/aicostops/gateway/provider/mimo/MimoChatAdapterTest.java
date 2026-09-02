@@ -19,6 +19,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
@@ -94,7 +95,8 @@ class MimoChatAdapterTest {
         lastPath = null;
         lastAuthHeader = null;
         lastBody = null;
-        adapter = new MimoChatAdapter(WebClient.builder(), new ObjectMapper(), properties());
+        adapter = new MimoChatAdapter(WebClient.builder(), new ObjectMapper(), properties(),
+                new MockEnvironment());
     }
 
     @Test

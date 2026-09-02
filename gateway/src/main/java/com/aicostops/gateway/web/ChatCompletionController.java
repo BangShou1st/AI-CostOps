@@ -3,6 +3,8 @@ package com.aicostops.gateway.web;
 import com.aicostops.gateway.auth.GatewayBearerWebFilter;
 import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.config.GatewayResourceLimiter;
+import com.aicostops.gateway.observability.CorrelationWebFilter;
+import com.aicostops.gateway.observability.GatewayMetrics;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
@@ -64,6 +66,7 @@ public class ChatCompletionController {
     private final GatewaySseEncoder sseEncoder;
     private final GatewayRateLimiter rateLimiter;
     private final GatewayResourceLimiter resourceLimiter;
+    private final GatewayMetrics metrics;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final int maxRequestBytes;
@@ -78,6 +81,7 @@ public class ChatCompletionController {
             GatewaySseEncoder sseEncoder,
             GatewayRateLimiter rateLimiter,
             GatewayResourceLimiter resourceLimiter,
+            GatewayMetrics metrics,
             ObjectMapper objectMapper,
             com.aicostops.gateway.config.GatewayProperties properties,
             Clock clock) {
@@ -90,6 +94,7 @@ public class ChatCompletionController {
         this.sseEncoder = sseEncoder;
         this.rateLimiter = rateLimiter;
         this.resourceLimiter = resourceLimiter;
+        this.metrics = metrics;
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.maxRequestBytes = properties.getMaxRequestBytes();
@@ -136,8 +141,14 @@ public class ChatCompletionController {
         };
 
         return rateLimiter.tryAcquire(principal.credentialId())
+                .onErrorResume(ex -> {
+                    metrics.recordRedisDependencyError();
+                    metrics.recordRequestOutcome("DEPENDENCY_UNAVAILABLE");
+                    return Mono.error(ex);
+                })
                 .flatMap(rateResult -> {
                     if (!rateResult.allowed()) {
+                        metrics.recordRequestOutcome("RATE_LIMITED");
                         throw new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
                                 "Rate limit exceeded", retryAfterSeconds(rateResult));
                     }
@@ -192,14 +203,22 @@ public class ChatCompletionController {
                         .completeSuccess(requestId, orgId, result.routeAttemptId())
                         .thenMany(Flux.empty())))
                 .onErrorResume(ex -> {
-                    var terminal = isTimeout(ex)
+                    var timeout = isTimeout(ex);
+                    metrics.recordRequestOutcome(timeout ? "TIMED_OUT" : "FAILED");
+                    metrics.recordProviderError(result.adapterCode(),
+                            timeout ? "TIMEOUT" : "HTTP_ERROR");
+                    var terminal = timeout
                             ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
                             : lifecycleService.failAfterDispatch(requestId, orgId);
                     return terminal.then(Mono.error(ex));
                 })
-                .doOnCancel(() -> streamingLifecycle
-                        .cancelAfterDispatch(requestId, orgId)
-                        .subscribe())
+                .doOnComplete(() -> metrics.recordRequestOutcome("COMPLETED"))
+                .doOnCancel(() -> {
+                    metrics.recordRequestOutcome("CANCELED");
+                    streamingLifecycle
+                            .cancelAfterDispatch(requestId, orgId)
+                            .subscribe();
+                })
                 .doFinally(ignored -> releasePermit.run());
 
         return ResponseEntity.ok()
@@ -227,8 +246,13 @@ public class ChatCompletionController {
                 .flatMap(completion -> lifecycleService
                         .completeSuccess(requestId, orgId, result.routeAttemptId())
                         .thenReturn(completion))
+                .doOnSuccess(ignored -> metrics.recordRequestOutcome("COMPLETED"))
                 .onErrorResume(ex -> {
-                    var terminal = isTimeout(ex)
+                    var timeout = isTimeout(ex);
+                    metrics.recordRequestOutcome(timeout ? "TIMED_OUT" : "FAILED");
+                    metrics.recordProviderError(result.adapterCode(),
+                            timeout ? "TIMEOUT" : "HTTP_ERROR");
+                    var terminal = timeout
                             ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
                             : lifecycleService.failAfterDispatch(requestId, orgId);
                     return terminal.then(Mono.error(ex));
@@ -334,6 +358,10 @@ public class ChatCompletionController {
     }
 
     private static String traceId(ServerWebExchange exchange) {
+        var traceId = exchange.getAttribute(CorrelationWebFilter.TRACE_ATTRIBUTE);
+        if (traceId instanceof String value && !value.isBlank()) {
+            return value;
+        }
         var existing = exchange.getRequest().getHeaders().getFirst(TRACE_HEADER);
         return existing == null || existing.isBlank() ? "trc_" + UUID.randomUUID() : existing;
     }

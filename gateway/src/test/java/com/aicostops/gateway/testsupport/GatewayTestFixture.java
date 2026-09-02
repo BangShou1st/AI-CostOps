@@ -57,14 +57,24 @@ public final class GatewayTestFixture {
                 """, orgId, "svc-" + suffix);
         var serviceIdentityId = insertLastId(jdbc);
 
-        jdbc.update("""
-                INSERT INTO model_catalog(
-                  model_key,name,status,capabilities_json,default_max_output_tokens,
-                  max_output_tokens,created_at,updated_at)
-                VALUES (?,'Gateway Test Model','ACTIVE',JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS')),
-                  8192,131072,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                """, MODEL_KEY + "-" + suffix);
-        var modelId = insertLastId(jdbc);
+        // model_catalog and provider_model are global (org-independent) catalog
+        // tables: reuse them idempotently by their global unique key so several
+        // org-scoped seeds in one test class share the same logical model.
+        var modelRows = jdbc.queryForList(
+                "SELECT id FROM model_catalog WHERE model_key=?", Long.class, MODEL_KEY);
+        long modelId;
+        if (modelRows.isEmpty()) {
+            jdbc.update("""
+                    INSERT INTO model_catalog(
+                      model_key,name,status,capabilities_json,default_max_output_tokens,
+                      max_output_tokens,created_at,updated_at)
+                    VALUES (?,'Gateway Test Model','ACTIVE',JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS')),
+                      8192,131072,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                    """, MODEL_KEY);
+            modelId = insertLastId(jdbc);
+        } else {
+            modelId = modelRows.get(0);
+        }
 
         // Global catalogs are shared across orgs; seed them idempotently.
         var existingProviders = jdbc.queryForList(
@@ -150,7 +160,7 @@ public final class GatewayTestFixture {
 
         return new SeededEnv(orgId, periodId, modelId, providerAccountId, providerModelId,
                 pricingVersionId, credentialId, serviceIdentityId, projectId, rawKey,
-                parsed.prefix(), parsed.secretPart(), MODEL_KEY + "-" + suffix);
+                parsed.prefix(), parsed.secretPart(), MODEL_KEY);
     }
 
     /** FK-safe cleanup of all M11 rows for tests sharing one container. */

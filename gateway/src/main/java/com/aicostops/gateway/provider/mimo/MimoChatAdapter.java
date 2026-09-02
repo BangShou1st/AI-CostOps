@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
@@ -41,13 +43,16 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final GatewayProperties properties;
+    private final boolean enforceProductionEndpoint;
 
     public MimoChatAdapter(
             WebClient.Builder builder,
             ObjectMapper objectMapper,
-            GatewayProperties properties) {
+            GatewayProperties properties,
+            Environment environment) {
         this.objectMapper = objectMapper;
         this.properties = properties;
+        this.enforceProductionEndpoint = environment.acceptsProfiles(Profiles.of("prod"));
         var httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
@@ -61,6 +66,9 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     @Override
     public Mono<ProviderChatCompletion> complete(
             ProviderCallContext context, ChatCompletionCommand command) {
+        if (enforceProductionEndpoint) {
+            MimoEndpointPolicy.validate(context.baseUrl());
+        }
         var wireRequest = new MimoWireDtos.WireRequest(
                 context.providerModelName(),
                 command.messages().stream()
@@ -92,6 +100,9 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     @Override
     public Flux<ProviderChatChunk> stream(
             ProviderCallContext context, ChatCompletionCommand command) {
+        if (enforceProductionEndpoint) {
+            MimoEndpointPolicy.validate(context.baseUrl());
+        }
         var wireRequest = new MimoWireDtos.WireRequest(
                 context.providerModelName(),
                 command.messages().stream()

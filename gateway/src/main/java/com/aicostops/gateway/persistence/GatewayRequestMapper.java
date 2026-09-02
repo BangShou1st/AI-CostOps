@@ -37,6 +37,16 @@ public interface GatewayRequestMapper {
     ExistingRequestRow findById(@Param("requestId") long requestId, @Param("orgId") long orgId);
 
     @Select("""
+            SELECT credential_id, public_request_id, state,
+                   CONCAT(DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s'), 'Z') AS created_at,
+                   CONCAT(DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%s'), 'Z') AS updated_at
+            FROM gateway_request
+            WHERE public_request_id=#{publicRequestId} AND org_id=#{orgId}
+            """)
+    RequestStatusRow findRequestStatus(
+            @Param("publicRequestId") String publicRequestId, @Param("orgId") long orgId);
+
+    @Select("""
             SELECT status FROM billing_period WHERE id=#{periodId} AND org_id=#{orgId} FOR UPDATE
             """)
     String lockBillingPeriod(@Param("periodId") long periodId, @Param("orgId") long orgId);
@@ -152,6 +162,14 @@ public interface GatewayRequestMapper {
             byte[] requestFingerprint,
             String state,
             Long billingPeriodId) {
+    }
+
+    record RequestStatusRow(
+            long credentialId,
+            String publicRequestId,
+            String state,
+            String createdAt,
+            String updatedAt) {
     }
 
     record RouteAttemptRow(long id, String routeDecisionId, String status) {
