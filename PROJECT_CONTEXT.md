@@ -19,10 +19,22 @@ V1 = COMPLETE / FROZEN
 Current stable (published) release = v1.1.0
 M9 = COMPLETE / ACCEPTED (v1.1.0 RELEASED; AIC-074~AIC-083 all PASS)
 v1.1.0 = RELEASED
-M10 V2 Detailed Design = NEXT DESIGN MILESTONE
-V2 Gateway architecture direction = APPROVED IN PRINCIPLE
-M10 V2 Detailed Design = REQUIRED BEFORE BROAD GATEWAY FEATURE CODING
+M10 V2 Detailed Design = COMPLETE / FROZEN
+AIC-084 ~ AIC-093 = FROZEN / PASS
+M10 principal design merge = PR #129 / main@1ed62c68c09458570c5cd04f812a2525028db7a2
+V2 Gateway detailed design = FROZEN
+M11 Gateway Edge MVP = NEXT IMPLEMENTATION MILESTONE
 ```
+
+M10 冻结入口：
+
+```text
+docs/02-development/v2-detailed-design/README.md
+docs/03-acceptance/m10-design-freeze-matrix.md
+docs/02-development/api/gateway-openapi.yaml
+```
+
+M11+ 实现必须服从 M10 冻结的 ownership、状态机、财务、幂等、失败恢复和 Gateway API 契约；不得把 correctness-critical 决策重新留给实现期猜测。
 
 V1 状态：
 
@@ -136,6 +148,8 @@ GitHub Actions
 JUnit / Testcontainers / ArchUnit
 ```
 
+Gateway 的 M10 冻结 Runtime 方向为 Java 21 + Spring Boot 4.1.0 + Spring WebFlux / Reactor Netty；M10 不通过文档阶段静默升级依赖版本。
+
 ## V1.1 / M9 — Production Foundation
 
 M9 不新增 Realtime Gateway 业务功能。
@@ -195,20 +209,21 @@ Reconciliation
 Period Close
 Audit
 Admin / Reporting
+Final Settlement financial posting
 ```
 
-Gateway Data Plane 将负责：
+Gateway Data Plane 负责/将负责：
 
 ```text
 OpenAI-compatible API
 Internal Gateway Credentials
 Request Identity / Attribution
 Rate Limit / Quota
-Budget Reservation
+Budget Reservation request-time control
 Streaming Proxy
 Realtime Metering
 Provider Routing
-Settlement
+Gateway request / route / usage facts
 Gateway Metrics / Audit
 ```
 
@@ -218,25 +233,32 @@ Gateway Metrics / Audit
 MySQL Ledger
 ```
 
+M10 已冻结 Budget Reservation correctness：
+
+```text
+MySQL = authoritative reservation correctness
+Redis != monetary reservation authority
+```
+
 Redis V2 可承担：
 
 ```text
 rate limit
 quota window
-short idempotency window
-budget reservation
-request ephemeral state
+short idempotency lookup cache
+request ephemeral coordination
 provider health / circuit state
+reservation expiry wake-up hints / non-authoritative cache
 ```
 
-Redis 不承担 Final Ledger、Final Budget、Final Settlement History。
+Redis 不承担 Final Ledger、Final Budget、Final Settlement History，也不能独立授权 monetary spend。
 
 ## V2 Roadmap
 
 ```text
-M9  — V1.1 Production Foundation
-M10 — V2 Detailed Design
-M11 — Gateway Edge MVP
+M9  — V1.1 Production Foundation                COMPLETE / ACCEPTED
+M10 — V2 Detailed Design                        COMPLETE / FROZEN
+M11 — Gateway Edge MVP                          NEXT
 M12 — Identity / Attribution / Budget Reservation
 M13 — Realtime Metering / Settlement
 M14 — Multi-provider Routing / Resilience
@@ -254,6 +276,13 @@ V1 → V2 总体设计基线：
 
 ```text
 docs/superpowers/specs/2026-08-27-v1-to-v2-production-gateway-design.md
+```
+
+M10 最终详细设计：
+
+```text
+docs/02-development/v2-detailed-design/
+docs/03-acceptance/m10-design-freeze-matrix.md
 ```
 
 ## V2 Core 明确不做
@@ -279,7 +308,7 @@ Cost per PR / issue / agent outcome
 
 ## Daily Development Mode
 
-日常开发继续只运行基础设施（MySQL / Redis / MinIO），Backend 与 Frontend 直接在本机运行：
+日常开发继续优先只用 Docker 运行基础设施（MySQL / Redis / MinIO），应用进程直接在本机运行：
 
 ```text
 Frontend      localhost:5173    （Vite，本机，HMR）
@@ -290,13 +319,14 @@ MinIO         localhost:9000    （Docker API）
               localhost:9001    （Docker Console）
 ```
 
-启动：
+启动基础设施：
 
 ```powershell
+Set-Location "E:\project\AI-CostOps"
 .\scripts\dev\start-infra.ps1
 ```
 
-Gateway 尚未进入 runtime implementation，不应提前加入日常开发依赖。
+M11 已获准开始 Gateway Runtime 实现。Gateway bootstrap 完成后，日常开发应把 Gateway 作为独立本机 Java 进程运行；在 M11 bootstrap 尚未落地前，不把尚不存在的 Gateway 进程强制作为现有 Backend/Frontend 日常开发依赖。Full Compose 仍优先用于 CI / E2E / Security / Smoke / Release，而不是日常代码循环。
 
 ## Repository Workflow
 
@@ -315,6 +345,7 @@ Peer Review 按需，不作为全局 Merge Gate。
 ## 当前下一步
 
 ```text
-1. Run M10 V2 Detailed Design
-2. Only after M10 review/freeze begin broad Gateway feature implementation
+1. Plan and execute M11 Gateway Edge MVP from the frozen M10 contracts
+2. Keep M12+ financial / identity / settlement / routing semantics frozen; M11 only implements its approved slice
+3. Continue Sol final review of CI, Security, diff and head before each milestone closure
 ```
