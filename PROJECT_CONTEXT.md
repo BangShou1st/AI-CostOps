@@ -16,9 +16,9 @@ V2 目标：
 
 ```text
 V1 = COMPLETE / FROZEN
-Current stable (published) release = v1.0.1
-M9 = COMPLETE / ACCEPTED (v1.1.0 release candidate; AIC-074~AIC-083 all PASS)
-v1.1.0 = PENDING RELEASE PR MERGE + FINAL MAIN GREEN (not yet published/tagged)
+Current stable (published) release = v1.1.0
+M9 = COMPLETE / ACCEPTED (v1.1.0 RELEASED; AIC-074~AIC-083 all PASS)
+v1.1.0 = RELEASED
 M10 V2 Detailed Design = NEXT DESIGN MILESTONE
 V2 Gateway architecture direction = APPROVED IN PRINCIPLE
 M10 V2 Detailed Design = REQUIRED BEFORE BROAD GATEWAY FEATURE CODING
@@ -40,6 +40,7 @@ v1.0.1 = RELEASED
 ```text
 v1.0.0 → 982d06a0e9ec844ea687ed746d6b9d8f39d86686
 v1.0.1 → b96be614e2d843c101add49fe6daffb9d2343a56
+v1.1.0 → 102f287da9bfc922ffaabb1b7244a973a0f813eb
 ```
 
 `v1.0.1` 是 V1 发布后的补丁版本，通过 PR #103 加固 Import lease recovery 在 MySQL deadlock race 下的 bounded retry；不改变 API、Schema 或 V1 产品范围。
@@ -162,7 +163,7 @@ v1.1 release evidence
 
 Transactional Outbox / RabbitMQ 不作为默认 M9 DoD。先 measure → SQL/index/batch/concurrency tuning；只有真实证据证明 DB-backed worker 不足时再评估。
 
-目标发布：
+已发布：
 
 ```text
 v1.1.0
@@ -314,7 +315,6 @@ Peer Review 按需，不作为全局 Merge Gate。
 ## 当前下一步
 
 ```text
-1. Complete v1.1.0 release delivery after release PR merge + final main green
-2. Run M10 V2 Detailed Design
-3. Only after M10 review/freeze begin broad Gateway feature implementation
+1. Run M10 V2 Detailed Design
+2. Only after M10 review/freeze begin broad Gateway feature implementation
 ```
