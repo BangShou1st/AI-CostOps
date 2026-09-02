@@ -202,7 +202,6 @@ components:
         - created
         - model
         - choices
-        - usage
       properties:
         id:
           type: string
@@ -225,7 +224,12 @@ components:
           items:
             $ref: '#/components/schemas/ChatCompletionChoice'
         usage:
-          $ref: '#/components/schemas/Usage'
+          allOf:
+            - $ref: '#/components/schemas/Usage'
+          description: |
+            Present when exact usage is available for the successful response. It may be
+            absent when the Provider/stream does not expose complete usage. Absence must
+            become INCOMPLETE/UNKNOWN metering and must never be fabricated as zero.
 
     ChatCompletionChoice:
       type: object
