@@ -25,6 +25,10 @@ public final class M2DatabaseCleaner {
         // M5 immutable history is append-only in production, but test fixtures
         // must remove its children before allocation/budget source rows.
         jdbc.update("DELETE FROM budget_commitment_usage");
+        // M12 reservation boundary: budget_reservation references
+        // gateway_request, gateway_route_attempt, billing_period, budget and
+        // budget_commitment, so it is deleted before all of its parents.
+        jdbc.update("DELETE FROM budget_reservation");
         // CorrectionGroup and LedgerEntry have a deliberate circular FK: remove
         // correction entries first, then their groups, then historical entries.
         jdbc.update("DELETE FROM ledger_entry WHERE correction_group_id IS NOT NULL");
