@@ -38,7 +38,8 @@ public abstract class GatewayMySqlContainerSupport {
             "V15__m5_ledger_target_integrity.sql",
             "V16__m6_reconciliation_close.sql",
             "V17__m8_budget_lookup_index.sql",
-            "V18__m11_gateway_edge_foundation.sql");
+            "V18__m11_gateway_edge_foundation.sql",
+            "V19__m12_budget_reservation.sql");
 
     protected static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("aicostops_test")

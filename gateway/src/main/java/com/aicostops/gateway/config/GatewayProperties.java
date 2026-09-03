@@ -32,6 +32,9 @@ public class GatewayProperties implements InitializingBean {
     private int headerTimeoutMs = 60000;
     private int streamIdleTimeoutMs = 60000;
     private int hardTimeoutMs = 600000;
+    private long reservationTtlMs = 900000;
+    private long reservationRecoveryIntervalMs = 60000;
+    private int reservationRecoveryBatchSize = 100;
 
     @Override
     public void afterPropertiesSet() {
@@ -52,6 +55,14 @@ public class GatewayProperties implements InitializingBean {
         requirePositive("headerTimeoutMs", headerTimeoutMs);
         requirePositive("streamIdleTimeoutMs", streamIdleTimeoutMs);
         requirePositive("hardTimeoutMs", hardTimeoutMs);
+        requirePositive("reservationTtlMs", reservationTtlMs);
+        requirePositive("reservationRecoveryIntervalMs", reservationRecoveryIntervalMs);
+        requirePositive("reservationRecoveryBatchSize", reservationRecoveryBatchSize);
+        if (reservationTtlMs <= hardTimeoutMs) {
+            throw new IllegalStateException(
+                    "aicostops.gateway.reservation-ttl-ms must exceed hard-timeout-ms, got "
+                            + reservationTtlMs + " <= " + hardTimeoutMs);
+        }
         if (rateLimitEnabled) {
             requirePositive("rateLimitCapacity", rateLimitCapacity);
             requirePositive("rateLimitRefillPerSecond",
@@ -224,5 +235,29 @@ public class GatewayProperties implements InitializingBean {
 
     public void setHardTimeoutMs(int hardTimeoutMs) {
         this.hardTimeoutMs = hardTimeoutMs;
+    }
+
+    public long getReservationTtlMs() {
+        return reservationTtlMs;
+    }
+
+    public void setReservationTtlMs(long reservationTtlMs) {
+        this.reservationTtlMs = reservationTtlMs;
+    }
+
+    public long getReservationRecoveryIntervalMs() {
+        return reservationRecoveryIntervalMs;
+    }
+
+    public void setReservationRecoveryIntervalMs(long reservationRecoveryIntervalMs) {
+        this.reservationRecoveryIntervalMs = reservationRecoveryIntervalMs;
+    }
+
+    public int getReservationRecoveryBatchSize() {
+        return reservationRecoveryBatchSize;
+    }
+
+    public void setReservationRecoveryBatchSize(int reservationRecoveryBatchSize) {
+        this.reservationRecoveryBatchSize = reservationRecoveryBatchSize;
     }
 }

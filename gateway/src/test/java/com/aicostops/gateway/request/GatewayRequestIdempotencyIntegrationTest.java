@@ -145,7 +145,7 @@ class GatewayRequestIdempotencyIntegrationTest extends GatewayMySqlContainerSupp
 
     private AuthorizeCommand command(GatewayPrincipal principal, SeededEnv env, String body) {
         return new AuthorizeCommand(principal, env.modelId(),
-                body.getBytes(StandardCharsets.UTF_8), "idem-key-123");
+                body.getBytes(StandardCharsets.UTF_8), "idem-key-123", 8192);
     }
 
     private static String rawKey() {

@@ -155,6 +155,16 @@ public interface GatewayRequestMapper {
             """)
     int markAttemptCompleted(@Param("attemptId") long attemptId, @Param("orgId") long orgId);
 
+    @Update("""
+            UPDATE gateway_request
+            SET current_route_attempt_id=#{attemptId}, updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId}
+            """)
+    int updateCurrentRouteAttempt(
+            @Param("requestId") long requestId,
+            @Param("orgId") long orgId,
+            @Param("attemptId") long attemptId);
+
     record ExistingRequestRow(
             long id,
             long orgId,

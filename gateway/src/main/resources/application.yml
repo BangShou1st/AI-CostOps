@@ -72,3 +72,6 @@ aicostops:
     header-timeout-ms: ${AICOSTOPS_GATEWAY_HEADER_TIMEOUT_MS:60000}
     stream-idle-timeout-ms: ${AICOSTOPS_GATEWAY_STREAM_IDLE_TIMEOUT_MS:60000}
     hard-timeout-ms: ${AICOSTOPS_GATEWAY_HARD_TIMEOUT_MS:600000}
+    reservation-ttl-ms: ${AICOSTOPS_GATEWAY_RESERVATION_TTL_MS:900000}
+    reservation-recovery-interval-ms: ${AICOSTOPS_GATEWAY_RESERVATION_RECOVERY_INTERVAL_MS:60000}
+    reservation-recovery-batch-size: ${AICOSTOPS_GATEWAY_RESERVATION_RECOVERY_BATCH_SIZE:100}

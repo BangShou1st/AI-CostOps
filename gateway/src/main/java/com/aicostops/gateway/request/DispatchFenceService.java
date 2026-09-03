@@ -1,5 +1,8 @@
 package com.aicostops.gateway.request;
 
+import com.aicostops.gateway.budget.BudgetReservationService.AdmissionOutcome;
+import com.aicostops.gateway.budget.BudgetReservationService.AdmissionResult;
+import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
@@ -8,11 +11,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The durable financial safety fence. {@link #commitDispatchFence} runs one
- * short MySQL transaction that locks the OPEN BillingPeriod {@code FOR
- * UPDATE}, persists {@code billing_period_id}, and moves request and route
- * attempt to {@code DISPATCH_INTENT}. Only then may the caller perform
- * potentially billable Provider I/O.
+ * The durable financial safety fence (TX2).
+ *
+ * <p>{@link #commitDispatchFence} runs one short MySQL transaction that locks
+ * the OPEN BillingPeriod {@code FOR UPDATE}, verifies the M12 budget admission
+ * (a budget-controlled RESERVED request must have a matching route attempt, a
+ * matching ACTIVE reservation and a matching BillingPeriod; an explicitly
+ * allowed unbudgeted OPTIONAL request may proceed), persists
+ * {@code billing_period_id}, and moves request and route attempt to
+ * {@code DISPATCH_INTENT}. Only then may the caller perform potentially
+ * billable Provider I/O.
  *
  * <p>Close and dispatch serialize on the same BillingPeriod lock. If Close
  * wins, the fence rejects before any Provider I/O; if dispatch wins, the
@@ -25,13 +33,18 @@ public class DispatchFenceService {
             "DISPATCH_INTENT", "UPSTREAM_ACTIVE");
 
     private final GatewayRequestMapper requestMapper;
+    private final BudgetReservationMapper reservationMapper;
 
-    public DispatchFenceService(GatewayRequestMapper requestMapper) {
+    public DispatchFenceService(
+            GatewayRequestMapper requestMapper, BudgetReservationMapper reservationMapper) {
         this.requestMapper = requestMapper;
+        this.reservationMapper = reservationMapper;
     }
 
     @Transactional
-    public void commitDispatchFence(long orgId, long requestId, long routeAttemptId, long periodId) {
+    public void commitDispatchFence(
+            long orgId, long requestId, long routeAttemptId, long periodId,
+            AdmissionResult admission) {
         var status = requestMapper.lockBillingPeriod(periodId, orgId);
         if (status == null) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
@@ -40,6 +53,26 @@ public class DispatchFenceService {
         if (!"OPEN".equals(status)) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                     "Billing period is not open for dispatch");
+        }
+        if (admission == null) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Budget admission is required before dispatch");
+        }
+        if (admission.outcome() == AdmissionOutcome.RESERVED) {
+            // Budget-controlled: the request must carry the matching ACTIVE
+            // reservation on the matching attempt and period. A recovery that
+            // released the hold concurrently fails this fence instead of
+            // dispatching unbudgeted.
+            var reservation = reservationMapper.findByRouteAttempt(orgId, routeAttemptId);
+            if (reservation == null
+                    || reservation.id() != admission.reservationId()
+                    || !"ACTIVE".equals(reservation.status())
+                    || reservation.budgetId() != admission.budgetId()
+                    || reservation.billingPeriodId() != periodId
+                    || reservation.routeAttemptId() != routeAttemptId) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                        "No matching active reservation exists for dispatch");
+            }
         }
         var updated = requestMapper.markRequestDispatchIntent(requestId, orgId, periodId);
         if (updated == 0) {

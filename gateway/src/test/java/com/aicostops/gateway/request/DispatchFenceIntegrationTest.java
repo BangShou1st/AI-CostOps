@@ -101,7 +101,7 @@ class DispatchFenceIntegrationTest extends GatewayMySqlContainerSupport {
                 env.periodId(), env.orgId());
 
         assertThatThrownBy(() -> dispatchFenceService.commitDispatchFence(
-                env.orgId(), requestId, attemptId, env.periodId()))
+                env.orgId(), requestId, attemptId, env.periodId(), unbudgeted()))
                 .isInstanceOf(GatewayErrorException.class)
                 .satisfies(ex -> assertThat(((GatewayErrorException) ex).code())
                         .isEqualTo(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE));
@@ -139,6 +139,45 @@ class DispatchFenceIntegrationTest extends GatewayMySqlContainerSupport {
     }
 
     @Test
+    void fenceWithoutMatchingActiveReservationFails() {
+        var env = GatewayTestFixture.seed(jdbc, "fence-nores", HMAC_KEY, rawKey());
+        var idemDigest = identityService.idempotencyKeyDigest("fence-nores-key");
+        var fingerprint = identityService.requestFingerprint(
+                "{\"model\":\"default-chat\"}".getBytes(StandardCharsets.UTF_8));
+        requestMapper.insertRequest(new com.aicostops.gateway.persistence.GatewayRequestMapper.GatewayRequestInsert(
+                env.orgId(), identityService.newPublicRequestId(), env.credentialId(), "SERVICE",
+                null, env.serviceIdentityId(), env.projectId(), "PROJECT", env.projectId(),
+                env.modelId(), idemDigest, fingerprint));
+        var requestId = jdbc.queryForObject("""
+                SELECT id FROM gateway_request WHERE org_id=? ORDER BY id DESC LIMIT 1
+                """, Long.class, env.orgId());
+        requestMapper.insertRouteAttempt(
+                new com.aicostops.gateway.persistence.GatewayRequestMapper.RouteAttemptInsert(
+                        env.orgId(), requestId, identityService.newRouteDecisionId(),
+                        env.providerAccountId(), env.providerModelId(), env.pricingVersionId()));
+        var attemptId = jdbc.queryForObject("""
+                SELECT id FROM gateway_route_attempt WHERE request_id=? ORDER BY id DESC LIMIT 1
+                """, Long.class, requestId);
+        // Simulate a budget-controlled admission whose reservation was never
+        // (or no longer) durably ACTIVE: the fence must fail instead of
+        // dispatching an unbudgeted Provider call.
+        var phantom = new com.aicostops.gateway.budget.BudgetReservationService.AdmissionResult(
+                com.aicostops.gateway.budget.BudgetReservationService.AdmissionOutcome.RESERVED,
+                999999L, env.budgetId(), new java.math.BigDecimal("31.94880000"));
+
+        assertThatThrownBy(() -> dispatchFenceService.commitDispatchFence(
+                env.orgId(), requestId, attemptId, env.periodId(), phantom))
+                .isInstanceOf(GatewayErrorException.class)
+                .satisfies(ex -> assertThat(((GatewayErrorException) ex).code())
+                        .isEqualTo(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE));
+
+        assertThat(jdbc.queryForObject("SELECT state FROM gateway_request WHERE id=?",
+                String.class, requestId)).isEqualTo("VALIDATED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_request WHERE id=? AND state='DISPATCH_INTENT'",
+                Integer.class, requestId)).isZero();
+    }
+
+    @Test
     void nonPlannedRouteAttemptFailsFenceAndRollsBackRequestTransition() {
         var env = GatewayTestFixture.seed(jdbc, "fence-attempt", HMAC_KEY, rawKey());
         var idemDigest = identityService.idempotencyKeyDigest("fence-attempt-key");
@@ -166,7 +205,7 @@ class DispatchFenceIntegrationTest extends GatewayMySqlContainerSupport {
                 attemptId);
 
         assertThatThrownBy(() -> dispatchFenceService.commitDispatchFence(
-                env.orgId(), requestId, attemptId, env.periodId()))
+                env.orgId(), requestId, attemptId, env.periodId(), unbudgeted()))
                 .isInstanceOf(GatewayErrorException.class)
                 .satisfies(ex -> assertThat(((GatewayErrorException) ex).code())
                         .isEqualTo(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE));
@@ -191,7 +230,13 @@ class DispatchFenceIntegrationTest extends GatewayMySqlContainerSupport {
         return new AuthorizeCommand(principal, env.modelId(),
                 "{\"model\":\"default-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
                         .getBytes(StandardCharsets.UTF_8),
-                "dispatch-fence-key");
+                "dispatch-fence-key", 8192);
+    }
+
+    private static com.aicostops.gateway.budget.BudgetReservationService.AdmissionResult unbudgeted() {
+        return new com.aicostops.gateway.budget.BudgetReservationService.AdmissionResult(
+                com.aicostops.gateway.budget.BudgetReservationService.AdmissionOutcome.UNBUDGETED,
+                -1L, -1L, null);
     }
 
     private static String rawKey() {

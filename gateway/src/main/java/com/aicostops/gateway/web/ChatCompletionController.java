@@ -162,7 +162,8 @@ public class ChatCompletionController {
                                 "Rate limit exceeded", retryAfterSeconds(rateResult));
                     }
                     return requestService.authorizeAndFence(new AuthorizeCommand(
-                            principal, modelId, rawBody, idempotencyKey));
+                            principal, modelId, rawBody, idempotencyKey,
+                            effectiveMaxTokens));
                 })
                 .flatMap((DispatchResult result) -> request.stream()
                         ? invokeStream(exchange, principal, result, request,
