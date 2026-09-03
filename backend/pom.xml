@@ -26,6 +26,10 @@
     <commons-csv.version>1.14.1</commons-csv.version>
     <commons-compress.version>1.28.0</commons-compress.version>
     <poi.version>5.5.1</poi.version>
+    <!-- Trivy gate: spring-boot 4.1.0 manages Tomcat 11.0.x below 11.0.25,
+         which carries fixed HIGH/CRITICAL findings. Pin the patch release;
+         the Spring Boot major/minor stays 4.1.0. -->
+    <tomcat.version>11.0.25</tomcat.version>
   </properties>
 
   <dependencyManagement>

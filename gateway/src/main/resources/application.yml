@@ -1,0 +1,74 @@
+# AI CostOps V2 Data Plane runtime configuration. The Gateway is a bounded
+# OpenAI-compatible edge: every correctness-sensitive limit is explicit and
+# bounded; a non-positive or unbounded value rejects startup.
+spring:
+  application:
+    name: ai-costops-gateway
+  profiles:
+    group:
+      # Activating `local` (host-run daily development) must also activate the
+      # dev-only components, mirroring the backend convention.
+      local:
+        - dev
+  autoconfigure:
+    exclude: org.springframework.boot.security.autoconfigure.ReactiveUserDetailsServiceAutoConfiguration
+  codec:
+    # Bounded default in-memory buffering for reactive payload handling; the
+    # machine contract's 1 MiB decoded body limit is enforced on top of this.
+    max-in-memory-size: ${AICOSTOPS_GATEWAY_MAX_IN_MEMORY_BYTES:16777216}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:aicostops}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me-local-only}
+    hikari:
+      maximum-pool-size: ${AICOSTOPS_GATEWAY_DB_POOL_MAX:12}
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+server:
+  port: ${AICOSTOPS_GATEWAY_PORT:8081}
+  # Request-header bound driven by AICOSTOPS_GATEWAY_MAX_HEADER_BYTES. The
+  # official server.max-http-request-header-size is the request-header limit;
+  # max-initial-line-length is a separate, independent initial-line bound.
+  max-http-request-header-size: ${AICOSTOPS_GATEWAY_MAX_HEADER_BYTES:16384}
+  netty:
+    # Independent initial-line bound; never used as the header-size limit.
+    max-initial-line-length: 4096
+
+aicostops:
+  gateway:
+    port: ${AICOSTOPS_GATEWAY_PORT:8081}
+    credential-hmac-key-v1: ${AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1:}
+    request-hmac-key-v1: ${AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1:}
+    provider-kek-v1: ${AICOSTOPS_PROVIDER_KEK_V1:}
+    dev-bootstrap-enabled: ${AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED:false}
+    dev-raw-key: ${AICOSTOPS_GATEWAY_DEV_RAW_KEY:}
+    rate-limit-enabled: ${AICOSTOPS_GATEWAY_RATE_LIMIT_ENABLED:true}
+    rate-limit-capacity: ${AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY:60}
+    rate-limit-refill-per-second: ${AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND:1}
+    db-threads: ${AICOSTOPS_GATEWAY_DB_THREADS:12}
+    db-queue-capacity: ${AICOSTOPS_GATEWAY_DB_QUEUE_CAPACITY:256}
+    db-pool-max: ${AICOSTOPS_GATEWAY_DB_POOL_MAX:12}
+    max-active-streams: ${AICOSTOPS_GATEWAY_MAX_ACTIVE_STREAMS:128}
+    max-request-bytes: ${AICOSTOPS_GATEWAY_MAX_REQUEST_BYTES:1048576}
+    max-header-bytes: ${AICOSTOPS_GATEWAY_MAX_HEADER_BYTES:16384}
+    max-in-memory-bytes: ${AICOSTOPS_GATEWAY_MAX_IN_MEMORY_BYTES:16777216}
+    connect-timeout-ms: ${AICOSTOPS_GATEWAY_CONNECT_TIMEOUT_MS:5000}
+    header-timeout-ms: ${AICOSTOPS_GATEWAY_HEADER_TIMEOUT_MS:60000}
+    stream-idle-timeout-ms: ${AICOSTOPS_GATEWAY_STREAM_IDLE_TIMEOUT_MS:60000}
+    hard-timeout-ms: ${AICOSTOPS_GATEWAY_HARD_TIMEOUT_MS:600000}

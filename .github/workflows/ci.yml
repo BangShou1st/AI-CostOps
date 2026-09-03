@@ -58,6 +58,54 @@ jobs:
           cache-dependency-path: backend/pom.xml
       - run: ./mvnw -B -Dgroups=architecture test
 
+  gateway-unit:
+    name: gateway-unit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: gateway/pom.xml
+      - run: ./mvnw -B -DexcludedGroups=architecture,integration test
+
+  gateway-integration:
+    name: gateway-integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: gateway/pom.xml
+      - run: ./mvnw -B -Dgroups=integration verify
+
+  gateway-architecture:
+    name: gateway-architecture
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: gateway/pom.xml
+      - run: ./mvnw -B -Dgroups=architecture test
+
   frontend-lint:
     name: frontend-lint
     runs-on: ubuntu-latest
@@ -113,6 +161,7 @@ jobs:
       - uses: actions/checkout@v6
       - run: docker build --tag ai-costops-backend:ci backend
       - run: docker build --tag ai-costops-frontend:ci frontend
+      - run: docker build --tag ai-costops-gateway:ci gateway
 
   browser-e2e:
     name: browser-e2e

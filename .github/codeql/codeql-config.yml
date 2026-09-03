@@ -9,6 +9,7 @@ queries:
 paths:
   - backend/src
   - frontend/src
+  - gateway/src
 
 paths-ignore:
   - "**/target/**"

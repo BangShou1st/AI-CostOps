@@ -1,0 +1,27 @@
+# Gateway test-only defaults. Kept deliberately small so the Cloud-Native
+# tests can boot a context without any real MySQL/Redis on the runner:
+# Hikari minimum-idle=0 defers connection creation and the db/redis health
+# indicators are disabled so readiness probes resolve to UP deterministically.
+# M11 test keys mirror the shared 32-byte test key used by gateway fixtures.
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 2
+      minimum-idle: 0
+      initialization-fail-timeout: -1
+  data:
+    redis:
+      timeout: 5000
+
+management:
+  health:
+    db:
+      enabled: false
+    redis:
+      enabled: false
+
+aicostops:
+  gateway:
+    credential-hmac-key-v1: QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=
+    request-hmac-key-v1: QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=
+    provider-kek-v1: QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=
