@@ -112,7 +112,7 @@ public class ChatCompletionController {
             ServerWebExchange exchange) {
         return principal(exchange)
                 .flatMap(principal -> readBoundedBody(exchange)
-                        .flatMap(rawBody -> resolveCatalog(exchange, principal, rawBody)
+                        .flatMap(rawBody -> resolveCatalog(rawBody)
                                 .flatMap(catalog -> handleRequest(
                                         exchange, principal, rawBody, catalog))));
     }
@@ -175,8 +175,7 @@ public class ChatCompletionController {
                 .doFinally(ignored -> releasePermit.run());
     }
 
-    private Mono<ResolvedCatalogModel> resolveCatalog(
-            ServerWebExchange exchange, GatewayPrincipal principal, byte[] rawBody) {
+    private Mono<ResolvedCatalogModel> resolveCatalog(byte[] rawBody) {
         var request = ChatCompletionRequestParser.parse(rawBody, objectMapper);
         var modelKey = request.model();
         // Synchronous JDBC/MyBatis catalog reads run strictly on the dedicated
