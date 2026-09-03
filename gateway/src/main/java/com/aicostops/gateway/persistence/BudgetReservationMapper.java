@@ -74,6 +74,26 @@ public interface BudgetReservationMapper {
             """)
     int countEffectiveHolds(@Param("orgId") long orgId, @Param("requestId") long requestId);
 
+    @Select("""
+            SELECT org_id, id AS reservation_id, version, budget_id, billing_period_id
+            FROM budget_reservation
+            WHERE status='ACTIVE' AND expires_at <= UTC_TIMESTAMP(6)
+            ORDER BY expires_at ASC, id ASC
+            LIMIT #{limit}
+            """)
+    java.util.List<com.aicostops.gateway.budget.ReservationRecoveryService.ExpiredHold> findExpiredActiveHolds(
+            @Param("limit") int limit);
+
+    @Select("""
+            SELECT id, status, reserved_amount, budget_id, billing_period_id, route_attempt_id,
+                   version, request_id
+            FROM budget_reservation
+            WHERE org_id=#{orgId} AND id=#{reservationId}
+            FOR UPDATE
+            """)
+    LockedReservationRow lockReservationById(
+            @Param("orgId") long orgId, @Param("reservationId") long reservationId);
+
     @Insert("""
             INSERT INTO budget_reservation(
               org_id,request_id,route_attempt_id,billing_period_id,budget_id,
@@ -169,6 +189,17 @@ public interface BudgetReservationMapper {
             long budgetId,
             long billingPeriodId,
             long routeAttemptId) {
+    }
+
+    record LockedReservationRow(
+            long id,
+            String status,
+            BigDecimal reservedAmount,
+            long budgetId,
+            long billingPeriodId,
+            long routeAttemptId,
+            long version,
+            long requestId) {
     }
 
     record ReservationInsert(
