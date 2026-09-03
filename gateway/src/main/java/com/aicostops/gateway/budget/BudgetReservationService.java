@@ -12,7 +12,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import reactor.core.publisher.Mono;
 
 /**
@@ -33,6 +34,7 @@ public class BudgetReservationService {
     private final GatewayRequestMapper requestMapper;
     private final GatewayPropertiesBridge properties;
     private final BlockingIoScheduler blockingIo;
+    private final TransactionTemplate transactions;
     private final Clock clock;
 
     public BudgetReservationService(
@@ -40,20 +42,33 @@ public class BudgetReservationService {
             GatewayRequestMapper requestMapper,
             GatewayPropertiesBridge properties,
             BlockingIoScheduler blockingIo,
+            PlatformTransactionManager transactionManager,
             Clock clock) {
         this.reservationMapper = reservationMapper;
         this.requestMapper = requestMapper;
         this.properties = properties;
         this.blockingIo = blockingIo;
+        this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
     }
 
     public Mono<AdmissionResult> admit(AdmissionCommand command) {
-        return blockingIo.call(() -> admitBlocking(command));
+        // Explicit transaction template: admitBlocking is invoked through this
+        // lambda on the blocking-DB thread, and a self-invoked @Transactional
+        // method would bypass the Spring proxy and run without a transaction.
+        return blockingIo.call(() -> transactions.execute(status -> admitBlocking(command)));
     }
 
-    @Transactional
-    public AdmissionResult admitBlocking(AdmissionCommand command) {
+    /**
+     * Synchronous TX1 entry for callers already on the blocking-DB scheduler
+     * (e.g. GatewayRequestService). Never block on {@link #admit} from such a
+     * thread: re-submitting to the same bounded scheduler risks deadlock.
+     */
+    public AdmissionResult admitSync(AdmissionCommand command) {
+        return transactions.execute(status -> admitBlocking(command));
+    }
+
+    AdmissionResult admitBlocking(AdmissionCommand command) {
         var principal = command.principal();
         var orgId = principal.organizationId();
         var now = Instant.now(clock);

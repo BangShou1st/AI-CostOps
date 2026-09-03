@@ -144,7 +144,9 @@ public class GatewayRequestService {
         // 7. M12 TX1: MySQL-authoritative budget admission. REQUIRED without
         // a matching/insufficient Budget (or an unsafe bound) fails closed
         // here; OPTIONAL without a matching Budget is explicitly unbudgeted.
-        AdmissionResult admission = reservationService.admitBlocking(new AdmissionCommand(
+        // admitSync() owns the TX1 transaction boundary; never call the
+        // blocking core directly or the Budget lock loses its transaction.
+        AdmissionResult admission = reservationService.admitSync(new AdmissionCommand(
                 principal, request.requestId(), attemptId, periodId,
                 route.pricingVersionId(), route.currency(),
                 command.effectiveMaxOutputTokens(), -1L));
