@@ -143,7 +143,10 @@ class RedisDailyQuotaLimiterIntegrationTest extends GatewayMySqlContainerSupport
     void quotaKeyCarriesNoRawKeyMaterial() {
         limiter.tryAcquire(env.credentialId()).block();
 
-        var keys = redisTemplate.keys("aicostops:v2:gateway:quota:*")
+        // Other test classes share the static Redis container, so scope the
+        // assertion to this credential's own key instead of the global set.
+        var keys = redisTemplate.keys(
+                "aicostops:v2:gateway:quota:" + env.credentialId() + ":*")
                 .collectList().block(java.time.Duration.ofSeconds(10));
 
         assertThat(keys).isNotNull().hasSize(1);
