@@ -15,9 +15,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * M11 close-safety on real MySQL: possible-billable Gateway requests after
- * DISPATCH_INTENT block normal Close; pre-dispatch or period-unscoped
- * requests do not.
+ * M12 close-safety on real MySQL: possible-billable Gateway requests after
+ * DISPATCH_INTENT block normal Close; ACTIVE/PENDING_HOLD budget reservations
+ * block normal Close; pre-dispatch or period-unscoped requests and
+ * RELEASED/FINALIZED reservations do not.
  */
 @SpringBootTest
 @Tag("integration")
@@ -68,6 +69,48 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
     }
 
     @Test
+    void activeReservationBlocksCloseWithoutUnresolvedRequest() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "RESERVED", digest(21), digest(22));
+        var attemptId = insertRouteAttempt(fixture, requestId, 1, "grd_21111111-1111-4111-8111-111111111111");
+        insertReservation(fixture, requestId, attemptId, "ACTIVE");
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    @Test
+    void pendingHoldReservationBlocksClose() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(23), digest(24));
+        // The FAILED_AFTER_DISPATCH request already blocks on its own; move it
+        // pre-dispatch so only the PENDING_HOLD proves the reservation rule.
+        jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH' WHERE id=?", requestId);
+        var attemptId = insertRouteAttempt(fixture, requestId, 1, "grd_24111111-1111-4111-8111-111111111111");
+        insertReservation(fixture, requestId, attemptId, "PENDING_HOLD");
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    @Test
+    void releasedAndFinalizedReservationsDoNotBlockClose() {
+        var fixture = insertFullFixture();
+        var firstId = insertGatewayRequest(fixture, "FAILED_PRE_DISPATCH", digest(25), digest(26));
+        var firstAttempt = insertRouteAttempt(fixture, firstId, 1, "grd_26111111-1111-4111-8111-111111111111");
+        insertReservation(fixture, firstId, firstAttempt, "RELEASED");
+        var secondId = insertGatewayRequest(fixture, "FAILED_PRE_DISPATCH", digest(27), digest(28));
+        var secondAttempt = insertRouteAttempt(fixture, secondId, 1, "grd_28111111-1111-4111-8111-111111111111");
+        insertReservation(fixture, secondId, secondAttempt, "FINALIZED");
+
+        assertThat(provider.evaluate(context(fixture)).passed()).isTrue();
+    }
+
+    @Test
     void requestWithoutBillingPeriodDoesNotBlockClose() {
         var fixture = insertFixture();
         jdbc.update("""
@@ -99,10 +142,82 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
                   request_hmac_version,state,billing_period_id,created_at,validated_at,updated_at)
                 VALUES (?,?,?,'SERVICE',NULL,?,0,'PROJECT',0,?,'CHAT_COMPLETIONS',
                   ?,?,1,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                """, fixture.orgId(), "gwr_" + uuid(fixture.orgId() + state.hashCode()),
+                """, fixture.orgId(), "gwr_" + uuid(System.nanoTime()),
                 fixture.credentialId(), fixture.serviceIdentityId(), fixture.modelId(),
                 idem, fp, state, fixture.periodId());
         return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long insertRouteAttempt(Fixture fixture, long requestId, int attemptNo, String decisionId) {
+        jdbc.update("""
+                INSERT INTO gateway_route_attempt(
+                  org_id,request_id,attempt_no,route_decision_id,routing_policy_id,
+                  provider_account_id,provider_model_id,pricing_version_id,status,
+                  safety_reason_code,provider_request_id,created_at,dispatch_intent_at,completed_at)
+                VALUES (?,?,?, ?,NULL,?,?,?,'PLANNED',NULL,NULL,UTC_TIMESTAMP(6),NULL,NULL)
+                """, fixture.orgId(), requestId, attemptNo, decisionId,
+                fixture.providerAccountId(), fixture.providerModelId(), fixture.pricingVersionId());
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void insertReservation(Fixture fixture, long requestId, long attemptId, String status) {
+        jdbc.update("""
+                INSERT INTO budget_reservation(
+                  org_id,request_id,route_attempt_id,billing_period_id,budget_id,
+                  financial_scope_type,financial_scope_id,currency,
+                  reserved_amount,commitment_id,commitment_backed_amount,
+                  status,version,expires_at,created_at,updated_at,released_at,finalized_at)
+                VALUES (?,?,?,?,?, 'PROJECT',0,'USD',
+                  '10.00000000',NULL,0, ?,0,
+                  DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 15 MINUTE),
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL,NULL)
+                """, fixture.orgId(), requestId, attemptId, fixture.periodId(), fixture.budgetId(),
+                status);
+    }
+
+    private Fixture insertFullFixture() {
+        var base = insertFixture();
+        jdbc.update("""
+                INSERT INTO provider_account(
+                  org_id,provider_code,display_name,external_account_ref,status,metadata_json,
+                  created_at,updated_at)
+                VALUES (?,'MIMO','Close Provider','CLOSE-ACCT','ACTIVE',NULL,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, base.orgId());
+        var providerAccountId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO provider_catalog(
+                  provider_code,name,adapter_code,base_url,status,capabilities_json,
+                  created_at,updated_at)
+                VALUES ('MIMO','MiMo','MIMO','https://api.xiaomimimo.com/v1','ACTIVE',JSON_OBJECT(),
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """);
+        jdbc.update("""
+                INSERT INTO provider_model(
+                  provider_code,model_id,provider_model_name,status,routing_eligible,
+                  capabilities_json,created_at,updated_at)
+                VALUES ('MIMO',?,'mimo-v2.5-pro','ACTIVE',TRUE,JSON_OBJECT(),
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, base.modelId());
+        var providerModelId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO pricing_version(
+                  org_id,provider_account_id,provider_model_id,version,currency,
+                  effective_from,effective_to,status,created_at,activated_at,retired_at)
+                VALUES (?,?,?,1,'USD','2026-08-01 00:00:00.000000',NULL,'ACTIVE',
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL)
+                """, base.orgId(), providerAccountId, providerModelId);
+        var pricingVersionId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO budget(
+                  org_id,billing_period_id,scope_type,scope_id,currency,
+                  total_amount,actual_amount,committed_amount,status,version,created_at,updated_at)
+                VALUES (?,?, 'PROJECT',0,'USD','100.00000000',0,0,'ACTIVE',0,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, base.orgId(), base.periodId());
+        var budgetId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        return new Fixture(base.orgId(), base.periodId(), base.serviceIdentityId(), base.modelId(),
+                base.credentialId(), providerAccountId, providerModelId, pricingVersionId, budgetId);
     }
 
     private Fixture insertFixture() {
@@ -143,7 +258,8 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
                   NULL,NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL)
                 """, orgId, "0123456789ab", digest(11), serviceIdentityId);
         var credentialId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        return new Fixture(orgId, periodId, serviceIdentityId, modelId, credentialId);
+        return new Fixture(orgId, periodId, serviceIdentityId, modelId, credentialId,
+                -1L, -1L, -1L, -1L);
     }
 
     private static String uuid(long seed) {
@@ -160,6 +276,7 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
     }
 
     private record Fixture(long orgId, long periodId, long serviceIdentityId, long modelId,
-            long credentialId) {
+            long credentialId, long providerAccountId, long providerModelId,
+            long pricingVersionId, long budgetId) {
     }
 }
