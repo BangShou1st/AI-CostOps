@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.http.HttpHeaders;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -50,6 +51,9 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @LocalServerPort
+    private int port;
 
     private SeededEnv env;
 
@@ -198,7 +202,7 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
 
     @Test
     void replayAfterSuccessfulDispatchIsInProgressNeverReDispatches() {
-        var valid = web.post().uri("/v1/chat/completions")
+        web.post().uri("/v1/chat/completions")
                 .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
                 .header("Idempotency-Key", "ctrl-idem-6")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -220,6 +224,120 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
                 .jsonPath("$.error.code").isEqualTo("GATEWAY_RESPONSE_NOT_RETAINED");
 
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+    }
+
+    @Test
+    void chunkedSmallJsonReachesBusinessPath() throws Exception {
+        var status = postChunked(body(env), "ctrl-idem-chunked-1", null);
+
+        assertThat(status).isEqualTo(200);
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+    }
+
+    @Test
+    void chunkedOversizeBodyReturns413WithoutProviderDispatch() throws Exception {
+        var oversized = "{\"model\":\"" + env.modelKey() + "\",\"messages\":[{\"role\":\"user\",\"content\":\""
+                + "x".repeat(2_000_000) + "\"}]}";
+        var result = postChunkedWithBody(oversized, "ctrl-idem-chunked-2", null);
+
+        assertThat(result.statusCode()).isEqualTo(413);
+        assertThat(result.body()).contains("GATEWAY_REQUEST_TOO_LARGE");
+        assertThat(UPSTREAM_CALLS.get()).isZero();
+    }
+
+    @Test
+    void bodyAtExactlyMaxBytesIsAccepted() {
+        web.post().uri("/v1/chat/completions")
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", "ctrl-idem-bound-1")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(sizedBody(env, 1_048_576))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+    }
+
+    @Test
+    void bodyAtMaxPlusOneByteIsRejected413() {
+        web.post().uri("/v1/chat/completions")
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", "ctrl-idem-bound-2")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(sizedBody(env, 1_048_577))
+                .exchange()
+                .expectStatus().isEqualTo(413)
+                .expectBody()
+                .jsonPath("$.error.code").isEqualTo("GATEWAY_REQUEST_TOO_LARGE");
+
+        assertThat(UPSTREAM_CALLS.get()).isZero();
+    }
+
+    @Test
+    void gzipContentEncodingIsRejected400WithoutProviderDispatch() {
+        web.post().uri("/v1/chat/completions")
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", "ctrl-idem-enc-1")
+                .header(HttpHeaders.CONTENT_ENCODING, "gzip")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(body(env))
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.error.code").isEqualTo("GATEWAY_REQUEST_INVALID");
+
+        assertThat(UPSTREAM_CALLS.get()).isZero();
+    }
+
+    @Test
+    void identityContentEncodingIsAccepted() {
+        web.post().uri("/v1/chat/completions")
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", "ctrl-idem-enc-2")
+                .header(HttpHeaders.CONTENT_ENCODING, "identity")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(body(env))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+    }
+
+    /** Sends a request with unknown Content-Length (chunked transfer encoding). */
+    private int postChunked(String json, String idempotencyKey, String contentEncoding)
+            throws Exception {
+        return postChunkedWithBody(json, idempotencyKey, contentEncoding).statusCode();
+    }
+
+    private java.net.http.HttpResponse<String> postChunkedWithBody(
+            String json, String idempotencyKey, String contentEncoding) throws Exception {
+        var bytes = json.getBytes(StandardCharsets.UTF_8);
+        var chunks = java.util.List.of(
+                java.util.Arrays.copyOfRange(bytes, 0, bytes.length / 2),
+                java.util.Arrays.copyOfRange(bytes, bytes.length / 2, bytes.length));
+        var requestBuilder = java.net.http.HttpRequest.newBuilder(
+                        java.net.URI.create("http://127.0.0.1:" + port + "/v1/chat/completions"))
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", idempotencyKey)
+                .header(HttpHeaders.CONTENT_TYPE, "application/json")
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofByteArrays(chunks));
+        if (contentEncoding != null) {
+            requestBuilder.header(HttpHeaders.CONTENT_ENCODING, contentEncoding);
+        }
+        var client = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(10))
+                .build();
+        return client.send(requestBuilder.build(),
+                java.net.http.HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** Builds a valid JSON body of exactly {@code totalBytes} UTF-8 bytes. */
+    private static String sizedBody(SeededEnv env, int totalBytes) {
+        var template = body(env);
+        var marker = "\"content\":\"hi\"";
+        var padding = totalBytes - template.length() + "hi".length();
+        assertThat(padding).isGreaterThan(0);
+        return template.replace(marker, "\"content\":\"" + "x".repeat(padding) + "\"");
     }
 
     private static String body(SeededEnv env) {

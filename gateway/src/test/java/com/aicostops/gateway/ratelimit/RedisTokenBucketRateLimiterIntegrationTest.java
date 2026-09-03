@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.http.HttpHeaders;
@@ -146,8 +147,10 @@ class RedisTokenBucketRateLimiterIntegrationTest extends GatewayMySqlContainerSu
     @Test
     void redisUnavailableFailsClosedWithDependencyUnavailable() {
         var config = new RedisStandaloneConfiguration("127.0.0.1", 1);
-        var badFactory = new LettuceConnectionFactory(config);
-        badFactory.setTimeout(1000);
+        var clientConfig = LettuceClientConfiguration.builder()
+                .commandTimeout(java.time.Duration.ofMillis(1000))
+                .build();
+        var badFactory = new LettuceConnectionFactory(config, clientConfig);
         badFactory.afterPropertiesSet();
         var badTemplate = new ReactiveStringRedisTemplate(badFactory);
         var properties = new GatewayProperties();

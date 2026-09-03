@@ -115,7 +115,8 @@ class StreamingLifecycleIntegrationTest extends GatewayMySqlContainerSupport {
         // this is the frozen client-disconnect-after-dispatch case.
         var input = response.body();
         var buffer = new byte[512];
-        input.read(buffer, 0, 128);
+        var firstRead = input.read(buffer, 0, 128);
+        assertThat(firstRead).isGreaterThan(0);
         input.close();
 
         awaitState("CANCELED_AFTER_DISPATCH");
@@ -132,7 +133,8 @@ class StreamingLifecycleIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(response.statusCode()).isEqualTo(200);
         var input = response.body();
         var buffer = new byte[512];
-        input.read(buffer, 0, 64);
+        var firstRead = input.read(buffer, 0, 64);
+        assertThat(firstRead).isGreaterThan(0);
         input.close();
 
         awaitState("CANCELED_AFTER_DISPATCH");

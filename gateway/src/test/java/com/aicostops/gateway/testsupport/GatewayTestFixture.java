@@ -20,6 +20,10 @@ public final class GatewayTestFixture {
     public static final String TEST_KEK = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
     public static final String DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
 
+    // Shared test-only nonce source. SecureRandom seeding is expensive, so one
+    // static instance serves every provider-secret encryption in tests.
+    private static final java.security.SecureRandom NONCE_RANDOM = new java.security.SecureRandom();
+
     private GatewayTestFixture() {
     }
 
@@ -188,7 +192,7 @@ public final class GatewayTestFixture {
             long orgId, long providerAccountId) {
         try {
             var nonce = new byte[12];
-            new java.security.SecureRandom().nextBytes(nonce);
+            NONCE_RANDOM.nextBytes(nonce);
             var cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(javax.crypto.Cipher.ENCRYPT_MODE,
                     new javax.crypto.spec.SecretKeySpec(

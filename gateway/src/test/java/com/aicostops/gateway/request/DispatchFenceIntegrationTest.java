@@ -79,7 +79,6 @@ class DispatchFenceIntegrationTest extends GatewayMySqlContainerSupport {
     @Test
     void fenceRejectsClosedPeriodLeavingRequestValidatedAndAttemptPlanned() {
         var env = GatewayTestFixture.seed(jdbc, "fence-lock", HMAC_KEY, rawKey());
-        var principal = principal(env);
         var idemDigest = identityService.idempotencyKeyDigest("fence-lock-key");
         var fingerprint = identityService.requestFingerprint(
                 "{\"model\":\"default-chat\"}".getBytes(StandardCharsets.UTF_8));
@@ -137,6 +136,49 @@ class DispatchFenceIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(jdbc.queryForObject("""
                 SELECT dispatch_intent_at IS NOT NULL FROM gateway_request WHERE id=?
                 """, Integer.class, result.requestId())).isEqualTo(1);
+    }
+
+    @Test
+    void nonPlannedRouteAttemptFailsFenceAndRollsBackRequestTransition() {
+        var env = GatewayTestFixture.seed(jdbc, "fence-attempt", HMAC_KEY, rawKey());
+        var idemDigest = identityService.idempotencyKeyDigest("fence-attempt-key");
+        var fingerprint = identityService.requestFingerprint(
+                "{\"model\":\"default-chat\"}".getBytes(StandardCharsets.UTF_8));
+        requestMapper.insertRequest(new com.aicostops.gateway.persistence.GatewayRequestMapper.GatewayRequestInsert(
+                env.orgId(), identityService.newPublicRequestId(), env.credentialId(), "SERVICE",
+                null, env.serviceIdentityId(), env.projectId(), "PROJECT", env.projectId(),
+                env.modelId(), idemDigest, fingerprint));
+        var requestId = jdbc.queryForObject("""
+                SELECT id FROM gateway_request WHERE org_id=? ORDER BY id DESC LIMIT 1
+                """, Long.class, env.orgId());
+        requestMapper.insertRouteAttempt(
+                new com.aicostops.gateway.persistence.GatewayRequestMapper.RouteAttemptInsert(
+                        env.orgId(), requestId, identityService.newRouteDecisionId(),
+                        env.providerAccountId(), env.providerModelId(), env.pricingVersionId()));
+        var attemptId = jdbc.queryForObject("""
+                SELECT id FROM gateway_route_attempt WHERE request_id=? ORDER BY id DESC LIMIT 1
+                """, Long.class, requestId);
+
+        // Simulate a concurrent transition that moved the attempt out of
+        // PLANNED before this fence commits: the fence must fail instead of
+        // committing a half-fence with Provider I/O already legal.
+        jdbc.update("UPDATE gateway_route_attempt SET status='BILLABLE_POSSIBLE' WHERE id=?",
+                attemptId);
+
+        assertThatThrownBy(() -> dispatchFenceService.commitDispatchFence(
+                env.orgId(), requestId, attemptId, env.periodId()))
+                .isInstanceOf(GatewayErrorException.class)
+                .satisfies(ex -> assertThat(((GatewayErrorException) ex).code())
+                        .isEqualTo(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE));
+
+        // The whole fence rolled back: the request never reached
+        // DISPATCH_INTENT, so no Provider I/O was ever legal for this attempt.
+        assertThat(jdbc.queryForObject("SELECT state FROM gateway_request WHERE id=?",
+                String.class, requestId)).isEqualTo("VALIDATED");
+        assertThat(jdbc.queryForObject("SELECT billing_period_id FROM gateway_request WHERE id=?",
+                Long.class, requestId)).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_request WHERE id=? AND state='DISPATCH_INTENT'",
+                Integer.class, requestId)).isZero();
     }
 
     private GatewayPrincipal principal(SeededEnv env) {

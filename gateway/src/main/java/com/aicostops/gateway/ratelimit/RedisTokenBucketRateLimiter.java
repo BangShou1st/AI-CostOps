@@ -45,6 +45,9 @@ public class RedisTokenBucketRateLimiter implements GatewayRateLimiter {
             return Mono.just(RateLimitResult.allowed(Long.MAX_VALUE));
         }
         var key = "aicostops:v2:gateway:ratelimit:" + credentialId;
+        var unavailable = new GatewayErrorException(
+                GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                "The rate limiter is unavailable");
         return redis.execute(script,
                         List.of(key),
                         String.valueOf(properties.getRateLimitCapacity()),
@@ -52,15 +55,28 @@ public class RedisTokenBucketRateLimiter implements GatewayRateLimiter {
                         String.valueOf(Instant.now(clock).toEpochMilli()),
                         "1")
                 .next()
-                .map(RedisTokenBucketRateLimiter::toResult)
-                .onErrorMap(ex -> new GatewayErrorException(
-                        GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                        "The rate limiter is unavailable"));
+                // An abnormally empty script completion carries no verdict: fail
+                // closed instead of completing empty.
+                .switchIfEmpty(Mono.error(unavailable))
+                .flatMap(values -> {
+                    if (values == null) {
+                        return Mono.error(unavailable);
+                    }
+                    return Mono.just(toResult(values));
+                })
+                .onErrorMap(ex -> ex instanceof GatewayErrorException gatewayError
+                                && gatewayError.code()
+                                        == GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE
+                        ? gatewayError
+                        : new GatewayErrorException(
+                                GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                                "The rate limiter is unavailable"));
     }
 
     private static RateLimitResult toResult(List<Long> values) {
         if (values == null || values.size() < 3) {
-            throw new IllegalStateException("Rate limiter returned an invalid result");
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "The rate limiter is unavailable");
         }
         long allowed = values.get(0) == null ? 0L : values.get(0);
         long remaining = values.get(1) == null ? 0L : values.get(1);

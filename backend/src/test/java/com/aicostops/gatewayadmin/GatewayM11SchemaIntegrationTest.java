@@ -105,7 +105,7 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
 
         assertThatThrownBy(() -> insertGatewayRequest(fixture,
                 "gwr_22222222-2222-4222-8222-222222222222",
-                "SERVICE", fixture.memberId(), null, digest(23), digest(24)))
+                fixture.memberId(), null, digest(23), digest(24)))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("chk_gateway_request_principal_xor");
     }
@@ -132,10 +132,10 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
     void publicRequestIdIsUnique() {
         var fixture = insertFixture("public-id");
         var publicId = "gwr_33333333-3333-4333-8333-333333333333";
-        insertGatewayRequest(fixture, publicId, "SERVICE", null, fixture.serviceIdentityId(),
+        insertGatewayRequest(fixture, publicId, null, fixture.serviceIdentityId(),
                 digest(25), digest(26));
 
-        assertThatThrownBy(() -> insertGatewayRequest(fixture, publicId, "SERVICE", null,
+        assertThatThrownBy(() -> insertGatewayRequest(fixture, publicId, null,
                 fixture.serviceIdentityId(), digest(27), digest(28)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("uq_gateway_request_public");
@@ -144,11 +144,11 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
     @Test
     void idempotencyIdentityIsUniquePerOrgAndCredential() {
         var fixture = insertFixture("idem");
-        insertGatewayRequest(fixture, "gwr_44444444-4444-4444-8444-444444444444", "SERVICE", null,
+        insertGatewayRequest(fixture, "gwr_44444444-4444-4444-8444-444444444444", null,
                 fixture.serviceIdentityId(), fixture.requestDigest(), digest(26));
 
         assertThatThrownBy(() -> insertGatewayRequest(fixture,
-                "gwr_45454545-4545-4454-8454-454545454545", "SERVICE", null,
+                "gwr_45454545-4545-4454-8454-454545454545", null,
                 fixture.serviceIdentityId(), fixture.requestDigest(), digest(27)))
                 .isInstanceOf(DataIntegrityViolationException.class)
                 .hasMessageContaining("uq_gateway_request_idem");
@@ -191,7 +191,7 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
     void routeDecisionIdIsUniquePerOrg() {
         var fixture = insertFixture("decision-id");
         var firstRequestId = insertGatewayRequest(fixture,
-                "gwr_88888888-8888-4888-8888-888888888888", "SERVICE", null,
+                "gwr_88888888-8888-4888-8888-888888888888", null,
                 fixture.serviceIdentityId(), digest(80), digest(81));
         var firstDecisionId = "grd_88888888-8888-4888-8888-888888888888";
         jdbc.update(insertRouteSql(), fixture.orgId(), firstRequestId, 1, firstDecisionId,
@@ -199,7 +199,7 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
                 "PLANNED");
 
         var thirdRequestId = insertGatewayRequest(fixture,
-                "gwr_99999999-9999-4999-8999-999999999999", "SERVICE", null,
+                "gwr_99999999-9999-4999-8999-999999999999", null,
                 fixture.serviceIdentityId(), digest(82), digest(83));
 
         // A second request reusing the first request's route decision must
@@ -426,7 +426,7 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
         return orgId;
     }
 
-    private long insertGatewayRequest(Fixture fixture, String publicId, String principalType,
+    private long insertGatewayRequest(Fixture fixture, String publicId,
             Long memberId, Long serviceIdentityId, byte[] idemDigest, byte[] fingerprint) {
         jdbc.update("""
                 INSERT INTO gateway_request(
@@ -444,7 +444,7 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
     }
 
     private long insertRequestAndRoute(Fixture fixture, String publicId) {
-        var requestId = insertGatewayRequest(fixture, publicId, "SERVICE", null,
+        var requestId = insertGatewayRequest(fixture, publicId, null,
                 fixture.serviceIdentityId(), digest(publicId.hashCode()), digest(31));
         var routeDecisionId = "grd_" + publicId.substring(4);
         jdbc.update(insertRouteSql(), fixture.orgId(), requestId, 1, routeDecisionId,

@@ -42,11 +42,13 @@ management:
 
 server:
   port: ${AICOSTOPS_GATEWAY_PORT:8081}
+  # Request-header bound driven by AICOSTOPS_GATEWAY_MAX_HEADER_BYTES. The
+  # official server.max-http-request-header-size is the request-header limit;
+  # max-initial-line-length is a separate, independent initial-line bound.
+  max-http-request-header-size: ${AICOSTOPS_GATEWAY_MAX_HEADER_BYTES:16384}
   netty:
-    # Bounded header/initial-line handling; larger lines are rejected by the
-    # WebFlux server before any business code runs.
-    max-initial-line-length: ${AICOSTOPS_GATEWAY_MAX_HEADER_BYTES:16384}
-    max-chunk-size: ${AICOSTOPS_GATEWAY_MAX_HEADER_BYTES:16384}
+    # Independent initial-line bound; never used as the header-size limit.
+    max-initial-line-length: 4096
 
 aicostops:
   gateway:

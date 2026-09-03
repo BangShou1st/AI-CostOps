@@ -47,7 +47,7 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
     private static final String HMAC_KEY = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
 
     enum Scenario {
-        OK_3_CHUNKS, HIGH_VOLUME, ERROR_500, CHUNKS_THEN_IDLE, SLOW_STREAM
+        OK_3_CHUNKS, HIGH_VOLUME, ERROR_500, CHUNKS_THEN_IDLE, SLOW_STREAM, CLEAN_EOF_NO_DONE
     }
 
     private static HttpServer mockUpstream;
@@ -114,6 +114,14 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
                             out.flush();
                             sleep(100);
                         }
+                    }
+                    case CLEAN_EOF_NO_DONE -> {
+                        // Clean EOF after partial chunks but without the
+                        // terminal [DONE]: closing the exchange completes the
+                        // chunked response normally at the transport level.
+                        out.write(chunkFrame(1).getBytes(StandardCharsets.UTF_8));
+                        out.write(chunkFrame(2).getBytes(StandardCharsets.UTF_8));
+                        out.flush();
                     }
                     default -> {
                         // Unreachable; ERROR_500 handled above.
@@ -319,6 +327,22 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(attemptStatus()).isEqualTo("BILLABLE_POSSIBLE");
     }
 
+    @Test
+    void cleanEofWithoutDoneIsFailedAfterDispatchWithNoSynthesizedDone() {
+        scenario = Scenario.CLEAN_EOF_NO_DONE;
+
+        var body = captureStreamBody("stream-idem-7");
+
+        // The Gateway must not synthesize a terminal [DONE] the Provider
+        // never sent: partial chunks may be forwarded, but no completion
+        // signal, and the durable state is a post-dispatch failure with no
+        // automatic retry (exactly one Provider call).
+        assertThat(body).doesNotContain("data: [DONE]");
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+        awaitState("FAILED_AFTER_DISPATCH");
+        assertThat(attemptStatus()).isEqualTo("BILLABLE_POSSIBLE");
+    }
+
     private void consumeStreamIgnoringTermination(String idempotencyKey) {
         try {
             web.post().uri("/v1/chat/completions")
@@ -333,6 +357,25 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
                     .blockLast(java.time.Duration.ofSeconds(10));
         } catch (Exception ignored) {
             // Truncated/aborted SSE is expected for timeout/reset scenarios.
+        }
+    }
+
+    private String captureStreamBody(String idempotencyKey) {
+        try {
+            var result = web.post().uri("/v1/chat/completions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                    .header("Idempotency-Key", idempotencyKey)
+                    .bodyValue(body(env))
+                    .exchange()
+                    .expectStatus().isOk()
+                    .expectBody(String.class)
+                    .returnResult();
+            return result.getResponseBody() == null ? "" : result.getResponseBody();
+        } catch (Exception ex) {
+            // The Gateway aborts the SSE with an error after a clean upstream
+            // EOF without [DONE]; partial bytes observed so far are enough.
+            return "";
         }
     }
 

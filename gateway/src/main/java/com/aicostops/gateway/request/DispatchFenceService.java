@@ -51,6 +51,14 @@ public class DispatchFenceService {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                     "Request cannot reach dispatch intent");
         }
-        requestMapper.markRouteAttemptDispatchIntent(routeAttemptId, orgId);
+        if (updated != 1) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Request cannot reach dispatch intent");
+        }
+        var attemptUpdated = requestMapper.markRouteAttemptDispatchIntent(routeAttemptId, orgId);
+        if (attemptUpdated != 1) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Route attempt cannot reach dispatch intent");
+        }
     }
 }

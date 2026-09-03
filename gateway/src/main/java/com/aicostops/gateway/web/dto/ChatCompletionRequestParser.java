@@ -44,10 +44,10 @@ public final class ChatCompletionRequestParser {
         rejectUnknownFields(root, ALLOWED_FIELDS, "request");
 
         var modelNode = root.get("model");
-        if (modelNode == null || !modelNode.isTextual()) {
+        if (modelNode == null || !modelNode.isString()) {
             throw invalid("model is required and must be a string");
         }
-        var model = modelNode.asText();
+        var model = modelNode.stringValue();
         if (model.isEmpty() || model.length() > 100 || !MODEL_PATTERN.matcher(model).matches()) {
             throw invalid("model has an invalid format");
         }
@@ -96,15 +96,15 @@ public final class ChatCompletionRequestParser {
         rejectUnknownFields(message, ALLOWED_MESSAGE_FIELDS, "message");
         var roleNode = message.get("role");
         var contentNode = message.get("content");
-        if (roleNode == null || !roleNode.isTextual()
-                || contentNode == null || !contentNode.isTextual()) {
+        if (roleNode == null || !roleNode.isString()
+                || contentNode == null || !contentNode.isString()) {
             throw invalid("Each message requires a string role and a string content");
         }
-        var role = roleNode.asText();
+        var role = roleNode.stringValue();
         if (!ALLOWED_ROLES.contains(role)) {
             throw invalid("Unsupported message role: " + role);
         }
-        return new ChatCompletionRequest.ChatMessage(role, contentNode.asText());
+        return new ChatCompletionRequest.ChatMessage(role, contentNode.stringValue());
     }
 
     private static void rejectUnknownFields(JsonNode object, Set<String> allowed, String where) {
