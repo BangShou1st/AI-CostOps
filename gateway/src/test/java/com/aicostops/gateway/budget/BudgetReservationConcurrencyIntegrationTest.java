@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionCommand;
+import com.aicostops.gateway.budget.BudgetReservationService.AdmissionOutcome;
 import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import com.aicostops.gateway.testsupport.GatewayMySqlContainerSupport;
 import com.aicostops.gateway.testsupport.GatewayTestFixture;
 import com.aicostops.gateway.testsupport.GatewayTestFixture.SeededEnv;
-import com.aicostops.gateway.web.GatewayErrorException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -109,13 +109,11 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
         for (var id : ids) {
             tasks.add(pool.submit(() -> {
                 latch.await();
-                try {
-                    reservationService.admit(new AdmissionCommand(required(env),
-                            id.requestId(), id.attemptId(), env.periodId(),
-                            env.pricingVersionId(), "USD", 309045, -1L)).block();
+                var outcome = reservationService.admit(new AdmissionCommand(required(env),
+                        id.requestId(), id.attemptId(), env.periodId(),
+                        env.pricingVersionId(), "USD", 309045, -1L)).block().outcome();
+                if (outcome == AdmissionOutcome.RESERVED) {
                     reserved.incrementAndGet();
-                } catch (GatewayErrorException expected) {
-                    // Losers converge to REJECTED_BUDGET.
                 }
                 return null;
             }));
@@ -146,12 +144,11 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
         var actualDone = new AtomicInteger();
         var reserveTask = pool.submit(() -> {
             latch.await();
-            try {
-                reservationService.admit(new AdmissionCommand(required(env),
-                        ids.requestId(), ids.attemptId(), env.periodId(),
-                        env.pricingVersionId(), "USD", 309045, -1L)).block();
+            var outcome = reservationService.admit(new AdmissionCommand(required(env),
+                    ids.requestId(), ids.attemptId(), env.periodId(),
+                    env.pricingVersionId(), "USD", 309045, -1L)).block().outcome();
+            if (outcome == AdmissionOutcome.RESERVED) {
                 reserved.incrementAndGet();
-            } catch (GatewayErrorException expected) {
             }
             return null;
         });
@@ -196,14 +193,11 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
         for (int i = 0; i < contenders; i++) {
             tasks.add(pool.submit(() -> {
                 latch.await();
-                try {
-                    var result = reservationService.admit(new AdmissionCommand(required(env),
-                            ids.requestId(), ids.attemptId(), env.periodId(),
-                            env.pricingVersionId(), "USD", 1000, -1L)).block();
+                var result = reservationService.admit(new AdmissionCommand(required(env),
+                        ids.requestId(), ids.attemptId(), env.periodId(),
+                        env.pricingVersionId(), "USD", 1000, -1L)).block();
+                if (result.outcome() == AdmissionOutcome.RESERVED) {
                     reservationIds.add(result.reservationId());
-                } catch (RuntimeException expected) {
-                    // Replay convergence or effective-hold guard: at most one
-                    // hold wins; losers either converge or fail.
                 }
                 return null;
             }));
@@ -238,10 +232,12 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
         for (var action : new ThrowingRunnable[]{first, second}) {
             tasks.add(pool.submit(() -> {
                 latch.await();
-                try {
-                    action.run();
+                // TX1 returns terminal outcomes (it throws only for
+                // unexpected dependency failures, which fail the test).
+                var outcome = action.run();
+                if (outcome == AdmissionOutcome.RESERVED) {
                     reserved.incrementAndGet();
-                } catch (GatewayErrorException expected) {
+                } else {
                     rejected.incrementAndGet();
                 }
                 return null;
@@ -255,10 +251,10 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
         return new RaceOutcome(reserved.get(), rejected.get());
     }
 
-    private void admit(SeededEnv env, RequestIds ids, long maxTokens) {
-        reservationService.admit(new AdmissionCommand(required(env),
+    private AdmissionOutcome admit(SeededEnv env, RequestIds ids, long maxTokens) {
+        return reservationService.admit(new AdmissionCommand(required(env),
                 ids.requestId(), ids.attemptId(), env.periodId(),
-                env.pricingVersionId(), "USD", maxTokens, -1L)).block();
+                env.pricingVersionId(), "USD", maxTokens, -1L)).block().outcome();
     }
 
     private BigDecimal sumHolds(SeededEnv env) {
@@ -303,6 +299,6 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
 
     @FunctionalInterface
     private interface ThrowingRunnable {
-        void run() throws Exception;
+        AdmissionOutcome run() throws Exception;
     }
 }

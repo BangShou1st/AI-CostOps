@@ -1,18 +1,14 @@
 package com.aicostops.gateway.budget;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionCommand;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionOutcome;
-import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import com.aicostops.gateway.testsupport.GatewayMySqlContainerSupport;
 import com.aicostops.gateway.testsupport.GatewayTestFixture;
 import com.aicostops.gateway.testsupport.GatewayTestFixture.SeededEnv;
-import com.aicostops.gateway.web.GatewayErrorCode;
-import com.aicostops.gateway.web.GatewayErrorException;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
@@ -35,9 +31,6 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
 
     @Autowired
     private BudgetReservationService reservationService;
-
-    @Autowired
-    private BudgetReservationMapper reservationMapper;
 
     @Autowired
     private GatewayRequestMapper requestMapper;
@@ -99,11 +92,13 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
         jdbc.update("DELETE FROM budget WHERE org_id=?", env.orgId());
         var ids = insertValidatedRequest(env, "tx1-nobudget-key");
 
-        assertThatThrownBy(() -> reservationService.admit(command(
-                required(env), env, ids.requestId(), ids.attemptId(), "USD", 8192, -1L)).block())
-                .satisfies(ex -> assertThat(rootError(ex).code())
-                        .isEqualTo(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED));
+        // TX1 persists the terminal rejection and returns it (throwing inside
+        // TX1 would roll the REJECTED_BUDGET state back). The request-service
+        // layer maps this outcome to GATEWAY_BUDGET_EXHAUSTED after commit.
+        var result = reservationService.admit(command(
+                required(env), env, ids.requestId(), ids.attemptId(), "USD", 8192, -1L)).block();
 
+        assertThat(result.outcome()).isEqualTo(AdmissionOutcome.REJECTED_BUDGET);
         assertThat(stateOf(ids.requestId())).isEqualTo("REJECTED_BUDGET");
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM budget_reservation WHERE org_id=?",
@@ -134,11 +129,10 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
         jdbc.update("UPDATE budget SET actual_amount='99.00000000' WHERE id=?", env.budgetId());
         var ids = insertValidatedRequest(env, "tx1-exhausted-key");
 
-        assertThatThrownBy(() -> reservationService.admit(command(
-                optional(env), env, ids.requestId(), ids.attemptId(), "USD", 8192, -1L)).block())
-                .satisfies(ex -> assertThat(rootError(ex).code())
-                        .isEqualTo(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED));
+        var result = reservationService.admit(command(
+                optional(env), env, ids.requestId(), ids.attemptId(), "USD", 8192, -1L)).block();
 
+        assertThat(result.outcome()).isEqualTo(AdmissionOutcome.REJECTED_BUDGET);
         assertThat(stateOf(ids.requestId())).isEqualTo("REJECTED_BUDGET");
     }
 
@@ -151,11 +145,10 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
         jdbc.update("UPDATE budget SET currency='EUR' WHERE id=?", env.budgetId());
         var ids = insertValidatedRequest(env, "tx1-fx-key");
 
-        assertThatThrownBy(() -> reservationService.admit(command(
-                required(env), env, ids.requestId(), ids.attemptId(), "USD", 8192, -1L)).block())
-                .satisfies(ex -> assertThat(rootError(ex).code())
-                        .isEqualTo(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED));
+        var result = reservationService.admit(command(
+                required(env), env, ids.requestId(), ids.attemptId(), "USD", 8192, -1L)).block();
 
+        assertThat(result.outcome()).isEqualTo(AdmissionOutcome.REJECTED_BUDGET);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM budget_reservation WHERE org_id=?",
                 Integer.class, env.orgId())).isZero();
@@ -224,15 +217,6 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
         return new GatewayPrincipal(
                 env.credentialId(), env.orgId(), env.projectId(), "SERVICE", null,
                 env.serviceIdentityId(), "PROJECT", env.projectId(), "OPTIONAL");
-    }
-
-    private static GatewayErrorException rootError(Throwable ex) {
-        for (var current = ex; current != null; current = current.getCause()) {
-            if (current instanceof GatewayErrorException gatewayError) {
-                return gatewayError;
-            }
-        }
-        throw new AssertionError("No GatewayErrorException in chain: " + ex);
     }
 
     private static String rawKey() {

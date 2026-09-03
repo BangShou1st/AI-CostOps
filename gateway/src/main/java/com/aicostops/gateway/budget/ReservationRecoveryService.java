@@ -1,13 +1,11 @@
 package com.aicostops.gateway.budget;
 
-import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.observability.GatewayMetrics;
 import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -23,6 +21,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * moved to FAILED_PRE_DISPATCH; anything that may have dispatched becomes
  * PENDING_HOLD and keeps holding money until Settlement/reconciliation.
  * Post-dispatch states are never released.
+ *
+ * <p>The periodic trigger lives in {@link ReservationRecoveryScheduler}; this
+ * bean holds the transaction logic so tests can drive
+ * {@link #recoverExpiredBlocking()} deterministically with the scheduler
+ * disabled.
  */
 @Component
 public class ReservationRecoveryService {
@@ -33,7 +36,6 @@ public class ReservationRecoveryService {
     private final GatewayRequestMapper requestMapper;
     private final GatewayPropertiesBridge properties;
     private final GatewayMetrics metrics;
-    private final BlockingIoScheduler blockingIo;
     private final TransactionTemplate transactions;
 
     public ReservationRecoveryService(
@@ -41,19 +43,12 @@ public class ReservationRecoveryService {
             GatewayRequestMapper requestMapper,
             GatewayPropertiesBridge properties,
             GatewayMetrics metrics,
-            BlockingIoScheduler blockingIo,
             PlatformTransactionManager transactionManager) {
         this.reservationMapper = reservationMapper;
         this.requestMapper = requestMapper;
         this.properties = properties;
         this.metrics = metrics;
-        this.blockingIo = blockingIo;
         this.transactions = new TransactionTemplate(transactionManager);
-    }
-
-    @Scheduled(fixedDelayString = "${aicostops.gateway.reservation-recovery-interval-ms:60000}")
-    public void recoverExpired() {
-        blockingIo.run(this::recoverExpiredBlocking).subscribe();
     }
 
     void recoverExpiredBlocking() {
@@ -102,10 +97,12 @@ public class ReservationRecoveryService {
         }
 
         var request = requestMapper.findById(reservation.requestId(), hold.orgId());
-        var attempt = requestMapper.findAttemptById(reservation.routeAttemptId(), hold.orgId());
+        var attempt = requestMapper.findAttemptById(hold.orgId(), reservation.routeAttemptId());
         if (request == null || attempt == null) {
             return "SKIPPED";
         }
+        log.info("Recovery decide reservation {}: requestState={} attemptStatus={}",
+                hold.reservationId(), request.state(), attempt.status());
 
         if (isDefinitivelyPreDispatch(request.state(), attempt.status())) {
             if (reservationMapper.releaseActiveReservation(

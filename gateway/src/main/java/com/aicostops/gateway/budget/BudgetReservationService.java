@@ -167,14 +167,16 @@ public class BudgetReservationService {
 
     private AdmissionResult noBudget(GatewayPrincipal principal, AdmissionCommand command) {
         if ("REQUIRED".equals(principal.budgetEnforcementMode())) {
+            // Terminal business result: persist REJECTED_BUDGET inside TX1 and
+            // return it. Throwing here would roll the rejection back; the
+            // caller maps the outcome to GATEWAY_BUDGET_EXHAUSTED after commit.
             if (reservationMapper.markRequestRejectedBudget(
                     command.requestId(), principal.organizationId(),
                     command.billingPeriodId()) != 1) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                         "Request cannot reach rejected state");
             }
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED,
-                    "No matching budget exists for this request");
+            return new AdmissionResult(AdmissionOutcome.REJECTED_BUDGET, -1L, -1L, null);
         }
         // OPTIONAL without a matching Budget: explicitly allowed unbudgeted.
         return new AdmissionResult(AdmissionOutcome.UNBUDGETED, -1L, -1L, null);
@@ -183,10 +185,11 @@ public class BudgetReservationService {
     private AdmissionResult reservationImpossible(
             GatewayPrincipal principal, AdmissionCommand command,
             BudgetReservationMapper.BudgetRow locked) {
-        // The bound cannot be safely evaluated: fail closed for REQUIRED
-        // (dependency-unavailable, never a guessed hold); OPTIONAL with an
-        // existing Budget must also reserve, so the same closed rejection
-        // applies rather than silently proceeding unbudgeted.
+        // The bound cannot be safely evaluated: fail closed for both modes
+        // (an existing Budget must be reserved against, never bypassed).
+        // Persist the terminal rejection inside TX1 and let the caller map it
+        // after commit: REQUIRED -> DEPENDENCY_UNAVAILABLE (unsafe bound),
+        // OPTIONAL -> BUDGET_EXHAUSTED (existing budget cannot be bypassed).
         if (reservationMapper.markRequestRejectedBudget(
                 command.requestId(), principal.organizationId(),
                 command.billingPeriodId()) != 1) {
@@ -194,11 +197,9 @@ public class BudgetReservationService {
                     "Request cannot reach rejected state");
         }
         if ("REQUIRED".equals(principal.budgetEnforcementMode())) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                    "Reservation cannot be safely evaluated for this request");
+            return new AdmissionResult(AdmissionOutcome.REJECTED_DEPENDENCY, -1L, -1L, null);
         }
-        throw new GatewayErrorException(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED,
-                "Reservation cannot be safely evaluated against the existing budget");
+        return new AdmissionResult(AdmissionOutcome.REJECTED_BUDGET, -1L, -1L, null);
     }
 
     private AdmissionResult insufficient(
@@ -210,8 +211,7 @@ public class BudgetReservationService {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                     "Request cannot reach rejected state");
         }
-        throw new GatewayErrorException(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED,
-                "Budget is insufficient for the conservative reservation");
+        return new AdmissionResult(AdmissionOutcome.REJECTED_BUDGET, -1L, -1L, null);
     }
 
     private AdmissionResult replayExisting(
@@ -254,6 +254,8 @@ public class BudgetReservationService {
 
     public enum AdmissionOutcome {
         RESERVED,
-        UNBUDGETED
+        UNBUDGETED,
+        REJECTED_BUDGET,
+        REJECTED_DEPENDENCY
     }
 }

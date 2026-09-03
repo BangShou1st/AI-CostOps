@@ -141,15 +141,24 @@ public class GatewayRequestService {
             routeDecisionId = attempt.routeDecisionId();
         }
 
-        // 7. M12 TX1: MySQL-authoritative budget admission. REQUIRED without
-        // a matching/insufficient Budget (or an unsafe bound) fails closed
-        // here; OPTIONAL without a matching Budget is explicitly unbudgeted.
+        // 7. M12 TX1: MySQL-authoritative budget admission. TX1 persists its
+        // terminal business result (RESERVED / UNBUDGETED / REJECTED_*) and
+        // commits; rejections are mapped to errors here, after commit, so the
+        // REJECTED_BUDGET state is durable and idempotent replay converges.
         // admitSync() owns the TX1 transaction boundary; never call the
         // blocking core directly or the Budget lock loses its transaction.
         AdmissionResult admission = reservationService.admitSync(new AdmissionCommand(
                 principal, request.requestId(), attemptId, periodId,
                 route.pricingVersionId(), route.currency(),
                 command.effectiveMaxOutputTokens(), -1L));
+        if (admission.outcome() == AdmissionOutcome.REJECTED_BUDGET) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED,
+                    "Budget is unavailable or insufficient for the conservative reservation");
+        }
+        if (admission.outcome() == AdmissionOutcome.REJECTED_DEPENDENCY) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Reservation cannot be safely evaluated for this request");
+        }
 
         // 8. Durable financial safety fence (TX2); only then is Provider I/O legal.
         dispatchFenceService.commitDispatchFence(
