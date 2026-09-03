@@ -21,6 +21,8 @@ public class GatewayProperties implements InitializingBean {
     private boolean rateLimitEnabled = true;
     private int rateLimitCapacity = 60;
     private double rateLimitRefillPerSecond = 1.0;
+    private boolean quotaEnabled = true;
+    private long quotaRequestsPerDay = 1000;
     private int dbThreads = 12;
     private int dbQueueCapacity = 256;
     private int dbPoolMax = 12;
@@ -67,6 +69,9 @@ public class GatewayProperties implements InitializingBean {
             requirePositive("rateLimitCapacity", rateLimitCapacity);
             requirePositive("rateLimitRefillPerSecond",
                     Math.round(rateLimitRefillPerSecond * 1000));
+        }
+        if (quotaEnabled) {
+            requirePositive("quotaRequestsPerDay", quotaRequestsPerDay);
         }
     }
 
@@ -147,6 +152,22 @@ public class GatewayProperties implements InitializingBean {
 
     public void setRateLimitRefillPerSecond(double rateLimitRefillPerSecond) {
         this.rateLimitRefillPerSecond = rateLimitRefillPerSecond;
+    }
+
+    public boolean isQuotaEnabled() {
+        return quotaEnabled;
+    }
+
+    public void setQuotaEnabled(boolean quotaEnabled) {
+        this.quotaEnabled = quotaEnabled;
+    }
+
+    public long getQuotaRequestsPerDay() {
+        return quotaRequestsPerDay;
+    }
+
+    public void setQuotaRequestsPerDay(long quotaRequestsPerDay) {
+        this.quotaRequestsPerDay = quotaRequestsPerDay;
     }
 
     public int getDbThreads() {

@@ -61,6 +61,8 @@ aicostops:
     rate-limit-enabled: ${AICOSTOPS_GATEWAY_RATE_LIMIT_ENABLED:true}
     rate-limit-capacity: ${AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY:60}
     rate-limit-refill-per-second: ${AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND:1}
+    quota-enabled: ${AICOSTOPS_GATEWAY_QUOTA_ENABLED:true}
+    quota-requests-per-day: ${AICOSTOPS_GATEWAY_QUOTA_REQUESTS_PER_DAY:1000}
     db-threads: ${AICOSTOPS_GATEWAY_DB_THREADS:12}
     db-queue-capacity: ${AICOSTOPS_GATEWAY_DB_QUEUE_CAPACITY:256}
     db-pool-max: ${AICOSTOPS_GATEWAY_DB_POOL_MAX:12}
