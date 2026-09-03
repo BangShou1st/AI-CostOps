@@ -7,7 +7,7 @@
 
 ```text
 code HEAD (schema/code/CI/docs of the milestone): 3ad6603
-final branch HEAD at evidence update: 2db702d (fix HEAD; this evidence commit only touches this file)
+final branch HEAD at evidence update: 9649f52 (security HEAD; this evidence commit only touches this file)
 base: main (M10 design merged via PR #129/#130)
 ```
 
@@ -26,14 +26,15 @@ cfa40a5 ci(gateway): gate M11 runtime and security
 3ad6603 fix(backend): accept gateway close blocker code in period close checks
 9a453ec fix(gateway): harden independent-review blockers for PR #131
 2db702d fix(gateway): drop unused resolveCatalog params flagged by CodeQL
+9649f52 security(backend): upgrade Tomcat to 11.0.25
 <evidence docs commit (this file only)>
 ```
 
 ## 3. Changed files / scope
 
 ```text
-109 files changed, 12340 insertions(+), 10 deletions(-) vs origin/main
-(fresh main...HEAD including this evidence file; fix HEAD 2db702d; the pre-fix baseline e0a5a60
+110 files changed, 12351 insertions(+), 10 deletions(-) vs origin/main
+(fresh main...HEAD including this evidence file; security HEAD 9649f52; the pre-fix baseline e0a5a60
 measured 106 files, +11620, -10 on GitHub)
 gateway/   WebFlux data plane (bootstrap, auth, dispatch fence, MiMo adapter,
            SSE streaming, Redis token bucket, status API, observability,
@@ -158,32 +159,37 @@ the real-provider certification path remains open for an operator-provided key.
 ## 15. CI
 
 ```text
-GitHub Actions on PR #131 new HEAD (2db702d fix + evidence): PENDING at evidence update
-(push just performed; latest-head results to be recorded after all checks
-finish). Previous HEAD e0a5a60: all 15 checks PASS
+GitHub Actions on PR #131 final HEAD 9649f52: all 11 jobs PASS
   backend-unit / backend-architecture / backend-integration
   gateway-unit / gateway-architecture / gateway-integration
   frontend-lint / frontend-test / frontend-build
   docker-build (backend + frontend + gateway images)
   browser-e2e
-  codeql (java-kotlin) / codeql (javascript-typescript) / CodeQL summary
+Note: backend-integration needed one rerun of its job after a test-isolation
+flake (DELETE FROM organization blocked by invitation FK in
+AuthorizationContextServiceIntegrationTest setup; unrelated to the Tomcat
+patch, local run green at 829); the rerun passed and the run is green.
 ```
 
 ## 16. Security
 
 ```text
-Security workflow on PR #131 new HEAD (2db702d fix + evidence): PENDING at evidence update.
-Previous HEAD e0a5a60: PASS
-  CodeQL: the global java/spring-disabled-csrf-protection query filter was
-    removed from .github/codeql/codeql-config.yml; the one deliberate
-    Gateway bearer-plane call site carries an inline
+Security workflow on PR #131 final HEAD 9649f52: PASS
+  CodeQL java-kotlin PASS, CodeQL javascript-typescript PASS.
+  The global java/spring-disabled-csrf-protection query filter was removed
+    from .github/codeql/codeql-config.yml; the one deliberate Gateway
+    bearer-plane call site carries an inline
     // codeql[java/spring-disabled-csrf-protection] suppression with
     rationale (AIC-091 API-key surface, Bearer header only, no cookies, no
-    session). Backend keeps the full query. Remaining CodeQL review threads
-    (deprecated Jackson/Lettuce APIs, unread vars, Random-once,
-    InputStream.read results, unused params) were fixed in code.
-  Trivy: vuln+misconfig+secret fs scan and backend/frontend/gateway image
-    scans at HIGH/CRITICAL exit-code 1 (Netty 4.2.16.Final pin kept)
+    session). Backend keeps the full query (1 backend CSRF alert open by
+    design of that query surface; Gateway CSRF alerts: 0 open).
+  Trivy: filesystem scan (vuln+misconfig+secret) PASS; backend image PASS;
+    frontend image PASS; gateway image PASS at HIGH/CRITICAL exit-code 1.
+  Tomcat remediation: backend Spring Boot parent stays 4.1.0; explicit
+    <tomcat.version>11.0.25</tomcat.version> patch override in
+    backend/pom.xml (dependency tree proves tomcat-embed-core/-el/
+    -websocket all resolve to 11.0.25). Netty 4.2.16.Final pin kept.
+  No Trivy ignore/exception/severity/exit-code bypass was used.
 ```
 
 ## 17. PR number + URL
@@ -201,9 +207,10 @@ PR #131 — https://github.com/BangShou1st/AI-CostOps/pull/131
   status reports null metering/settlement), one Provider (MiMo), no
   multi-provider routing/failover, no automatic retry after DISPATCH_INTENT.
 - MiMo streaming final-usage certification is deferred to M13.
-- CI/Security on the new HEAD were still running at evidence
-  update; sections 15/16 record the previous HEAD PASS plus the pending
-  new-HEAD status honestly.
+- local Docker application builds = 2 total; this remediation round local
+  Docker builds = 0 (no docker build/compose --build/prune/down -v used).
+  Latest-head images verified by GitHub Actions docker-build + Trivy scans.
+- Real MiMo smoke: BLOCKED: missing external MiMo credential.
 ```
 
 ## 19. git status
