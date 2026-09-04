@@ -29,4 +29,16 @@ public interface OrganizationAuditPort {
      */
     void providerAccountArchived(long organizationId, long actorUserId,
             long providerAccountId, String previousStatus);
+
+    void routingPolicyCreated(long organizationId, long actorUserId,
+            long policyId, int version, String status);
+
+    void routingPolicyRevised(long organizationId, long actorUserId,
+            long policyId, int version, String status);
+
+    void routingPolicyUpdated(long organizationId, long actorUserId,
+            long policyId, int version, String status);
+
+    void routingPolicyActivated(long organizationId, long actorUserId,
+            long policyId, int version, String status);
 }
