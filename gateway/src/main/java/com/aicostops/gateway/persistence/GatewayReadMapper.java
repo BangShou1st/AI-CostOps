@@ -64,7 +64,7 @@ public interface GatewayReadMapper {
     String findBillingPeriodStatus(@Param("periodId") long periodId, @Param("orgId") long orgId);
 
     @Select("""
-            SELECT ciphertext, nonce, encryption_key_version
+            SELECT credential_type, ciphertext, nonce, encryption_key_version
             FROM provider_credential
             WHERE org_id=#{orgId} AND provider_account_id=#{accountId} AND status='ACTIVE'
             ORDER BY id LIMIT 1
@@ -100,6 +100,6 @@ public interface GatewayReadMapper {
             int maxOutputTokens) {
     }
 
-    record ProviderCredentialRow(byte[] ciphertext, byte[] nonce, short encryptionKeyVersion) {
+    record ProviderCredentialRow(String credentialType, byte[] ciphertext, byte[] nonce, short encryptionKeyVersion) {
     }
 }

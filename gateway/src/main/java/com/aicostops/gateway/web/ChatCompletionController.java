@@ -412,17 +412,20 @@ public class ChatCompletionController {
      */
     private Mono<ProviderCallContext> buildProviderContext(
             GatewayPrincipal principal, DispatchResult result) {
-        return blockingIo.call(() -> new ProviderCallContext(
-                result.adapterCode(),
-                result.providerAccountId(),
-                result.providerModelId(),
-                result.providerModelName(),
-                result.pricingVersionId(),
-                result.currency(),
-                result.baseUrl(),
-                "API_KEY",
-                "api-key",
-                credentialDecryptor.decrypt(principal.organizationId(), result.providerAccountId())));
+        return blockingIo.call(() -> {
+            var credential = credentialDecryptor.decrypt(principal.organizationId(), result.providerAccountId());
+            return new ProviderCallContext(
+                    result.adapterCode(),
+                    result.providerAccountId(),
+                    result.providerModelId(),
+                    result.providerModelName(),
+                    result.pricingVersionId(),
+                    result.currency(),
+                    result.baseUrl(),
+                    credential.credentialType(),
+                    credential.secret(),
+                    result.routeDecisionId());
+        });
     }
 
     private Map<String, Object> buildResponse(DispatchResult result, ChatCompletionRequest request,

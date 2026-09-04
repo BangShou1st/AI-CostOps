@@ -233,7 +233,7 @@ class MimoChatAdapterTest {
         return new ProviderCallContext(
                 "MIMO", 1L, 2L, "mimo-v2.5-pro", 3L, "USD",
                 "http://127.0.0.1:" + server.getAddress().getPort() + "/v1",
-                "API_KEY", "api-key", SECRET.getBytes(StandardCharsets.UTF_8));
+                "API_KEY", SECRET.getBytes(StandardCharsets.UTF_8), "rte_test");
     }
 
     private static GatewayProperties properties() {

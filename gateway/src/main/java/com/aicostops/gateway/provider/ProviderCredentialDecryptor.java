@@ -40,21 +40,24 @@ public class ProviderCredentialDecryptor {
         this.kek = decoded;
     }
 
-    public byte[] decrypt(long orgId, long providerAccountId) {
+    public DecryptedCredential decrypt(long orgId, long providerAccountId) {
         var row = readMapper.findActiveProviderCredential(orgId, providerAccountId);
         if (row == null) {
             throw new IllegalStateException("No ACTIVE Provider credential for account " + providerAccountId);
         }
-        var aad = (AAD_DOMAIN + "\0" + orgId + "\0" + providerAccountId + "\0" + "API_KEY" + "\0"
+        var aad = (AAD_DOMAIN + "\0" + orgId + "\0" + providerAccountId + "\0" + row.credentialType() + "\0"
                 + row.encryptionKeyVersion()).getBytes(StandardCharsets.UTF_8);
         try {
             var cipher = Cipher.getInstance(TRANSFORMATION);
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(kek, "AES"),
                     new GCMParameterSpec(GCM_TAG_BITS, row.nonce()));
             cipher.updateAAD(aad);
-            return cipher.doFinal(row.ciphertext());
+            return new DecryptedCredential(row.credentialType(), cipher.doFinal(row.ciphertext()));
         } catch (GeneralSecurityException ex) {
             throw new IllegalArgumentException("Provider credential decryption failed", ex);
         }
+    }
+
+    public record DecryptedCredential(String credentialType, byte[] secret) {
     }
 }

@@ -12,6 +12,8 @@ import reactor.core.publisher.Mono;
  */
 public interface ProviderChatAdapter {
 
+    String adapterCode();
+
     Mono<ProviderChatCompletion> complete(ProviderCallContext context, ChatCompletionCommand command);
 
     Flux<ProviderChatStreamEvent> stream(ProviderCallContext context, ChatCompletionCommand command);
