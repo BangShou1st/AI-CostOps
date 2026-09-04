@@ -742,8 +742,9 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
 
         @Override
         public void parse(ProviderInput input, InspectionResult inspection, ProviderRecordSink sink) {
+            var shouldBlock = blockParse;
             enteredLatch.countDown();
-            if (blockParse) {
+            if (shouldBlock) {
                 try {
                     releaseLatch.await(30, TimeUnit.SECONDS);
                 } catch (InterruptedException exception) {
