@@ -41,10 +41,16 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
              "content":"Hello from MiMo"},"finish_reason":"stop"}],
              "usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}
             """;
+    private static final String MOCK_RESPONSE_WITHOUT_USAGE = """
+            {"id":"chatcmpl_mockct_no_usage","object":"chat.completion","created":1788000101,
+             "model":"mimo-v2.5-pro","choices":[{"index":0,"message":{"role":"assistant",
+             "content":"Hello without usage"},"finish_reason":"stop"}]}
+            """;
 
     private static HttpServer mockUpstream;
     private static final AtomicInteger UPSTREAM_CALLS = new AtomicInteger();
     private static volatile String upstreamAuthHeader;
+    private static volatile boolean omitUsage;
 
     @Autowired
     private WebTestClient web;
@@ -68,7 +74,8 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
             try (var in = exchange.getRequestBody()) {
                 in.readAllBytes();
             }
-            var bytes = MOCK_RESPONSE.getBytes(StandardCharsets.UTF_8);
+            var bytes = (omitUsage ? MOCK_RESPONSE_WITHOUT_USAGE : MOCK_RESPONSE)
+                    .getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length);
             try (var out = exchange.getResponseBody()) {
                 out.write(bytes);
@@ -87,6 +94,7 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
     void seed() {
         UPSTREAM_CALLS.set(0);
         upstreamAuthHeader = null;
+        omitUsage = false;
         var mockUrl = "http://127.0.0.1:" + mockUpstream.getAddress().getPort() + "/v1";
         env = GatewayTestFixture.seed(jdbc, "ctrl-" + System.nanoTime(), HMAC_KEY, rawKey(),
                 GatewayTestFixture.TEST_KEK, "sk-test-secret", mockUrl);
@@ -123,6 +131,34 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM gateway_route_attempt WHERE org_id=? ORDER BY id DESC LIMIT 1",
                 String.class, env.orgId())).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM gateway_usage_fact WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("FINAL");
+    }
+
+    @Test
+    void successfulProviderResponseWithoutUsagePersistsUnknownWithoutZeroDimensions() {
+        omitUsage = true;
+
+        web.post().uri("/v1/chat/completions")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", "ctrl-idem-no-usage")
+                .bodyValue(body(env))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.usage").doesNotExist();
+
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM gateway_usage_fact WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("UNKNOWN");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_usage_dimension WHERE org_id=?",
+                Integer.class, env.orgId())).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM gateway_request WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("TRANSPORT_COMPLETED");
     }
 
     @Test
