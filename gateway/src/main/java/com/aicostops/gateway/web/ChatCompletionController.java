@@ -11,6 +11,7 @@ import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
 import com.aicostops.gateway.provider.ProviderCredentialDecryptor;
+import com.aicostops.gateway.quota.GatewayQuotaLimiter;
 import com.aicostops.gateway.ratelimit.GatewayRateLimiter;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.request.GatewayRequestLifecycleService;
@@ -69,6 +70,7 @@ public class ChatCompletionController {
     private final ProviderChatAdapter chatAdapter;
     private final GatewaySseEncoder sseEncoder;
     private final GatewayRateLimiter rateLimiter;
+    private final GatewayQuotaLimiter quotaLimiter;
     private final GatewayResourceLimiter resourceLimiter;
     private final GatewayMetrics metrics;
     private final ObjectMapper objectMapper;
@@ -85,6 +87,7 @@ public class ChatCompletionController {
             ProviderChatAdapter chatAdapter,
             GatewaySseEncoder sseEncoder,
             GatewayRateLimiter rateLimiter,
+            GatewayQuotaLimiter quotaLimiter,
             GatewayResourceLimiter resourceLimiter,
             GatewayMetrics metrics,
             ObjectMapper objectMapper,
@@ -99,6 +102,7 @@ public class ChatCompletionController {
         this.chatAdapter = chatAdapter;
         this.sseEncoder = sseEncoder;
         this.rateLimiter = rateLimiter;
+        this.quotaLimiter = quotaLimiter;
         this.resourceLimiter = resourceLimiter;
         this.metrics = metrics;
         this.objectMapper = objectMapper;
@@ -161,8 +165,25 @@ public class ChatCompletionController {
                         throw new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
                                 "Rate limit exceeded", retryAfterSeconds(rateResult));
                     }
+                    return quotaLimiter.tryAcquire(principal.credentialId())
+                            .onErrorResume(ex -> {
+                                metrics.recordRedisDependencyError();
+                                metrics.recordQuota("DEPENDENCY_UNAVAILABLE");
+                                metrics.recordRequestOutcome("DEPENDENCY_UNAVAILABLE");
+                                return Mono.error(ex);
+                            });
+                })
+                .flatMap(quotaResult -> {
+                    if (!quotaResult.allowed()) {
+                        metrics.recordQuota("REJECTED");
+                        metrics.recordRequestOutcome("RATE_LIMITED");
+                        throw new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
+                                "Daily request quota exceeded");
+                    }
+                    metrics.recordQuota("ALLOWED");
                     return requestService.authorizeAndFence(new AuthorizeCommand(
-                            principal, modelId, rawBody, idempotencyKey));
+                            principal, modelId, rawBody, idempotencyKey,
+                            effectiveMaxTokens));
                 })
                 .flatMap((DispatchResult result) -> request.stream()
                         ? invokeStream(exchange, principal, result, request,

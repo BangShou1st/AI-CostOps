@@ -1,6 +1,10 @@
 package com.aicostops.gateway.request;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
+import com.aicostops.gateway.budget.BudgetReservationService;
+import com.aicostops.gateway.budget.BudgetReservationService.AdmissionCommand;
+import com.aicostops.gateway.budget.BudgetReservationService.AdmissionOutcome;
+import com.aicostops.gateway.budget.BudgetReservationService.AdmissionResult;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
@@ -15,14 +19,14 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
 /**
- * Request-time authorization and durable Gatewat request creation.
+ * Request-time authorization and durable Gateway request creation.
  *
  * <p>Before any Provider I/O: validate the model/commercial context
  * (explicit credential-model allowlist, active model catalog, eligible single
- * M11 Provider route), fail closed for {@code REQUIRED} budget credentials,
- * converge or create the {@code VALIDATED} request, create route attempt 1
- * {@code PLANNED}, then commit the BillingPeriod dispatch fence. The same
- * idempotency identity never authorizes a second Provider dispatch.
+ * M11 Provider route), converge or create the {@code VALIDATED} request,
+ * create route attempt 1 {@code PLANNED}, run M12 TX1 MySQL-authoritative
+ * budget admission, then commit the BillingPeriod dispatch fence (TX2). The
+ * same idempotency identity never authorizes a second Provider dispatch.
  */
 @Service
 public class GatewayRequestService {
@@ -36,6 +40,7 @@ public class GatewayRequestService {
     private final GatewayRequestMapper requestMapper;
     private final RequestIdentityService identityService;
     private final DispatchFenceService dispatchFenceService;
+    private final BudgetReservationService reservationService;
     private final BlockingIoScheduler blockingIo;
     private final Clock clock;
 
@@ -44,12 +49,14 @@ public class GatewayRequestService {
             GatewayRequestMapper requestMapper,
             RequestIdentityService identityService,
             DispatchFenceService dispatchFenceService,
+            BudgetReservationService reservationService,
             BlockingIoScheduler blockingIo,
             Clock clock) {
         this.readMapper = readMapper;
         this.requestMapper = requestMapper;
         this.identityService = identityService;
         this.dispatchFenceService = dispatchFenceService;
+        this.reservationService = reservationService;
         this.blockingIo = blockingIo;
         this.clock = clock;
     }
@@ -88,12 +95,9 @@ public class GatewayRequestService {
                     "No eligible Provider route is available for the requested model");
         }
 
-        // 3. M11 has no MySQL Budget Reservation; REQUIRED credentials fail
-        // closed before any Provider I/O.
-        if ("REQUIRED".equals(principal.budgetEnforcementMode())) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED,
-                    "Budget reservation is required but not available in M11");
-        }
+        // 3. M12 TX1 MySQL-authoritative budget admission is resolved after
+        // the VALIDATED request and PLANNED attempt exist (step 5/6 below);
+        // REQUIRED without a matching/insufficient Budget fails there.
 
         // 4. Resolve the OPEN BillingPeriod financial fence for dispatch time.
         var periodId = readMapper.findOpenBillingPeriodId(principal.organizationId(), now);
@@ -137,9 +141,29 @@ public class GatewayRequestService {
             routeDecisionId = attempt.routeDecisionId();
         }
 
-        // 7. Durable financial safety fence; only then is Provider I/O legal.
+        // 7. M12 TX1: MySQL-authoritative budget admission. TX1 persists its
+        // terminal business result (RESERVED / UNBUDGETED / REJECTED_*) and
+        // commits; rejections are mapped to errors here, after commit, so the
+        // REJECTED_BUDGET state is durable and idempotent replay converges.
+        // admitSync() owns the TX1 transaction boundary; never call the
+        // blocking core directly or the Budget lock loses its transaction.
+        AdmissionResult admission = reservationService.admitSync(new AdmissionCommand(
+                principal, request.requestId(), attemptId, periodId,
+                route.pricingVersionId(), route.currency(),
+                command.effectiveMaxOutputTokens(), -1L));
+        if (admission.outcome() == AdmissionOutcome.REJECTED_BUDGET) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_BUDGET_EXHAUSTED,
+                    "Budget is unavailable or insufficient for the conservative reservation");
+        }
+        if (admission.outcome() == AdmissionOutcome.REJECTED_DEPENDENCY) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Reservation cannot be safely evaluated for this request");
+        }
+
+        // 8. Durable financial safety fence (TX2); only then is Provider I/O legal.
         dispatchFenceService.commitDispatchFence(
-                principal.organizationId(), request.requestId(), attemptId, periodId);
+                principal.organizationId(), request.requestId(), attemptId, periodId,
+                admission);
 
         return new DispatchResult(
                 request.requestId(),
@@ -225,7 +249,8 @@ public class GatewayRequestService {
             GatewayPrincipal principal,
             long logicalModelId,
             byte[] rawBodyBytes,
-            String rawIdempotencyKey) {
+            String rawIdempotencyKey,
+            long effectiveMaxOutputTokens) {
     }
 
     public record DispatchResult(

@@ -21,6 +21,8 @@ public class GatewayProperties implements InitializingBean {
     private boolean rateLimitEnabled = true;
     private int rateLimitCapacity = 60;
     private double rateLimitRefillPerSecond = 1.0;
+    private boolean quotaEnabled = true;
+    private long quotaRequestsPerDay = 1000;
     private int dbThreads = 12;
     private int dbQueueCapacity = 256;
     private int dbPoolMax = 12;
@@ -32,6 +34,9 @@ public class GatewayProperties implements InitializingBean {
     private int headerTimeoutMs = 60000;
     private int streamIdleTimeoutMs = 60000;
     private int hardTimeoutMs = 600000;
+    private long reservationTtlMs = 900000;
+    private long reservationRecoveryIntervalMs = 60000;
+    private int reservationRecoveryBatchSize = 100;
 
     @Override
     public void afterPropertiesSet() {
@@ -52,10 +57,21 @@ public class GatewayProperties implements InitializingBean {
         requirePositive("headerTimeoutMs", headerTimeoutMs);
         requirePositive("streamIdleTimeoutMs", streamIdleTimeoutMs);
         requirePositive("hardTimeoutMs", hardTimeoutMs);
+        requirePositive("reservationTtlMs", reservationTtlMs);
+        requirePositive("reservationRecoveryIntervalMs", reservationRecoveryIntervalMs);
+        requirePositive("reservationRecoveryBatchSize", reservationRecoveryBatchSize);
+        if (reservationTtlMs <= hardTimeoutMs) {
+            throw new IllegalStateException(
+                    "aicostops.gateway.reservation-ttl-ms must exceed hard-timeout-ms, got "
+                            + reservationTtlMs + " <= " + hardTimeoutMs);
+        }
         if (rateLimitEnabled) {
             requirePositive("rateLimitCapacity", rateLimitCapacity);
             requirePositive("rateLimitRefillPerSecond",
                     Math.round(rateLimitRefillPerSecond * 1000));
+        }
+        if (quotaEnabled) {
+            requirePositive("quotaRequestsPerDay", quotaRequestsPerDay);
         }
     }
 
@@ -136,6 +152,22 @@ public class GatewayProperties implements InitializingBean {
 
     public void setRateLimitRefillPerSecond(double rateLimitRefillPerSecond) {
         this.rateLimitRefillPerSecond = rateLimitRefillPerSecond;
+    }
+
+    public boolean isQuotaEnabled() {
+        return quotaEnabled;
+    }
+
+    public void setQuotaEnabled(boolean quotaEnabled) {
+        this.quotaEnabled = quotaEnabled;
+    }
+
+    public long getQuotaRequestsPerDay() {
+        return quotaRequestsPerDay;
+    }
+
+    public void setQuotaRequestsPerDay(long quotaRequestsPerDay) {
+        this.quotaRequestsPerDay = quotaRequestsPerDay;
     }
 
     public int getDbThreads() {
@@ -224,5 +256,29 @@ public class GatewayProperties implements InitializingBean {
 
     public void setHardTimeoutMs(int hardTimeoutMs) {
         this.hardTimeoutMs = hardTimeoutMs;
+    }
+
+    public long getReservationTtlMs() {
+        return reservationTtlMs;
+    }
+
+    public void setReservationTtlMs(long reservationTtlMs) {
+        this.reservationTtlMs = reservationTtlMs;
+    }
+
+    public long getReservationRecoveryIntervalMs() {
+        return reservationRecoveryIntervalMs;
+    }
+
+    public void setReservationRecoveryIntervalMs(long reservationRecoveryIntervalMs) {
+        this.reservationRecoveryIntervalMs = reservationRecoveryIntervalMs;
+    }
+
+    public int getReservationRecoveryBatchSize() {
+        return reservationRecoveryBatchSize;
+    }
+
+    public void setReservationRecoveryBatchSize(int reservationRecoveryBatchSize) {
+        this.reservationRecoveryBatchSize = reservationRecoveryBatchSize;
     }
 }

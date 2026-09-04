@@ -37,18 +37,19 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
-    void blockedCloseReturnsPeriodOpenAndPersistsExactlySevenChecks() {
+    void blockedCloseReturnsPeriodOpenAndPersistsExactlyEightChecks() {
         var result = close.close(actor, periodId);
 
         assertThat(result.period().status().name()).isEqualTo("OPEN");
         assertThat(result.run().status()).isEqualTo(PeriodCloseRunStatus.BLOCKED);
         assertThat(result.run().attemptNo()).isEqualTo(1);
-        assertThat(result.checks()).hasSize(7);
+        assertThat(result.checks()).hasSize(8);
         assertThat(result.checks()).extracting(check -> check.blockerCode().name())
                 .containsExactly(
                         "OPEN_IMPORTS", "UNRESOLVED_DUPLICATES", "UNALLOCATED_CHARGES",
                         "UNPOSTED_APPROVED_EXPENSES", "OPEN_MATERIAL_RECONCILIATION",
-                        "PENDING_CORRECTIONS", "LEDGER_INTEGRITY");
+                        "PENDING_CORRECTIONS", "LEDGER_INTEGRITY",
+                        "PENDING_GATEWAY_FINANCIAL_WORK");
         assertThat(result.checks()).anySatisfy(check -> {
             if (check.blockerCode().name().equals("OPEN_MATERIAL_RECONCILIATION")) {
                 assertThat(check.result()).isEqualTo(PeriodCloseCheckResult.FAIL);
@@ -56,7 +57,7 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
         });
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM period_close_check WHERE period_close_run_id=?",
-                Long.class, result.run().id())).isEqualTo(7);
+                Long.class, result.run().id())).isEqualTo(8);
     }
 
     @Test
@@ -66,7 +67,7 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
 
         assertThat(first.period().status().name()).isEqualTo("CLOSED");
         assertThat(first.run().status()).isEqualTo(PeriodCloseRunStatus.CLOSED);
-        assertThat(first.checks()).hasSize(7)
+        assertThat(first.checks()).hasSize(8)
                 .allMatch(check -> check.result() == PeriodCloseCheckResult.PASS);
         var runCount = closeRunCount();
 
@@ -89,7 +90,7 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
         assertThat(resumed.run().status()).isEqualTo(PeriodCloseRunStatus.BLOCKED);
         assertThat(resumed.period().status().name()).isEqualTo("OPEN");
         assertThat(closeRunCount()).isEqualTo(1);
-        assertThat(resumed.checks()).hasSize(7);
+        assertThat(resumed.checks()).hasSize(8);
     }
 
     @Test

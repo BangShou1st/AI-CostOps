@@ -18,7 +18,7 @@ import reactor.core.publisher.Mono;
 /**
  * Bounded recovery status surface (AIC-092 section 20): only the owning
  * credential sees a request; a nonexistent request and a request owned by a
- * different credential both return the same privacy-preserving 404. M11
+ * different credential both return the same privacy-preserving 404. M12
  * returns {@code meteringStatus=null} and {@code settlementStatus=null}
  * because usage facts and Settlement arrive in M13. Never returns prompt,
  * completion, Provider secrets, Budget totals or Ledger detail.

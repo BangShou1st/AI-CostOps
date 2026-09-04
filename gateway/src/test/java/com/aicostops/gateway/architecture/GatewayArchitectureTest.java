@@ -78,4 +78,32 @@ class GatewayArchitectureTest {
                     .should()
                     .callMethod("reactor.core.scheduler.Schedulers", "boundedElastic")
                     .as("The shared global bounded-elastic scheduler is never exposed as the DB boundary");
+
+    @ArchTest
+    static final ArchRule gateway_never_blocks_on_reactive_mono_in_db_path =
+            noClasses()
+                    .that()
+                    .resideInAPackage("com.aicostops.gateway.request..")
+                    .or()
+                    .resideInAPackage("com.aicostops.gateway.budget..")
+                    .and()
+                    .haveSimpleNameNotEndingWith("Test")
+                    .and()
+                    .haveSimpleNameNotEndingWith("Tests")
+                    .should()
+                    .callMethod("reactor.core.publisher.Mono", "block")
+                    .as("Synchronous DB-path production code must use sync entries, never Mono.block on the bounded scheduler");
+
+    @ArchTest
+    static final ArchRule gateway_budget_writes_only_its_own_tables =
+            noClasses()
+                    .that()
+                    .resideInAPackage("com.aicostops.gateway.budget..")
+                    .should()
+                    .dependOnClassesThat()
+                    .resideInAnyPackage(
+                            "com.aicostops.ledger..",
+                            "com.aicostops.budget..",
+                            "com.aicostops.reconciliation..")
+                    .as("Gateway budget code uses its own mappers; Ledger/Budget Actual/Commitment/Settlement stay backend-owned");
 }

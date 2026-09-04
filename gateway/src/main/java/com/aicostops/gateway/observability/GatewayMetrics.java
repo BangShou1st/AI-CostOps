@@ -32,4 +32,19 @@ public class GatewayMetrics {
     public void recordRedisDependencyError() {
         registry.counter("gateway_redis_dependency_error_total").increment();
     }
+
+    /** outcome is a small fixed enum: RELEASED, PENDING_HOLD, SKIPPED, FAILED. */
+    public void recordReservationRecovery(String outcome) {
+        registry.counter("gateway_reservation_recovery_total", "outcome", outcome).increment();
+    }
+
+    /** outcome is a small fixed enum: RESERVED, UNBUDGETED, REJECTED_BUDGET, REJECTED_DEPENDENCY. */
+    public void recordReservationAttempt(String outcome) {
+        registry.counter("gateway_reservation_attempt_total", "outcome", outcome).increment();
+    }
+
+    /** outcome is a small fixed enum: ALLOWED, REJECTED, DEPENDENCY_UNAVAILABLE, DISABLED. */
+    public void recordQuota(String outcome) {
+        registry.counter("gateway_quota_total", "outcome", outcome).increment();
+    }
 }

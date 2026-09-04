@@ -183,7 +183,7 @@ public final class PeriodCloseService {
                 results.add(CloseBlockerResult.error(provider.code(), "BLOCKER_EVALUATION_ERROR"));
             }
         }
-        validateSeven(results);
+        validateAllBlockers(results);
         return List.copyOf(results);
     }
 
@@ -209,7 +209,7 @@ public final class PeriodCloseService {
                 throw conflict("Close finalization no longer matches the CLOSING period generation.");
             }
 
-            validateSeven(results);
+            validateAllBlockers(results);
             var evaluatedAt = clock.instant();
             for (var check : results) {
                 if (closeMapper.insertCheck(context.organizationId(), closeRunId,
@@ -291,7 +291,7 @@ public final class PeriodCloseService {
                 closeMapper.selectChecksByRun(period.organizationId(), run.id()));
     }
 
-    private static void validateSeven(List<CloseBlockerResult> results) {
+    private static void validateAllBlockers(List<CloseBlockerResult> results) {
         if (results.size() != CloseBlockerCode.values().length) {
             throw new IllegalStateException("A Close evaluation must contain exactly seven results");
         }

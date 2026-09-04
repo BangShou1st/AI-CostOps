@@ -162,13 +162,27 @@ public final class GatewayTestFixture {
                 VALUES (?,?,?,'ACTIVE',UTC_TIMESTAMP(6))
                 """, credentialId, orgId, modelId);
 
+        // M12: one PROJECT Budget for the credential financial scope so
+        // reservation admission has a matching Budget by default. Tests that
+        // need REQUIRED-no-Budget / OPTIONAL-unbudgeted delete or exhaust it.
+        jdbc.update("""
+                INSERT INTO budget(
+                  org_id,billing_period_id,scope_type,scope_id,currency,
+                  total_amount,actual_amount,committed_amount,status,version,created_at,updated_at)
+                VALUES (?,?, 'PROJECT',?,'USD','100.00000000',0,0,'ACTIVE',0,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, periodId, projectId);
+        var budgetId = insertLastId(jdbc);
+
         return new SeededEnv(orgId, periodId, modelId, providerAccountId, providerModelId,
-                pricingVersionId, credentialId, serviceIdentityId, projectId, rawKey,
+                pricingVersionId, credentialId, serviceIdentityId, projectId, budgetId, rawKey,
                 parsed.prefix(), parsed.secretPart(), MODEL_KEY);
     }
 
-    /** FK-safe cleanup of all M11 rows for tests sharing one container. */
+    /** FK-safe cleanup of all M11/M12 rows for tests sharing one container. */
     public static void clean(JdbcTemplate jdbc) {
+        jdbc.update("DELETE FROM budget_reservation");
+        jdbc.update("DELETE FROM budget");
         jdbc.update("UPDATE gateway_request SET current_route_attempt_id = NULL");
         jdbc.update("DELETE FROM gateway_route_attempt");
         jdbc.update("DELETE FROM gateway_request");
@@ -249,6 +263,7 @@ public final class GatewayTestFixture {
             long credentialId,
             long serviceIdentityId,
             long projectId,
+            long budgetId,
             String rawKey,
             String prefix,
             String secretPart,

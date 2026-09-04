@@ -12,7 +12,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-/** M11 Gateway financial-work blocker behavior on a mocked read projection. */
+/** M12 Gateway financial-work blocker behavior on a mocked read projection. */
 @ExtendWith(MockitoExtension.class)
 class GatewayFinancialWorkBlockerProviderTest {
 
@@ -25,6 +25,7 @@ class GatewayFinancialWorkBlockerProviderTest {
     @Test
     void noUnresolvedGatewayWorkPasses() {
         when(mapper.countUnresolvedFinancialWork(ORG_ID, PERIOD_ID)).thenReturn(0L);
+        when(mapper.countUnresolvedReservations(ORG_ID, PERIOD_ID)).thenReturn(0L);
 
         var result = new GatewayFinancialWorkBlockerProvider(mapper)
                 .evaluate(new CloseBlockerContext(ORG_ID, PERIOD_ID,
@@ -38,6 +39,7 @@ class GatewayFinancialWorkBlockerProviderTest {
     @Test
     void unresolvedPossibleBillableWorkFailsClose() {
         when(mapper.countUnresolvedFinancialWork(ORG_ID, PERIOD_ID)).thenReturn(3L);
+        when(mapper.countUnresolvedReservations(ORG_ID, PERIOD_ID)).thenReturn(0L);
 
         var result = new GatewayFinancialWorkBlockerProvider(mapper)
                 .evaluate(new CloseBlockerContext(ORG_ID, PERIOD_ID,
@@ -47,5 +49,20 @@ class GatewayFinancialWorkBlockerProviderTest {
         assertThat(result.passed()).isFalse();
         assertThat(result.itemCount()).isEqualTo(3L);
         assertThat(result.summary()).containsKey("blockedStates");
+    }
+
+    @Test
+    void unresolvedReservationsFailCloseWithoutUnresolvedRequests() {
+        when(mapper.countUnresolvedFinancialWork(ORG_ID, PERIOD_ID)).thenReturn(0L);
+        when(mapper.countUnresolvedReservations(ORG_ID, PERIOD_ID)).thenReturn(2L);
+
+        var result = new GatewayFinancialWorkBlockerProvider(mapper)
+                .evaluate(new CloseBlockerContext(ORG_ID, PERIOD_ID,
+                        Instant.parse("2026-08-01T00:00:00Z"),
+                        Instant.parse("2026-09-01T00:00:00Z")));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(2L);
+        assertThat(result.summary()).containsKey("blockedReservationStates");
     }
 }

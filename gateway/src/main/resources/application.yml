@@ -61,6 +61,8 @@ aicostops:
     rate-limit-enabled: ${AICOSTOPS_GATEWAY_RATE_LIMIT_ENABLED:true}
     rate-limit-capacity: ${AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY:60}
     rate-limit-refill-per-second: ${AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND:1}
+    quota-enabled: ${AICOSTOPS_GATEWAY_QUOTA_ENABLED:true}
+    quota-requests-per-day: ${AICOSTOPS_GATEWAY_QUOTA_REQUESTS_PER_DAY:1000}
     db-threads: ${AICOSTOPS_GATEWAY_DB_THREADS:12}
     db-queue-capacity: ${AICOSTOPS_GATEWAY_DB_QUEUE_CAPACITY:256}
     db-pool-max: ${AICOSTOPS_GATEWAY_DB_POOL_MAX:12}
@@ -72,3 +74,6 @@ aicostops:
     header-timeout-ms: ${AICOSTOPS_GATEWAY_HEADER_TIMEOUT_MS:60000}
     stream-idle-timeout-ms: ${AICOSTOPS_GATEWAY_STREAM_IDLE_TIMEOUT_MS:60000}
     hard-timeout-ms: ${AICOSTOPS_GATEWAY_HARD_TIMEOUT_MS:600000}
+    reservation-ttl-ms: ${AICOSTOPS_GATEWAY_RESERVATION_TTL_MS:900000}
+    reservation-recovery-interval-ms: ${AICOSTOPS_GATEWAY_RESERVATION_RECOVERY_INTERVAL_MS:60000}
+    reservation-recovery-batch-size: ${AICOSTOPS_GATEWAY_RESERVATION_RECOVERY_BATCH_SIZE:100}

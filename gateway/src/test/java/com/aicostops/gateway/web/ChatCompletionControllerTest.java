@@ -63,6 +63,11 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
         mockUpstream.createContext("/", exchange -> {
             UPSTREAM_CALLS.incrementAndGet();
             upstreamAuthHeader = exchange.getRequestHeaders().getFirst("api-key");
+            // Drain the request body before responding: leaving a 1 MiB body
+            // unread while closing races the client's upload with a TCP RST.
+            try (var in = exchange.getRequestBody()) {
+                in.readAllBytes();
+            }
             var bytes = MOCK_RESPONSE.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length);
             try (var out = exchange.getResponseBody()) {
@@ -183,13 +188,37 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
     }
 
     @Test
-    void requiredBudgetCredentialFailsClosedBeforeProviderDispatch() {
+    void requiredBudgetCredentialReservesThenDispatches() {
         jdbc.update("UPDATE gateway_credential SET budget_enforcement_mode='REQUIRED' WHERE id=?",
                 env.credentialId());
 
         web.post().uri("/v1/chat/completions")
                 .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
                 .header("Idempotency-Key", "ctrl-idem-5")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .bodyValue(body(env))
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_reservation WHERE org_id=? AND status='ACTIVE'",
+                Integer.class, env.orgId())).isOne();
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM gateway_request WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("TRANSPORT_COMPLETED");
+    }
+
+    @Test
+    void requiredBudgetCredentialWithoutBudgetFailsClosedBeforeProviderDispatch() {
+        jdbc.update("UPDATE gateway_credential SET budget_enforcement_mode='REQUIRED' WHERE id=?",
+                env.credentialId());
+        jdbc.update("DELETE FROM budget_reservation");
+        jdbc.update("DELETE FROM budget WHERE org_id=?", env.orgId());
+
+        web.post().uri("/v1/chat/completions")
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", "ctrl-idem-5-nobudget")
                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .bodyValue(body(env))
                 .exchange()

@@ -82,6 +82,12 @@ public interface GatewayRequestMapper {
             """)
     RouteAttemptRow findFirstAttempt(@Param("orgId") long orgId, @Param("requestId") long requestId);
 
+    @Select("""
+            SELECT id, route_decision_id, status FROM gateway_route_attempt
+            WHERE org_id=#{orgId} AND id=#{attemptId}
+            """)
+    RouteAttemptRow findAttemptById(@Param("orgId") long orgId, @Param("attemptId") long attemptId);
+
     @Update("""
             UPDATE gateway_request
             SET state='DISPATCH_INTENT', billing_period_id=#{periodId},
@@ -154,6 +160,16 @@ public interface GatewayRequestMapper {
               AND status IN ('BILLABLE_POSSIBLE','DISPATCH_INTENT')
             """)
     int markAttemptCompleted(@Param("attemptId") long attemptId, @Param("orgId") long orgId);
+
+    @Update("""
+            UPDATE gateway_request
+            SET current_route_attempt_id=#{attemptId}, updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId}
+            """)
+    int updateCurrentRouteAttempt(
+            @Param("requestId") long requestId,
+            @Param("orgId") long orgId,
+            @Param("attemptId") long attemptId);
 
     record ExistingRequestRow(
             long id,

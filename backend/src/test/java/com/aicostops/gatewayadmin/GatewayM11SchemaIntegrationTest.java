@@ -16,9 +16,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * V18 contract for the M11 Gateway edge foundation schema (AIC-092 wave M11).
- * Real MySQL 8.4: the empty database migrates exactly through V18, the eleven
- * M11 tables carry the exact AIC-092 constraints, and no M12/M13/Ledger table
- * leaks into the wave.
+ * Real MySQL 8.4: the eleven M11 tables carry the exact AIC-092 constraints,
+ * and no M13 metering/settlement/Ledger table leaks into the wave. The M12
+ * wave (V19 budget_reservation) is covered by
+ * GatewayM12ReservationSchemaIntegrationTest; this test only pins the M11
+ * slice plus the forward-compatible migration count.
  */
 @SpringBootTest
 @Tag("integration")
@@ -43,15 +45,17 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
 
         assertThat(queryTables())
                 .doesNotContain(
-                        "budget_reservation", "gateway_usage_fact", "gateway_usage_dimension",
+                        "gateway_usage_fact", "gateway_usage_dimension",
                         "gateway_settlement", "routing_policy", "routing_policy_candidate");
     }
 
     @Test
     void emptyDatabaseMigratesThroughV18AndV1TablesRemainUsable() {
+        // The M11 wave ends at V18; later waves (V19 M12 reservation, ...) only
+        // append forward migrations, so this pins "at least through V18".
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1",
-                Integer.class)).isEqualTo(18);
+                Integer.class)).isGreaterThanOrEqualTo(18);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '1' AND success = 1",
                 Integer.class)).isEqualTo(1);

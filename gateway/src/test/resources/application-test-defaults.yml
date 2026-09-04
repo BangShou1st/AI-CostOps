@@ -25,3 +25,6 @@ aicostops:
     credential-hmac-key-v1: QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=
     request-hmac-key-v1: QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=
     provider-kek-v1: QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=
+    # Tests drive recovery deterministically; the background scheduler stays
+    # off so scans never interfere across test classes sharing one container.
+    reservation-recovery-enabled: false
