@@ -4,8 +4,8 @@
 
 - 工作分支：`feat/m14-multi-provider-routing-resilience`
 - 基线：`origin/main`，merge-base 为 `3eee76d`
-- Implementation SHA：`d77fa32`
-- Evidence/docs-only SHA：本文件所在的 docs-only commit（在最终报告中记录其提交号）
+- Implementation SHA：`8c11044`
+- Evidence/docs-only SHA：本次最终 docs-only refresh commit（在最终报告中记录其提交号）
 - GitHub Issue：`#145`
 - 未修改 `main`，未执行 merge。
 
@@ -84,6 +84,13 @@
 
 前端 Vitest 并行运行曾出现 1 个 reconciliation 测试环境抖动；针对该测试单独复现通过，随后单线程全量 `48/48`、`434/434` 通过。测试期间的 jsdom `getComputedStyle` 与 Mockito dynamic-agent 提示均为 warning，不是失败。
 
+## Hosted CI 与 Security
+
+- PR：[#146](https://github.com/BangShou1st/AI-CostOps/pull/146)，通过 `Refs #145` 关联 Issue #145。
+- CI run [`33923415512`](https://github.com/BangShou1st/AI-CostOps/actions/runs/33923415512)：backend/gateway unit、integration、architecture，frontend lint/test/build，browser-e2e 与 docker-build 全部 pass。
+- Security run [`33923415536`](https://github.com/BangShou1st/AI-CostOps/actions/runs/33923415536)：CodeQL Java/Kotlin、CodeQL JavaScript/TypeScript 与 Trivy 全部 pass。
+- 两个 run 均验证最终 HEAD `8c1104432e7c8cc14d98d8c1bd92bc5588569b92`。
+
 ## Secret/content redaction 与 UAT
 
 - evidence 不包含 provider secret、raw gateway key、完整 upstream prompt/completion 或 token；测试只使用 bounded mock payload/headers。
@@ -92,5 +99,4 @@
 
 ## Remaining concerns
 
-- 本地实现与验证已完成；hosted CI 与 Security workflow 需要在 PR #145 创建后由 GitHub 运行，不能以本地结果替代。
 - 未执行真实 OpenAI 外网调用，这是设计要求；OpenAI 行为由 mock upstream certification 覆盖。
