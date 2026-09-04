@@ -11,7 +11,7 @@ import com.aicostops.gateway.metering.GatewayUsageFinalizationService;
 import com.aicostops.gateway.metering.GatewayUsageObservation;
 import com.aicostops.gateway.metering.GatewayUsageStatus;
 import com.aicostops.gateway.provider.ProviderCallContext;
-import com.aicostops.gateway.provider.ProviderChatAdapter;
+import com.aicostops.gateway.provider.ProviderChatAdapterRegistry;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
 import com.aicostops.gateway.provider.ProviderChatStreamEvent;
 import com.aicostops.gateway.provider.ProviderCredentialDecryptor;
@@ -19,6 +19,7 @@ import com.aicostops.gateway.quota.GatewayQuotaLimiter;
 import com.aicostops.gateway.ratelimit.GatewayRateLimiter;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.request.GatewayRequestLifecycleService;
+import com.aicostops.gateway.request.GatewayRequestOrchestrator;
 import com.aicostops.gateway.request.GatewayRequestService;
 import com.aicostops.gateway.request.GatewayRequestService.AuthorizeCommand;
 import com.aicostops.gateway.request.GatewayRequestService.DispatchResult;
@@ -69,10 +70,11 @@ public class ChatCompletionController {
 
     private final GatewayReadMapper readMapper;
     private final GatewayRequestService requestService;
+    private final GatewayRequestOrchestrator orchestrator;
     private final GatewayRequestLifecycleService lifecycleService;
     private final StreamingLifecycleService streamingLifecycle;
     private final ProviderCredentialDecryptor credentialDecryptor;
-    private final ProviderChatAdapter chatAdapter;
+    private final ProviderChatAdapterRegistry adapterRegistry;
     private final GatewayUsageFinalizationService usageFinalization;
     private final GatewaySseEncoder sseEncoder;
     private final GatewayRateLimiter rateLimiter;
@@ -87,10 +89,11 @@ public class ChatCompletionController {
     public ChatCompletionController(
             GatewayReadMapper readMapper,
             GatewayRequestService requestService,
+            GatewayRequestOrchestrator orchestrator,
             GatewayRequestLifecycleService lifecycleService,
             StreamingLifecycleService streamingLifecycle,
             ProviderCredentialDecryptor credentialDecryptor,
-            ProviderChatAdapter chatAdapter,
+            ProviderChatAdapterRegistry adapterRegistry,
             GatewayUsageFinalizationService usageFinalization,
             GatewaySseEncoder sseEncoder,
             GatewayRateLimiter rateLimiter,
@@ -103,10 +106,11 @@ public class ChatCompletionController {
             Clock clock) {
         this.readMapper = readMapper;
         this.requestService = requestService;
+        this.orchestrator = orchestrator;
         this.lifecycleService = lifecycleService;
         this.streamingLifecycle = streamingLifecycle;
         this.credentialDecryptor = credentialDecryptor;
-        this.chatAdapter = chatAdapter;
+        this.adapterRegistry = adapterRegistry;
         this.usageFinalization = usageFinalization;
         this.sseEncoder = sseEncoder;
         this.rateLimiter = rateLimiter;
@@ -189,18 +193,20 @@ public class ChatCompletionController {
                                 "Daily request quota exceeded");
                     }
                     metrics.recordQuota("ALLOWED");
-                    return requestService.authorizeAndFence(new AuthorizeCommand(
+                    return orchestrator.prepareInitial(new AuthorizeCommand(
                             principal, modelId, rawBody, idempotencyKey,
-                            effectiveMaxTokens, request.stream()));
+                            effectiveMaxTokens, request.stream()), request.stream());
                 })
-                .flatMap((DispatchResult result) -> request.stream()
-                        ? invokeStream(exchange, principal, result, request,
-                                effectiveMaxTokens, releasePermit)
-                                .map(entity -> (ResponseEntity<?>) entity)
-                        : invokeProvider(exchange, principal, result, request, effectiveMaxTokens)
-                                .map(completion -> (ResponseEntity<?>) ResponseEntity.ok(
-                                        buildResponse(result, request,
-                                                completion))))
+                .flatMap(prepared -> {
+                    var result = prepared.dispatch();
+                    return request.stream()
+                            ? invokeStream(exchange, principal, result, request,
+                                    effectiveMaxTokens, releasePermit)
+                                    .map(entity -> (ResponseEntity<?>) entity)
+                            : invokeProvider(exchange, principal, result, request, effectiveMaxTokens)
+                                    .map(completion -> (ResponseEntity<?>) ResponseEntity.ok(
+                                            buildResponse(result, request, completion)));
+                })
                 .doFinally(ignored -> releasePermit.run());
     }
 
@@ -254,7 +260,7 @@ public class ChatCompletionController {
             var latestMetering = new AtomicReference<GatewayUsageObservation>();
             Flux<ServerSentEvent<String>> body = lifecycleService
                     .beginUpstream(requestId, orgId, result.routeAttemptId())
-                    .thenMany(chatAdapter.stream(context, command))
+                    .thenMany(adapterRegistry.require(result.adapterCode()).stream(context, command))
                     // Record a genuine upstream terminal [DONE]; takeWhile stops
                     // the data flow at DONE without forwarding the marker itself.
                     .takeWhile(event -> {
@@ -369,7 +375,7 @@ public class ChatCompletionController {
                             effectiveMaxTokens,
                             false);
                     return lifecycleService.beginUpstream(requestId, orgId, result.routeAttemptId())
-                            .then(chatAdapter.complete(context, command));
+                            .then(adapterRegistry.require(result.adapterCode()).complete(context, command));
                 })
                 .flatMap(completion -> {
                     var observation = GatewayUsageObservation.fromCompletion(completion, null);

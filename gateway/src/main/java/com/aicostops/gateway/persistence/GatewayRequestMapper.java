@@ -155,6 +155,14 @@ public interface GatewayRequestMapper {
 
     @Update("""
             UPDATE gateway_request
+            SET state='FAILED_PRE_DISPATCH',terminal_at=UTC_TIMESTAMP(6),updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId}
+              AND state IN ('VALIDATED','RESERVED','DISPATCH_INTENT','UPSTREAM_ACTIVE')
+            """)
+    int markRequestFailedPreDispatch(@Param("requestId") long requestId, @Param("orgId") long orgId);
+
+    @Update("""
+            UPDATE gateway_request
             SET state='CANCELED_AFTER_DISPATCH', terminal_at=UTC_TIMESTAMP(6), updated_at=UTC_TIMESTAMP(6)
             WHERE id=#{requestId} AND org_id=#{orgId}
               AND state IN ('DISPATCH_INTENT','UPSTREAM_ACTIVE')
