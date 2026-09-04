@@ -207,8 +207,11 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
                 BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("1.80000000");
         assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
                 String.class, fixture.reservationId())).isEqualTo("FINALIZED");
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?",
-                Integer.class, orgId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM audit_event
+                WHERE org_id=? AND event_type='GATEWAY_SETTLEMENT_POSTED'
+                  AND subject_id=?
+                """, Integer.class, orgId, settlement.id())).isOne();
     }
 
     @Test

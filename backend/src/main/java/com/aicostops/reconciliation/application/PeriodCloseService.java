@@ -23,7 +23,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.springframework.dao.DeadlockLoserDataAccessException;
+import org.springframework.dao.CannotSerializeTransactionException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -33,6 +36,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public final class PeriodCloseService {
 
+    private static final int MAX_DEADLOCK_RETRIES = 3;
     private static final String PERMISSION_CLOSE = "PERIOD_CLOSE";
     private static final String PERMISSION_REOPEN = "PERIOD_REOPEN";
     private static final String CLOSE_ERROR_CODE = "CLOSE_BLOCKER_ERROR";
@@ -75,7 +79,11 @@ public final class PeriodCloseService {
     public PeriodCloseView close(AuthenticatedUser user, long periodId) {
         var context = authorizationContexts.fresh(user);
         authorization.requireOrg(context, PERMISSION_CLOSE);
-        var begun = beginOrResume(context, periodId);
+        // Close holds organization admission before the period row, while a
+        // period-first financial writer may need the organization FK during
+        // its commit. Retry only this transaction boundary on the resulting
+        // MySQL serialization loser; business blocker outcomes are untouched.
+        var begun = withDeadlockRetry(() -> beginOrResume(context, periodId));
         if (begun.alreadyTerminal()) {
             return view(begun.period(), begun.run());
         }
@@ -331,6 +339,18 @@ public final class PeriodCloseService {
     private static DomainException notFound(String title) {
         return new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                 title, "The resource is not available in the current organization.");
+    }
+
+    private <T> T withDeadlockRetry(Supplier<T> operation) {
+        for (var attempt = 1; ; attempt++) {
+            try {
+                return operation.get();
+            } catch (DeadlockLoserDataAccessException | CannotSerializeTransactionException retryable) {
+                if (attempt >= MAX_DEADLOCK_RETRIES) {
+                    throw retryable;
+                }
+            }
+        }
     }
 
     record BeginResult(BillingPeriod period, PeriodCloseRun run, boolean alreadyTerminal) {
