@@ -111,6 +111,35 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
     }
 
     @Test
+    void failedTransportWithFinalUsageAndSettledFinancialTruthDoesNotBlockClose() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(31), digest(32));
+        var attemptId = insertRouteAttempt(fixture, requestId, 1,
+                "grd_32111111-1111-4111-8111-111111111111");
+        var reservationId = insertReservation(fixture, requestId, attemptId, "FINALIZED");
+        var usageFactId = insertFinalUsage(fixture, requestId, attemptId);
+        insertSettledSettlement(fixture, requestId, attemptId, usageFactId, reservationId);
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isTrue();
+    }
+
+    @Test
+    void currentFinalUsageWithoutSettlementStillBlocksClose() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(33), digest(34));
+        var attemptId = insertRouteAttempt(fixture, requestId, 1,
+                "grd_34111111-1111-4111-8111-111111111111");
+        insertFinalUsage(fixture, requestId, attemptId);
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    @Test
     void requestWithoutBillingPeriodDoesNotBlockClose() {
         var fixture = insertFixture();
         jdbc.update("""
@@ -160,7 +189,7 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
         return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
 
-    private void insertReservation(Fixture fixture, long requestId, long attemptId, String status) {
+    private long insertReservation(Fixture fixture, long requestId, long attemptId, String status) {
         jdbc.update("""
                 INSERT INTO budget_reservation(
                   org_id,request_id,route_attempt_id,billing_period_id,budget_id,
@@ -173,6 +202,51 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
                   UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL,NULL)
                 """, fixture.orgId(), requestId, attemptId, fixture.periodId(), fixture.budgetId(),
                 status);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long insertFinalUsage(Fixture fixture, long requestId, long attemptId) {
+        jdbc.update("""
+                INSERT INTO gateway_usage_fact(
+                  org_id,request_id,route_attempt_id,sequence,status,usage_effective_at,
+                  usage_effective_at_source,pricing_version_id,currency,observed_at,created_at)
+                VALUES (?,?,?,1,'FINAL',UTC_TIMESTAMP(6),
+                  'GATEWAY_DISPATCH_INTENT_TIMESTAMP',?,'USD',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, fixture.orgId(), requestId, attemptId, fixture.pricingVersionId());
+        var usageFactId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=?,current_usage_fact_id=? WHERE id=?",
+                attemptId, usageFactId, requestId);
+        return usageFactId;
+    }
+
+    private void insertSettledSettlement(Fixture fixture, long requestId, long attemptId,
+            long usageFactId, long reservationId) {
+        jdbc.update("""
+                INSERT INTO gateway_settlement(
+                  org_id,settlement_key,request_id,route_attempt_id,usage_fact_id,reservation_id,
+                  billing_period_id,financial_scope_type,financial_scope_id,provider_account_id,
+                  provider_model_id,pricing_version_id,currency,status,attempt_count,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,'PROJECT',0,?,?,?,'USD','PENDING',0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, fixture.orgId(), "GATEWAY_REQUEST:" + requestId, requestId, attemptId,
+                usageFactId, reservationId, fixture.periodId(), fixture.providerAccountId(),
+                fixture.providerModelId(), fixture.pricingVersionId());
+        var settlementId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO ledger_posting(
+                  org_id,posting_key,source_type,source_id,allocation_decision_id,billing_period_id,
+                  status,posting_actor_type,posted_by_member_id,posted_at,created_at)
+                VALUES (?,?, 'GATEWAY_SETTLEMENT',?,NULL,?,'POSTED','SYSTEM',NULL,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, fixture.orgId(), "GATEWAY_SETTLEMENT:" + settlementId, settlementId,
+                fixture.periodId());
+        var postingId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                UPDATE gateway_settlement
+                SET calculated_amount_raw='1.00000000',posted_amount='1.00000000',
+                    rounding_delta=0,status='SETTLED',ledger_posting_id=?,settled_at=UTC_TIMESTAMP(6),
+                    updated_at=UTC_TIMESTAMP(6)
+                WHERE id=?
+                """, postingId, settlementId);
     }
 
     private Fixture insertFullFixture() {
