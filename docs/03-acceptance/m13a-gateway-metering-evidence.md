@@ -85,8 +85,32 @@ No V1–V19 migration diff exists, and no M13-B settlement, Ledger posting,
 Budget Actual/Commitment consumption, M14, M15, or FX implementation is
 present.
 
+## Sol final review correction
+
+Sol identified that non-streaming `invokeProvider()` discarded the successful
+Provider completion observation if the first `finalizeSuccess()` failed. The
+outer error convergence then used `noUsage`, which could incorrectly downgrade
+real `prompt_tokens=5`, `completion_tokens=3`, `total_tokens=8` evidence to
+`UNKNOWN`.
+
+The regression test was intentionally run first at the prior head
+`478bdfc5aba57e8a161c39b3547fed3fe4405489`: it failed because the captured
+failure observation was null. The minimal fix stores the observation created
+immediately after Provider completion in an `AtomicReference` and reuses it in
+the non-streaming failure path, retaining `noUsage` only when Provider I/O
+never returned a completion.
+
+The regression is now GREEN in
+`ChatCompletionControllerTest.nonStreamingFinalizationFailurePreservesProviderUsageForFailureConvergence`:
+Provider calls=1; captured failure observation=5/3/8; durable usage status is
+`FINAL` with `INPUT_TOKEN=5` and `OUTPUT_TOKEN=3`; request state is
+`FAILED_AFTER_DISPATCH`; reservation is `PENDING_HOLD`.
+
+New implementation SHA: `16d7d1c9a3dba76725ba711a6dab3a823b4ce7cd`. The new
+evidence SHA is the docs-only commit that records this section and is reported
+in the task handoff.
+
 ## Publication
 
-This evidence is recorded by the commit that adds this file. PR and hosted CI
-status are reported in the task handoff after publication; no merge is
-authorized by this work item.
+PR #141 remains the publication target. No V20 changes, M13-B work, or merge
+are authorized by this review correction.
