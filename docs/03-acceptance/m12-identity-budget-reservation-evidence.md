@@ -1,13 +1,14 @@
 # M12 Identity / Attribution / Budget Reservation — Acceptance Evidence
 
 > Branch: `feat/m12-identity-budget-reservation` | M11 baseline: `main@b57d12a`
-> Implementation HEAD: `baf3158` (this docs commit only appends this file)
-> Status: implementation + verification complete; evidence recorded, awaiting
-> independent final code review. No merge performed.
+> Core fully-verified implementation SHA: `baf315891b89d6a9f171ed18c93721cfd5691240`
+> Post-evidence test-isolation fix SHA: `15195c6b1222714f8f5da6e381843a5de58f35e1`
+> Last runtime-code SHA before this docs-only closure refresh: `8ecdfb1f2158b3e8fa3aac08bf430ddceb519d62`
+> Status: implementation and verification complete; PR closure evidence refreshed. No merge performed by this document update.
 
 ## 1. Scope (frozen)
 
-Implemented (M12 slice):
+Implemented in M12:
 
 ```text
 Gateway credential-governed identity / attribution
@@ -19,7 +20,7 @@ Close blocker extension (ACTIVE / PENDING_HOLD block Close)
 Real-MySQL reservation concurrency + architecture guardrails
 ```
 
-Explicitly absent (M13+, not implemented even opportunistically):
+Explicitly absent (M13+, not implemented opportunistically):
 
 ```text
 gateway_usage_fact / gateway_usage_dimension / gateway_settlement
@@ -30,285 +31,294 @@ M14 failover / M15 reconciliation runtime / generic policy DSL
 
 ## 2. Migration
 
-Only one new migration vs `main`:
+Only one new migration vs the M11 baseline:
 
 ```text
 backend/src/main/resources/db/migration/V19__m12_budget_reservation.sql
 ```
 
-`V1-V18` untouched (`git diff main...HEAD -- backend/src/main/resources/db/migration`
-shows exactly one added file, +83 lines). V19 creates the single M12 table
-`budget_reservation` with `UNIQUE(org_id, route_attempt_id)`, generated
-`effective_slot` + `UNIQUE(org_id, request_id, effective_slot)` (at most one
-effective ACTIVE/PENDING_HOLD hold per request), amount/status/version CHECKs
-and same-org FKs. No M13 or Ledger schema is created.
+`V1-V18` are unchanged. V19 creates the single M12 table `budget_reservation` with `UNIQUE(org_id, route_attempt_id)`, generated `effective_slot` + `UNIQUE(org_id, request_id, effective_slot)` so at most one effective `ACTIVE`/`PENDING_HOLD` hold exists per request, plus amount/status/version checks and same-org foreign keys. No M13 or Ledger schema is created.
 
 ## 3. Identity / attribution
 
-Canonical principals `HUMAN_MEMBER` / `SERVICE` (no invented `MEMBER`).
-Per-request identity is permanently credential-governed (client cannot
-override): organization / principal / project / financial scope / budget
-enforcement mode / allowed models. SERVICE cannot pick another Project
-dynamically; a different governed Project needs a different credential.
-Financial target is exactly one of `PROJECT` / `TEAM` / `COST_CENTER`.
-M11 auth chain (prefix/digest, principal/project/scope active, explicit model
-allowlist, Provider Account/Credential, Pricing Version) is unchanged; M12
-only adds budget-enforcement semantics on top.
+Canonical principals remain `HUMAN_MEMBER` / `SERVICE` (no invented `MEMBER`). Per-request identity is credential-governed and clients cannot override organization, principal, project, financial scope, budget enforcement mode, or allowed models. SERVICE cannot dynamically select another Project; another governed Project requires another credential. The financial target is exactly one of `PROJECT` / `TEAM` / `COST_CENTER`.
+
+The M11 authentication chain remains intact: prefix/digest, active principal/project/scope, explicit model allowlist, Provider Account/Credential, and frozen Pricing Version. M12 adds budget-enforcement semantics on top rather than replacing identity governance.
 
 ## 4. Reservation architecture
 
-TX1 (admission, `BudgetReservationService.admitSync` via explicit
-`TransactionTemplate`): lock OPEN BillingPeriod → resolve exact Budget else
-ORG fallback in the pricing currency (no FX; different-currency Budget is no
-matching Budget) → lock the Budget row → observe Total/Actual/Committed plus
-effective ACTIVE/PENDING_HOLD reservations under the same lock → insert the
-ACTIVE hold + move VALIDATED to RESERVED (or persist REJECTED_BUDGET /
-REJECTED_DEPENDENCY as a terminal business result and return it).
+TX1 (`BudgetReservationService.admitSync` through an explicit `TransactionTemplate`) performs one short MySQL transaction off the Reactor Netty event loop:
 
-TX2 (dispatch fence, `DispatchFenceService.commitDispatchFence`): lock OPEN
-BillingPeriod → verify the matching ACTIVE reservation on the matching route
-attempt/period (an allowed unbudgeted OPTIONAL request may proceed without
-one) → move request + route attempt to DISPATCH_INTENT → commit. Provider I/O
-is legal only after the fence commits. TX1 and TX2 are never merged.
+```text
+lock OPEN BillingPeriod
+→ resolve exact Budget, else ORG fallback in pricing currency
+→ lock Budget
+→ read Total / Actual / Committed + effective ACTIVE/PENDING_HOLD reservations
+→ insert ACTIVE reservation
+→ VALIDATED → RESERVED
+→ commit
+```
 
-Rejection durability: TX1 never throws the public rejection from inside the
-committing transaction (that would roll the REJECTED_BUDGET state back).
-`GatewayRequestService` maps the committed outcome to the public error after
-commit (`REJECTED_BUDGET` → 429 `GATEWAY_BUDGET_EXHAUSTED`,
-`REJECTED_DEPENDENCY` → 503 `GATEWAY_DEPENDENCY_UNAVAILABLE`).
+When budget admission is terminally rejected, TX1 persists `REJECTED_BUDGET` / `REJECTED_DEPENDENCY` and returns a business outcome. The public HTTP error is mapped only after the transaction commits, avoiding rollback of the terminal state.
 
-MySQL is the sole monetary authority; Redis never authorizes money.
+TX2 (`DispatchFenceService.commitDispatchFence`) then:
+
+```text
+lock OPEN BillingPeriod
+→ verify matching ACTIVE reservation for budget-controlled admission
+  (or an explicitly admitted OPTIONAL-unbudgeted request)
+→ request + route attempt → DISPATCH_INTENT
+→ commit
+→ only then Provider I/O may begin
+```
+
+TX1 and TX2 remain separate by design. MySQL is the sole monetary authority; Redis never authorizes money.
 
 ## 5. Pricing upper bound
 
-Conservative MiMo `mimo-v2.5-pro` bound (`ReservationAmountCalculator`, pure
-function): input quantity is the fixed context ceiling 1,048,576 tokens (no
-chars/token estimate); output quantity is the exact effective
-max_completion_tokens the Gateway validated and sends upstream (capped by the
-enforced 131,072 output ceiling). With CACHED_INPUT_TOKEN present, every
-conservative input token uses the higher normalized unit rate of INPUT_TOKEN
-vs CACHED_INPUT_TOKEN; cache hits are never predicted. BigDecimal only;
-positive money rounds UP to scale 8 (`setScale(8, CEILING)`), never down.
-Missing INPUT_TOKEN / missing OUTPUT_TOKEN for a positive output limit /
-unknown dimension / non-positive or non-representable result fails closed.
+`ReservationAmountCalculator` uses a conservative MiMo `mimo-v2.5-pro` upper bound:
+
+```text
+input ceiling: 1,048,576 tokens
+output ceiling: the exact effective max_completion_tokens sent upstream,
+                capped by the enforced model maximum of 131,072
+```
+
+No chars/token average is used. With `CACHED_INPUT_TOKEN`, every conservative input token uses the higher normalized rate of `INPUT_TOKEN` vs `CACHED_INPUT_TOKEN`; cache hits are never predicted. Money uses `BigDecimal`; positive reservation amounts round upward to scale 8 (`CEILING`). Missing required pricing dimensions, unknown dimensions, or non-positive / non-representable bounds fail closed.
 
 ## 6. Budget semantics
 
-Lookup: exact financial scope + BillingPeriod + pricing currency → ORG + same
-period + same currency → no Budget. No `TEAM → PROJECT → ORG` /
-`COST_CENTER → PROJECT → ORG` implicit Project fallback. No FX.
+Selection is exactly:
 
-REQUIRED: no matching Budget / insufficient Budget / unsafe bound → fail
-before any Provider call. OPTIONAL: no matching Budget → explicitly allowed
-unbudgeted; matching Budget sufficient → reserve; matching Budget exhausted →
-reject. OPTIONAL is never a bypass around an existing exhausted Budget.
+```text
+exact financial scope + BillingPeriod + pricing currency
+→ ORG + same BillingPeriod + same currency
+→ no Budget
+```
+
+There is no implicit `TEAM/COST_CENTER → PROJECT → ORG` fallback and no automatic FX.
+
+```text
+REQUIRED + no Budget              → reject before Provider
+REQUIRED + insufficient Budget    → reject before Provider
+REQUIRED + unsafe bound           → fail closed before Provider
+OPTIONAL + no Budget              → explicitly allowed unbudgeted
+OPTIONAL + matching Budget enough → reserve
+OPTIONAL + matching Budget short  → reject; cannot bypass existing Budget
+```
 
 ## 7. Recovery
 
-`ReservationRecoveryScheduler` (periodic trigger) is separated from
-`ReservationRecoveryService` (transaction logic); tests disable the scheduler
-and drive recovery deterministically. Recovery scans expired ACTIVE holds in
-bounded batches; per-hold transaction lock order is BillingPeriod → Budget →
-Reservation. A definitively pre-dispatch hold (request RESERVED/VALIDATED,
-attempt PLANNED, no DISPATCH_INTENT evidence) becomes RELEASED with the
-request moved to FAILED_PRE_DISPATCH; anything that may have dispatched
-becomes PENDING_HOLD and keeps holding money until Settlement/reconciliation.
-Post-dispatch states are never released. TTL expiry alone is only a recovery
-trigger, never proof of no cost. Recovery vs dispatch fence can never yield
-DISPATCH_INTENT + RELEASED together.
-
-## 8. Quota
-
-Credential-level UTC-daily request quota (`RedisDailyQuotaLimiter` over
-`redis/gateway-quota.lua`), operational only. Redis key is
-`aicostops:v2:gateway:quota:{credentialId}:{yyyyMMddUTC}` — no raw API key
-material. Quota exhaustion rejects with 429 before Provider dispatch. Redis
-failure while quota is enabled fails closed (503
-`GATEWAY_DEPENDENCY_UNAVAILABLE`, no Provider call). Redis can never
-authorize spend.
-
-## 9. Close
-
-`PENDING_GATEWAY_FINANCIAL_WORK` now blocks normal Close on both unresolved
-possible-billable requests (at/after DISPATCH_INTENT without a durable
-Settlement) and unresolved reservations: any ACTIVE or PENDING_HOLD
-reservation blocks; RELEASED / FINALIZED never block on their own. The
-Close-blocker evaluation validates all blocker codes (M11 had 7 checks, M12
-has 8 with the Gateway blocker; `PeriodCloseService.validateAllBlockers`
-replaces the stale `validateSeven` name).
-
-## 10. Test evidence
-
-Final full `mvn verify` runs against implementation HEAD `baf3158`
-(Gateway re-run as `clean verify` 2026-09-04 10:35–10:37 in this session to
-repair a partially overwritten surefire window; Backend reports from the
-final 01:20–01:33 full run, after the last Backend change `d0facda` 00:26):
+`ReservationRecoveryScheduler` is separated from `ReservationRecoveryService`; tests disable the scheduler and drive recovery deterministically. Recovery scans expired `ACTIVE` holds in bounded batches and preserves lock order:
 
 ```text
-Gateway surefire:  103 (14 files, 0 failures/errors/skipped)
-Gateway failsafe:  50 (12 files, 0 failures/errors/skipped)
-Backend surefire:  542 XML-aggregated (72 files, 0 failures/errors, 1 skipped);
-                   38 of those are stale *IntegrationTest duplicates executed
-                   manually before the final run — true unit total is 504
-                   (67 files, 1 skipped: DevInvitationMailboxTest)
-Backend failsafe:  871 (136 files, 0 failures/errors/skipped)
+BillingPeriod → Budget → BudgetReservation
 ```
 
-Key M12 test classes (all PASS):
+A definitively pre-dispatch hold (`VALIDATED`/`RESERVED`, route attempt `PLANNED`, no dispatch evidence) can become `RELEASED`, with the request moved to `FAILED_PRE_DISPATCH`. Anything that may have dispatched becomes `PENDING_HOLD` and continues to hold money until later Settlement/reconciliation. TTL expiry is only a recovery trigger and is never proof of zero cost. Recovery vs dispatch fencing cannot produce `DISPATCH_INTENT + RELEASED`.
+
+## 8. Redis operational quota
+
+`RedisDailyQuotaLimiter` implements a credential-scoped UTC-daily request quota using `redis/gateway-quota.lua`.
 
 ```text
-BudgetReservationServiceIntegrationTest (7): TX1 exact/ORG/currency/REQUIRED/OPTIONAL/replay semantics
-BudgetReservationConcurrencyIntegrationTest (5): real-MySQL financial concurrency (see section 11)
-ReservationAmountCalculatorTest (10): MiMo baseline, CEILING, cached-input, fail-closed dimensions
-ReservationRecoveryIntegrationTest (5): pre-dispatch RELEASE vs post-dispatch PENDING_HOLD + fence race
-RedisDailyQuotaLimiterIntegrationTest (5): burst, race, no-raw-key, fail-closed, end-to-end 429
-DispatchFenceIntegrationTest (5): fence/commit/close-race/no-reservation/non-planned semantics
-GatewayRequestIdempotencyIntegrationTest (3): one request / one attempt / one dispatch, conflict, no re-dispatch
-ChatCompletionControllerTest (failsafe, 14): HTTP surface incl. REQUIRED reserve+dispatch,
-  REQUIRED no-budget 429 + UPSTREAM_CALLS 0, replay never re-dispatches, 1 MiB boundary
-GatewayArchitectureTest (7 ArchRules): no backend deps, no Flyway, no Mono.block on DB path,
-  Gateway budget code writes only its own tables
-GatewayM12ReservationSchemaIntegrationTest (10, backend): V19 uniqueness/CHECK/FK/column contract
-GatewayFinancialWorkCloseIntegrationTest (7, backend): ACTIVE/PENDING_HOLD block, RELEASED/FINALIZED pass
+aicostops:v2:gateway:quota:{credentialId}:{yyyyMMddUTC}
 ```
 
-Provider zero-call rejection proof (`UPSTREAM_CALLS == 0` asserted):
+No raw API key material is included. Quota exhaustion returns 429 before Provider dispatch. Redis failure while quota is enabled fails closed with `GATEWAY_DEPENDENCY_UNAVAILABLE` before Provider dispatch. Redis remains operational state only and never becomes monetary truth.
+
+## 9. Close blocker
+
+`PENDING_GATEWAY_FINANCIAL_WORK` covers both unresolved possible-billable Gateway requests and unresolved M12 reservations. `ACTIVE` / `PENDING_HOLD` reservations block normal Close; `RELEASED` / `FINALIZED` do not block by themselves. M12 reuses the existing blocker code rather than introducing another financial-close code.
+
+## 10. Full verification evidence at core implementation SHA
+
+The full verification baseline was executed against core implementation SHA:
 
 ```text
-ChatCompletionControllerTest.requiredBudgetCredentialWithoutBudgetFailsClosedBeforeProviderDispatch
-  REQUIRED + no Budget → 429 GATEWAY_BUDGET_EXHAUSTED, no Provider call
-ChatCompletionControllerTest (oversize/unknown-field/auth/chunked/gzip edges)
-  malformed or oversize requests → 4xx before Provider dispatch, no Provider call
-RedisDailyQuotaLimiterIntegrationTest.quotaRejectsOverLimitBeforeProviderDispatch
-  quota exhausted → 429 before Provider dispatch, no Provider call
-RedisDailyQuotaLimiterIntegrationTest.redisUnavailableFailsClosedWithDependencyUnavailable
-  Redis down while quota enabled → 503 GATEWAY_DEPENDENCY_UNAVAILABLE, no Provider call
-BudgetReservationServiceIntegrationTest.requiredWithoutMatchingBudgetRejects
-  TX1 persists REJECTED_BUDGET inside the committing transaction
+baf315891b89d6a9f171ed18c93721cfd5691240
 ```
 
-## 11. Concurrency x5
-
-Focused loop (correct failsafe entry: `*IntegrationTest` classes run under
-failsafe; the surefire `-Dtest=` entry point skips them by pom design):
+Recorded totals:
 
 ```text
-mvn -B -f gateway/pom.xml test "-Dtest=BudgetReservationConcurrencyIntegrationTest" "-DfailIfNoTests=false"
-run1 PASS (5/5, ~33 s)
-run2 PASS (5/5, ~31 s)
-run3 PASS (5/5, ~33 s)
-run4 PASS (5/5, ~30 s)
-run5 PASS (5/5, ~27 s)
+Gateway surefire: 103 (14 files, 0 failures/errors/skipped)
+Gateway failsafe: 50 (12 files, 0 failures/errors/skipped)
+Backend surefire: 504 true unit tests (67 files, 1 existing skip)
+Backend failsafe: 871 (136 files, 0 failures/errors/skipped)
+Architecture rules: PASS
+Frontend: 432 tests + lint/build PASS
+Smoke: SMOKE_V1_PASS
 ```
 
-Proven on real MySQL:
+The original XML aggregation also contained 38 stale manually executed `*IntegrationTest` duplicates in surefire reports; they are not counted as unit tests above.
+
+Key M12 suites recorded PASS:
 
 ```text
-Budget=100, 80+80 → exactly one ACTIVE hold (eightyPlusEightyAgainstOneHundredYieldsExactlyOneHold)
-Budget=100, 50+50 → two ACTIVE holds (fiftyPlusFiftyAgainstOneHundredYieldsTwoHolds)
-8 concurrent holds never exceed capacity; V1-style Actual increment races
-deterministically with reservation; same idempotency identity → one request,
-one route attempt, one effective hold
+BudgetReservationServiceIntegrationTest (7)
+BudgetReservationConcurrencyIntegrationTest (5)
+ReservationAmountCalculatorTest (10)
+ReservationRecoveryIntegrationTest (5)
+RedisDailyQuotaLimiterIntegrationTest (5)
+DispatchFenceIntegrationTest (5)
+GatewayRequestIdempotencyIntegrationTest (3)
+ChatCompletionControllerTest (14)
+GatewayArchitectureTest (7 ArchRules)
+GatewayM12ReservationSchemaIntegrationTest (10, backend)
+GatewayFinancialWorkCloseIntegrationTest (7, backend)
 ```
 
-Lock order held: BillingPeriod → Budget → Commitment when applicable →
-BudgetReservation → Gateway request/source.
+Provider-zero-call rejection coverage includes REQUIRED no-Budget rejection, quota exhaustion, Redis unavailability, malformed/oversize request rejection, and TX1 budget rejection before dispatch.
 
-## 12. Critical defects found and fixed (correctness evidence)
+## 11. Concurrency evidence
 
-1. `@Transactional` self-invocation left TX1 without an effective
-   transaction. Fixed to an explicit `TransactionTemplate` boundary with a
-   synchronous entry (`admitSync`) for callers already on the blocking-DB
-   scheduler; never call the blocking core directly or the Budget lock loses
-   its transaction.
-2. TX1 persisted `REJECTED_BUDGET` and then threw from the same rollbacking
-   transaction, so the terminal rejection could not survive. TX1 now returns
-   the business outcome, commits, and `GatewayRequestService` maps it to the
-   public error after commit (durable + idempotent replay converges).
-3. Recovery called `findAttemptById(orgId, attemptId)` with the arguments
-   reversed. Fixed; covered by the recovery tests.
-4. Stale tests: M11 schema test pinned "exactly V18 / no budget_reservation"
-   and the close coordinator pinned "exactly 7 checks"; both updated to the
-   M11/M12 truth (V19 wave exists; 8 checks incl. the Gateway blocker).
-5. `ChatCompletionControllerTest.bodyAtExactlyMaxBytesIsAccepted` flaked
-   (502) because the mock upstream responded without draining the 1 MiB
-   request body (TCP RST race). Test-fixture fix: drain the body first. No
-   production Gateway defect.
+The real-MySQL critical concurrency suite was repeated five times and passed 5/5 each run.
 
-## 13. Security / privacy
+Proven invariants include:
+
+```text
+Budget=100, 80+80 → exactly one ACTIVE hold
+Budget=100, 50+50 → two ACTIVE holds
+8 concurrent holds never exceed capacity
+V1-style Actual mutation serializes with reservation
+same idempotency identity → one request, one route attempt, one effective hold
+```
+
+Lock order remains:
+
+```text
+BillingPeriod → Budget → Commitment when applicable → BudgetReservation → Gateway request/source
+```
+
+## 12. Correctness defects found and fixed during M12
+
+1. `@Transactional` self-invocation originally left TX1 without an effective transaction. It was replaced by an explicit `TransactionTemplate` boundary plus the synchronous `admitSync` entry for callers already on the blocking DB scheduler.
+2. Persisting `REJECTED_BUDGET` and then throwing inside the same rollbacking TX1 lost the terminal state. TX1 now returns a business outcome, commits it, and the caller maps it to the public error afterward.
+3. Recovery originally called `findAttemptById(orgId, attemptId)` with the arguments reversed. The call order was corrected and covered by recovery tests.
+4. M11-era stale tests pinned “exactly V18 / no budget_reservation” and “exactly 7 close checks”; they were updated to the M12 truth.
+5. The 1 MiB controller boundary test had a mock-upstream TCP reset race because the mock responded without draining the request body. The test fixture now drains the request body before responding; production Gateway behavior was not changed.
+
+## 13. Post-evidence PR closure changes
+
+The original acceptance evidence was recorded after the full runtime verification at `baf3158`. Two later commits were intentionally narrow and are recorded separately instead of pretending the original full-suite run occurred on a later SHA.
+
+### 13.1 Test-isolation fix
+
+```text
+15195c6b1222714f8f5da6e381843a5de58f35e1
+```
+
+Root cause: `InvitationAcceptanceServiceIntegrationTest` could leave an `invitation` row. `AuthorizationContextServiceIntegrationTest.setUp()` attempted to delete `organization` before cleaning `invitation`, so `invitation.fk_invitation_org` rejected the delete.
+
+Change: add `DELETE FROM invitation` before `DELETE FROM organization` in `AuthorizationContextServiceIntegrationTest` only. No production code, migration, or M12 semantics changed.
+
+Verification recorded for this change:
+
+```text
+failing testcase: 1/1 PASS
+test class: 5/5 PASS
+affected IAM suites: 8/8 PASS
+exact backend-integration CI command: 842 tests, 0 failures/errors, BUILD SUCCESS
+GitHub CI run 33835159440: SUCCESS
+GitHub Security run 33835159575: SUCCESS
+```
+
+### 13.2 CodeQL unused-parameter cleanup
+
+```text
+8ecdfb1f2158b3e8fa3aac08bf430ddceb519d62
+```
+
+Change: remove only three unused private-method parameters in `BudgetReservationService` and their corresponding call arguments:
+
+```text
+reservationImpossible: remove unused locked
+insufficient: remove unused locked
+replayExisting: remove unused principal
+```
+
+No method body, transaction boundary, Budget semantics, migration, Redis quota, recovery, Close logic, or M13 scope changed.
+
+Verification recorded before push:
+
+```text
+ReservationAmountCalculatorTest + BudgetReservationServiceIntegrationTest:
+17 tests, 0 failures/errors/skipped, BUILD SUCCESS
+Gateway mvn verify: BUILD SUCCESS (final failsafe summary: 50 tests, 0 failures/errors/skipped)
+git diff --check: clean
+```
+
+The three GitHub Advanced Security / CodeQL “useless parameter” review threads became resolved and outdated after this commit.
+
+Because this document is now being refreshed by a subsequent docs-only commit, do not interpret `8ecdfb1` as the eventual PR head after this document commit. It is the last runtime-code SHA before the docs-only closure refresh.
+
+## 14. Security / privacy
 
 ```text
 No prompt persistence; no completion persistence
 No raw Gateway API key logs; no raw Idempotency-Key logs
 No provider key logs; no HMAC key logs; no KEK logs
-Status API returns meteringStatus=null / settlementStatus=null (M13-owned),
-  never prompt/completion/Provider secrets/Budget totals/Ledger detail
-Quota Redis key carries the credential id + UTC day only, never raw key material
-Gateway metrics use bounded labels only (outcome/error class/provider code),
-  never high-cardinality financial ids
+Status API does not expose prompt/completion/provider secrets/Budget totals/Ledger detail
+Quota Redis key carries credential id + UTC day only, never raw key material
+Gateway metrics use bounded labels only, without high-cardinality financial IDs
 ```
 
-## 14. M13 absence
+## 15. M13 absence
 
-No Gateway usage-fact runtime, no Gateway Settlement runtime, no Ledger
-settlement posting, no Budget Actual consumption, no Commitment consumption
-from Gateway. `git diff main...HEAD --name-only` contains no
-settlement/usage_fact/usage_dimension/failover runtime file; the only
-matches for those words are frozen design/plan prose, the M12
-not-implemented list, and the M11 schema test's negative assertion. V19
-creates only `budget_reservation`; `commitment_id` stays NULL and
-`commitment_backed_amount` stays 0 in M12 (Gateway never infers a Commitment
-binding). OpenAPI (`docs/02-development/api/gateway-openapi.yaml`) is
-unchanged vs `main` (empty diff): no project_id/team_id/cost_center_id/
-budget_id/currency/pricing_version_id/provider_id request extension.
+M12 contains no Gateway usage-fact runtime, no Gateway Settlement runtime, no Ledger settlement posting, no Budget Actual consumption, and no Commitment consumption from Gateway. V19 creates only `budget_reservation`; `commitment_id` remains NULL and `commitment_backed_amount` remains 0 in M12. The public Gateway OpenAPI remains structurally unchanged and does not add client-controlled project/team/cost-center/budget/currency/provider/pricing fields.
 
-## 15. Known limitations (non-blocking)
+## 16. Known limitations (non-blocking)
 
 ```text
-M12 conservative MiMo input reservation uses the provider context ceiling
-(1,048,576 tokens) rather than a certified exact hosted tokenizer estimator,
-intentionally over-reserving rather than under-reserving.
-FINALIZED exists as schema/lifecycle compatibility for M13; M12 itself
-creates no final financial Settlement (holds converge to RELEASED or
-PENDING_HOLD only).
+The MiMo input reservation uses the provider context ceiling (1,048,576 tokens)
+rather than a certified exact hosted tokenizer estimator. This intentionally
+over-reserves rather than under-reserves.
+
+FINALIZED exists for lifecycle/schema compatibility with M13. M12 itself does
+not create final financial Settlement; recovery converges safe cases to
+RELEASED and possible-billable cases to PENDING_HOLD.
 ```
 
-## 16. Commits and SHAs
+## 17. SHA and evidence interpretation
+
+Use the following SHA roles when auditing M12:
 
 ```text
-M11 baseline: b57d12a (feat(m11): deliver Gateway Edge MVP (#131))
-Implementation SHA: baf3158 (all Java/SQL/YAML/test implementation; full
-  Gateway + Backend verify ran against this SHA)
-Evidence SHA: the HEAD docs-only commit appending this file only
-  (`git show --stat HEAD` shows exactly one file); the exact value is
-  recorded in the session Final Report, not hardcoded here (hardcoding it
-  would change the hash on every amend).
-Commit chain (main...HEAD):
-  9126bdc docs(m12): freeze identity and reservation implementation design
-  56f0042 feat(m12): add durable budget reservation schema
-  962207f feat(m12): calculate conservative reservation upper bounds
-  d009647 feat(m12): enforce mysql-authoritative budget admission
-  83bfd48 feat(m12): recover reservation holds conservatively
-  e7a544a feat(m12): add redis operational request quota
-  d0facda feat(m12): block close on unresolved reservation holds
-  0fb6e4b test(m12): prove reservation concurrency safety
-  2200f93 test(m12): enforce reservation architecture and telemetry guards
-  0520b0a test(m12): cover reservation dispatch over mock upstream
-  baf3158 test(m12): scope quota key assertion per credential
-Working tree: clean. git diff --check: clean. V1-V18: unchanged.
+M11 baseline:
+  b57d12abc816a9fae0d576e9c8f9f16f995df165
+
+Core M12 fully-verified implementation:
+  baf315891b89d6a9f171ed18c93721cfd5691240
+  Full Gateway + Backend verification evidence belongs to this SHA.
+
+Post-evidence test-only CI isolation fix:
+  15195c6b1222714f8f5da6e381843a5de58f35e1
+  Test fixture only; no production/runtime/migration change.
+
+Last runtime-code SHA before final docs refresh:
+  8ecdfb1f2158b3e8fa3aac08bf430ddceb519d62
+  Behavior-preserving unused-parameter cleanup only.
+
+Final docs-only closure SHA:
+  Do not hardcode it inside this file because changing the value would itself
+  create another SHA. Use Git history / PR head to identify the docs-only
+  commit whose message is "docs(m12): refresh final PR closure evidence".
 ```
 
-## 17. Environment note (this session)
+The earlier wording `HEAD is again baf3158` described the repository state during the original evidence-collection session and is intentionally removed here because it is no longer the current PR state.
 
-During evidence collection the working tree was found checked out at `main`
-(reflog: `checkout: moving from feat/m12-identity-budget-reservation to
-main`); it was switched back with `git checkout
-feat/m12-identity-budget-reservation` — HEAD is again `baf3158`, working
-tree clean, all M12 files present. Two earlier evidence-probe mistakes are
-recorded so the numbers above are not misread: (a) a `-Dtest=` concurrency
-loop went through surefire, which excludes `*IntegrationTest` by pom design
-(~1.5 s BUILD SUCCESS with zero tests executed — discarded, re-run through
-the correct entry point, section 11); (b) a main-branch `mvn -B -f
-gateway/pom.xml verify` pass overwrote a subset of surefire XMLs with M11
-results — superseded by the clean `mvn -B -f gateway/pom.xml clean verify`
-re-run whose totals are reported in section 10.
+## 18. Final merge gate
+
+Before merging PR #132, verify the actual current PR head rather than relying on a hardcoded docs SHA:
+
+```text
+PR is open and mergeable
+CI = success on current head
+Security = success on current head
+no unresolved blocking review threads
+V1-V18 unchanged
+no M13 runtime scope creep
+```
+
+This evidence document itself does not perform or authorize the merge.
