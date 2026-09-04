@@ -128,7 +128,10 @@ gateway: .\\mvnw.cmd -B -Dgroups=integration verify
 - No M14, M15, FX, negative realtime credits, new Provider calls, credential
   decryption, Redis financial truth, new Budget fallback selection, or new Commitment
   binding policy was added.
-- Hosted CI: pending PR publication.
-- Hosted Security: pending PR publication.
-- PR: to be opened against `main`, closing #138, and must remain OPEN/unmerged for
-  independent Sol review.
+- Hosted CI: passed on PR #143 run `33879074112` for the implementation head
+  `c3a2f305974c4d19c8301a29ae5293f3f1059d2a`; backend architecture/unit/integration,
+  gateway architecture/unit/integration, frontend, Docker, and browser E2E passed.
+- Hosted Security: passed on PR #143; CodeQL Java/Kotlin, CodeQL JavaScript/TypeScript,
+  and Trivy passed.
+- PR #143: https://github.com/BangShou1st/AI-CostOps/pull/143, against `main`,
+  closing #138. It remains OPEN/unmerged for independent Sol review.
