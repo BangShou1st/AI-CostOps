@@ -10,7 +10,7 @@ vi.mock('../../features/auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
 const mockedUseAuth = vi.mocked(useAuth)
 
 const ALL_PERMISSIONS = ['USER_READ', 'ROLE_READ', 'PROJECT_READ', 'TEAM_READ', 'COST_CENTER_READ', 'PROVIDER_ACCOUNT_READ']
-const NAV_LABELS = ['用户管理', '角色与权限', '项目管理', '团队管理', '成本中心', '云账号']
+const NAV_LABELS = ['用户管理', '角色与权限', '项目管理', '团队管理', '成本中心', '云账号', '路由策略']
 const BUSINESS_LABELS = ['证据', '导入']
 
 function renderLayout(permissions: string[]) {
@@ -69,6 +69,7 @@ describe('AuthenticatedLayout desktop sidebar', () => {
     expect(screen.queryByRole('menuitem', { name: '团队管理' })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: '成本中心' })).not.toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: '云账号' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '路由策略' })).not.toBeInTheDocument()
   })
 
   it('shows every settings item with all read permissions', () => {
