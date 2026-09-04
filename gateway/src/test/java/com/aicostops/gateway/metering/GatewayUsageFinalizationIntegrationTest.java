@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -165,6 +166,27 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
                 Integer.class, env.orgId())).isZero();
         assertThat(jdbc.queryForObject("SELECT current_usage_fact_id FROM gateway_request WHERE id=?",
                 Object.class, request.requestId())).isNull();
+    }
+
+    @Test
+    void safeMetadataAllowlistNeverPersistsPromptOrSecretBearingFields() {
+        var request = insertDispatchedRequest("metadata");
+        var observation = new GatewayUsageObservation(
+                5, 3, null, 8, true, true, null, OBSERVED_AT, null,
+                null, "completion-1",
+                Map.of("provider_completion_id", "completion-1",
+                        "prompt", "SENTINEL_PROMPT", "Authorization", "secret"));
+
+        var result = finalization.finalizeSuccess(request.requestId(), env.orgId(),
+                request.attemptId(), observation).block();
+
+        var metadata = jdbc.queryForObject(
+                "SELECT safe_provider_metadata_json FROM gateway_usage_fact WHERE id=?",
+                String.class, result.usageFactId());
+        assertThat(metadata).contains("completion-1")
+                .doesNotContain("SENTINEL_PROMPT", "Authorization", "secret");
+        assertThat(metadata.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)
+                .isLessThanOrEqualTo(GatewayUsageFinalizationService.MAX_SAFE_METADATA_BYTES);
     }
 
     private GatewayUsageFinalizationService.FinalizationResult publish(Request request) {

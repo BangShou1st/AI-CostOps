@@ -9,6 +9,7 @@ import com.aicostops.gateway.observability.GatewayMetrics;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.metering.GatewayUsageFinalizationService;
 import com.aicostops.gateway.metering.GatewayUsageObservation;
+import com.aicostops.gateway.metering.GatewayUsageStatus;
 import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
@@ -293,6 +294,8 @@ public class ChatCompletionController {
                         }
                         return usageFinalization.finalizeSuccess(
                                         requestId, orgId, result.routeAttemptId(), observation)
+                                .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                        "POSTDISPATCH_UNCERTAINTY"))
                                 // Downstream [DONE] is intentionally after the
                                 // local fact+lifecycle transaction commits.
                                 .thenMany(Flux.just(ServerSentEvent.<String>builder()
@@ -314,6 +317,8 @@ public class ChatCompletionController {
                         }
                         var terminal = usageFinalization.finalizeFailure(
                                         requestId, orgId, result.routeAttemptId(), observation, failure)
+                                .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                        "POSTDISPATCH_UNCERTAINTY"))
                                 .then()
                                 .onErrorResume(finalizationFailure -> timeout
                                         ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
@@ -331,6 +336,8 @@ public class ChatCompletionController {
                         usageFinalization.finalizeFailure(
                                         requestId, orgId, result.routeAttemptId(), observation,
                                         GatewayUsageFinalizationService.TransportFailure.CANCELED)
+                                .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                        "POSTDISPATCH_UNCERTAINTY"))
                                 .then()
                                 .onErrorResume(finalizationFailure ->
                                         streamingLifecycle.cancelAfterDispatch(requestId, orgId))
@@ -366,6 +373,8 @@ public class ChatCompletionController {
                 .flatMap(completion -> usageFinalization.finalizeSuccess(
                                 requestId, orgId, result.routeAttemptId(),
                                 GatewayUsageObservation.fromCompletion(completion, null))
+                        .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                "MISSING_DIMENSION"))
                         .thenReturn(completion))
                 .doOnSuccess(ignored -> metrics.recordRequestOutcome("COMPLETED"))
                 .onErrorResume(ex -> {
@@ -379,6 +388,8 @@ public class ChatCompletionController {
                     var terminal = usageFinalization.finalizeFailure(
                                     requestId, orgId, result.routeAttemptId(),
                                     GatewayUsageObservation.noUsage(null).withDispatched(true), failure)
+                            .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                    "POSTDISPATCH_UNCERTAINTY"))
                             .then()
                             .onErrorResume(finalizationFailure -> timeout
                                     ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
@@ -545,5 +556,19 @@ public class ChatCompletionController {
             }
         }
         return false;
+    }
+
+    private void recordUsage(
+            GatewayUsageFinalizationService.FinalizationResult result,
+            String providerCode, String reasonCode) {
+        if (result == null) {
+            return;
+        }
+        metrics.recordUsageStatus(result.status());
+        if (result.status() == GatewayUsageStatus.INCOMPLETE) {
+            metrics.recordMeteringIncomplete(providerCode, reasonCode);
+        } else if (result.status() == GatewayUsageStatus.UNKNOWN) {
+            metrics.recordMeteringUnknown(providerCode, reasonCode);
+        }
     }
 }
