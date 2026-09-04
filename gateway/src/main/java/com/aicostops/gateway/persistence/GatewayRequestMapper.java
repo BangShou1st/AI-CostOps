@@ -1,6 +1,7 @@
 package com.aicostops.gateway.persistence;
 
 import java.time.Instant;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -111,6 +112,33 @@ public interface GatewayRequestMapper {
             """)
     int countNonSafeAttempts(@Param("orgId") long orgId, @Param("requestId") long requestId);
 
+    @Select("""
+            SELECT gr.id AS request_id, gr.org_id AS org_id
+            FROM gateway_request gr
+            WHERE gr.state IN ('VALIDATED','RESERVED','DISPATCH_INTENT','UPSTREAM_ACTIVE')
+              AND EXISTS (
+                SELECT 1 FROM gateway_route_attempt ra
+                WHERE ra.org_id=gr.org_id AND ra.request_id=gr.id)
+              AND NOT EXISTS (
+                SELECT 1 FROM gateway_route_attempt ra_live
+                WHERE ra_live.org_id=gr.org_id AND ra_live.request_id=gr.id
+                  AND ra_live.status <> 'SAFE_NO_BILLABLE_EXECUTION')
+              AND NOT EXISTS (
+                SELECT 1 FROM budget_reservation br
+                WHERE br.org_id=gr.org_id AND br.request_id=gr.id
+                  AND br.status IN ('ACTIVE','PENDING_HOLD'))
+            ORDER BY gr.id
+            LIMIT #{limit}
+            """)
+    List<SafeReleasedRequest> findSafeReleasedRequests(@Param("limit") int limit);
+
+    @Select("""
+            SELECT COUNT(*) FROM budget_reservation
+            WHERE org_id=#{orgId} AND request_id=#{requestId}
+              AND status IN ('ACTIVE','PENDING_HOLD')
+            """)
+    int countEffectiveReservations(@Param("orgId") long orgId, @Param("requestId") long requestId);
+
     @Update("""
             UPDATE gateway_request
             SET state='DISPATCH_INTENT', billing_period_id=#{periodId},
@@ -163,6 +191,18 @@ public interface GatewayRequestMapper {
 
     @Update("""
             UPDATE gateway_request
+            SET state='REJECTED_BUDGET', billing_period_id=#{periodId},
+                terminal_at=UTC_TIMESTAMP(6), updated_at=UTC_TIMESTAMP(6)
+            WHERE id=#{requestId} AND org_id=#{orgId}
+              AND state IN ('VALIDATED','RESERVED')
+            """)
+    int markRequestRejectedBudget(
+            @Param("requestId") long requestId,
+            @Param("orgId") long orgId,
+            @Param("periodId") long periodId);
+
+    @Update("""
+            UPDATE gateway_request
             SET state='CANCELED_AFTER_DISPATCH', terminal_at=UTC_TIMESTAMP(6), updated_at=UTC_TIMESTAMP(6)
             WHERE id=#{requestId} AND org_id=#{orgId}
               AND state IN ('DISPATCH_INTENT','UPSTREAM_ACTIVE')
@@ -187,7 +227,8 @@ public interface GatewayRequestMapper {
     @Update("""
             UPDATE gateway_route_attempt
             SET status='SAFE_NO_BILLABLE_EXECUTION',safety_reason_code=#{reason}
-            WHERE id=#{attemptId} AND org_id=#{orgId} AND status='DISPATCH_INTENT'
+            WHERE id=#{attemptId} AND org_id=#{orgId}
+              AND status IN ('PLANNED','DISPATCH_INTENT')
             """)
     int markAttemptSafe(@Param("attemptId") long attemptId, @Param("orgId") long orgId,
             @Param("reason") String reason);
@@ -242,6 +283,9 @@ public interface GatewayRequestMapper {
     record RouteAttemptDetails(long id, int attemptNo, String routeDecisionId, String status,
             Long routingPolicyId, long providerAccountId, long providerModelId,
             long pricingVersionId, String safetyReasonCode, String providerRequestId) {
+    }
+
+    record SafeReleasedRequest(long requestId, long orgId) {
     }
 
     record GatewayRequestInsert(

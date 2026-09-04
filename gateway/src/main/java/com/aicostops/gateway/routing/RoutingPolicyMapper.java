@@ -38,11 +38,11 @@ public interface RoutingPolicyMapper {
                    pv.currency,
                    pc.base_url,
                    pc.adapter_code,
-                   EXISTS(SELECT 1 FROM provider_credential pcred
+                   (pa.status='ACTIVE' AND EXISTS(SELECT 1 FROM provider_credential pcred
                           WHERE pcred.org_id=rpc.org_id
                             AND pcred.provider_account_id=rpc.provider_account_id
-                            AND pcred.status='ACTIVE') AS credential_ready,
-                   COALESCE(pm.routing_eligible,FALSE) AS routing_eligible,
+                            AND pcred.status='ACTIVE')) AS credential_ready,
+                   (pm.status='ACTIVE' AND COALESCE(pm.routing_eligible,FALSE)) AS routing_eligible,
                    JSON_CONTAINS(pm.capabilities_json, JSON_QUOTE('CHAT_COMPLETIONS'), '$.capabilities') AS chat_capable,
                    JSON_CONTAINS(pm.capabilities_json, JSON_QUOTE('SSE_STREAMING'), '$.capabilities') AS stream_capable
             FROM routing_policy_candidate rpc
@@ -51,20 +51,40 @@ public interface RoutingPolicyMapper {
             LEFT JOIN provider_model pm
               ON pm.id=rpc.provider_model_id
             LEFT JOIN provider_catalog pc
-              ON pc.provider_code=pa.provider_code
+              ON pc.provider_code=pa.provider_code AND pc.status='ACTIVE'
             LEFT JOIN pricing_version pv
               ON pv.id=(
-                SELECT MIN(pv2.id) FROM pricing_version pv2
+                SELECT pv2.id FROM pricing_version pv2
                 WHERE pv2.org_id=rpc.org_id
                   AND pv2.provider_account_id=rpc.provider_account_id
                   AND pv2.provider_model_id=rpc.provider_model_id
                   AND pv2.status='ACTIVE'
                   AND pv2.effective_from <= #{now}
-                  AND (pv2.effective_to IS NULL OR pv2.effective_to > #{now}))
+                  AND (pv2.effective_to IS NULL OR pv2.effective_to > #{now})
+                ORDER BY pv2.effective_from DESC,pv2.id DESC LIMIT 1)
             WHERE rpc.org_id=#{orgId} AND rpc.routing_policy_id=#{policyId}
+              AND rpc.status='ACTIVE'
             ORDER BY rpc.priority ASC,rpc.id ASC
             """)
     List<CandidateRow> findCandidates(@Param("orgId") long orgId, @Param("policyId") long policyId,
+            @Param("now") Instant now);
+
+    @Select("""
+            SELECT pv.id AS pricing_version_id, pv.currency
+            FROM pricing_version pv
+            WHERE pv.org_id=#{orgId}
+              AND pv.provider_account_id=#{providerAccountId}
+              AND pv.provider_model_id=#{providerModelId}
+              AND pv.status='ACTIVE'
+              AND pv.effective_from <= #{now}
+              AND (pv.effective_to IS NULL OR pv.effective_to > #{now})
+            ORDER BY pv.effective_from DESC,pv.id DESC
+            LIMIT 1
+            """)
+    CandidatePricingRow findCurrentPricing(
+            @Param("orgId") long orgId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId,
             @Param("now") Instant now);
 
     record PolicyRow(long id, int version, Long projectId, long modelId) {
@@ -74,5 +94,8 @@ public interface RoutingPolicyMapper {
             Long providerModelId, String providerModelName, Long pricingVersionId, String currency,
             String baseUrl, String adapterCode, boolean credentialReady, boolean routingEligible,
             boolean chatCapable, boolean streamCapable) {
+    }
+
+    record CandidatePricingRow(Long pricingVersionId, String currency) {
     }
 }

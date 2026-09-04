@@ -1,11 +1,25 @@
 package com.aicostops.gateway.routing;
 
+import com.aicostops.gateway.provider.ProviderChatAdapterRegistry;
 import java.time.Instant;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
 public class CandidateEligibilityEvaluator {
+
+    private final ProviderChatAdapterRegistry adapterRegistry;
+
+    /** Lightweight constructor retained for pure evaluator tests. */
+    public CandidateEligibilityEvaluator() {
+        this.adapterRegistry = null;
+    }
+
+    @Autowired
+    public CandidateEligibilityEvaluator(ProviderChatAdapterRegistry adapterRegistry) {
+        this.adapterRegistry = adapterRegistry;
+    }
 
     public CandidateEligibility evaluate(ResolvedRoutingPolicy.Candidate candidate,
             RequestCapabilities capabilities, Set<ResolvedRoutingPolicy.RouteIdentity> attempted,
@@ -19,6 +33,9 @@ public class CandidateEligibilityEvaluator {
             return CandidateEligibility.rejected(EligibilityReason.LOGICAL_MODEL_MISMATCH);
         }
         if (candidate.adapterCode() == null || candidate.adapterCode().isBlank()) {
+            return CandidateEligibility.rejected(EligibilityReason.ADAPTER_UNAVAILABLE);
+        }
+        if (adapterRegistry != null && !adapterRegistry.contains(candidate.adapterCode())) {
             return CandidateEligibility.rejected(EligibilityReason.ADAPTER_UNAVAILABLE);
         }
         if (!capabilities.chatCompletions() || !candidate.chatCapable()) {

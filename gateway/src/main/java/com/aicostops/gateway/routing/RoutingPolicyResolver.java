@@ -26,7 +26,17 @@ public class RoutingPolicyResolver {
         return new ResolvedRoutingPolicy(selected.id(), selected.version(), selected.projectId(),
                 selected.modelId(), mapper.findCandidates(orgId, selected.id(), now).stream()
                         .map(this::candidate)
-                        .toList());
+                .toList());
+    }
+
+    /** Re-resolves only the mutable pricing projection for a frozen candidate. */
+    public ResolvedRoutingPolicy.Candidate refreshPricing(long orgId,
+            ResolvedRoutingPolicy.Candidate candidate, Instant now) {
+        var pricing = mapper.findCurrentPricing(orgId, candidate.providerAccountId(),
+                candidate.providerModelId(), now);
+        return pricing == null
+                ? candidate.withPricing(null, null)
+                : candidate.withPricing(pricing.pricingVersionId(), pricing.currency());
     }
 
     private ResolvedRoutingPolicy.Candidate candidate(RoutingPolicyMapper.CandidateRow row) {

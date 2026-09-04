@@ -38,6 +38,9 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
     private ReservationRecoveryService recoveryService;
 
     @Autowired
+    private SafeReservationReleaseService safeReleaseService;
+
+    @Autowired
     private BudgetReservationService reservationService;
 
     @Autowired
@@ -91,6 +94,42 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
 
         assertThat(reservationStatus(reservationId)).isEqualTo("PENDING_HOLD");
         assertThat(requestState(result.requestId())).isEqualTo("DISPATCH_INTENT");
+    }
+
+    @Test
+    void safeAttemptExpiredHoldIsReleasedEvenWhenRequestWasAlreadyActive() {
+        var env = GatewayTestFixture.seed(jdbc, "rec-safe-active", HMAC_KEY, rawKey());
+        var ids = insertValidatedRequest(env, "rec-safe-active-key");
+        var admission = reservationService.admit(admissionCommand(
+                required(env), env, ids.requestId(), ids.attemptId())).block();
+        requestMapper.markAttemptSafe(ids.attemptId(), env.orgId(), "DNS_PRE_CONNECT");
+        jdbc.update("UPDATE gateway_request SET state='UPSTREAM_ACTIVE' WHERE id=?", ids.requestId());
+        expireNow(admission.reservationId());
+
+        recoveryService.recoverExpiredBlocking();
+
+        assertThat(reservationStatus(admission.reservationId())).isEqualTo("RELEASED");
+        assertThat(requestState(ids.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+    }
+
+    @Test
+    void safeReleasedGapConvergesToTerminalWithoutBackgroundDispatch() {
+        var env = GatewayTestFixture.seed(jdbc, "rec-safe-released", HMAC_KEY, rawKey());
+        var ids = insertValidatedRequest(env, "rec-safe-released-key");
+        var admission = reservationService.admit(admissionCommand(
+                required(env), env, ids.requestId(), ids.attemptId())).block();
+        requestMapper.markAttemptSafe(ids.attemptId(), env.orgId(), "DNS_PRE_CONNECT");
+        jdbc.update("UPDATE gateway_request SET state='UPSTREAM_ACTIVE' WHERE id=?", ids.requestId());
+
+        var release = safeReleaseService.releaseForSafeAttempt(
+                env.orgId(), ids.requestId(), ids.attemptId(), env.periodId());
+        assertThat(release.status()).isEqualTo(SafeReservationReleaseService.ReleaseStatus.RELEASED);
+
+        recoveryService.recoverExpiredBlocking();
+
+        assertThat(requestState(ids.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_route_attempt WHERE request_id=?", Long.class,
+                ids.requestId())).isEqualTo(1L);
     }
 
     @Test

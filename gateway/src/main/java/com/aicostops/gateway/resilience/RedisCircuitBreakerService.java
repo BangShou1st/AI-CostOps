@@ -5,15 +5,32 @@ import com.aicostops.gateway.provider.ProviderHealthSignal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Mono;
 
 /** Redis-coordinated route circuit with bounded local degradation. */
 @Component
 public class RedisCircuitBreakerService implements CircuitBreakerService {
+
+    private static final RedisScript<Long> RECORD_FAILURE_SCRIPT = RedisScript.of("""
+            local value = redis.call('GET', KEYS[1]) or 'CLOSED|0|0'
+            local state, failures = string.match(value, '([^|]+)|([^|]+)|')
+            failures = tonumber(failures) or 0
+            local threshold = tonumber(ARGV[3])
+            if ARGV[1] == 'ROUTE_CONFIGURATION_FAILURE'
+                    or state == 'HALF_OPEN' or failures + 1 >= threshold then
+              redis.call('SET', KEYS[1], 'OPEN|0|' .. ARGV[2])
+              redis.call('DEL', KEYS[2])
+              return 2
+            end
+            redis.call('SET', KEYS[1], 'CLOSED|' .. (failures + 1) .. '|0')
+            return 1
+            """, Long.class);
 
     private final ReactiveStringRedisTemplate redis;
     private final GatewayProperties properties;
@@ -63,22 +80,15 @@ public class RedisCircuitBreakerService implements CircuitBreakerService {
         if (signal == null || signal == ProviderHealthSignal.NONE
                 || signal == ProviderHealthSignal.CLIENT_CANCELLATION) return Mono.empty();
         if (redis == null) {
-            localRecordFailure(key);
+            localRecordFailure(key, signal);
             return Mono.empty();
         }
         var redisKey = key.redisKey();
-        return redis.opsForValue().get(redisKey).defaultIfEmpty("CLOSED|0|0")
-                .flatMap(value -> {
-                    var parsed = parse(value);
-                    var now = nowMillis();
-                    if (parsed.state == CircuitState.HALF_OPEN
-                            || parsed.failures + 1 >= properties.getCircuitFailureThreshold()) {
-                        return redis.opsForValue().set(redisKey, "OPEN|0|" + now)
-                                .then(redis.delete(redisKey + ":probe"));
-                    }
-                    return redis.opsForValue().set(redisKey, "CLOSED|" + (parsed.failures + 1) + "|0");
-                }).then().onErrorResume(ignored -> {
-                    localRecordFailure(key);
+        return redis.execute(RECORD_FAILURE_SCRIPT,
+                        List.of(redisKey, redisKey + ":probe"), signal.name(),
+                        Long.toString(nowMillis()), Integer.toString(properties.getCircuitFailureThreshold()))
+                .then().onErrorResume(ignored -> {
+                    localRecordFailure(key, signal);
                     return Mono.empty();
                 });
     }
@@ -117,11 +127,13 @@ public class RedisCircuitBreakerService implements CircuitBreakerService {
         return CircuitDecision.probe();
     }
 
-    private void localRecordFailure(RouteCircuitKey key) {
+    private void localRecordFailure(RouteCircuitKey key, ProviderHealthSignal signal) {
         var state = local.computeIfAbsent(key, ignored -> new LocalState(CircuitState.CLOSED, 0, 0));
         synchronized (state) {
             state.probeInUse = false;
-            if (state.state == CircuitState.HALF_OPEN || ++state.failures >= properties.getCircuitFailureThreshold()) {
+            if (signal == ProviderHealthSignal.ROUTE_CONFIGURATION_FAILURE
+                    || state.state == CircuitState.HALF_OPEN
+                    || ++state.failures >= properties.getCircuitFailureThreshold()) {
                 state.state = CircuitState.OPEN;
                 state.openedAt = nowMillis();
             }

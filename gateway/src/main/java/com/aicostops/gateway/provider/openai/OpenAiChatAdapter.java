@@ -67,6 +67,7 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
         var request = wireRequest(context, command, false);
         return webClient.post().uri(context.baseUrl() + CHAT_COMPLETIONS_SUFFIX)
                 .header("Authorization", "Bearer " + new String(context.providerSecret(), StandardCharsets.UTF_8))
+                .header("X-Client-Request-Id", boundedRouteDecisionId(context.routeDecisionId()))
                 .contentType(MediaType.APPLICATION_JSON).bodyValue(request)
                 .exchangeToMono(response -> {
                     if (response.statusCode().is2xxSuccessful()) {
@@ -89,6 +90,7 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
             var startNanos = System.nanoTime();
             return webClient.post().uri(context.baseUrl() + CHAT_COMPLETIONS_SUFFIX)
                     .header("Authorization", "Bearer " + new String(context.providerSecret(), StandardCharsets.UTF_8))
+                    .header("X-Client-Request-Id", boundedRouteDecisionId(context.routeDecisionId()))
                     .contentType(MediaType.APPLICATION_JSON).bodyValue(request)
                     .exchangeToFlux(response -> {
                         if (!response.statusCode().is2xxSuccessful()) {
@@ -179,8 +181,15 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
 
     private ProviderExecutionException httpFailure(ClientResponse response) {
         return new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
-                ProviderSafetyReason.HTTP_RESPONSE_RECEIVED, ProviderHealthSignal.QUALIFYING_FAILURE,
+                ProviderSafetyReason.HTTP_RESPONSE_RECEIVED, healthSignal(response.statusCode().value()),
                 response.statusCode().value(), providerRequestId(response), true, null);
+    }
+
+    private static ProviderHealthSignal healthSignal(int status) {
+        return status == 401 || status == 403 || status == 404
+                ? ProviderHealthSignal.ROUTE_CONFIGURATION_FAILURE
+                : status >= 400 && status < 500 && status != 429
+                        ? ProviderHealthSignal.NONE : ProviderHealthSignal.QUALIFYING_FAILURE;
     }
 
     private static ProviderChatStreamEvent enforceHardDeadline(ProviderChatStreamEvent event,
@@ -197,15 +206,20 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
         return response.headers().asHttpHeaders().getFirst("x-request-id");
     }
 
+    private static String boundedRouteDecisionId(String routeDecisionId) {
+        if (routeDecisionId == null || routeDecisionId.isBlank()) return "unknown-route";
+        var trimmed = routeDecisionId.trim();
+        return trimmed.length() <= 128 ? trimmed : trimmed.substring(0, 128);
+    }
+
     private static ProviderExecutionException mapTransportError(Throwable ex) {
         if (ex instanceof ProviderExecutionException providerError) return providerError;
-        var root = rootCause(ex);
-        if (root instanceof java.net.UnknownHostException) return safe(ProviderSafetyReason.DNS_PRE_CONNECT, ex);
-        if (root instanceof io.netty.channel.ConnectTimeoutException) return safe(ProviderSafetyReason.CONNECT_TIMEOUT_PRE_WRITE, ex);
-        if (root instanceof java.net.ConnectException) return safe(ProviderSafetyReason.CONNECT_REFUSED_PRE_WRITE, ex);
-        if (root instanceof javax.net.ssl.SSLHandshakeException) return safe(ProviderSafetyReason.TLS_HANDSHAKE_PRE_HTTP_WRITE, ex);
+        if (hasCause(ex, java.net.UnknownHostException.class)) return safe(ProviderSafetyReason.DNS_PRE_CONNECT, ex);
+        if (hasCause(ex, io.netty.channel.ConnectTimeoutException.class)) return safe(ProviderSafetyReason.CONNECT_TIMEOUT_PRE_WRITE, ex);
+        if (hasCause(ex, java.net.ConnectException.class)) return safe(ProviderSafetyReason.CONNECT_REFUSED_PRE_WRITE, ex);
+        if (hasCause(ex, javax.net.ssl.SSLHandshakeException.class)) return safe(ProviderSafetyReason.TLS_HANDSHAKE_PRE_HTTP_WRITE, ex);
         if (isTimeout(ex)) return billable(ProviderSafetyReason.HEADER_TIMEOUT_WRITE_POSSIBLE, ex, false);
-        if (root instanceof java.net.SocketException) return billable(ProviderSafetyReason.CONNECTION_RESET_WRITE_POSSIBLE, ex, true);
+        if (hasCause(ex, java.net.SocketException.class)) return billable(ProviderSafetyReason.CONNECTION_RESET_WRITE_POSSIBLE, ex, true);
         return billable(ProviderSafetyReason.UNKNOWN_POST_DISPATCH, ex, true);
     }
 
@@ -224,6 +238,14 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
         var current = reactor.core.Exceptions.unwrap(ex);
         while (current.getCause() != null && current.getCause() != current) current = current.getCause();
         return current;
+    }
+
+    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+        for (var current = reactor.core.Exceptions.unwrap(error); current != null;
+                current = current.getCause()) {
+            if (type.isInstance(current)) return true;
+        }
+        return false;
     }
 
     private static boolean isTimeout(Throwable ex) {

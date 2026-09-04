@@ -167,6 +167,7 @@ public class BudgetReservationService {
 
     private AdmissionResult noBudget(GatewayPrincipal principal, AdmissionCommand command) {
         if ("REQUIRED".equals(principal.budgetEnforcementMode())) {
+            persistTerminalBudgetRejection(command);
             // Terminal business result: persist REJECTED_BUDGET inside TX1 and
             // return it. Throwing here would roll the rejection back; the
             // caller maps the outcome to GATEWAY_BUDGET_EXHAUSTED after commit.
@@ -196,7 +197,19 @@ public class BudgetReservationService {
 
     private AdmissionResult insufficient(
             GatewayPrincipal principal, AdmissionCommand command) {
+        persistTerminalBudgetRejection(command);
         return new AdmissionResult(AdmissionOutcome.REJECTED_BUDGET, -1L, -1L, null);
+    }
+
+    private void persistTerminalBudgetRejection(AdmissionCommand command) {
+        if (command.candidateOnly()) {
+            return;
+        }
+        if (requestMapper.markRequestRejectedBudget(
+                command.requestId(), command.principal().organizationId(), command.billingPeriodId()) != 1) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Request cannot reach rejected budget state");
+        }
     }
 
     private AdmissionResult replayExisting(
@@ -227,7 +240,20 @@ public class BudgetReservationService {
             long pricingVersionId,
             String currency,
             long effectiveMaxOutputTokens,
-            long expectedBudgetId) {
+            long expectedBudgetId,
+            boolean candidateOnly) {
+        public AdmissionCommand(
+                GatewayPrincipal principal,
+                long requestId,
+                long routeAttemptId,
+                long billingPeriodId,
+                long pricingVersionId,
+                String currency,
+                long effectiveMaxOutputTokens,
+                long expectedBudgetId) {
+            this(principal, requestId, routeAttemptId, billingPeriodId, pricingVersionId,
+                    currency, effectiveMaxOutputTokens, expectedBudgetId, false);
+        }
     }
 
     public record AdmissionResult(

@@ -24,6 +24,7 @@ class OpenAiChatAdapterTest {
     private static HttpServer server;
     private static volatile boolean stream;
     private static volatile String auth;
+    private static volatile String clientRequestId;
     private static volatile String body;
     private OpenAiChatAdapter adapter;
 
@@ -32,6 +33,7 @@ class OpenAiChatAdapterTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
             auth = exchange.getRequestHeaders().getFirst("Authorization");
+            clientRequestId = exchange.getRequestHeaders().getFirst("X-Client-Request-Id");
             body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             var response = stream
                     ? "data: {\"id\":\"s1\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\n\n"
@@ -56,6 +58,7 @@ class OpenAiChatAdapterTest {
     void setUp() {
         stream = false;
         auth = null;
+        clientRequestId = null;
         body = null;
         adapter = new OpenAiChatAdapter(WebClient.builder(), new ObjectMapper(),
                 new GatewayProperties(), new MockEnvironment());
@@ -67,6 +70,7 @@ class OpenAiChatAdapterTest {
         assertThat(result.providerRequestId()).isEqualTo("req-openai-1");
         assertThat(result.choices().get(0).content()).isEqualTo("hello");
         assertThat(auth).isEqualTo("Bearer bearer-secret");
+        assertThat(clientRequestId).isEqualTo("route-openai");
         assertThat(body).contains("\"model\":\"gpt-test\"").doesNotContain("stream_options");
     }
 
@@ -75,6 +79,7 @@ class OpenAiChatAdapterTest {
         stream = true;
         var events = adapter.stream(context(), command(true)).collectList().block();
         assertThat(body).contains("\"stream\":true", "\"include_usage\":true");
+        assertThat(clientRequestId).isEqualTo("route-openai");
         assertThat(events).extracting(Object::getClass)
                 .containsExactly(ProviderChatStreamEvent.Delta.class,
                         ProviderChatStreamEvent.Metering.class, ProviderChatStreamEvent.Done.class);

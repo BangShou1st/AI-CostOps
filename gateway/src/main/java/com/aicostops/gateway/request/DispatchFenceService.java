@@ -79,6 +79,22 @@ public class DispatchFenceService {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                     "Request cannot be found for dispatch");
         }
+        var routeAttempt = requestMapper.findAttemptById(orgId, routeAttemptId);
+        if (routeAttempt == null) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Route attempt cannot be found for dispatch");
+        }
+        // A concurrent replay may converge on the same attempt after the
+        // winner already crossed TX2. It must observe the durable in-progress
+        // identity, not turn the second mark into a generic dependency error.
+        if (!"PLANNED".equals(routeAttempt.status())) {
+            if (!IN_PROGRESS_STATES.contains(existing.state())) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                        "Route attempt cannot reach dispatch intent");
+            }
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
+                    "The same idempotency identity is already being dispatched");
+        }
         boolean firstAttempt = existing.state().equals("VALIDATED") || existing.state().equals("RESERVED");
         if (!firstAttempt) {
             if (!Set.of("DISPATCH_INTENT", "UPSTREAM_ACTIVE").contains(existing.state())

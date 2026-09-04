@@ -34,6 +34,12 @@ public record ResolvedRoutingPolicy(
         public RouteIdentity identity() {
             return new RouteIdentity(providerAccountId, providerModelId);
         }
+
+        public Candidate withPricing(Long newPricingVersionId, String newCurrency) {
+            return new Candidate(id, priority, providerAccountId, providerCode, providerModelId,
+                    providerModelName, newPricingVersionId, newCurrency, baseUrl, adapterCode,
+                    credentialReady, routingEligible, chatCapable, streamCapable);
+        }
     }
 
     public record RouteIdentity(long providerAccountId, long providerModelId) {

@@ -106,7 +106,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                             .flatMap(body -> Mono.<ProviderChatCompletion>error(new ProviderExecutionException(
                                     ProviderSafetyOutcome.BILLABLE_POSSIBLE,
                                     ProviderSafetyReason.HTTP_RESPONSE_RECEIVED,
-                                    ProviderHealthSignal.QUALIFYING_FAILURE,
+                                    healthSignal(response.statusCode().value()),
                                     response.statusCode().value(),
                                     providerRequestId(response), true, null)));
                 })
@@ -147,7 +147,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                                     .flatMapMany(body -> Flux.error(new ProviderExecutionException(
                                             ProviderSafetyOutcome.BILLABLE_POSSIBLE,
                                             ProviderSafetyReason.HTTP_RESPONSE_RECEIVED,
-                                            ProviderHealthSignal.QUALIFYING_FAILURE,
+                                             healthSignal(response.statusCode().value()),
                                             response.statusCode().value(),
                                             providerRequestId(response), true, null)));
                         }
@@ -249,23 +249,22 @@ public class MimoChatAdapter implements ProviderChatAdapter {
         if (ex instanceof GatewayErrorException gatewayError) {
             return gatewayError;
         }
-        var root = rootCause(ex);
-        if (root instanceof java.net.UnknownHostException) {
+        if (hasCause(ex, java.net.UnknownHostException.class)) {
             return new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
                     ProviderSafetyReason.DNS_PRE_CONNECT, ProviderHealthSignal.QUALIFYING_FAILURE,
                     null, null, false, ex);
         }
-        if (root instanceof io.netty.channel.ConnectTimeoutException) {
+        if (hasCause(ex, io.netty.channel.ConnectTimeoutException.class)) {
             return new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
                     ProviderSafetyReason.CONNECT_TIMEOUT_PRE_WRITE, ProviderHealthSignal.QUALIFYING_FAILURE,
                     null, null, false, ex);
         }
-        if (root instanceof java.net.ConnectException) {
+        if (hasCause(ex, java.net.ConnectException.class)) {
             return new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
                     ProviderSafetyReason.CONNECT_REFUSED_PRE_WRITE, ProviderHealthSignal.QUALIFYING_FAILURE,
                     null, null, false, ex);
         }
-        if (root instanceof javax.net.ssl.SSLHandshakeException) {
+        if (hasCause(ex, javax.net.ssl.SSLHandshakeException.class)) {
             return new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
                     ProviderSafetyReason.TLS_HANDSHAKE_PRE_HTTP_WRITE, ProviderHealthSignal.QUALIFYING_FAILURE,
                     null, null, false, ex);
@@ -275,7 +274,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                     ProviderSafetyReason.HEADER_TIMEOUT_WRITE_POSSIBLE, ProviderHealthSignal.QUALIFYING_FAILURE,
                     null, null, false, ex);
         }
-        if (root instanceof java.net.SocketException) {
+        if (hasCause(ex, java.net.SocketException.class)) {
             return new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
                     ProviderSafetyReason.CONNECTION_RESET_WRITE_POSSIBLE, ProviderHealthSignal.QUALIFYING_FAILURE,
                     null, null, true, ex);
@@ -285,10 +284,25 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                 null, null, true, ex);
     }
 
+    private static ProviderHealthSignal healthSignal(int status) {
+        return status == 401 || status == 403 || status == 404
+                ? ProviderHealthSignal.ROUTE_CONFIGURATION_FAILURE
+                : status >= 400 && status < 500 && status != 429
+                        ? ProviderHealthSignal.NONE : ProviderHealthSignal.QUALIFYING_FAILURE;
+    }
+
     private static Throwable rootCause(Throwable ex) {
         Throwable current = reactor.core.Exceptions.unwrap(ex);
         while (current.getCause() != null && current.getCause() != current) current = current.getCause();
         return current;
+    }
+
+    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+        for (var current = reactor.core.Exceptions.unwrap(error); current != null;
+                current = current.getCause()) {
+            if (type.isInstance(current)) return true;
+        }
+        return false;
     }
 
     private static String providerRequestId(org.springframework.web.reactive.function.client.ClientResponse response) {

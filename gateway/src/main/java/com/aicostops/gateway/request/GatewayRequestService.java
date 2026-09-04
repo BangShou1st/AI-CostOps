@@ -77,6 +77,43 @@ public class GatewayRequestService {
         return blockingIo.call(() -> authorizeAndFenceBlocking(command));
     }
 
+    /**
+     * Validates the request identity and catalog context without selecting a
+     * Provider route. The M14 orchestrator owns candidate ordering, circuit
+     * filtering, per-candidate admission and TX2.
+     */
+    public Mono<AuthorizedRequest> authorizeForRouting(AuthorizeCommand command) {
+        return blockingIo.call(() -> authorizeForRoutingBlocking(command));
+    }
+
+    private AuthorizedRequest authorizeForRoutingBlocking(AuthorizeCommand command) {
+        var now = Instant.now(clock);
+        var principal = command.principal();
+
+        identityService.validateIdempotencyKey(command.rawIdempotencyKey());
+        var idemDigest = identityService.idempotencyKeyDigest(command.rawIdempotencyKey());
+        var fingerprint = identityService.requestFingerprint(command.rawBodyBytes());
+        if (!readMapper.findActiveModelIds(principal.credentialId())
+                .contains(command.logicalModelId())) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
+                    "The requested model is not allowed for this credential");
+        }
+        var model = readMapper.findModelById(command.logicalModelId());
+        if (model == null || !"ACTIVE".equals(model.status())) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
+                    "The requested model is not active");
+        }
+        var periodId = readMapper.findOpenBillingPeriodId(principal.organizationId(), now);
+        if (periodId == null) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "No open billing period is available for dispatch");
+        }
+        var request = convergeExistingOrCreate(principal, command, idemDigest, fingerprint);
+        return new AuthorizedRequest(request.requestId(), request.publicRequestId(),
+                principal, command, model.id(), model.modelKey(), model.maxOutputTokens(),
+                model.defaultMaxOutputTokens(), periodId);
+    }
+
     private DispatchResult authorizeAndFenceBlocking(AuthorizeCommand command) {
         var now = Instant.now(clock);
         var principal = command.principal();
@@ -263,6 +300,9 @@ public class GatewayRequestService {
             case "TRANSPORT_COMPLETED" -> throw new GatewayErrorException(
                     GatewayErrorCode.GATEWAY_RESPONSE_NOT_RETAINED,
                     "This idempotency identity already completed and its response is not retained");
+            case "FAILED_PRE_DISPATCH" -> throw new GatewayErrorException(
+                    GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
+                    "This idempotency identity already ended without a Provider dispatch");
             default -> throw new GatewayErrorException(
                     GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
                     "This idempotency identity is still being processed or is financially uncertain");
@@ -297,6 +337,18 @@ public class GatewayRequestService {
             String adapterCode,
             String providerModelName,
             long logicalModelId,
+            int maxOutputTokens,
+            Integer defaultMaxOutputTokens,
+            long billingPeriodId) {
+    }
+
+    public record AuthorizedRequest(
+            long requestId,
+            String publicRequestId,
+            GatewayPrincipal principal,
+            AuthorizeCommand command,
+            long logicalModelId,
+            String modelKey,
             int maxOutputTokens,
             Integer defaultMaxOutputTokens,
             long billingPeriodId) {

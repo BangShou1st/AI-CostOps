@@ -2,6 +2,8 @@ package com.aicostops.gateway.request;
 
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import com.aicostops.gateway.provider.ProviderSafetyReason;
+import com.aicostops.gateway.web.GatewayErrorCode;
+import com.aicostops.gateway.web.GatewayErrorException;
 import java.util.Objects;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -31,8 +33,10 @@ public class RouteAttemptCoordinator {
             var previous = mapper.findLatestAttempt(orgId, requestId);
             int attemptNo = previous == null ? 1 : previous.attemptNo() + 1;
             if (previous != null && (!"SAFE_NO_BILLABLE_EXECUTION".equals(previous.status())
+                    || "INITIAL_PRIMARY".equals(routeReasonCode)
                     || mapper.countNonSafeAttempts(orgId, requestId) != 0)) {
-                throw new IllegalStateException("A later route attempt requires all predecessors to be SAFE");
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
+                        "The same idempotency identity is already being dispatched");
             }
             var decisionId = identity.newRouteDecisionId();
             try {
