@@ -39,7 +39,8 @@ public final class MimoWireDtos {
             String object,
             Long created,
             String model,
-            List<WireChunkChoice> choices) {
+            List<WireChunkChoice> choices,
+            WireUsage usage) {
     }
 
     public record WireChunkChoice(Integer index, WireDelta delta, String finish_reason) {

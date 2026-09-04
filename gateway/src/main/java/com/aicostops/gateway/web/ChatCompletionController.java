@@ -10,6 +10,7 @@ import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
+import com.aicostops.gateway.provider.ProviderChatStreamEvent;
 import com.aicostops.gateway.provider.ProviderCredentialDecryptor;
 import com.aicostops.gateway.quota.GatewayQuotaLimiter;
 import com.aicostops.gateway.ratelimit.GatewayRateLimiter;
@@ -248,17 +249,19 @@ public class ChatCompletionController {
                     .thenMany(chatAdapter.stream(context, command))
                     // Record a genuine upstream terminal [DONE]; takeWhile stops
                     // the data flow at DONE without forwarding the marker itself.
-                    .takeWhile(chunk -> {
-                        if (chunk.done()) {
+                    .takeWhile(event -> {
+                        if (event instanceof ProviderChatStreamEvent.Done) {
                             upstreamDone.set(true);
                             return false;
                         }
                         return true;
                     })
-                    .map(chunk -> ServerSentEvent.<String>builder()
+                    .filter(ProviderChatStreamEvent.Delta.class::isInstance)
+                    .map(event -> (ProviderChatStreamEvent.Delta) event)
+                    .map(delta -> ServerSentEvent.<String>builder()
                             // Leading space produces the OpenAI-compatible "data: " prefix:
                             // Spring's SSE writer writes "data:" + value without a space.
-                            .data(" " + sseEncoder.encodeChunk(chunk, request.model(), fallbackId))
+                            .data(" " + sseEncoder.encodeChunk(delta, request.model(), fallbackId))
                             .build())
                     // Exactly one downstream [DONE] only when the upstream
                     // protocol genuinely terminated with [DONE]. A clean EOF

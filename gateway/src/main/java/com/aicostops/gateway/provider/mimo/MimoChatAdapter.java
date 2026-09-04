@@ -3,8 +3,8 @@ package com.aicostops.gateway.provider.mimo;
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
-import com.aicostops.gateway.provider.ProviderChatChunk;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
+import com.aicostops.gateway.provider.ProviderChatStreamEvent;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
@@ -98,7 +98,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     }
 
     @Override
-    public Flux<ProviderChatChunk> stream(
+    public Flux<ProviderChatStreamEvent> stream(
             ProviderCallContext context, ChatCompletionCommand command) {
         if (enforceProductionEndpoint) {
             MimoEndpointPolicy.validate(context.baseUrl());
@@ -141,16 +141,16 @@ public class MimoChatAdapter implements ProviderChatAdapter {
         });
     }
 
-    private static ProviderChatChunk enforceHardDeadline(
-            ProviderChatChunk chunk, long startNanos, int hardTimeoutMs) {
+    private static ProviderChatStreamEvent enforceHardDeadline(
+            ProviderChatStreamEvent event, long startNanos, int hardTimeoutMs) {
         if (System.nanoTime() - startNanos > hardTimeoutMs * 1_000_000L) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_TIMEOUT,
                     "Provider stream hard deadline exceeded");
         }
-        return chunk;
+        return event;
     }
 
-    private Flux<ProviderChatChunk> decodeEvents(MimoSseDecoder decoder, DataBuffer buffer) {
+    private Flux<ProviderChatStreamEvent> decodeEvents(MimoSseDecoder decoder, DataBuffer buffer) {
         try {
             var bytes = new byte[buffer.readableByteCount()];
             buffer.read(bytes);
@@ -160,22 +160,25 @@ public class MimoChatAdapter implements ProviderChatAdapter {
         }
     }
 
-    private ProviderChatChunk parseChunk(String payload) {
+    private ProviderChatStreamEvent parseChunk(String payload) {
         if (DONE_MARKER.equals(payload)) {
-            return new ProviderChatChunk(null, 0L, null, null, true);
+            return new ProviderChatStreamEvent.Done();
         }
         try {
             var wire = objectMapper.readValue(payload, MimoWireDtos.WireChunk.class);
+            var created = wire.created() == null ? 0L : wire.created();
+            if (wire.usage() != null) {
+                return new ProviderChatStreamEvent.Metering(
+                        wire.id(), created, wire.model(),
+                        wire.usage().prompt_tokens(),
+                        wire.usage().completion_tokens(),
+                        wire.usage().total_tokens());
+            }
             var choice = wire.choices() == null || wire.choices().isEmpty()
                     ? null : wire.choices().get(0);
             var content = choice == null || choice.delta() == null
                     ? null : choice.delta().content();
-            return new ProviderChatChunk(
-                    wire.id(),
-                    wire.created() == null ? 0L : wire.created(),
-                    wire.model(),
-                    content,
-                    false);
+            return new ProviderChatStreamEvent.Delta(wire.id(), created, wire.model(), content);
         } catch (Exception ex) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
                     "Provider returned a malformed stream event");

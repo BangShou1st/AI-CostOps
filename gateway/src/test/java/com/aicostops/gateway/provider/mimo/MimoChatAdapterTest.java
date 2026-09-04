@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.provider.ProviderCallContext;
+import com.aicostops.gateway.provider.ProviderChatStreamEvent;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
@@ -41,7 +42,7 @@ class MimoChatAdapterTest {
 
     enum Scenario {
         OK, NO_USAGE, ERROR_400, ERROR_401, ERROR_403, ERROR_413, ERROR_429, ERROR_500, ERROR_503,
-        DELAY
+        DELAY, STREAM_MIXED, STREAM_MISSING_OUTPUT
     }
 
     private static HttpServer server;
@@ -76,6 +77,11 @@ class MimoChatAdapterTest {
                 case ERROR_500 -> respond(exchange, 500, "{\"error\":{\"message\":\"boom\"}}");
                 case ERROR_503 -> respond(exchange, 503, "{\"error\":{\"message\":\"unavailable\"}}");
                 case DELAY -> sleep(2000L);
+                case STREAM_MIXED -> respond(exchange, 200, "data: {\"id\":\"stream-1\",\"created\":1788000002,\"model\":\"mimo-v2.5-pro\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}\n\n"
+                        + "data: {\"id\":\"stream-1\",\"created\":1788000002,\"model\":\"mimo-v2.5-pro\",\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\n"
+                        + "data: [DONE]\n\n");
+                case STREAM_MISSING_OUTPUT -> respond(exchange, 200, "data: {\"id\":\"stream-2\",\"created\":1788000003,\"model\":\"mimo-v2.5-pro\",\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"total_tokens\":5}}\n\n"
+                        + "data: [DONE]\n\n");
             }
             exchange.close();
         });
@@ -184,6 +190,35 @@ class MimoChatAdapterTest {
                 .satisfies(ex -> assertThat(((GatewayErrorException) ex).code())
                         .isEqualTo(GatewayErrorCode.GATEWAY_UPSTREAM_TIMEOUT));
         assertThat(REQUESTS.get()).isEqualTo(1);
+    }
+
+    @Test
+    void normalizesDeltaUsageOnlyAndDoneAsDistinctStreamingEvents() {
+        scenario = Scenario.STREAM_MIXED;
+
+        var events = adapter.stream(context(), command()).collectList().block();
+
+        assertThat(events).hasSize(3);
+        assertThat(events.get(0)).isInstanceOf(ProviderChatStreamEvent.Delta.class);
+        assertThat(((ProviderChatStreamEvent.Delta) events.get(0)).deltaContent()).isEqualTo("Hello");
+        assertThat(events.get(1)).isInstanceOf(ProviderChatStreamEvent.Metering.class);
+        var metering = (ProviderChatStreamEvent.Metering) events.get(1);
+        assertThat(metering.promptTokens()).isEqualTo(5);
+        assertThat(metering.completionTokens()).isEqualTo(3);
+        assertThat(events.get(2)).isEqualTo(new ProviderChatStreamEvent.Done());
+    }
+
+    @Test
+    void missingStreamingUsageComponentStaysNullAndIsNeverFabricatedAsZero() {
+        scenario = Scenario.STREAM_MISSING_OUTPUT;
+
+        var events = adapter.stream(context(), command()).collectList().block();
+
+        var metering = (ProviderChatStreamEvent.Metering) events.get(0);
+        assertThat(metering.promptTokens()).isEqualTo(5);
+        assertThat(metering.completionTokens()).isNull();
+        assertThat(metering.totalTokens()).isEqualTo(5);
+        assertThat(events.get(1)).isEqualTo(new ProviderChatStreamEvent.Done());
     }
 
     private static ChatCompletionCommand command() {

@@ -1,13 +1,13 @@
 package com.aicostops.gateway.web;
 
-import com.aicostops.gateway.provider.ProviderChatChunk;
+import com.aicostops.gateway.provider.ProviderChatStreamEvent;
 import java.util.LinkedHashMap;
 import java.util.List;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Serializes one normalized {@link ProviderChatChunk} into the public
+ * Serializes one normalized {@link ProviderChatStreamEvent.Delta} into the public
  * OpenAI-compatible {@code chat.completion.chunk} payload carried inside an
  * SSE {@code data:} event. Payloads are emitted incrementally; the stream is
  * never buffered for response replay. The terminal {@code data: [DONE]}
@@ -25,7 +25,8 @@ public final class GatewaySseEncoder {
     }
 
     /** Serializes one chunk; {@code fallbackId} is used when the Provider has no upstream id. */
-    public String encodeChunk(ProviderChatChunk chunk, String logicalModelKey, String fallbackId) {
+    public String encodeChunk(ProviderChatStreamEvent.Delta chunk,
+            String logicalModelKey, String fallbackId) {
         var payload = new LinkedHashMap<String, Object>();
         payload.put("id", chunk.upstreamId() == null ? fallbackId : chunk.upstreamId());
         payload.put("object", "chat.completion.chunk");
