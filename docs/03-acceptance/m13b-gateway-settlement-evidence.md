@@ -7,9 +7,9 @@
 - Frozen base: `19148d3b58789d6269ccbf7e77b7a0f24de67767`
 - Spec: `origin/docs/m13-metering-settlement-design:docs/superpowers/specs/2026-09-04-m13-metering-settlement-design.md`
 - Plan: `origin/docs/m13-metering-settlement-design:docs/superpowers/plans/2026-09-04-m13b-gateway-settlement-plan.md`
-- Implementation SHA before this evidence commit: `57e79a5`
-- Evidence SHA: `c3a2f305974c4d19c8301a29ae5293f3f1059d2a` (core evidence commit;
-  this hosted-verification metadata follows it)
+- Implementation SHA before this evidence commit: `69f0b6b0880872f9b0389c0c0ea1fa8a9e542216`
+- Evidence SHA: this correctness-refresh docs commit (recorded by the following
+  metadata commit); the final PR head is recorded separately after hosted CI.
 
 The implementation follows the frozen TDD, systematic-debugging, verification, and
 review workflow. No Superpowers package is installed in this local checkout; the
@@ -51,12 +51,26 @@ review checks were executed locally.
 - The formal MySQL transaction locks exactly:
   `BillingPeriod -> bound Budget -> explicit Commitment -> bound Reservation -> GatewaySettlement -> Ledger`.
   It revalidates current FINAL usage and all frozen lineage before posting.
+- The period lock reads the exact period row without requiring OPEN, then applies
+  the close boundary explicitly: `CLOSING` produces bounded `RETRYABLE_FAILED`
+  with `PERIOD_CLOSING` and a later worker retry; `CLOSED` produces
+  `RECONCILIATION_REQUIRED` with `BILLING_PERIOD_CLOSED`. Neither path performs
+  Ledger, Actual, Commitment, Reservation, or Audit financial mutation.
 - A Gateway Settlement creates one SYSTEM `GATEWAY_SETTLEMENT` posting and one COST
   entry. Budget Actual increments by the full incurred posted amount, including the
   overrun case `reserved=1.00`, `actual=1.80` => `actual += 1.80`.
 - A null Commitment is untouched. A non-null Commitment locks and consumes only that
   exact bound Commitment, using the existing consume primitive; insufficient remaining
   commitment does not cap the full Actual or Ledger amount.
+- An explicit Commitment with zero posted amount skips the positive-only consume
+  primitive, preserving Commitment and Budget committed amount while still writing
+  the zero COST Ledger entry, zero Actual, Audit, reservation finalization, and
+  `SETTLED` outcome.
+- Existing Gateway Settlement Ledger posting/source/entry conflicts are represented
+  by a dedicated semantic conflict type and translated to
+  `LEDGER_LINEAGE_CONFLICT -> RECONCILIATION_REQUIRED` only at the
+  `gatewayLedger.post(...)` boundary; unrelated `IllegalStateException` failures
+  still escape and roll back.
 - Only the bound reservation may be finalized, and only from ACTIVE/PENDING_HOLD;
   RELEASED or mismatched lineage goes to reconciliation. Successful completion writes
   audit, finalizes the reservation, and marks Settlement SETTLED in the same commit.
@@ -69,15 +83,23 @@ review checks were executed locally.
 - Duplicate discovery, sequential duplicate processing, concurrent workers, and retry
   paths converge to one Settlement, one Ledger posting, one Actual mutation, one
   audit, and one reservation finalization.
-- Fault injection after Ledger insertion, after Actual mutation, after audit, and just
-  before SETTLED proved full rollback: no partial financial mutation remains.
+- Fault injection after Ledger insertion, after Actual mutation, after audit, and at
+  `BEFORE_SETTLEMENT_SETTLED` (after reservation finalization) proves full rollback:
+  no partial financial mutation remains, the reservation returns to ACTIVE with
+  `finalized_at=NULL`, the explicit Commitment and its usage lineage are unchanged,
+  and the Settlement remains pending.
 - Close keeps `PENDING_GATEWAY_FINANCIAL_WORK`. It blocks absent/non-final usage,
-  non-SETTLED current FINAL usage, and ACTIVE/PENDING_HOLD reservations. A
-  FAILED_AFTER_DISPATCH request with current FINAL usage, SETTLED Settlement, and
-  FINALIZED reservation is financially terminal and does not block.
-- Real Testcontainers MySQL race coverage proves both period-first sequences:
-  Settlement commits before Close evaluates, and Close closes first so a later
-  Settlement becomes reconciliation-required without Ledger/Actual mutation.
+  non-SETTLED current FINAL usage, and ACTIVE/PENDING_HOLD reservations. The matrix
+  explicitly covers no usage, INCOMPLETE, UNKNOWN, FINAL without Settlement, FINAL
+  with PENDING/RETRYABLE_FAILED/RECONCILIATION_REQUIRED, ACTIVE, and PENDING_HOLD.
+  FINAL + SETTLED + FINALIZED passes for both completed and failed transport; a
+  FAILED_AFTER_DISPATCH request with that same financial truth is terminal and does
+  not block. Only the existing `PENDING_GATEWAY_FINANCIAL_WORK` blocker code is used.
+- Real Testcontainers MySQL race coverage proves both sequences with the actual
+  `PeriodCloseService`: Settlement wins, Close waits and then closes from committed
+  terminal truth; Close wins, Settlement records `PERIOD_CLOSING` retryable work,
+  Close returns OPEN/BLOCKED, and the due worker retry settles it. A genuinely CLOSED
+  period routes a later Settlement to reconciliation without Ledger/Actual mutation.
 
 ## RED/GREEN checkpoints
 
@@ -89,8 +111,9 @@ review checks were executed locally.
   the corrected exact BigDecimal boundary suite is GREEN.
 - Ledger: SYSTEM actor/source and one-entry cardinality tests GREEN.
 - Atomic transaction: happy path, optional unbudgeted, explicit/null Commitment,
-  RELEASED reservation, overrun, rollback injection, duplicate worker, and Close race
-  suites GREEN.
+  zero-cost explicit Commitment, RELEASED reservation, overrun, rollback injections
+  including `BEFORE_SETTLEMENT_SETTLED`, existing Ledger lineage conflict, duplicate
+  worker, and real Close races are covered by the correctness-refresh tests.
 
 ## Verification totals
 
@@ -99,8 +122,9 @@ Backend:
 - Unit: 487 tests, 0 failures, 0 errors, 1 skipped.
 - Architecture: 36 tests, 0 failures, 0 errors.
 - Full integration: 862 tests, 0 failures, 0 errors.
-- Settlement transaction integration: 11 tests, 0 failures, 0 errors.
-- Close integration: 9 tests, 0 failures, 0 errors.
+- Settlement transaction integration: 14 tests in the correctness-refresh suite.
+- Real Close coordinator integration: 7 tests in the correctness-refresh suite.
+- Gateway Close blocker integration: 14 tests in the correctness-refresh suite.
 
 Gateway regression:
 
@@ -129,10 +153,9 @@ gateway: .\\mvnw.cmd -B -Dgroups=integration verify
 - No M14, M15, FX, negative realtime credits, new Provider calls, credential
   decryption, Redis financial truth, new Budget fallback selection, or new Commitment
   binding policy was added.
-- Hosted CI: passed on PR #143 run `33879074112` for the implementation head
-  `c3a2f305974c4d19c8301a29ae5293f3f1059d2a`; backend architecture/unit/integration,
-  gateway architecture/unit/integration, frontend, Docker, and browser E2E passed.
-- Hosted Security: passed on PR #143; CodeQL Java/Kotlin, CodeQL JavaScript/TypeScript,
-  and Trivy passed.
+- Hosted CI and Security for the final PR head are recorded in the follow-up
+  evidence metadata commit. They must cover backend architecture/unit/integration,
+  gateway architecture/unit/integration, frontend, Docker, browser E2E, CodeQL
+  Java/Kotlin, CodeQL JavaScript/TypeScript, and Trivy.
 - PR #143: https://github.com/BangShou1st/AI-CostOps/pull/143, against `main`,
   closing #138. It remains OPEN/unmerged for independent Sol review.
