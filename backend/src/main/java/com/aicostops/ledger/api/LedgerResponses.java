@@ -70,7 +70,8 @@ public final class LedgerResponses {
                     posting.sourceType().name(), ApiId.of(posting.sourceId()),
                     posting.allocationDecisionId() == null ? null : ApiId.of(posting.allocationDecisionId()),
                     ApiId.of(posting.billingPeriodId()), posting.status(),
-                    ApiId.of(posting.postedByMemberId()), posting.postedAt(), posting.createdAt(),
+                    posting.postedByMemberId() == null ? null : ApiId.of(posting.postedByMemberId()),
+                    posting.postedAt(), posting.createdAt(),
                     detail.entries().stream().map(LedgerEntryResponse::from).toList());
         }
     }
@@ -119,7 +120,8 @@ public final class LedgerResponses {
                     posting.sourceType().name(), ApiId.of(posting.sourceId()),
                     posting.allocationDecisionId() == null ? null : ApiId.of(posting.allocationDecisionId()),
                     ApiId.of(posting.billingPeriodId()), posting.status(),
-                    ApiId.of(posting.postedByMemberId()), posting.postedAt(), posting.createdAt(),
+                    posting.postedByMemberId() == null ? null : ApiId.of(posting.postedByMemberId()),
+                    posting.postedAt(), posting.createdAt(),
                     view.visibleEntries().size(), visibleAmount, visibleCurrency, totalStrings,
                     view.visibleEntries().stream().map(LedgerEntryResponse::from).toList());
         }

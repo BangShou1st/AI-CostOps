@@ -3,5 +3,6 @@ package com.aicostops.ledger.domain;
 public enum LedgerSourceType {
     PROVIDER_CHARGE,
     EXPENSE_CLAIM,
-    CORRECTION
+    CORRECTION,
+    GATEWAY_SETTLEMENT
 }
