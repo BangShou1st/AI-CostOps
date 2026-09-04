@@ -102,7 +102,7 @@ public class BudgetReservationService {
         // 4. Idempotent replay: the same route attempt converges, never holds twice.
         var existing = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
         if (existing != null) {
-            return replayExisting(principal, command, existing);
+            return replayExisting(command, existing);
         }
         if (reservationMapper.countEffectiveHolds(orgId, command.requestId()) > 0) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
@@ -121,7 +121,7 @@ public class BudgetReservationService {
             reservedAmount = ReservationAmountCalculator.calculate(
                     calculatorRates, command.effectiveMaxOutputTokens());
         } catch (ReservationBoundException ex) {
-            return reservationImpossible(principal, command, locked);
+            return reservationImpossible(principal, command);
         }
 
         // 6. Realtime Available under the same Budget lock.
@@ -135,7 +135,7 @@ public class BudgetReservationService {
                 .subtract(effectiveHolds);
 
         if (available.compareTo(reservedAmount) < 0) {
-            return insufficient(principal, command, locked);
+            return insufficient(principal, command);
         }
 
         // 7. Insert the ACTIVE hold; a concurrent winner converges via replay.
@@ -152,7 +152,7 @@ public class BudgetReservationService {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                         "Reservation race could not converge");
             }
-            return replayExisting(principal, command, winner);
+            return replayExisting(command, winner);
         }
         var reservationId = reservationMapper.lastInsertId();
 
@@ -183,8 +183,7 @@ public class BudgetReservationService {
     }
 
     private AdmissionResult reservationImpossible(
-            GatewayPrincipal principal, AdmissionCommand command,
-            BudgetReservationMapper.BudgetRow locked) {
+            GatewayPrincipal principal, AdmissionCommand command) {
         // The bound cannot be safely evaluated: fail closed for both modes
         // (an existing Budget must be reserved against, never bypassed).
         // Persist the terminal rejection inside TX1 and let the caller map it
@@ -203,8 +202,7 @@ public class BudgetReservationService {
     }
 
     private AdmissionResult insufficient(
-            GatewayPrincipal principal, AdmissionCommand command,
-            BudgetReservationMapper.BudgetRow locked) {
+            GatewayPrincipal principal, AdmissionCommand command) {
         if (reservationMapper.markRequestRejectedBudget(
                 command.requestId(), principal.organizationId(),
                 command.billingPeriodId()) != 1) {
@@ -215,7 +213,7 @@ public class BudgetReservationService {
     }
 
     private AdmissionResult replayExisting(
-            GatewayPrincipal principal, AdmissionCommand command,
+            AdmissionCommand command,
             BudgetReservationMapper.ReservationRow existing) {
         if (!"ACTIVE".equals(existing.status())) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
