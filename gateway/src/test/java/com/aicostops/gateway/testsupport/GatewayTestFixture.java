@@ -188,8 +188,11 @@ public final class GatewayTestFixture {
         jdbc.update("DELETE FROM budget_reservation");
         jdbc.update("DELETE FROM budget");
         jdbc.update("UPDATE gateway_request SET current_route_attempt_id = NULL");
+        jdbc.update("UPDATE gateway_route_attempt SET routing_policy_id = NULL, routing_policy_candidate_id = NULL");
         jdbc.update("DELETE FROM gateway_route_attempt");
         jdbc.update("DELETE FROM gateway_request");
+        jdbc.update("DELETE FROM routing_policy_candidate");
+        jdbc.update("DELETE FROM routing_policy");
         jdbc.update("DELETE FROM gateway_credential_model");
         jdbc.update("DELETE FROM gateway_credential");
         jdbc.update("DELETE FROM provider_credential");
