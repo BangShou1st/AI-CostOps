@@ -357,6 +357,7 @@ public class ChatCompletionController {
         setCorrelationHeaders(exchange, result.publicRequestId());
         var requestId = result.requestId();
         var orgId = principal.organizationId();
+        var latestObservation = new AtomicReference<GatewayUsageObservation>();
         return buildProviderContext(principal, result)
                 .flatMap(context -> {
                     var command = new ChatCompletionCommand(
@@ -370,12 +371,15 @@ public class ChatCompletionController {
                     return lifecycleService.beginUpstream(requestId, orgId, result.routeAttemptId())
                             .then(chatAdapter.complete(context, command));
                 })
-                .flatMap(completion -> usageFinalization.finalizeSuccess(
-                                requestId, orgId, result.routeAttemptId(),
-                                GatewayUsageObservation.fromCompletion(completion, null))
-                        .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
-                                "MISSING_DIMENSION"))
-                        .thenReturn(completion))
+                .flatMap(completion -> {
+                    var observation = GatewayUsageObservation.fromCompletion(completion, null);
+                    latestObservation.set(observation);
+                    return usageFinalization.finalizeSuccess(
+                                    requestId, orgId, result.routeAttemptId(), observation)
+                            .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                    "MISSING_DIMENSION"))
+                            .thenReturn(completion);
+                })
                 .doOnSuccess(ignored -> metrics.recordRequestOutcome("COMPLETED"))
                 .onErrorResume(ex -> {
                     var timeout = isTimeout(ex);
@@ -385,9 +389,13 @@ public class ChatCompletionController {
                     var failure = timeout
                             ? GatewayUsageFinalizationService.TransportFailure.TIMED_OUT
                             : GatewayUsageFinalizationService.TransportFailure.FAILED;
+                    var observation = latestObservation.get();
+                    if (observation == null) {
+                        observation = GatewayUsageObservation.noUsage(null).withDispatched(true);
+                    }
                     var terminal = usageFinalization.finalizeFailure(
                                     requestId, orgId, result.routeAttemptId(),
-                                    GatewayUsageObservation.noUsage(null).withDispatched(true), failure)
+                                    observation, failure)
                             .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
                                     "POSTDISPATCH_UNCERTAINTY"))
                             .then()

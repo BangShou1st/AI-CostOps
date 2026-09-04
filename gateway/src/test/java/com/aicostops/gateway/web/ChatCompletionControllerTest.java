@@ -1,7 +1,14 @@
 package com.aicostops.gateway.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.verify;
 
+import com.aicostops.gateway.metering.GatewayUsageFinalizationService;
+import com.aicostops.gateway.metering.GatewayUsageObservation;
 import com.aicostops.gateway.testsupport.GatewayMySqlContainerSupport;
 import com.aicostops.gateway.testsupport.GatewayTestFixture;
 import com.aicostops.gateway.testsupport.GatewayTestFixture.SeededEnv;
@@ -21,8 +28,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.http.HttpHeaders;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import reactor.core.publisher.Mono;
+import org.mockito.ArgumentCaptor;
 
 /**
  * AIC-097 end-to-end HTTP surface with a controllable mock upstream: request
@@ -57,6 +67,9 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @MockitoSpyBean
+    private GatewayUsageFinalizationService usageFinalization;
 
     @LocalServerPort
     private int port;
@@ -159,6 +172,53 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
         assertThat(jdbc.queryForObject(
                 "SELECT state FROM gateway_request WHERE org_id=? ORDER BY id DESC LIMIT 1",
                 String.class, env.orgId())).isEqualTo("TRANSPORT_COMPLETED");
+    }
+
+    @Test
+    void nonStreamingFinalizationFailurePreservesProviderUsageForFailureConvergence() {
+        jdbc.update("UPDATE gateway_credential SET budget_enforcement_mode='REQUIRED' WHERE id=?",
+                env.credentialId());
+        doReturn(Mono.error(new IllegalStateException("injected finalization failure")))
+                .when(usageFinalization).finalizeSuccess(
+                        anyLong(), anyLong(), anyLong(), any(GatewayUsageObservation.class));
+
+        web.post().uri("/v1/chat/completions")
+                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", "ctrl-idem-finalization-failure")
+                .bodyValue(body(env))
+                .exchange()
+                .expectStatus().is5xxServerError();
+
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+
+        var observation = ArgumentCaptor.forClass(GatewayUsageObservation.class);
+        verify(usageFinalization).finalizeFailure(
+                anyLong(), eq(env.orgId()), anyLong(), observation.capture(),
+                eq(GatewayUsageFinalizationService.TransportFailure.FAILED));
+        assertThat(observation.getValue().inputTokens()).isEqualTo(5);
+        assertThat(observation.getValue().outputTokens()).isEqualTo(3);
+        assertThat(observation.getValue().totalTokens()).isEqualTo(8);
+
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM gateway_usage_fact WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("FINAL");
+        assertThat(jdbc.queryForObject(
+                "SELECT quantity FROM gateway_usage_dimension d JOIN gateway_usage_fact f "
+                        + "ON f.id=d.usage_fact_id WHERE f.org_id=? AND d.dimension_code='INPUT_TOKEN' "
+                        + "ORDER BY d.id DESC LIMIT 1",
+                java.math.BigDecimal.class, env.orgId())).isEqualByComparingTo("5");
+        assertThat(jdbc.queryForObject(
+                "SELECT quantity FROM gateway_usage_dimension d JOIN gateway_usage_fact f "
+                        + "ON f.id=d.usage_fact_id WHERE f.org_id=? AND d.dimension_code='OUTPUT_TOKEN' "
+                        + "ORDER BY d.id DESC LIMIT 1",
+                java.math.BigDecimal.class, env.orgId())).isEqualByComparingTo("3");
+        assertThat(jdbc.queryForObject(
+                "SELECT state FROM gateway_request WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("FAILED_AFTER_DISPATCH");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("PENDING_HOLD");
     }
 
     @Test
