@@ -93,6 +93,7 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
                         out.write(chunkFrame(1).getBytes(StandardCharsets.UTF_8));
                         out.write(chunkFrame(2).getBytes(StandardCharsets.UTF_8));
                         out.write(chunkFrame(3).getBytes(StandardCharsets.UTF_8));
+                        out.write(usageFrame().getBytes(StandardCharsets.UTF_8));
                         out.write(DONE_FRAME.getBytes(StandardCharsets.UTF_8));
                         out.flush();
                     }
@@ -247,6 +248,11 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
         assertThat(requestState()).isEqualTo("TRANSPORT_COMPLETED");
         assertThat(attemptStatus()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM gateway_usage_fact WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("FINAL");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_usage_dimension "
+                + "WHERE org_id=?", Integer.class, env.orgId())).isEqualTo(2);
     }
 
     @Test
@@ -415,6 +421,12 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
         return "data: {\"id\":\"chatcmpl_rst" + index + "\",\"object\":\"chat.completion.chunk\","
                 + "\"created\":1788000200,\"model\":\"mimo-v2.5-pro\","
                 + "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"t\"},\"finish_reason\":null}]}\n\n";
+    }
+
+    private static String usageFrame() {
+        return "data: {\"id\":\"chatcmpl_usage\",\"created\":1788000200,"
+                + "\"model\":\"mimo-v2.5-pro\",\"choices\":[],"
+                + "\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\n";
     }
 
     private static final String DONE_FRAME = "data: [DONE]\n\n";

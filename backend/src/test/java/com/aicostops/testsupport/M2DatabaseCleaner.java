@@ -29,6 +29,7 @@ public final class M2DatabaseCleaner {
         // other, while gateway_request carries the circular current pointer.
         jdbc.update("UPDATE gateway_request SET current_usage_fact_id = NULL");
         jdbc.update("DELETE FROM gateway_usage_dimension");
+        jdbc.update("UPDATE gateway_usage_fact SET supersedes_usage_fact_id = NULL");
         jdbc.update("DELETE FROM gateway_usage_fact");
         // M12 reservation boundary: budget_reservation references
         // gateway_request, gateway_route_attempt, billing_period, budget and

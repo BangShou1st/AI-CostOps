@@ -7,6 +7,8 @@ import com.aicostops.gateway.config.GatewayResourceLimiter;
 import com.aicostops.gateway.observability.CorrelationWebFilter;
 import com.aicostops.gateway.observability.GatewayMetrics;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
+import com.aicostops.gateway.metering.GatewayUsageFinalizationService;
+import com.aicostops.gateway.metering.GatewayUsageObservation;
 import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
@@ -30,6 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
@@ -69,6 +72,7 @@ public class ChatCompletionController {
     private final StreamingLifecycleService streamingLifecycle;
     private final ProviderCredentialDecryptor credentialDecryptor;
     private final ProviderChatAdapter chatAdapter;
+    private final GatewayUsageFinalizationService usageFinalization;
     private final GatewaySseEncoder sseEncoder;
     private final GatewayRateLimiter rateLimiter;
     private final GatewayQuotaLimiter quotaLimiter;
@@ -86,6 +90,7 @@ public class ChatCompletionController {
             StreamingLifecycleService streamingLifecycle,
             ProviderCredentialDecryptor credentialDecryptor,
             ProviderChatAdapter chatAdapter,
+            GatewayUsageFinalizationService usageFinalization,
             GatewaySseEncoder sseEncoder,
             GatewayRateLimiter rateLimiter,
             GatewayQuotaLimiter quotaLimiter,
@@ -101,6 +106,7 @@ public class ChatCompletionController {
         this.streamingLifecycle = streamingLifecycle;
         this.credentialDecryptor = credentialDecryptor;
         this.chatAdapter = chatAdapter;
+        this.usageFinalization = usageFinalization;
         this.sseEncoder = sseEncoder;
         this.rateLimiter = rateLimiter;
         this.quotaLimiter = quotaLimiter;
@@ -244,6 +250,7 @@ public class ChatCompletionController {
             var requestId = result.requestId();
             var orgId = principal.organizationId();
             var upstreamDone = new AtomicBoolean(false);
+            var latestMetering = new AtomicReference<GatewayUsageObservation>();
             Flux<ServerSentEvent<String>> body = lifecycleService
                     .beginUpstream(requestId, orgId, result.routeAttemptId())
                     .thenMany(chatAdapter.stream(context, command))
@@ -256,6 +263,13 @@ public class ChatCompletionController {
                         }
                         return true;
                     })
+                    // Metering is bounded state only; no content or reasoning
+                    // is accumulated and the usage-only frame is not forwarded.
+                    .doOnNext(event -> {
+                        if (event instanceof ProviderChatStreamEvent.Metering metering) {
+                            latestMetering.set(GatewayUsageObservation.fromMetering(metering, null));
+                        }
+                    })
                     .filter(ProviderChatStreamEvent.Delta.class::isInstance)
                     .map(event -> (ProviderChatStreamEvent.Delta) event)
                     .map(delta -> ServerSentEvent.<String>builder()
@@ -266,16 +280,25 @@ public class ChatCompletionController {
                     // Exactly one downstream [DONE] only when the upstream
                     // protocol genuinely terminated with [DONE]. A clean EOF
                     // without [DONE] must never be synthesized into success.
-                    .concatWith(Flux.defer(() -> upstreamDone.get()
-                            ? Flux.just(ServerSentEvent.<String>builder()
-                                    .data(" " + GatewaySseEncoder.DONE_PAYLOAD)
-                                    .build())
-                            : Flux.error(new GatewayErrorException(
+                    .concatWith(Flux.defer(() -> {
+                        if (!upstreamDone.get()) {
+                            return Flux.error(new GatewayErrorException(
                                     GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
-                                    "Provider stream ended without a terminal signal"))))
-                    .concatWith(Flux.defer(() -> lifecycleService
-                            .completeSuccess(requestId, orgId, result.routeAttemptId())
-                            .thenMany(Flux.empty())))
+                                    "Provider stream ended without a terminal signal"));
+                        }
+                        var observation = latestMetering.get();
+                        if (observation == null) {
+                            observation = GatewayUsageObservation.noUsage(null)
+                                    .withDispatched(true);
+                        }
+                        return usageFinalization.finalizeSuccess(
+                                        requestId, orgId, result.routeAttemptId(), observation)
+                                // Downstream [DONE] is intentionally after the
+                                // local fact+lifecycle transaction commits.
+                                .thenMany(Flux.just(ServerSentEvent.<String>builder()
+                                        .data(" " + GatewaySseEncoder.DONE_PAYLOAD)
+                                        .build()));
+                    }))
                     .onErrorResume(ex -> {
                         var timeout = isTimeout(ex);
                         metrics.recordRequestOutcome(timeout ? "TIMED_OUT" : "FAILED");
@@ -320,8 +343,9 @@ public class ChatCompletionController {
                     return lifecycleService.beginUpstream(requestId, orgId, result.routeAttemptId())
                             .then(chatAdapter.complete(context, command));
                 })
-                .flatMap(completion -> lifecycleService
-                        .completeSuccess(requestId, orgId, result.routeAttemptId())
+                .flatMap(completion -> usageFinalization.finalizeSuccess(
+                                requestId, orgId, result.routeAttemptId(),
+                                GatewayUsageObservation.fromCompletion(completion, null))
                         .thenReturn(completion))
                 .doOnSuccess(ignored -> metrics.recordRequestOutcome("COMPLETED"))
                 .onErrorResume(ex -> {
