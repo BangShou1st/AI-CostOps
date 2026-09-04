@@ -37,6 +37,9 @@ public class GatewayProperties implements InitializingBean {
     private long reservationTtlMs = 900000;
     private long reservationRecoveryIntervalMs = 60000;
     private int reservationRecoveryBatchSize = 100;
+    private int circuitFailureThreshold = 5;
+    private long circuitOpenDurationMs = 30000;
+    private long circuitHalfOpenLeaseMs = 15000;
 
     @Override
     public void afterPropertiesSet() {
@@ -60,6 +63,9 @@ public class GatewayProperties implements InitializingBean {
         requirePositive("reservationTtlMs", reservationTtlMs);
         requirePositive("reservationRecoveryIntervalMs", reservationRecoveryIntervalMs);
         requirePositive("reservationRecoveryBatchSize", reservationRecoveryBatchSize);
+        requirePositive("circuitFailureThreshold", circuitFailureThreshold);
+        requirePositive("circuitOpenDurationMs", circuitOpenDurationMs);
+        requirePositive("circuitHalfOpenLeaseMs", circuitHalfOpenLeaseMs);
         if (reservationTtlMs <= hardTimeoutMs) {
             throw new IllegalStateException(
                     "aicostops.gateway.reservation-ttl-ms must exceed hard-timeout-ms, got "
@@ -281,4 +287,11 @@ public class GatewayProperties implements InitializingBean {
     public void setReservationRecoveryBatchSize(int reservationRecoveryBatchSize) {
         this.reservationRecoveryBatchSize = reservationRecoveryBatchSize;
     }
+
+    public int getCircuitFailureThreshold() { return circuitFailureThreshold; }
+    public void setCircuitFailureThreshold(int value) { this.circuitFailureThreshold = value; }
+    public long getCircuitOpenDurationMs() { return circuitOpenDurationMs; }
+    public void setCircuitOpenDurationMs(long value) { this.circuitOpenDurationMs = value; }
+    public long getCircuitHalfOpenLeaseMs() { return circuitHalfOpenLeaseMs; }
+    public void setCircuitHalfOpenLeaseMs(long value) { this.circuitHalfOpenLeaseMs = value; }
 }

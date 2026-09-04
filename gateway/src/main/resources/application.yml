@@ -77,3 +77,6 @@ aicostops:
     reservation-ttl-ms: ${AICOSTOPS_GATEWAY_RESERVATION_TTL_MS:900000}
     reservation-recovery-interval-ms: ${AICOSTOPS_GATEWAY_RESERVATION_RECOVERY_INTERVAL_MS:60000}
     reservation-recovery-batch-size: ${AICOSTOPS_GATEWAY_RESERVATION_RECOVERY_BATCH_SIZE:100}
+    circuit-failure-threshold: ${AICOSTOPS_GATEWAY_CIRCUIT_FAILURE_THRESHOLD:5}
+    circuit-open-duration-ms: ${AICOSTOPS_GATEWAY_CIRCUIT_OPEN_DURATION_MS:30000}
+    circuit-half-open-lease-ms: ${AICOSTOPS_GATEWAY_CIRCUIT_HALF_OPEN_LEASE_MS:15000}
