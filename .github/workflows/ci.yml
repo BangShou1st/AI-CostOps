@@ -41,6 +41,13 @@ jobs:
           cache: maven
           cache-dependency-path: backend/pom.xml
       - run: ./mvnw -B -Dgroups=integration verify
+      - name: Upload backend Failsafe reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-failsafe-reports
+          if-no-files-found: ignore
+          path: backend/target/failsafe-reports/
 
   backend-architecture:
     name: backend-architecture

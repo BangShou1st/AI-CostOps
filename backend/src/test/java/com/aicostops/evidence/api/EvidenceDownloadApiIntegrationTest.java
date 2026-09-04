@@ -11,6 +11,10 @@ import com.aicostops.iam.infrastructure.JwtTokenService;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MinioAuthenticationContainersSupport;
 import java.io.ByteArrayInputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -19,19 +23,25 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(properties =
-        "aicostops.auth.jwt-signing-secret=evidence-download-test-only-signing-secret-with-more-than-32-bytes")
+@SpringBootTest(
+        webEnvironment = WebEnvironment.RANDOM_PORT,
+        properties =
+                "aicostops.auth.jwt-signing-secret=evidence-download-test-only-signing-secret-with-more-than-32-bytes")
 @AutoConfigureMockMvc
 @Tag("integration")
 class EvidenceDownloadApiIntegrationTest extends MinioAuthenticationContainersSupport {
 
     private static final byte[] CONTENT = "authorized evidence bytes".getBytes(StandardCharsets.UTF_8);
 
+    @LocalServerPort
+    private int port;
     @Autowired
     private MockMvc mockMvc;
     @Autowired
@@ -84,10 +94,15 @@ class EvidenceDownloadApiIntegrationTest extends MinioAuthenticationContainersSu
     void downloadsExactBytesWithOrgGrantAndDownloadPermission() throws Exception {
         assign("EVIDENCE_READER", "ORG", organizationId);
 
-        mockMvc.perform(get("/api/v1/evidence/{id}/download", availableEvidenceId)
-                        .header("Authorization", bearer()))
-                .andExpect(status().isOk())
-                .andExpect(content().bytes(CONTENT));
+        var request = HttpRequest.newBuilder(URI.create(
+                        "http://127.0.0.1:" + port + "/api/v1/evidence/" + availableEvidenceId + "/download"))
+                .header("Authorization", bearer())
+                .GET()
+                .build();
+        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo(CONTENT);
     }
 
     @Test
