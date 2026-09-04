@@ -6,12 +6,14 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
+import org.springframework.stereotype.Component;
 
 /**
  * Classifies Provider evidence against the exact Pricing Version dimensions
  * frozen on a route attempt. It never derives one financial dimension from
  * another and never turns absent usage into zero.
  */
+@Component
 public final class GatewayUsageClassifier {
 
     private static final List<String> DIMENSION_ORDER = List.of(
