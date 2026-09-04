@@ -8,7 +8,8 @@
 - Spec: `origin/docs/m13-metering-settlement-design:docs/superpowers/specs/2026-09-04-m13-metering-settlement-design.md`
 - Plan: `origin/docs/m13-metering-settlement-design:docs/superpowers/plans/2026-09-04-m13b-gateway-settlement-plan.md`
 - Implementation SHA before this evidence commit: `57e79a5`
-- Evidence SHA: filled after commit
+- Evidence SHA: `c3a2f305974c4d19c8301a29ae5293f3f1059d2a` (core evidence commit;
+  this hosted-verification metadata follows it)
 
 The implementation follows the frozen TDD, systematic-debugging, verification, and
 review workflow. No Superpowers package is installed in this local checkout; the
