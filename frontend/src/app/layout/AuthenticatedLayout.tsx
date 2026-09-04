@@ -49,6 +49,7 @@ export const NAV_ICONS: Record<string, ReactNode> = {
   '/settings/teams': <TeamOutlined />,
   '/settings/cost-centers': <AccountBookOutlined />,
   '/settings/provider-accounts': <CloudOutlined />,
+  '/settings/routing-policies': <DeploymentUnitOutlined />,
 }
 
 function readCollapsedPreference(): boolean {

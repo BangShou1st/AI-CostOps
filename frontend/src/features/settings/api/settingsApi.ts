@@ -3,6 +3,7 @@ import type { PageResponse } from '../../../api/pagination'
 import type {
   Invitation, MasterDataRecord, MasterDataStatus, OrganizationMemberRecord, Permission, ProviderAccount, Role, RoleAssignment, ScopeType, User, UserStatus,
 } from './settingsTypes'
+import type { RoutingPolicy, RoutingPolicyInput, RoutingPolicyPage, RoutingPolicyUpdateInput, RoutingOption } from '../routingPolicies/types'
 
 export const settingsApi = {
   async listUsers(page: number, size: number) {
@@ -92,5 +93,26 @@ export const settingsApi = {
     metadata?: Record<string, unknown>
   }) {
     return (await apiClient.patch<ProviderAccount>(`/provider-accounts/${encodeURIComponent(id)}`, update)).data
+  },
+  async listRoutingPolicies(page: number, size: number) {
+    return (await apiClient.get<RoutingPolicyPage>('/routing-policies', { params: { page, size } })).data
+  },
+  async getRoutingPolicy(id: string) {
+    return (await apiClient.get<RoutingPolicy>(`/routing-policies/${encodeURIComponent(id)}`)).data
+  },
+  async createRoutingPolicy(input: RoutingPolicyInput) {
+    return (await apiClient.post<RoutingPolicy>('/routing-policies', input)).data
+  },
+  async createRoutingPolicyRevision(id: string) {
+    return (await apiClient.post<RoutingPolicy>(`/routing-policies/${encodeURIComponent(id)}/revisions`)).data
+  },
+  async updateRoutingPolicy(id: string, input: RoutingPolicyUpdateInput) {
+    return (await apiClient.put<RoutingPolicy>(`/routing-policies/${encodeURIComponent(id)}`, input)).data
+  },
+  async activateRoutingPolicy(id: string) {
+    return (await apiClient.post<RoutingPolicy>(`/routing-policies/${encodeURIComponent(id)}/activate`)).data
+  },
+  async listRoutingOptions(modelId: string) {
+    return (await apiClient.get<RoutingOption[]>('/routing-options', { params: { modelId } })).data
   },
 }

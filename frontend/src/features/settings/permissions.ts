@@ -27,6 +27,7 @@ export const SETTINGS_NAV: readonly SettingsNavEntry[] = [
   { path: '/settings/teams', label: '团队管理', readPermission: 'TEAM_READ' },
   { path: '/settings/cost-centers', label: '成本中心', readPermission: 'COST_CENTER_READ' },
   { path: '/settings/provider-accounts', label: '云账号', readPermission: 'PROVIDER_ACCOUNT_READ' },
+  { path: '/settings/routing-policies', label: '路由策略', readPermission: 'PROVIDER_ACCOUNT_READ' },
 ]
 
 export function visibleSettingsNav(permissions: readonly string[] | undefined): readonly SettingsNavEntry[] {
