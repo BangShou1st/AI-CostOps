@@ -5,12 +5,14 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 
 import com.aicostops.gateway.GatewayApplication;
+import org.junit.jupiter.api.Tag;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
 /** Frozen M10 boundary: the Gateway data plane is an independent deployable. */
 @AnalyzeClasses(packagesOf = GatewayApplication.class)
+@Tag("architecture")
 class GatewayArchitectureTest {
 
     @ArchTest

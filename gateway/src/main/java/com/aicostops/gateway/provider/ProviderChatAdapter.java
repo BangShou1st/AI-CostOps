@@ -14,5 +14,5 @@ public interface ProviderChatAdapter {
 
     Mono<ProviderChatCompletion> complete(ProviderCallContext context, ChatCompletionCommand command);
 
-    Flux<ProviderChatChunk> stream(ProviderCallContext context, ChatCompletionCommand command);
+    Flux<ProviderChatStreamEvent> stream(ProviderCallContext context, ChatCompletionCommand command);
 }

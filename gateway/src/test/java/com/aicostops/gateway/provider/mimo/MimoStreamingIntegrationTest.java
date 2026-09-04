@@ -47,7 +47,9 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
     private static final String HMAC_KEY = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
 
     enum Scenario {
-        OK_3_CHUNKS, HIGH_VOLUME, ERROR_500, CHUNKS_THEN_IDLE, SLOW_STREAM, CLEAN_EOF_NO_DONE
+        OK_3_CHUNKS, HIGH_VOLUME, ERROR_500, CHUNKS_THEN_IDLE,
+        CHUNKS_THEN_PARTIAL_USAGE, CHUNKS_THEN_FINAL_USAGE_IDLE,
+        SLOW_STREAM, CLEAN_EOF_NO_DONE
     }
 
     private static HttpServer mockUpstream;
@@ -93,6 +95,7 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
                         out.write(chunkFrame(1).getBytes(StandardCharsets.UTF_8));
                         out.write(chunkFrame(2).getBytes(StandardCharsets.UTF_8));
                         out.write(chunkFrame(3).getBytes(StandardCharsets.UTF_8));
+                        out.write(usageFrame().getBytes(StandardCharsets.UTF_8));
                         out.write(DONE_FRAME.getBytes(StandardCharsets.UTF_8));
                         out.flush();
                     }
@@ -105,6 +108,18 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
                     }
                     case CHUNKS_THEN_IDLE -> {
                         out.write(chunkFrame(1).getBytes(StandardCharsets.UTF_8));
+                        out.flush();
+                        sleep(10_000);
+                    }
+                    case CHUNKS_THEN_PARTIAL_USAGE -> {
+                        out.write(chunkFrame(1).getBytes(StandardCharsets.UTF_8));
+                        out.write(partialUsageFrame().getBytes(StandardCharsets.UTF_8));
+                        out.flush();
+                        sleep(10_000);
+                    }
+                    case CHUNKS_THEN_FINAL_USAGE_IDLE -> {
+                        out.write(chunkFrame(1).getBytes(StandardCharsets.UTF_8));
+                        out.write(usageFrame().getBytes(StandardCharsets.UTF_8));
                         out.flush();
                         sleep(10_000);
                     }
@@ -247,6 +262,11 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
         assertThat(requestState()).isEqualTo("TRANSPORT_COMPLETED");
         assertThat(attemptStatus()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM gateway_usage_fact WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId())).isEqualTo("FINAL");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_usage_dimension "
+                + "WHERE org_id=?", Integer.class, env.orgId())).isEqualTo(2);
     }
 
     @Test
@@ -288,6 +308,8 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
         assertThat(requestState()).isEqualTo("FAILED_AFTER_DISPATCH");
         assertThat(attemptStatus()).isEqualTo("BILLABLE_POSSIBLE");
+        assertThat(usageStatus()).isEqualTo("UNKNOWN");
+        assertThat(reservationStatus()).isEqualTo("PENDING_HOLD");
     }
 
     @Test
@@ -314,6 +336,33 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
         awaitState("TIMED_OUT_AFTER_DISPATCH");
         assertThat(attemptStatus()).isEqualTo("BILLABLE_POSSIBLE");
+        assertThat(usageStatus()).isEqualTo("UNKNOWN");
+        assertThat(reservationStatus()).isEqualTo("PENDING_HOLD");
+    }
+
+    @Test
+    void partialUsageOnTimeoutIsIncompleteAndKeepsReservationHeld() {
+        scenario = Scenario.CHUNKS_THEN_PARTIAL_USAGE;
+
+        consumeStreamIgnoringTermination("stream-idem-partial-usage");
+
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+        awaitState("TIMED_OUT_AFTER_DISPATCH");
+        assertThat(attemptStatus()).isEqualTo("BILLABLE_POSSIBLE");
+        assertThat(usageStatus()).isEqualTo("INCOMPLETE");
+        assertThat(reservationStatus()).isEqualTo("PENDING_HOLD");
+    }
+
+    @Test
+    void completeUsageBeforeTransportTimeoutRemainsFinalWhileTransportFails() {
+        scenario = Scenario.CHUNKS_THEN_FINAL_USAGE_IDLE;
+
+        consumeStreamIgnoringTermination("stream-idem-final-usage-timeout");
+
+        assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
+        awaitState("TIMED_OUT_AFTER_DISPATCH");
+        assertThat(usageStatus()).isEqualTo("FINAL");
+        assertThat(reservationStatus()).isEqualTo("PENDING_HOLD");
     }
 
     @Test
@@ -404,6 +453,18 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
                 String.class, env.orgId());
     }
 
+    private String usageStatus() {
+        return jdbc.queryForObject(
+                "SELECT status FROM gateway_usage_fact WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId());
+    }
+
+    private String reservationStatus() {
+        return jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                String.class, env.orgId());
+    }
+
     private static String chunkFrame(int index) {
         return "data: {\"id\":\"chatcmpl_sse" + index + "\",\"object\":\"chat.completion.chunk\","
                 + "\"created\":1788000200,\"model\":\"mimo-v2.5-pro\","
@@ -415,6 +476,18 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
         return "data: {\"id\":\"chatcmpl_rst" + index + "\",\"object\":\"chat.completion.chunk\","
                 + "\"created\":1788000200,\"model\":\"mimo-v2.5-pro\","
                 + "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"t\"},\"finish_reason\":null}]}\n\n";
+    }
+
+    private static String usageFrame() {
+        return "data: {\"id\":\"chatcmpl_usage\",\"created\":1788000200,"
+                + "\"model\":\"mimo-v2.5-pro\",\"choices\":[],"
+                + "\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\n";
+    }
+
+    private static String partialUsageFrame() {
+        return "data: {\"id\":\"chatcmpl_partial_usage\",\"created\":1788000200,"
+                + "\"model\":\"mimo-v2.5-pro\",\"choices\":[],"
+                + "\"usage\":{\"prompt_tokens\":5,\"total_tokens\":5}}\n\n";
     }
 
     private static final String DONE_FRAME = "data: [DONE]\n\n";

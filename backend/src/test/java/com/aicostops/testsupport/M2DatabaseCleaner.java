@@ -25,6 +25,12 @@ public final class M2DatabaseCleaner {
         // M5 immutable history is append-only in production, but test fixtures
         // must remove its children before allocation/budget source rows.
         jdbc.update("DELETE FROM budget_commitment_usage");
+        // M13 usage dimensions/facts reference Gateway requests and each
+        // other, while gateway_request carries the circular current pointer.
+        jdbc.update("UPDATE gateway_request SET current_usage_fact_id = NULL");
+        jdbc.update("DELETE FROM gateway_usage_dimension");
+        jdbc.update("UPDATE gateway_usage_fact SET supersedes_usage_fact_id = NULL");
+        jdbc.update("DELETE FROM gateway_usage_fact");
         // M12 reservation boundary: budget_reservation references
         // gateway_request, gateway_route_attempt, billing_period, budget and
         // budget_commitment, so it is deleted before all of its parents.

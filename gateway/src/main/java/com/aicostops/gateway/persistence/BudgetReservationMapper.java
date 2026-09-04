@@ -94,6 +94,17 @@ public interface BudgetReservationMapper {
     LockedReservationRow lockReservationById(
             @Param("orgId") long orgId, @Param("reservationId") long reservationId);
 
+    @Select("""
+            SELECT id, status, reserved_amount, budget_id, billing_period_id, route_attempt_id,
+                   version, request_id
+            FROM budget_reservation
+            WHERE org_id=#{orgId} AND route_attempt_id=#{routeAttemptId}
+            FOR UPDATE
+            """)
+    LockedReservationRow lockReservationByRouteAttempt(
+            @Param("orgId") long orgId,
+            @Param("routeAttemptId") long routeAttemptId);
+
     @Insert("""
             INSERT INTO budget_reservation(
               org_id,request_id,route_attempt_id,billing_period_id,budget_id,

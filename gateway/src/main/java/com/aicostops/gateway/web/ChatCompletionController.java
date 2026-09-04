@@ -7,9 +7,13 @@ import com.aicostops.gateway.config.GatewayResourceLimiter;
 import com.aicostops.gateway.observability.CorrelationWebFilter;
 import com.aicostops.gateway.observability.GatewayMetrics;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
+import com.aicostops.gateway.metering.GatewayUsageFinalizationService;
+import com.aicostops.gateway.metering.GatewayUsageObservation;
+import com.aicostops.gateway.metering.GatewayUsageStatus;
 import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
+import com.aicostops.gateway.provider.ProviderChatStreamEvent;
 import com.aicostops.gateway.provider.ProviderCredentialDecryptor;
 import com.aicostops.gateway.quota.GatewayQuotaLimiter;
 import com.aicostops.gateway.ratelimit.GatewayRateLimiter;
@@ -29,6 +33,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
@@ -68,6 +73,7 @@ public class ChatCompletionController {
     private final StreamingLifecycleService streamingLifecycle;
     private final ProviderCredentialDecryptor credentialDecryptor;
     private final ProviderChatAdapter chatAdapter;
+    private final GatewayUsageFinalizationService usageFinalization;
     private final GatewaySseEncoder sseEncoder;
     private final GatewayRateLimiter rateLimiter;
     private final GatewayQuotaLimiter quotaLimiter;
@@ -85,6 +91,7 @@ public class ChatCompletionController {
             StreamingLifecycleService streamingLifecycle,
             ProviderCredentialDecryptor credentialDecryptor,
             ProviderChatAdapter chatAdapter,
+            GatewayUsageFinalizationService usageFinalization,
             GatewaySseEncoder sseEncoder,
             GatewayRateLimiter rateLimiter,
             GatewayQuotaLimiter quotaLimiter,
@@ -100,6 +107,7 @@ public class ChatCompletionController {
         this.streamingLifecycle = streamingLifecycle;
         this.credentialDecryptor = credentialDecryptor;
         this.chatAdapter = chatAdapter;
+        this.usageFinalization = usageFinalization;
         this.sseEncoder = sseEncoder;
         this.rateLimiter = rateLimiter;
         this.quotaLimiter = quotaLimiter;
@@ -243,51 +251,96 @@ public class ChatCompletionController {
             var requestId = result.requestId();
             var orgId = principal.organizationId();
             var upstreamDone = new AtomicBoolean(false);
+            var latestMetering = new AtomicReference<GatewayUsageObservation>();
             Flux<ServerSentEvent<String>> body = lifecycleService
                     .beginUpstream(requestId, orgId, result.routeAttemptId())
                     .thenMany(chatAdapter.stream(context, command))
                     // Record a genuine upstream terminal [DONE]; takeWhile stops
                     // the data flow at DONE without forwarding the marker itself.
-                    .takeWhile(chunk -> {
-                        if (chunk.done()) {
+                    .takeWhile(event -> {
+                        if (event instanceof ProviderChatStreamEvent.Done) {
                             upstreamDone.set(true);
                             return false;
                         }
                         return true;
                     })
-                    .map(chunk -> ServerSentEvent.<String>builder()
+                    // Metering is bounded state only; no content or reasoning
+                    // is accumulated and the usage-only frame is not forwarded.
+                    .doOnNext(event -> {
+                        if (event instanceof ProviderChatStreamEvent.Metering metering) {
+                            latestMetering.set(GatewayUsageObservation.fromMetering(metering, null));
+                        }
+                    })
+                    .filter(ProviderChatStreamEvent.Delta.class::isInstance)
+                    .map(event -> (ProviderChatStreamEvent.Delta) event)
+                    .map(delta -> ServerSentEvent.<String>builder()
                             // Leading space produces the OpenAI-compatible "data: " prefix:
                             // Spring's SSE writer writes "data:" + value without a space.
-                            .data(" " + sseEncoder.encodeChunk(chunk, request.model(), fallbackId))
+                            .data(" " + sseEncoder.encodeChunk(delta, request.model(), fallbackId))
                             .build())
                     // Exactly one downstream [DONE] only when the upstream
                     // protocol genuinely terminated with [DONE]. A clean EOF
                     // without [DONE] must never be synthesized into success.
-                    .concatWith(Flux.defer(() -> upstreamDone.get()
-                            ? Flux.just(ServerSentEvent.<String>builder()
-                                    .data(" " + GatewaySseEncoder.DONE_PAYLOAD)
-                                    .build())
-                            : Flux.error(new GatewayErrorException(
+                    .concatWith(Flux.defer(() -> {
+                        if (!upstreamDone.get()) {
+                            return Flux.error(new GatewayErrorException(
                                     GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
-                                    "Provider stream ended without a terminal signal"))))
-                    .concatWith(Flux.defer(() -> lifecycleService
-                            .completeSuccess(requestId, orgId, result.routeAttemptId())
-                            .thenMany(Flux.empty())))
+                                    "Provider stream ended without a terminal signal"));
+                        }
+                        var observation = latestMetering.get();
+                        if (observation == null) {
+                            observation = GatewayUsageObservation.noUsage(null)
+                                    .withDispatched(true);
+                        }
+                        return usageFinalization.finalizeSuccess(
+                                        requestId, orgId, result.routeAttemptId(), observation)
+                                .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                        "POSTDISPATCH_UNCERTAINTY"))
+                                // Downstream [DONE] is intentionally after the
+                                // local fact+lifecycle transaction commits.
+                                .thenMany(Flux.just(ServerSentEvent.<String>builder()
+                                        .data(" " + GatewaySseEncoder.DONE_PAYLOAD)
+                                        .build()));
+                    }))
                     .onErrorResume(ex -> {
                         var timeout = isTimeout(ex);
                         metrics.recordRequestOutcome(timeout ? "TIMED_OUT" : "FAILED");
                         metrics.recordProviderError(result.adapterCode(),
                                 timeout ? "TIMEOUT" : "HTTP_ERROR");
-                        var terminal = timeout
-                                ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
-                                : lifecycleService.failAfterDispatch(requestId, orgId);
+                        var failure = timeout
+                                ? GatewayUsageFinalizationService.TransportFailure.TIMED_OUT
+                                : GatewayUsageFinalizationService.TransportFailure.FAILED;
+                        var observation = latestMetering.get();
+                        if (observation == null) {
+                            observation = GatewayUsageObservation.noUsage(null)
+                                    .withDispatched(true);
+                        }
+                        var terminal = usageFinalization.finalizeFailure(
+                                        requestId, orgId, result.routeAttemptId(), observation, failure)
+                                .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                        "POSTDISPATCH_UNCERTAINTY"))
+                                .then()
+                                .onErrorResume(finalizationFailure -> timeout
+                                        ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
+                                        : lifecycleService.failAfterDispatch(requestId, orgId));
                         return terminal.then(Mono.error(ex));
                     })
                     .doOnComplete(() -> metrics.recordRequestOutcome("COMPLETED"))
                     .doOnCancel(() -> {
                         metrics.recordRequestOutcome("CANCELED");
-                        streamingLifecycle
-                                .cancelAfterDispatch(requestId, orgId)
+                        var observation = latestMetering.get();
+                        if (observation == null) {
+                            observation = GatewayUsageObservation.noUsage(null)
+                                    .withDispatched(true);
+                        }
+                        usageFinalization.finalizeFailure(
+                                        requestId, orgId, result.routeAttemptId(), observation,
+                                        GatewayUsageFinalizationService.TransportFailure.CANCELED)
+                                .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                        "POSTDISPATCH_UNCERTAINTY"))
+                                .then()
+                                .onErrorResume(finalizationFailure ->
+                                        streamingLifecycle.cancelAfterDispatch(requestId, orgId))
                                 .subscribe();
                     })
                     .doFinally(ignored -> releasePermit.run());
@@ -304,6 +357,7 @@ public class ChatCompletionController {
         setCorrelationHeaders(exchange, result.publicRequestId());
         var requestId = result.requestId();
         var orgId = principal.organizationId();
+        var latestObservation = new AtomicReference<GatewayUsageObservation>();
         return buildProviderContext(principal, result)
                 .flatMap(context -> {
                     var command = new ChatCompletionCommand(
@@ -317,18 +371,37 @@ public class ChatCompletionController {
                     return lifecycleService.beginUpstream(requestId, orgId, result.routeAttemptId())
                             .then(chatAdapter.complete(context, command));
                 })
-                .flatMap(completion -> lifecycleService
-                        .completeSuccess(requestId, orgId, result.routeAttemptId())
-                        .thenReturn(completion))
+                .flatMap(completion -> {
+                    var observation = GatewayUsageObservation.fromCompletion(completion, null);
+                    latestObservation.set(observation);
+                    return usageFinalization.finalizeSuccess(
+                                    requestId, orgId, result.routeAttemptId(), observation)
+                            .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                    "MISSING_DIMENSION"))
+                            .thenReturn(completion);
+                })
                 .doOnSuccess(ignored -> metrics.recordRequestOutcome("COMPLETED"))
                 .onErrorResume(ex -> {
                     var timeout = isTimeout(ex);
                     metrics.recordRequestOutcome(timeout ? "TIMED_OUT" : "FAILED");
                     metrics.recordProviderError(result.adapterCode(),
                             timeout ? "TIMEOUT" : "HTTP_ERROR");
-                    var terminal = timeout
-                            ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
-                            : lifecycleService.failAfterDispatch(requestId, orgId);
+                    var failure = timeout
+                            ? GatewayUsageFinalizationService.TransportFailure.TIMED_OUT
+                            : GatewayUsageFinalizationService.TransportFailure.FAILED;
+                    var observation = latestObservation.get();
+                    if (observation == null) {
+                        observation = GatewayUsageObservation.noUsage(null).withDispatched(true);
+                    }
+                    var terminal = usageFinalization.finalizeFailure(
+                                    requestId, orgId, result.routeAttemptId(),
+                                    observation, failure)
+                            .doOnSuccess(outcome -> recordUsage(outcome, result.adapterCode(),
+                                    "POSTDISPATCH_UNCERTAINTY"))
+                            .then()
+                            .onErrorResume(finalizationFailure -> timeout
+                                    ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
+                                    : lifecycleService.failAfterDispatch(requestId, orgId));
                     return terminal.then(Mono.error(ex));
                 });
     }
@@ -491,5 +564,19 @@ public class ChatCompletionController {
             }
         }
         return false;
+    }
+
+    private void recordUsage(
+            GatewayUsageFinalizationService.FinalizationResult result,
+            String providerCode, String reasonCode) {
+        if (result == null) {
+            return;
+        }
+        metrics.recordUsageStatus(result.status());
+        if (result.status() == GatewayUsageStatus.INCOMPLETE) {
+            metrics.recordMeteringIncomplete(providerCode, reasonCode);
+        } else if (result.status() == GatewayUsageStatus.UNKNOWN) {
+            metrics.recordMeteringUnknown(providerCode, reasonCode);
+        }
     }
 }
