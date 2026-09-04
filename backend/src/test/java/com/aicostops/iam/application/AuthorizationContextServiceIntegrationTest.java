@@ -48,6 +48,7 @@ class AuthorizationContextServiceIntegrationTest extends MySqlContainerSupport {
         jdbcTemplate.update("DELETE FROM reconciliation_run");
         jdbcTemplate.update("DELETE FROM organization_member");
         jdbcTemplate.update("DELETE FROM app_user");
+        jdbcTemplate.update("DELETE FROM invitation");
         jdbcTemplate.update("DELETE FROM organization");
 
         jdbcTemplate.update("""
