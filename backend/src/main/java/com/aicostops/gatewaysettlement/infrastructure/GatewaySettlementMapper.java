@@ -134,6 +134,52 @@ public interface GatewaySettlementMapper {
             @Param("organizationId") long organizationId,
             @Param("usageFactId") long usageFactId);
 
+    @Select("""
+            SELECT
+              gs.request_id,gs.route_attempt_id,gs.usage_fact_id,gs.reservation_id,
+              gs.billing_period_id,gs.financial_scope_type,gs.financial_scope_id,
+              gs.provider_account_id,gs.provider_model_id,gs.pricing_version_id,gs.currency,
+              gr.current_usage_fact_id,uf.status AS usage_status,uf.route_attempt_id AS usage_route_attempt_id,
+              uf.pricing_version_id AS usage_pricing_version_id,uf.currency AS usage_currency,
+              ra.provider_account_id AS attempt_provider_account_id,
+              ra.provider_model_id AS attempt_provider_model_id,
+              ra.pricing_version_id AS attempt_pricing_version_id,
+              pv.currency AS pricing_currency
+            FROM gateway_settlement gs
+            JOIN gateway_request gr
+              ON gr.id=gs.request_id AND gr.org_id=gs.org_id
+            JOIN gateway_route_attempt ra
+              ON ra.id=gs.route_attempt_id AND ra.org_id=gs.org_id
+            JOIN gateway_usage_fact uf
+              ON uf.id=gs.usage_fact_id AND uf.org_id=gs.org_id
+            JOIN pricing_version pv
+              ON pv.id=gs.pricing_version_id AND pv.org_id=gs.org_id
+            WHERE gs.org_id=#{organizationId} AND gs.id=#{settlementId}
+            """)
+    LineageRow selectLineage(
+            @Param("organizationId") long organizationId,
+            @Param("settlementId") long settlementId);
+
+    @Select("""
+            SELECT dimension_code,quantity
+            FROM gateway_usage_dimension
+            WHERE org_id=#{organizationId} AND usage_fact_id=#{usageFactId}
+            ORDER BY id ASC
+            """)
+    List<UsageDimensionRow> selectUsageDimensions(
+            @Param("organizationId") long organizationId,
+            @Param("usageFactId") long usageFactId);
+
+    @Select("""
+            SELECT dimension_code,unit_quantity,unit_price
+            FROM pricing_rate
+            WHERE org_id=#{organizationId} AND pricing_version_id=#{pricingVersionId}
+            ORDER BY id ASC
+            """)
+    List<PricingRateRow> selectPricingRates(
+            @Param("organizationId") long organizationId,
+            @Param("pricingVersionId") long pricingVersionId);
+
     @Update("""
             UPDATE gateway_settlement
             SET status='RETRYABLE_FAILED',attempt_count=attempt_count+1,
@@ -178,6 +224,35 @@ public interface GatewaySettlementMapper {
             @Param("roundingDelta") BigDecimal roundingDelta,
             @Param("ledgerPostingId") long ledgerPostingId,
             @Param("settledAt") Instant settledAt);
+
+    record LineageRow(
+            long requestId,
+            long routeAttemptId,
+            long usageFactId,
+            Long reservationId,
+            long billingPeriodId,
+            String financialScopeType,
+            long financialScopeId,
+            long providerAccountId,
+            long providerModelId,
+            long pricingVersionId,
+            String currency,
+            Long currentUsageFactId,
+            String usageStatus,
+            long usageRouteAttemptId,
+            long usagePricingVersionId,
+            String usageCurrency,
+            long attemptProviderAccountId,
+            long attemptProviderModelId,
+            long attemptPricingVersionId,
+            String pricingCurrency) {
+    }
+
+    record UsageDimensionRow(String dimensionCode, BigDecimal quantity) {
+    }
+
+    record PricingRateRow(String dimensionCode, long unitQuantity, BigDecimal unitPrice) {
+    }
 
     record SettlementCandidate(
             long requestId,
