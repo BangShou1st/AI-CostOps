@@ -32,14 +32,19 @@ public class BillingPeriodFinancialWriteFenceService implements BillingPeriodFin
     }
 
     @Override
-    public BillingPeriod lockOpenById(long organizationId, long billingPeriodId) {
+    public BillingPeriod lockById(long organizationId, long billingPeriodId) {
         var period = mapper.selectByIdForUpdate(organizationId, billingPeriodId);
         if (period == null) {
             throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                     "Billing period not found",
                     "The billing period is not available in the current organization.");
         }
-        return requireOpen(period);
+        return period;
+    }
+
+    @Override
+    public BillingPeriod lockOpenById(long organizationId, long billingPeriodId) {
+        return requireOpen(lockById(organizationId, billingPeriodId));
     }
 
     @Override

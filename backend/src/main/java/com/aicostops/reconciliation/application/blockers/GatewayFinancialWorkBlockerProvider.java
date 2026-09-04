@@ -9,13 +9,13 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * M12 Gateway Close blocker. M13 Settlement does not exist yet, so any
- * possible-billable unresolved request (at or after DISPATCH_INTENT, or
- * transport-completed without a durable Settlement) blocks normal Close, and
- * any ACTIVE or PENDING_HOLD budget reservation blocks normal Close.
- * RELEASED/FINALIZED holds never block on their own. The shared BillingPeriod
- * lock in the Gateway reservation/fence path serializes this scan against new
- * holds and dispatch fences.
+ * Gateway financial-work Close blocker. Post-dispatch requests block when
+ * financial truth is absent or non-terminal: no current usage, INCOMPLETE or
+ * UNKNOWN usage, or a current FINAL usage without a SETTLED Settlement. A
+ * current FINAL usage with a SETTLED Settlement is terminal even if transport
+ * ended in a failure state. ACTIVE/PENDING_HOLD reservations remain blockers;
+ * RELEASED/FINALIZED holds do not block on their own. The shared
+ * BillingPeriod lock serializes this scan with financial mutation and Close.
  */
 @Component
 public final class GatewayFinancialWorkBlockerProvider implements CloseBlockerProvider {
@@ -40,8 +40,8 @@ public final class GatewayFinancialWorkBlockerProvider implements CloseBlockerPr
         var total = unresolvedRequests + unresolvedReservations;
         var summary = Map.<String, Object>of(
                 "blockedStates",
-                "DISPATCH_INTENT, UPSTREAM_ACTIVE, TRANSPORT_COMPLETED, "
-                        + "CANCELED_AFTER_DISPATCH, TIMED_OUT_AFTER_DISPATCH, FAILED_AFTER_DISPATCH",
+                "post-dispatch with no current usage, INCOMPLETE/UNKNOWN usage, "
+                        + "or current FINAL without SETTLED Settlement",
                 "blockedReservationStates", "ACTIVE, PENDING_HOLD",
                 "unresolvedRequests", unresolvedRequests,
                 "unresolvedReservations", unresolvedReservations,

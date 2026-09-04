@@ -17,7 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * V18 contract for the M11 Gateway edge foundation schema (AIC-092 wave M11).
  * Real MySQL 8.4: the eleven M11 tables carry the exact AIC-092 constraints,
- * and no M13 settlement/Ledger table leaks into the wave. The M12/M13
+ * and the later waves remain additive. The M12/M13
  * wave (V19 budget_reservation) is covered by
  * GatewayM12ReservationSchemaIntegrationTest; this test only pins the M11
  * slice plus the forward-compatible migration count.
@@ -44,7 +44,7 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
                         "gateway_request", "gateway_route_attempt");
 
         assertThat(queryTables())
-                .doesNotContain("gateway_settlement", "routing_policy", "routing_policy_candidate");
+                .doesNotContain("routing_policy", "routing_policy_candidate");
     }
 
     @Test

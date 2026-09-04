@@ -11,7 +11,8 @@ public record LedgerPosting(
         Long allocationDecisionId,
         long billingPeriodId,
         String status,
-        long postedByMemberId,
+        LedgerPostingActorType postingActorType,
+        Long postedByMemberId,
         Instant postedAt,
         Instant createdAt) {
 }

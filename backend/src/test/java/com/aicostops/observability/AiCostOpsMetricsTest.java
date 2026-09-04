@@ -113,4 +113,27 @@ class AiCostOpsMetricsTest {
         assertThat(registry.get("aicostops.dependency.error")
                 .tag("dependency", "OBJECT_STORAGE").counter().count()).isEqualTo(1.0);
     }
+
+    @Test
+    void gatewaySettlementMetricsUseOnlyBoundedLabels() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new AiCostOpsMetrics(registry);
+
+        metrics.gatewaySettlement("SETTLED", "SUCCESS");
+        metrics.gatewaySettlement("untrusted-settlement-id", "untrusted-error");
+        metrics.gatewaySettlementRetry("request-123");
+        metrics.gatewaySettlementReconciliationRequired("RETRY_EXHAUSTED");
+        metrics.gatewayReservationOverrun("raw-provider-account");
+
+        assertThat(registry.get("aicostops.gateway.settlement")
+                .tags("status", "SETTLED", "outcome", "SUCCESS").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("aicostops.gateway.settlement")
+                .tags("status", "UNKNOWN", "outcome", "UNKNOWN").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("aicostops.gateway.settlement.retry")
+                .tag("reason_code", "UNKNOWN").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("aicostops.gateway.settlement.reconciliation_required")
+                .tag("reason_code", "RETRY_EXHAUSTED").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("aicostops.gateway.reservation.overrun")
+                .tag("provider_code", "UNKNOWN").counter().count()).isEqualTo(1.0);
+    }
 }

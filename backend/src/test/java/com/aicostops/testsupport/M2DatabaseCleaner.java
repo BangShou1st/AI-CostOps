@@ -30,16 +30,18 @@ public final class M2DatabaseCleaner {
         jdbc.update("UPDATE gateway_request SET current_usage_fact_id = NULL");
         jdbc.update("DELETE FROM gateway_usage_dimension");
         jdbc.update("UPDATE gateway_usage_fact SET supersedes_usage_fact_id = NULL");
+        // CorrectionGroup and LedgerEntry have a deliberate circular FK: remove
+        // correction entries first, then their groups, then historical entries.
+        // Gateway Settlement entries must be gone before their source rows.
+        jdbc.update("DELETE FROM ledger_entry WHERE correction_group_id IS NOT NULL");
+        jdbc.update("DELETE FROM correction_group");
+        jdbc.update("DELETE FROM ledger_entry");
+        jdbc.update("DELETE FROM gateway_settlement");
         jdbc.update("DELETE FROM gateway_usage_fact");
         // M12 reservation boundary: budget_reservation references
         // gateway_request, gateway_route_attempt, billing_period, budget and
         // budget_commitment, so it is deleted before all of its parents.
         jdbc.update("DELETE FROM budget_reservation");
-        // CorrectionGroup and LedgerEntry have a deliberate circular FK: remove
-        // correction entries first, then their groups, then historical entries.
-        jdbc.update("DELETE FROM ledger_entry WHERE correction_group_id IS NOT NULL");
-        jdbc.update("DELETE FROM correction_group");
-        jdbc.update("DELETE FROM ledger_entry");
         jdbc.update("DELETE FROM ledger_posting");
         jdbc.update("DELETE FROM duplicate_candidate");
         jdbc.update("DELETE FROM allocation_line");

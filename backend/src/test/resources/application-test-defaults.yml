@@ -6,6 +6,9 @@ aicostops:
     # Test default: workers stay off so ordinary integration tests are deterministic.
     # Worker/coordinator tests explicitly opt in.
     worker-enabled: false
+  gateway:
+    settlement:
+      worker-enabled: false
 
 spring:
   data:

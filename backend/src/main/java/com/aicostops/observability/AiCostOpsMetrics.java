@@ -71,4 +71,53 @@ public class AiCostOpsMetrics {
     public void dependencyError(String dependency) {
         registry.counter("aicostops.dependency.error", "dependency", dependency).increment();
     }
+
+    /** Bounded Gateway Settlement outcome: SETTLED / RETRYABLE_FAILED / RECONCILIATION_REQUIRED. */
+    public void gatewaySettlement(String status, String outcome) {
+        var safeStatus = switch (status == null ? "" : status) {
+            case "SETTLED", "RETRYABLE_FAILED", "RECONCILIATION_REQUIRED" -> status;
+            default -> "UNKNOWN";
+        };
+        var safeOutcome = switch (outcome == null ? "" : outcome) {
+            case "SUCCESS", "RETRYABLE", "RECONCILIATION" -> outcome;
+            default -> "UNKNOWN";
+        };
+        registry.counter("aicostops.gateway.settlement",
+                "status", safeStatus, "outcome", safeOutcome).increment();
+    }
+
+    /** Settlement retry reason is a server-side bounded catalog value. */
+    public void gatewaySettlementRetry(String reasonCode) {
+        var safeReason = boundedGatewayReason(reasonCode);
+        registry.counter("aicostops.gateway.settlement.retry",
+                "reason_code", safeReason).increment();
+    }
+
+    /** Settlement reconciliation reason is a server-side bounded catalog value. */
+    public void gatewaySettlementReconciliationRequired(String reasonCode) {
+        var safeReason = boundedGatewayReason(reasonCode);
+        registry.counter("aicostops.gateway.settlement.reconciliation_required",
+                "reason_code", safeReason).increment();
+    }
+
+    /** Provider labels are adapter catalog codes, never account/model identifiers. */
+    public void gatewayReservationOverrun(String providerCode) {
+        var safeProvider = "MIMO".equals(providerCode) ? providerCode : "UNKNOWN";
+        registry.counter("aicostops.gateway.reservation.overrun",
+                "provider_code", safeProvider).increment();
+    }
+
+    private static String boundedGatewayReason(String reasonCode) {
+        return switch (reasonCode == null ? "" : reasonCode) {
+            case "BILLING_PERIOD_NOT_OPEN", "BILLING_PERIOD_CLOSED", "PERIOD_CLOSING",
+                    "FROZEN_COST_INVALID", "FROZEN_LINEAGE_MISMATCH",
+                    "LEDGER_LINEAGE_CONFLICT", "COMMITMENT_LINEAGE_CONFLICT",
+                    "RESERVATION_NOT_SETTLEABLE", "RESERVATION_LINEAGE_CONFLICT",
+                    "RESERVATION_FINALIZATION_CONFLICT", "SETTLEMENT_STATE_CONFLICT",
+                    "SETTLEMENT_LINEAGE_MISSING", "SETTLEMENT_LINEAGE_CHANGED",
+                    "BILLING_PERIOD_LINEAGE_CONFLICT", "LEDGER_ENTRY_CARDINALITY",
+                    "DATABASE_TRANSIENT", "RETRY_EXHAUSTED" -> reasonCode;
+            default -> "UNKNOWN";
+        };
+    }
 }
