@@ -109,7 +109,8 @@ public class AiCostOpsMetrics {
 
     private static String boundedGatewayReason(String reasonCode) {
         return switch (reasonCode == null ? "" : reasonCode) {
-            case "BILLING_PERIOD_NOT_OPEN", "FROZEN_COST_INVALID", "FROZEN_LINEAGE_MISMATCH",
+            case "BILLING_PERIOD_NOT_OPEN", "BILLING_PERIOD_CLOSED", "PERIOD_CLOSING",
+                    "FROZEN_COST_INVALID", "FROZEN_LINEAGE_MISMATCH",
                     "LEDGER_LINEAGE_CONFLICT", "COMMITMENT_LINEAGE_CONFLICT",
                     "RESERVATION_NOT_SETTLEABLE", "RESERVATION_LINEAGE_CONFLICT",
                     "RESERVATION_FINALIZATION_CONFLICT", "SETTLEMENT_STATE_CONFLICT",

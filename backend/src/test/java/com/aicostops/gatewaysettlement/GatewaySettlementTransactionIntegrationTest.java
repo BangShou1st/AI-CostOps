@@ -122,6 +122,40 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
     }
 
     @Test
+    void zeroCostExplicitCommitmentDoesNotInvokePositiveOnlyConsumption() {
+        var fixture = fixture(true, true, true);
+        var settlement = discovery.discover(fixture.orgId()).getFirst();
+
+        service.settle(fixture.orgId(), settlement.id());
+        service.settle(fixture.orgId(), settlement.id());
+
+        assertThat(jdbc.queryForObject("SELECT status FROM gateway_settlement WHERE id=?",
+                String.class, settlement.id())).isEqualTo("SETTLED");
+        assertThat(jdbc.queryForObject("SELECT posted_amount FROM gateway_settlement WHERE id=?",
+                BigDecimal.class, settlement.id())).isEqualByComparingTo("0.00000000");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
+                Integer.class, fixture.orgId())).isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ledger_entry
+                WHERE org_id=? AND source_gateway_settlement_id=? AND amount='0.00000000'
+                """, Integer.class, fixture.orgId(), settlement.id())).isOne();
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
+        assertThat(jdbc.queryForObject("SELECT committed_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.50000000");
+        assertThat(jdbc.queryForObject("SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                BigDecimal.class, fixture.commitmentId())).isEqualByComparingTo("0.50000000");
+        assertThat(jdbc.queryForObject("SELECT status FROM budget_commitment WHERE id=?",
+                String.class, fixture.commitmentId())).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM budget_commitment_usage WHERE budget_commitment_id=?",
+                Integer.class, fixture.commitmentId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
+                String.class, fixture.reservationId())).isEqualTo("FINALIZED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?",
+                Integer.class, fixture.orgId())).isOne();
+    }
+
+    @Test
     void repeatedSettlementAfterCommittedResultDoesNotDoublePost() {
         var fixture = fixture(true);
         var settlement = discovery.discover(fixture.orgId()).getFirst();
@@ -224,6 +258,56 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
                 Integer.class, fixture.orgId())).isZero();
         assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
                 String.class, fixture.reservationId())).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void failureAfterReservationFinalizationRollsBackFinalizationAndCommitment() {
+        var fixture = fixture(true, true);
+        var settlement = discovery.discover(fixture.orgId()).getFirst();
+        doThrow(new IllegalStateException("before settled"))
+                .when(failureInjector).after("BEFORE_SETTLEMENT_SETTLED");
+
+        assertThatThrownBy(() -> service.settle(fixture.orgId(), settlement.id()))
+                .isInstanceOf(IllegalStateException.class).hasMessage("before settled");
+        assertNoFinancialMutation(fixture, settlement.id());
+        assertThat(jdbc.queryForObject("SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                BigDecimal.class, fixture.commitmentId())).isEqualByComparingTo("0.50000000");
+        assertThat(jdbc.queryForObject("SELECT status FROM budget_commitment WHERE id=?",
+                String.class, fixture.commitmentId())).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM budget_commitment_usage WHERE budget_commitment_id=?",
+                Integer.class, fixture.commitmentId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT finalized_at FROM budget_reservation WHERE id=?",
+                Instant.class, fixture.reservationId())).isNull();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?",
+                Integer.class, fixture.orgId())).isZero();
+    }
+
+    @Test
+    void conflictingExistingGatewayLedgerLineageReconcilesWithoutEscaping() {
+        var fixture = fixture(true);
+        var settlement = discovery.discover(fixture.orgId()).getFirst();
+        jdbc.update("""
+                INSERT INTO ledger_posting(
+                  org_id,posting_key,source_type,source_id,allocation_decision_id,billing_period_id,
+                  status,posting_actor_type,posted_by_member_id,posted_at,created_at)
+                VALUES (?,?,'PROVIDER_CHARGE',?,NULL,?,'POSTED','SYSTEM',NULL,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, fixture.orgId(), "GATEWAY_SETTLEMENT:" + settlement.id(), settlement.id(),
+                fixture.periodId());
+
+        var result = service.settle(fixture.orgId(), settlement.id());
+
+        assertThat(result.settlement().status().name()).isEqualTo("RECONCILIATION_REQUIRED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?",
+                Integer.class, fixture.orgId())).isOne();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_entry WHERE org_id=?",
+                Integer.class, fixture.orgId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
+        assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
+                String.class, fixture.reservationId())).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?",
+                Integer.class, fixture.orgId())).isZero();
     }
 
     @Test
@@ -334,10 +418,15 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
     }
 
     private Fixture fixture(boolean boundReservation) {
-        return fixture(boundReservation, false);
+        return fixture(boundReservation, false, false);
     }
 
     private Fixture fixture(boolean boundReservation, boolean explicitCommitment) {
+        return fixture(boundReservation, explicitCommitment, false);
+    }
+
+    private Fixture fixture(boolean boundReservation, boolean explicitCommitment,
+            boolean zeroCost) {
         var suffix = "settle-tx-" + UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO organization(name,slug,status,created_at,updated_at)
@@ -393,8 +482,11 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
         var pricingVersionId = lastId();
         jdbc.update("""
                 INSERT INTO pricing_rate(org_id,pricing_version_id,dimension_code,unit_quantity,unit_price)
-                VALUES (?,?, 'INPUT_TOKEN',1,'1.00000000'),(?,?, 'OUTPUT_TOKEN',1,'0.40000000')
-                """, orgId, pricingVersionId, orgId, pricingVersionId);
+                VALUES (?,?, 'INPUT_TOKEN',1,?),(?,?, 'OUTPUT_TOKEN',1,?)
+                """, orgId, pricingVersionId,
+                zeroCost ? "0.00000000" : "1.00000000",
+                orgId, pricingVersionId,
+                zeroCost ? "0.00000000" : "0.40000000");
         jdbc.update("""
                 INSERT INTO gateway_credential(org_id,credential_prefix,secret_digest,
                   secret_digest_version,principal_type,organization_member_id,service_identity_id,

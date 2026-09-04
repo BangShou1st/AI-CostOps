@@ -4,6 +4,7 @@ import com.aicostops.budget.application.BillingPeriodFinancialWriteFence;
 import com.aicostops.budget.application.CommitmentConsumeService;
 import com.aicostops.budget.application.LedgerBudgetPort;
 import com.aicostops.budget.domain.BillingPeriod;
+import com.aicostops.budget.domain.BillingPeriodStatus;
 import com.aicostops.budget.domain.Budget;
 import com.aicostops.budget.domain.BudgetCommitment;
 import com.aicostops.gatewaysettlement.application.GatewaySettlementCostCalculator.CostResult;
@@ -14,6 +15,7 @@ import com.aicostops.gatewaysettlement.infrastructure.GatewayReservationSettleme
 import com.aicostops.gatewaysettlement.infrastructure.GatewaySettlementMapper;
 import com.aicostops.ledger.application.GatewaySettlementLedgerPort;
 import com.aicostops.ledger.application.GatewaySettlementLedgerPort.PostCommand;
+import com.aicostops.ledger.application.GatewaySettlementLedgerConflictException;
 import com.aicostops.ledger.application.GatewaySettlementLedgerService;
 import com.aicostops.ledger.infrastructure.LedgerPostingMapper;
 import com.aicostops.observability.AiCostOpsMetrics;
@@ -122,6 +124,8 @@ public final class GatewaySettlementService {
             }
             metrics.gatewaySettlement("SETTLED", "SUCCESS");
             return settled;
+        } catch (GatewaySettlementRetryableException retryable) {
+            return markRetryable(organizationId, settlementId, retryable.errorCode());
         } catch (GatewaySettlementReconciliationException reconciliation) {
             return markReconciliation(organizationId, settlementId, reconciliation.errorCode());
         }
@@ -132,9 +136,15 @@ public final class GatewaySettlementService {
         final BillingPeriod period;
         try {
             // The first financial lock is the same BillingPeriod row used by Close.
-            period = periodFence.lockOpenById(organizationId, before.billingPeriodId());
+            period = periodFence.lockById(organizationId, before.billingPeriodId());
         } catch (DomainException periodFailure) {
             throw reconcile("BILLING_PERIOD_NOT_OPEN", "Settlement period is not open");
+        }
+        if (period.status() == BillingPeriodStatus.CLOSING) {
+            throw retry("PERIOD_CLOSING", "Settlement period is being closed");
+        }
+        if (period.status() == BillingPeriodStatus.CLOSED) {
+            throw reconcile("BILLING_PERIOD_CLOSED", "Settlement period is already closed");
         }
         failureInjector.after("BILLING_PERIOD_LOCKED");
 
@@ -197,7 +207,8 @@ public final class GatewaySettlementService {
                     settlement.billingPeriodId(), cost.postedAmount(), settlement.currency(),
                     settlement.financialScopeType(), settlement.financialScopeId(),
                     lockedBudget == null ? null : lockedBudget.id(), Instant.now(clock)));
-        } catch (IllegalArgumentException | DataIntegrityViolationException invalidLedger) {
+        } catch (GatewaySettlementLedgerConflictException | IllegalArgumentException |
+                DataIntegrityViolationException invalidLedger) {
             throw reconcile("LEDGER_LINEAGE_CONFLICT", "Gateway Ledger lineage is inconsistent");
         }
         failureInjector.after("LEDGER_INSERTED");
@@ -217,7 +228,7 @@ public final class GatewaySettlementService {
             failureInjector.after("BUDGET_ACTUAL_MUTATED");
         }
 
-        if (lockedCommitment != null) {
+        if (lockedCommitment != null && cost.postedAmount().signum() > 0) {
             try {
                 commitmentConsume.consume(new CommitmentConsumeService.ConsumeCommand(
                         organizationId, lockedCommitment.id(), cost.postedAmount(), entryId));
@@ -268,6 +279,35 @@ public final class GatewaySettlementService {
         }
         metrics.gatewaySettlement("RECONCILIATION_REQUIRED", "RECONCILIATION");
         return result(current);
+    }
+
+    private SettlementResult markRetryable(long organizationId, long settlementId,
+            String errorCode) {
+        var current = settlements.selectById(organizationId, settlementId);
+        if (current == null) {
+            throw new IllegalStateException("A retryable Settlement must be readable");
+        }
+        if (current.status().isTerminal()) {
+            return result(current);
+        }
+        var attempt = current.attemptCount() + 1;
+        var now = Instant.now(clock);
+        if (current.attemptCount() >= GatewaySettlementWorker.MAX_AUTO_RETRIES) {
+            return markReconciliation(organizationId, settlementId, "RETRY_EXHAUSTED");
+        }
+        var nextAttemptAt = now.plus(GatewaySettlementWorker.backoff(attempt));
+        var changed = transactions.execute(status -> settlements.markRetryableFailed(
+                organizationId, settlementId, nextAttemptAt, boundedErrorCode(errorCode), now));
+        var updated = settlements.selectById(organizationId, settlementId);
+        if (updated == null) {
+            throw new IllegalStateException("A retryable Settlement must be readable");
+        }
+        if (changed == null || changed != 1) {
+            return result(updated);
+        }
+        metrics.gatewaySettlementRetry(errorCode);
+        metrics.gatewaySettlement("RETRYABLE_FAILED", "RETRYABLE");
+        return result(updated);
     }
 
     private static void validateImmutableIdentity(GatewaySettlement expected,
@@ -363,6 +403,10 @@ public final class GatewaySettlementService {
 
     private static GatewaySettlementReconciliationException reconcile(String code, String message) {
         return new GatewaySettlementReconciliationException(boundedErrorCode(code), message);
+    }
+
+    private static GatewaySettlementRetryableException retry(String code, String message) {
+        return new GatewaySettlementRetryableException(boundedErrorCode(code), message);
     }
 
     private static String boundedErrorCode(String code) {

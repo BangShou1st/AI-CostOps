@@ -45,7 +45,8 @@ public final class GatewaySettlementLedgerService implements GatewaySettlementLe
     private void validateExistingEntries(PostCommand command, LedgerPosting posting) {
         var entries = ledger.selectEntriesByPostingId(command.organizationId(), posting.id());
         if (entries.size() != 1) {
-            throw new IllegalStateException("A Gateway Settlement posting must have one entry");
+            throw new GatewaySettlementLedgerConflictException(
+                    "A Gateway Settlement posting must have one entry");
         }
         var entry = entries.getFirst();
         if (entry.sourceGatewaySettlementId() == null
@@ -56,7 +57,8 @@ public final class GatewaySettlementLedgerService implements GatewaySettlementLe
                 || !entry.currency().equals(command.currency())
                 || !Objects.equals(entry.budgetId(), command.budgetId())
                 || !matchesTarget(entry, command.financialScopeType(), command.financialScopeId())) {
-            throw new IllegalStateException("Existing Gateway Settlement Ledger entry conflicts");
+            throw new GatewaySettlementLedgerConflictException(
+                    "Existing Gateway Settlement Ledger entry conflicts");
         }
     }
 
@@ -77,7 +79,8 @@ public final class GatewaySettlementLedgerService implements GatewaySettlementLe
                 || existing.billingPeriodId() != command.billingPeriodId()
                 || existing.postingActorType() != LedgerPostingActorType.SYSTEM
                 || existing.postedByMemberId() != null) {
-            throw new IllegalStateException("Existing Gateway Settlement posting conflicts");
+            throw new GatewaySettlementLedgerConflictException(
+                    "Existing Gateway Settlement posting conflicts");
         }
     }
 

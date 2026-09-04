@@ -126,6 +126,19 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
     }
 
     @Test
+    void completedTransportWithFinalUsageAndSettledFinancialTruthDoesNotBlockClose() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(45), digest(46));
+        var attemptId = insertRouteAttempt(fixture, requestId, 1,
+                "grd_46111111-1111-4111-8111-111111111111");
+        var reservationId = insertReservation(fixture, requestId, attemptId, "FINALIZED");
+        var usageFactId = insertFinalUsage(fixture, requestId, attemptId);
+        insertSettledSettlement(fixture, requestId, attemptId, usageFactId, reservationId);
+
+        assertThat(provider.evaluate(context(fixture)).passed()).isTrue();
+    }
+
+    @Test
     void currentFinalUsageWithoutSettlementStillBlocksClose() {
         var fixture = insertFullFixture();
         var requestId = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(33), digest(34));
@@ -137,6 +150,42 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
 
         assertThat(result.passed()).isFalse();
         assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    @Test
+    void incompleteAndUnknownCurrentUsageBlockClose() {
+        var fixture = insertFullFixture();
+        var incompleteRequest = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED",
+                digest(35), digest(36));
+        var incompleteAttempt = insertRouteAttempt(fixture, incompleteRequest, 1,
+                "grd_36111111-1111-4111-8111-111111111111");
+        insertUsage(fixture, incompleteRequest, incompleteAttempt, "INCOMPLETE");
+
+        var unknownRequest = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED",
+                digest(37), digest(38));
+        var unknownAttempt = insertRouteAttempt(fixture, unknownRequest, 1,
+                "grd_38111111-1111-4111-8111-111111111111");
+        insertUsage(fixture, unknownRequest, unknownAttempt, "UNKNOWN");
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(2);
+    }
+
+    @Test
+    void finalUsageWithPendingSettlementBlocksClose() {
+        assertFinalSettlementStatusBlocks("PENDING", 39);
+    }
+
+    @Test
+    void finalUsageWithRetryableFailedSettlementBlocksClose() {
+        assertFinalSettlementStatusBlocks("RETRYABLE_FAILED", 41);
+    }
+
+    @Test
+    void finalUsageWithReconciliationRequiredSettlementBlocksClose() {
+        assertFinalSettlementStatusBlocks("RECONCILIATION_REQUIRED", 43);
     }
 
     @Test
@@ -206,17 +255,50 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
     }
 
     private long insertFinalUsage(Fixture fixture, long requestId, long attemptId) {
+        return insertUsage(fixture, requestId, attemptId, "FINAL");
+    }
+
+    private long insertUsage(Fixture fixture, long requestId, long attemptId, String status) {
         jdbc.update("""
                 INSERT INTO gateway_usage_fact(
                   org_id,request_id,route_attempt_id,sequence,status,usage_effective_at,
                   usage_effective_at_source,pricing_version_id,currency,observed_at,created_at)
-                VALUES (?,?,?,1,'FINAL',UTC_TIMESTAMP(6),
+                VALUES (?,?,?,1,?,UTC_TIMESTAMP(6),
                   'GATEWAY_DISPATCH_INTENT_TIMESTAMP',?,'USD',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                """, fixture.orgId(), requestId, attemptId, fixture.pricingVersionId());
+                """, fixture.orgId(), requestId, attemptId, status, fixture.pricingVersionId());
         var usageFactId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         jdbc.update("UPDATE gateway_request SET current_route_attempt_id=?,current_usage_fact_id=? WHERE id=?",
                 attemptId, usageFactId, requestId);
         return usageFactId;
+    }
+
+    private void assertFinalSettlementStatusBlocks(String status, int seed) {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED",
+                digest(seed), digest(seed + 1));
+        var attemptId = insertRouteAttempt(fixture, requestId, 1,
+                "grd_" + String.format("%02d", seed)
+                        + "111111-1111-4111-8111-111111111111");
+        var usageFactId = insertFinalUsage(fixture, requestId, attemptId);
+        insertSettlement(fixture, requestId, attemptId, usageFactId, status);
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    private void insertSettlement(Fixture fixture, long requestId, long attemptId,
+            long usageFactId, String status) {
+        jdbc.update("""
+                INSERT INTO gateway_settlement(
+                  org_id,settlement_key,request_id,route_attempt_id,usage_fact_id,reservation_id,
+                  billing_period_id,financial_scope_type,financial_scope_id,provider_account_id,
+                  provider_model_id,pricing_version_id,currency,status,attempt_count,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,'PROJECT',0,?,?,?,'USD',?,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, fixture.orgId(), "GATEWAY_REQUEST:" + requestId, requestId, attemptId,
+                usageFactId, null, fixture.periodId(), fixture.providerAccountId(),
+                fixture.providerModelId(), fixture.pricingVersionId(), status);
     }
 
     private void insertSettledSettlement(Fixture fixture, long requestId, long attemptId,
