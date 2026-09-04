@@ -69,10 +69,10 @@ public interface GatewayRequestMapper {
             INSERT INTO gateway_route_attempt(
               org_id,request_id,attempt_no,route_decision_id,routing_policy_id,provider_account_id,
               provider_model_id,pricing_version_id,status,safety_reason_code,provider_request_id,
-              created_at,dispatch_intent_at,completed_at)
-            VALUES (#{orgId},#{requestId},1,#{routeDecisionId},NULL,#{providerAccountId},
+              created_at,dispatch_intent_at,completed_at,route_reason_code)
+            VALUES (#{orgId},#{requestId},#{attemptNo},#{routeDecisionId},#{routingPolicyId},#{providerAccountId},
               #{providerModelId},#{pricingVersionId},'PLANNED',NULL,NULL,
-              UTC_TIMESTAMP(6),NULL,NULL)
+              UTC_TIMESTAMP(6),NULL,NULL,#{routeReasonCode})
             """)
     int insertRouteAttempt(RouteAttemptInsert insert);
 
@@ -209,9 +209,18 @@ public interface GatewayRequestMapper {
     record RouteAttemptInsert(
             long orgId,
             long requestId,
+            int attemptNo,
             String routeDecisionId,
+            Long routingPolicyId,
             long providerAccountId,
             long providerModelId,
-            long pricingVersionId) {
+            long pricingVersionId,
+            String routeReasonCode) {
+
+        public RouteAttemptInsert(long orgId, long requestId, String routeDecisionId,
+                long providerAccountId, long providerModelId, long pricingVersionId) {
+            this(orgId, requestId, 1, routeDecisionId, null, providerAccountId, providerModelId,
+                    pricingVersionId, null);
+        }
     }
 }

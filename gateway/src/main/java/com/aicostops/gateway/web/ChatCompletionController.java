@@ -191,7 +191,7 @@ public class ChatCompletionController {
                     metrics.recordQuota("ALLOWED");
                     return requestService.authorizeAndFence(new AuthorizeCommand(
                             principal, modelId, rawBody, idempotencyKey,
-                            effectiveMaxTokens));
+                            effectiveMaxTokens, request.stream()));
                 })
                 .flatMap((DispatchResult result) -> request.stream()
                         ? invokeStream(exchange, principal, result, request,

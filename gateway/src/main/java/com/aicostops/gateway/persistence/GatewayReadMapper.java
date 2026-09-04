@@ -51,36 +51,6 @@ public interface GatewayReadMapper {
     ModelRow findModelById(@Param("modelId") long modelId);
 
     @Select("""
-            SELECT pa.id AS provider_account_id, pa.provider_code,
-                   pm.id AS provider_model_id, pm.provider_model_name,
-                   pv.id AS pricing_version_id, pv.currency,
-                   pc.base_url, pc.adapter_code
-            FROM provider_catalog pc
-            JOIN provider_model pm
-                 ON pm.provider_code=pc.provider_code AND pm.model_id=#{modelId}
-                 AND pm.status='ACTIVE' AND pm.routing_eligible=TRUE
-            JOIN provider_account pa
-                 ON pa.provider_code=pc.provider_code AND pa.org_id=#{orgId}
-                 AND pa.status='ACTIVE'
-            JOIN pricing_version pv
-                 ON pv.org_id=#{orgId} AND pv.provider_account_id=pa.id
-                 AND pv.provider_model_id=pm.id AND pv.status='ACTIVE'
-                 AND pv.effective_from <= #{now}
-                 AND (pv.effective_to IS NULL OR pv.effective_to > #{now})
-            WHERE pc.provider_code=#{providerCode} AND pc.status='ACTIVE'
-              AND EXISTS (
-                SELECT 1 FROM provider_credential pcred
-                WHERE pcred.provider_account_id=pa.id AND pcred.org_id=#{orgId}
-                  AND pcred.status='ACTIVE')
-            ORDER BY pv.id LIMIT 1
-            """)
-    RouteCandidateRow findRouteCandidate(
-            @Param("orgId") long orgId,
-            @Param("modelId") long modelId,
-            @Param("providerCode") String providerCode,
-            @Param("now") Instant now);
-
-    @Select("""
             SELECT id FROM billing_period
             WHERE org_id=#{orgId} AND status='OPEN'
               AND period_start <= #{now} AND period_end > #{now}
@@ -128,17 +98,6 @@ public interface GatewayReadMapper {
             String status,
             Integer defaultMaxOutputTokens,
             int maxOutputTokens) {
-    }
-
-    record RouteCandidateRow(
-            long providerAccountId,
-            String providerCode,
-            long providerModelId,
-            String providerModelName,
-            long pricingVersionId,
-            String currency,
-            String baseUrl,
-            String adapterCode) {
     }
 
     record ProviderCredentialRow(byte[] ciphertext, byte[] nonce, short encryptionKeyVersion) {

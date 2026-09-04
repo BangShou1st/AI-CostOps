@@ -8,6 +8,10 @@ import com.aicostops.gateway.budget.BudgetReservationService.AdmissionResult;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
+import com.aicostops.gateway.routing.CandidateEligibilityEvaluator;
+import com.aicostops.gateway.routing.DeterministicRouteSelector;
+import com.aicostops.gateway.routing.ResolvedRoutingPolicy;
+import com.aicostops.gateway.routing.RoutingPolicyResolver;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
 import java.security.MessageDigest;
@@ -31,7 +35,6 @@ import reactor.core.publisher.Mono;
 @Service
 public class GatewayRequestService {
 
-    private static final String M11_PROVIDER_CODE = "MIMO";
     private static final Set<String> IN_PROGRESS_STATES = Set.of(
             "DISPATCH_INTENT", "UPSTREAM_ACTIVE", "CANCELED_AFTER_DISPATCH",
             "TIMED_OUT_AFTER_DISPATCH", "FAILED_AFTER_DISPATCH");
@@ -43,6 +46,9 @@ public class GatewayRequestService {
     private final BudgetReservationService reservationService;
     private final BlockingIoScheduler blockingIo;
     private final Clock clock;
+    private final RoutingPolicyResolver routingPolicyResolver;
+    private final DeterministicRouteSelector routeSelector;
+    private final CandidateEligibilityEvaluator eligibilityEvaluator;
 
     public GatewayRequestService(
             GatewayReadMapper readMapper,
@@ -51,7 +57,10 @@ public class GatewayRequestService {
             DispatchFenceService dispatchFenceService,
             BudgetReservationService reservationService,
             BlockingIoScheduler blockingIo,
-            Clock clock) {
+            Clock clock,
+            RoutingPolicyResolver routingPolicyResolver,
+            DeterministicRouteSelector routeSelector,
+            CandidateEligibilityEvaluator eligibilityEvaluator) {
         this.readMapper = readMapper;
         this.requestMapper = requestMapper;
         this.identityService = identityService;
@@ -59,6 +68,9 @@ public class GatewayRequestService {
         this.reservationService = reservationService;
         this.blockingIo = blockingIo;
         this.clock = clock;
+        this.routingPolicyResolver = routingPolicyResolver;
+        this.routeSelector = routeSelector;
+        this.eligibilityEvaluator = eligibilityEvaluator;
     }
 
     public Mono<DispatchResult> authorizeAndFence(AuthorizeCommand command) {
@@ -85,15 +97,25 @@ public class GatewayRequestService {
                     "The requested model is not active");
         }
 
-        // 2. Server-governed single Provider route (M11): active Provider
-        // Account, active Provider Credential, eligible Provider Model and a
-        // resolvable ACTIVE Pricing Version.
-        var route = readMapper.findRouteCandidate(principal.organizationId(),
-                command.logicalModelId(), M11_PROVIDER_CODE, now);
-        if (route == null) {
+        // 2. Resolve the exact project policy first; only when it is absent do
+        // we use the organization-default policy. Candidate order is frozen
+        // by (priority ASC, candidate id ASC), and a candidate is rejected
+        // before any reservation or Provider I/O when its readiness is stale.
+        ResolvedRoutingPolicy policy;
+        try {
+            policy = routingPolicyResolver.resolve(principal.organizationId(), principal.projectId(),
+                    command.logicalModelId(), now);
+        } catch (IllegalStateException ex) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
                     "No eligible Provider route is available for the requested model");
         }
+        var route = routeSelector.orderedCandidates(policy).stream()
+                .filter(candidate -> eligibilityEvaluator.evaluate(candidate,
+                        new CandidateEligibilityEvaluator.RequestCapabilities(true, command.streaming()),
+                        Set.of(), now).eligible())
+                .findFirst()
+                .orElseThrow(() -> new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
+                        "No eligible Provider route is available for the requested model"));
 
         // 3. M12 TX1 MySQL-authoritative budget admission is resolved after
         // the VALIDATED request and PLANNED attempt exist (step 5/6 below);
@@ -118,8 +140,9 @@ public class GatewayRequestService {
             long requestId = request.requestId();
             try {
                 requestMapper.insertRouteAttempt(new GatewayRequestMapper.RouteAttemptInsert(
-                        principal.organizationId(), requestId, routeDecisionId,
-                        route.providerAccountId(), route.providerModelId(), route.pricingVersionId()));
+                        principal.organizationId(), requestId, 1, routeDecisionId,
+                        policy.id(), route.providerAccountId(), route.providerModelId(), route.pricingVersionId(),
+                        "INITIAL_PRIMARY"));
             } catch (DuplicateKeyException ex) {
                 // A concurrent identical call created the attempt between our
                 // read and write; converge on the appended row.
@@ -170,6 +193,7 @@ public class GatewayRequestService {
                 request.publicRequestId(),
                 attemptId,
                 routeDecisionId,
+                policy.id(),
                 route.providerAccountId(),
                 route.providerModelId(),
                 route.pricingVersionId(),
@@ -250,7 +274,13 @@ public class GatewayRequestService {
             long logicalModelId,
             byte[] rawBodyBytes,
             String rawIdempotencyKey,
-            long effectiveMaxOutputTokens) {
+            long effectiveMaxOutputTokens,
+            boolean streaming) {
+
+        public AuthorizeCommand(GatewayPrincipal principal, long logicalModelId, byte[] rawBodyBytes,
+                String rawIdempotencyKey, long effectiveMaxOutputTokens) {
+            this(principal, logicalModelId, rawBodyBytes, rawIdempotencyKey, effectiveMaxOutputTokens, false);
+        }
     }
 
     public record DispatchResult(
@@ -258,6 +288,7 @@ public class GatewayRequestService {
             String publicRequestId,
             long routeAttemptId,
             String routeDecisionId,
+            long routingPolicyId,
             long providerAccountId,
             long providerModelId,
             long pricingVersionId,

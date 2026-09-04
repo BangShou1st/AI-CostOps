@@ -72,7 +72,7 @@ public final class GatewayTestFixture {
                     INSERT INTO model_catalog(
                       model_key,name,status,capabilities_json,default_max_output_tokens,
                       max_output_tokens,created_at,updated_at)
-                    VALUES (?,'Gateway Test Model','ACTIVE',JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS')),
+                    VALUES (?,'Gateway Test Model','ACTIVE',JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS','SSE_STREAMING')),
                       8192,131072,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                     """, MODEL_KEY);
             modelId = insertLastId(jdbc);
@@ -102,7 +102,7 @@ public final class GatewayTestFixture {
                     INSERT INTO provider_model(
                       provider_code,model_id,provider_model_name,status,routing_eligible,
                       capabilities_json,created_at,updated_at)
-                    VALUES (?,?,?,'ACTIVE',TRUE,JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                    VALUES (?,?,?,'ACTIVE',TRUE,JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS','SSE_STREAMING')),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                     """, PROVIDER_CODE, modelId, PROVIDER_MODEL_NAME);
             providerModelId = insertLastId(jdbc);
         } else {
@@ -144,6 +144,18 @@ public final class GatewayTestFixture {
                 INSERT INTO pricing_rate(org_id,pricing_version_id,dimension_code,unit_quantity,unit_price)
                 VALUES (?,?,'OUTPUT_TOKEN',1000000,'60.00000000')
                 """, orgId, pricingVersionId);
+
+        jdbc.update("""
+                INSERT INTO routing_policy(org_id,project_id,model_id,version,status,created_at,activated_at)
+                VALUES (?,NULL,?,1,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, modelId);
+        var routingPolicyId = insertLastId(jdbc);
+        jdbc.update("""
+                INSERT INTO routing_policy_candidate(
+                  org_id,routing_policy_id,provider_account_id,provider_model_id,priority,status,
+                  privacy_region_code,created_at)
+                VALUES (?,?,?,? ,0,'ACTIVE',NULL,UTC_TIMESTAMP(6))
+                """, orgId, routingPolicyId, providerAccountId, providerModelId);
 
         var parsed = parseKey(rawKey);
         var digest = hmac(parsed.secretPart(), hmacKeyBase64);
