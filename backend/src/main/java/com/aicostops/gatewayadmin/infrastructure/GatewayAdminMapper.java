@@ -170,6 +170,35 @@ public interface GatewayAdminMapper {
             @Param("nonce") byte[] nonce);
 
     @Select("""
+            SELECT id FROM routing_policy
+            WHERE org_id=#{orgId} AND project_id IS NULL AND model_id=#{modelId}
+              AND status='ACTIVE'
+            ORDER BY version DESC LIMIT 1
+            """)
+    Long findActiveOrganizationRoutingPolicyId(
+            @Param("orgId") long orgId, @Param("modelId") long modelId);
+
+    @Insert("""
+            INSERT INTO routing_policy(
+              org_id,project_id,model_id,version,status,created_at,activated_at)
+            VALUES (#{orgId},NULL,#{modelId},1,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+            """)
+    int insertActiveOrganizationRoutingPolicy(
+            @Param("orgId") long orgId, @Param("modelId") long modelId);
+
+    @Insert("""
+            INSERT IGNORE INTO routing_policy_candidate(
+              org_id,routing_policy_id,provider_account_id,provider_model_id,priority,status,
+              privacy_region_code,created_at)
+            VALUES (#{orgId},#{routingPolicyId},#{providerAccountId},#{providerModelId},0,'ACTIVE',NULL,UTC_TIMESTAMP(6))
+            """)
+    int insertRoutingPolicyCandidateIfMissing(
+            @Param("orgId") long orgId,
+            @Param("routingPolicyId") long routingPolicyId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId);
+
+    @Select("""
             SELECT b.period_start, b.period_end
             FROM billing_period b
             WHERE b.org_id=#{orgId} AND b.status='OPEN'

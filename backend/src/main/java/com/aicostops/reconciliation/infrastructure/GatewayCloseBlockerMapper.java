@@ -27,6 +27,15 @@ public interface GatewayCloseBlockerMapper {
                 'DISPATCH_INTENT','UPSTREAM_ACTIVE','TRANSPORT_COMPLETED',
                 'CANCELED_AFTER_DISPATCH','TIMED_OUT_AFTER_DISPATCH','FAILED_AFTER_DISPATCH')
               AND (
+                NOT EXISTS (
+                  SELECT 1 FROM gateway_route_attempt ra_any
+                  WHERE ra_any.org_id=gr.org_id AND ra_any.request_id=gr.id)
+                OR EXISTS (
+                  SELECT 1 FROM gateway_route_attempt ra_live
+                  WHERE ra_live.org_id=gr.org_id AND ra_live.request_id=gr.id
+                    AND ra_live.status <> 'SAFE_NO_BILLABLE_EXECUTION')
+              )
+              AND (
                 uf.id IS NULL
                 OR uf.status IN ('INCOMPLETE','UNKNOWN')
                 OR (uf.status='FINAL'

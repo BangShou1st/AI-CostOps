@@ -111,6 +111,19 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
     }
 
     @Test
+    void activeRequestWithOnlySafeReleasedAttemptDoesNotBlockClose() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "UPSTREAM_ACTIVE", digest(29), digest(30));
+        var attemptId = insertRouteAttempt(fixture, requestId, 1,
+                "grd_30111111-1111-4111-8111-111111111111");
+        jdbc.update("UPDATE gateway_route_attempt SET status='SAFE_NO_BILLABLE_EXECUTION', "
+                + "safety_reason_code='DNS_PRE_CONNECT' WHERE id=?", attemptId);
+        insertReservation(fixture, requestId, attemptId, "RELEASED");
+
+        assertThat(provider.evaluate(context(fixture)).passed()).isTrue();
+    }
+
+    @Test
     void failedTransportWithFinalUsageAndSettledFinancialTruthDoesNotBlockClose() {
         var fixture = insertFullFixture();
         var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(31), digest(32));

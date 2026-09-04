@@ -18,14 +18,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Local development provisioning for the M11 Gateway runtime projection.
+ * Local development provisioning for the M14 Gateway runtime projection.
  *
  * <p>Runs only in the {@code dev} profile and only when
  * {@code AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED=true}. It idempotently
  * provisions one SERVICE identity, one OPTIONAL Gateway credential, the
  * explicit {@code default-chat} model relation, the MiMo catalog/model
  * mapping, one ACTIVE Pricing Version with rates, and an encrypted Provider
- * credential only when {@code AICOSTOPS_MIMO_API_KEY} is present.
+ * credential only when {@code AICOSTOPS_MIMO_API_KEY} is present, plus an
+ * idempotent ACTIVE organization-default routing policy.
  *
  * <p>Never logs or persists raw Gateway keys or raw Provider secrets: only
  * the credential prefix and keyed digest are stored.
@@ -110,12 +111,13 @@ public class DevGatewayBootstrap implements ApplicationRunner {
         var providerModelId = ensureProviderModel(modelId);
         var providerAccountId = ensureProviderAccount(organizationId);
         ensurePricingVersion(organizationId, providerAccountId, providerModelId);
+        ensureRoutingPolicy(organizationId, modelId, providerAccountId, providerModelId);
         if (!mimoApiKey.isBlank()) {
             ensureProviderCredential(organizationId, providerAccountId);
         }
 
         log.info(
-                "M11 gateway dev bootstrap ready: org={} credentialId={} serviceIdentityId={} "
+                "M14 gateway dev bootstrap ready: org={} credentialId={} serviceIdentityId={} "
                         + "projectId={} modelKey={} providerCode={} providerModelName={} pricingVersion present",
                 organizationId, credentialId, serviceIdentityId, projectId, MODEL_KEY,
                 PROVIDER_CODE, PROVIDER_MODEL_NAME);
@@ -224,6 +226,18 @@ public class DevGatewayBootstrap implements ApplicationRunner {
         var encrypted = encryptor.encrypt(mimoApiKey, organizationId, providerAccountId, "API_KEY", (short) 1);
         gatewayAdminMapper.insertProviderCredential(
                 organizationId, providerAccountId, encrypted.ciphertext(), encrypted.nonce());
+    }
+
+    private void ensureRoutingPolicy(long organizationId, long modelId,
+            long providerAccountId, long providerModelId) {
+        var policyId = gatewayAdminMapper.findActiveOrganizationRoutingPolicyId(organizationId, modelId);
+        if (policyId == null) {
+            gatewayAdminMapper.insertActiveOrganizationRoutingPolicy(organizationId, modelId);
+            policyId = require(gatewayAdminMapper.findActiveOrganizationRoutingPolicyId(
+                    organizationId, modelId), "organization routing policy");
+        }
+        gatewayAdminMapper.insertRoutingPolicyCandidateIfMissing(
+                organizationId, policyId, providerAccountId, providerModelId);
     }
 
     private static long require(Long value, String what) {
