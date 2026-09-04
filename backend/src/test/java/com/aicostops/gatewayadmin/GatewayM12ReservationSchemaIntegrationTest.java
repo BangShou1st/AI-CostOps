@@ -17,9 +17,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * V19 contract for the M12 MySQL-authoritative budget reservation
  * (AIC-087 / AIC-092 section 12). Real MySQL 8.4: the empty database migrates
- * exactly through V19, the reservation table carries per-route-attempt
- * uniqueness plus one-effective-hold-per-request uniqueness, and no
- * M13 metering/settlement table leaks into the wave.
+ * through the current V20 schema, the reservation table carries per-route-attempt
+ * uniqueness plus one-effective-hold-per-request uniqueness, and M13 settlement
+ * remains absent.
  */
 @SpringBootTest
 @Tag("integration")
@@ -34,19 +34,17 @@ class GatewayM12ReservationSchemaIntegrationTest extends MySqlContainerSupport {
     }
 
     @Test
-    void emptyDatabaseMigratesThroughV19AndV1TablesRemainUsable() {
+    void emptyDatabaseMigratesThroughV20AndV1TablesRemainUsable() {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1",
-                Integer.class)).isEqualTo(19);
+                Integer.class)).isEqualTo(20);
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '19' AND success = 1",
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20' AND success = 1",
                 Integer.class)).isEqualTo(1);
 
         assertThat(queryTables()).contains("budget_reservation");
         assertThat(queryTables())
-                .doesNotContain(
-                        "gateway_usage_fact", "gateway_usage_dimension",
-                        "gateway_settlement", "routing_policy", "routing_policy_candidate");
+                .doesNotContain("gateway_settlement", "routing_policy", "routing_policy_candidate");
     }
 
     @Test
