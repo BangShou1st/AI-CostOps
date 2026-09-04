@@ -37,6 +37,12 @@ public interface GatewayRequestMapper {
     ExistingRequestRow findById(@Param("requestId") long requestId, @Param("orgId") long orgId);
 
     @Select("""
+            SELECT id, org_id, public_request_id, request_fingerprint, state, billing_period_id
+            FROM gateway_request WHERE id=#{requestId} AND org_id=#{orgId} FOR UPDATE
+            """)
+    ExistingRequestRow findByIdForUpdate(@Param("requestId") long requestId, @Param("orgId") long orgId);
+
+    @Select("""
             SELECT credential_id, public_request_id, state,
                    CONCAT(DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s'), 'Z') AS created_at,
                    CONCAT(DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%s'), 'Z') AS updated_at
@@ -87,6 +93,23 @@ public interface GatewayRequestMapper {
             WHERE org_id=#{orgId} AND id=#{attemptId}
             """)
     RouteAttemptRow findAttemptById(@Param("orgId") long orgId, @Param("attemptId") long attemptId);
+
+    @Select("""
+            SELECT id,attempt_no,route_decision_id,status,routing_policy_id,provider_account_id,
+                   provider_model_id,pricing_version_id,safety_reason_code,provider_request_id
+            FROM gateway_route_attempt
+            WHERE org_id=#{orgId} AND request_id=#{requestId}
+            ORDER BY attempt_no DESC
+            LIMIT 1
+            """)
+    RouteAttemptDetails findLatestAttempt(@Param("orgId") long orgId, @Param("requestId") long requestId);
+
+    @Select("""
+            SELECT COUNT(*) FROM gateway_route_attempt
+            WHERE org_id=#{orgId} AND request_id=#{requestId}
+              AND status <> 'SAFE_NO_BILLABLE_EXECUTION'
+            """)
+    int countNonSafeAttempts(@Param("orgId") long orgId, @Param("requestId") long requestId);
 
     @Update("""
             UPDATE gateway_request
@@ -155,6 +178,23 @@ public interface GatewayRequestMapper {
 
     @Update("""
             UPDATE gateway_route_attempt
+            SET status='SAFE_NO_BILLABLE_EXECUTION',safety_reason_code=#{reason}
+            WHERE id=#{attemptId} AND org_id=#{orgId} AND status='DISPATCH_INTENT'
+            """)
+    int markAttemptSafe(@Param("attemptId") long attemptId, @Param("orgId") long orgId,
+            @Param("reason") String reason);
+
+    @Update("""
+            UPDATE gateway_route_attempt
+            SET status='BILLABLE_POSSIBLE',safety_reason_code=#{reason},provider_request_id=#{providerRequestId}
+            WHERE id=#{attemptId} AND org_id=#{orgId} AND status IN ('DISPATCH_INTENT','UPSTREAM_ACTIVE')
+            """)
+    int markAttemptBillablePossibleWithEvidence(@Param("attemptId") long attemptId,
+            @Param("orgId") long orgId, @Param("reason") String reason,
+            @Param("providerRequestId") String providerRequestId);
+
+    @Update("""
+            UPDATE gateway_route_attempt
             SET status='COMPLETED', completed_at=UTC_TIMESTAMP(6)
             WHERE id=#{attemptId} AND org_id=#{orgId}
               AND status IN ('BILLABLE_POSSIBLE','DISPATCH_INTENT')
@@ -189,6 +229,11 @@ public interface GatewayRequestMapper {
     }
 
     record RouteAttemptRow(long id, String routeDecisionId, String status) {
+    }
+
+    record RouteAttemptDetails(long id, int attemptNo, String routeDecisionId, String status,
+            Long routingPolicyId, long providerAccountId, long providerModelId,
+            long pricingVersionId, String safetyReasonCode, String providerRequestId) {
     }
 
     record GatewayRequestInsert(

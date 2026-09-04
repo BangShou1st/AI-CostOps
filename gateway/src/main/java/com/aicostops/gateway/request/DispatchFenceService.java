@@ -74,10 +74,23 @@ public class DispatchFenceService {
                         "No matching active reservation exists for dispatch");
             }
         }
-        var updated = requestMapper.markRequestDispatchIntent(requestId, orgId, periodId);
+        var existing = requestMapper.findById(requestId, orgId);
+        if (existing == null) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Request cannot be found for dispatch");
+        }
+        boolean firstAttempt = existing.state().equals("VALIDATED") || existing.state().equals("RESERVED");
+        if (!firstAttempt) {
+            if (!Set.of("DISPATCH_INTENT", "UPSTREAM_ACTIVE").contains(existing.state())
+                    || existing.billingPeriodId() == null || existing.billingPeriodId() != periodId) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
+                        "The request is not eligible for a later dispatch attempt");
+            }
+        }
+        var updated = firstAttempt ? requestMapper.markRequestDispatchIntent(requestId, orgId, periodId) : 1;
         if (updated == 0) {
-            var existing = requestMapper.findById(requestId, orgId);
-            if (existing != null && IN_PROGRESS_STATES.contains(existing.state())) {
+            var current = requestMapper.findById(requestId, orgId);
+            if (current != null && IN_PROGRESS_STATES.contains(current.state())) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
                         "The same idempotency identity is already being dispatched");
             }

@@ -21,12 +21,23 @@ public class GatewayRequestLifecycleService {
         this.blockingIo = blockingIo;
     }
 
-    /** Best-effort transition before Provider I/O: request UPSTREAM_ACTIVE, route BILLABLE_POSSIBLE. */
+    /** Best-effort transition before Provider I/O: only the request becomes active. */
     public Mono<Void> beginUpstream(long requestId, long orgId, long attemptId) {
         return blockingIo.run(() -> {
             requestMapper.markRequestUpstreamActive(requestId, orgId);
-            requestMapper.markAttemptBillablePossible(attemptId, orgId);
         });
+    }
+
+    public Mono<Void> markSafe(long requestId, long orgId, long attemptId,
+            com.aicostops.gateway.provider.ProviderSafetyReason reason) {
+        return blockingIo.run(() -> requestMapper.markAttemptSafe(
+                attemptId, orgId, reason.name()));
+    }
+
+    public Mono<Void> markBillablePossible(long requestId, long orgId, long attemptId,
+            com.aicostops.gateway.provider.ProviderSafetyReason reason, String providerRequestId) {
+        return blockingIo.run(() -> requestMapper.markAttemptBillablePossibleWithEvidence(
+                attemptId, orgId, reason.name(), providerRequestId));
     }
 
     /** Successful transport: request TRANSPORT_COMPLETED, route COMPLETED. */
