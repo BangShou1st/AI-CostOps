@@ -304,16 +304,36 @@ public class ChatCompletionController {
                         metrics.recordRequestOutcome(timeout ? "TIMED_OUT" : "FAILED");
                         metrics.recordProviderError(result.adapterCode(),
                                 timeout ? "TIMEOUT" : "HTTP_ERROR");
-                        var terminal = timeout
-                                ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
-                                : lifecycleService.failAfterDispatch(requestId, orgId);
+                        var failure = timeout
+                                ? GatewayUsageFinalizationService.TransportFailure.TIMED_OUT
+                                : GatewayUsageFinalizationService.TransportFailure.FAILED;
+                        var observation = latestMetering.get();
+                        if (observation == null) {
+                            observation = GatewayUsageObservation.noUsage(null)
+                                    .withDispatched(true);
+                        }
+                        var terminal = usageFinalization.finalizeFailure(
+                                        requestId, orgId, result.routeAttemptId(), observation, failure)
+                                .then()
+                                .onErrorResume(finalizationFailure -> timeout
+                                        ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
+                                        : lifecycleService.failAfterDispatch(requestId, orgId));
                         return terminal.then(Mono.error(ex));
                     })
                     .doOnComplete(() -> metrics.recordRequestOutcome("COMPLETED"))
                     .doOnCancel(() -> {
                         metrics.recordRequestOutcome("CANCELED");
-                        streamingLifecycle
-                                .cancelAfterDispatch(requestId, orgId)
+                        var observation = latestMetering.get();
+                        if (observation == null) {
+                            observation = GatewayUsageObservation.noUsage(null)
+                                    .withDispatched(true);
+                        }
+                        usageFinalization.finalizeFailure(
+                                        requestId, orgId, result.routeAttemptId(), observation,
+                                        GatewayUsageFinalizationService.TransportFailure.CANCELED)
+                                .then()
+                                .onErrorResume(finalizationFailure ->
+                                        streamingLifecycle.cancelAfterDispatch(requestId, orgId))
                                 .subscribe();
                     })
                     .doFinally(ignored -> releasePermit.run());
@@ -353,9 +373,16 @@ public class ChatCompletionController {
                     metrics.recordRequestOutcome(timeout ? "TIMED_OUT" : "FAILED");
                     metrics.recordProviderError(result.adapterCode(),
                             timeout ? "TIMEOUT" : "HTTP_ERROR");
-                    var terminal = timeout
-                            ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
-                            : lifecycleService.failAfterDispatch(requestId, orgId);
+                    var failure = timeout
+                            ? GatewayUsageFinalizationService.TransportFailure.TIMED_OUT
+                            : GatewayUsageFinalizationService.TransportFailure.FAILED;
+                    var terminal = usageFinalization.finalizeFailure(
+                                    requestId, orgId, result.routeAttemptId(),
+                                    GatewayUsageObservation.noUsage(null).withDispatched(true), failure)
+                            .then()
+                            .onErrorResume(finalizationFailure -> timeout
+                                    ? streamingLifecycle.timeoutAfterDispatch(requestId, orgId)
+                                    : lifecycleService.failAfterDispatch(requestId, orgId));
                     return terminal.then(Mono.error(ex));
                 });
     }

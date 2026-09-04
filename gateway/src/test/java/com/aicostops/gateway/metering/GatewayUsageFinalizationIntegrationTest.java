@@ -149,7 +149,7 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
     void failureDuringPointerPublicationRollsBackFactAndDimensions() {
         var request = insertDispatchedRequest("rollback");
         var failingFinalization = new GatewayUsageFinalizationService(
-                usageMapper, requestMapper, classifier, transactionManager, blockingIo,
+                usageMapper, requestMapper, null, classifier, transactionManager, blockingIo,
                 objectMapper, clock) {
             @Override
             protected void beforeLifecycleUpdate() {

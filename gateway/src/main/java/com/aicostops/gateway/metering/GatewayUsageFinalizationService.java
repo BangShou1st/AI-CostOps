@@ -3,6 +3,7 @@ package com.aicostops.gateway.metering;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import com.aicostops.gateway.persistence.GatewayUsageMapper;
+import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -27,6 +28,7 @@ public class GatewayUsageFinalizationService {
 
     private final GatewayUsageMapper usageMapper;
     private final GatewayRequestMapper requestMapper;
+    private final BudgetReservationMapper reservationMapper;
     private final GatewayUsageClassifier classifier;
     private final TransactionTemplate transactions;
     private final BlockingIoScheduler blockingIo;
@@ -36,6 +38,7 @@ public class GatewayUsageFinalizationService {
     public GatewayUsageFinalizationService(
             GatewayUsageMapper usageMapper,
             GatewayRequestMapper requestMapper,
+            BudgetReservationMapper reservationMapper,
             GatewayUsageClassifier classifier,
             PlatformTransactionManager transactionManager,
             BlockingIoScheduler blockingIo,
@@ -43,6 +46,7 @@ public class GatewayUsageFinalizationService {
             Clock clock) {
         this.usageMapper = usageMapper;
         this.requestMapper = requestMapper;
+        this.reservationMapper = reservationMapper;
         this.classifier = classifier;
         this.transactions = new TransactionTemplate(transactionManager);
         this.blockingIo = blockingIo;
@@ -56,6 +60,18 @@ public class GatewayUsageFinalizationService {
             GatewayUsageObservation observation) {
         return blockingIo.call(() -> transactions.execute(status ->
                 finalizeBlocking(requestId, orgId, routeAttemptId, observation)));
+    }
+
+    /**
+     * Persists best available post-dispatch evidence and transport failure in
+     * one transaction. A bound ACTIVE reservation becomes PENDING_HOLD; it is
+     * never released because transport failure does not prove zero cost.
+     */
+    public Mono<FinalizationResult> finalizeFailure(
+            long requestId, long orgId, long routeAttemptId,
+            GatewayUsageObservation observation, TransportFailure failure) {
+        return blockingIo.call(() -> transactions.execute(status ->
+                finalizeFailureBlocking(requestId, orgId, routeAttemptId, observation, failure)));
     }
 
     private FinalizationResult finalizeBlocking(
@@ -117,6 +133,58 @@ public class GatewayUsageFinalizationService {
         return new FinalizationResult(classification.status(), factId, true);
     }
 
+    private FinalizationResult finalizeFailureBlocking(
+            long requestId, long orgId, long routeAttemptId,
+            GatewayUsageObservation observation, TransportFailure failure) {
+        if (observation == null || failure == null) {
+            throw new IllegalArgumentException("Failure evidence and terminal state are required");
+        }
+        var lineage = usageMapper.lockLineage(orgId, requestId, routeAttemptId);
+        if (lineage == null) {
+            throw new IllegalStateException("Gateway request route lineage is unavailable");
+        }
+        var current = lineage.currentUsageFactId() == null
+                ? null : usageMapper.findFact(orgId, lineage.currentUsageFactId());
+        long factId = current == null ? 0L : current.id();
+        GatewayUsageStatus usageStatus;
+        if (current != null && GatewayUsageStatus.FINAL.name().equals(current.status())) {
+            usageStatus = GatewayUsageStatus.FINAL;
+        } else {
+            var classification = classifier.classify(
+                    usageMapper.findPricingDimensions(orgId, lineage.pricingVersionId()), observation);
+            var effectiveTime = effectiveTime(observation, lineage.dispatchIntentAt());
+            var observedAt = Instant.now(clock);
+            var factInsert = new GatewayUsageMapper.UsageFactInsert(
+                    orgId, requestId, routeAttemptId,
+                    current == null ? 1 : current.sequence() + 1,
+                    classification.status().name(),
+                    current == null ? null : current.id(),
+                    safeProviderRequestId(observation.providerRequestId()),
+                    effectiveTime.value(), effectiveTime.source(), lineage.pricingVersionId(),
+                    lineage.currency(), safeMetadataJson(observation.safeProviderMetadata()),
+                    observedAt, observedAt);
+            requireOne(usageMapper.insertFact(factInsert), "usage fact insert");
+            factId = usageMapper.lastInsertId();
+            for (var dimension : classification.dimensions()) {
+                requireOne(usageMapper.insertDimension(new GatewayUsageMapper.DimensionInsert(
+                        orgId, factId, dimension.dimensionCode(), dimension.quantity(),
+                        dimension.provenance())), "usage dimension insert");
+            }
+            requireOne(usageMapper.updateCurrentUsageFact(orgId, requestId, factId),
+                    "current usage fact update");
+            usageStatus = classification.status();
+        }
+
+        var reservation = reservationMapper.lockReservationByRouteAttempt(orgId, routeAttemptId);
+        if (reservation != null && "ACTIVE".equals(reservation.status())) {
+            requireOne(reservationMapper.holdActiveReservation(
+                    reservation.id(), orgId, reservation.version()), "reservation pending hold");
+        }
+        convergeFailureLifecycle(requestId, orgId, routeAttemptId, lineage, failure);
+        return new FinalizationResult(usageStatus, factId, current == null
+                || !GatewayUsageStatus.FINAL.name().equals(current.status()));
+    }
+
     /** Test seam for verifying that the local transaction rolls back as one unit. */
     protected void beforeLifecycleUpdate() {
         // Production path intentionally has no work here.
@@ -134,6 +202,24 @@ public class GatewayUsageFinalizationService {
                 || "DISPATCH_INTENT".equals(lineage.routeStatus())) {
             requireOne(requestMapper.markAttemptCompleted(routeAttemptId, orgId),
                     "route completion");
+        }
+    }
+
+    private void convergeFailureLifecycle(
+            long requestId, long orgId, long routeAttemptId,
+            GatewayUsageMapper.LineageRow lineage, TransportFailure failure) {
+        if ("DISPATCH_INTENT".equals(lineage.routeStatus())) {
+            requireOne(requestMapper.markAttemptBillablePossible(routeAttemptId, orgId),
+                    "route billable-possible transition");
+        }
+        if ("DISPATCH_INTENT".equals(lineage.requestState())
+                || "UPSTREAM_ACTIVE".equals(lineage.requestState())) {
+            var updated = switch (failure) {
+                case FAILED -> requestMapper.markRequestFailedAfterDispatch(requestId, orgId);
+                case CANCELED -> requestMapper.markRequestCanceledAfterDispatch(requestId, orgId);
+                case TIMED_OUT -> requestMapper.markRequestTimedOutAfterDispatch(requestId, orgId);
+            };
+            requireOne(updated, "request post-dispatch failure");
         }
     }
 
@@ -198,6 +284,12 @@ public class GatewayUsageFinalizationService {
             GatewayUsageStatus status,
             long usageFactId,
             boolean newlyPublished) {
+    }
+
+    public enum TransportFailure {
+        FAILED,
+        CANCELED,
+        TIMED_OUT
     }
 
     private record EffectiveTime(Instant value, String source) {
