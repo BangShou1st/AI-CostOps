@@ -7,9 +7,10 @@
 - Frozen base: `19148d3b58789d6269ccbf7e77b7a0f24de67767`
 - Spec: `origin/docs/m13-metering-settlement-design:docs/superpowers/specs/2026-09-04-m13-metering-settlement-design.md`
 - Plan: `origin/docs/m13-metering-settlement-design:docs/superpowers/plans/2026-09-04-m13b-gateway-settlement-plan.md`
-- Implementation SHA before this evidence commit: `69f0b6b0880872f9b0389c0c0ea1fa8a9e542216`
-- Evidence SHA: this correctness-refresh docs commit (recorded by the following
-  metadata commit); the final PR head is recorded separately after hosted CI.
+- Last implementation/test SHA containing the reviewed behavior:
+  `729b7fc71ccc9a3d839536e857a82fcad1899a79`.
+- Evidence/docs-only commit: this correctness-refresh commit; its exact SHA and
+  the final hosted-tested PR head are recorded in the final handoff.
 
 The implementation follows the frozen TDD, systematic-debugging, verification, and
 review workflow. No Superpowers package is installed in this local checkout; the
@@ -98,8 +99,10 @@ review checks were executed locally.
 - Real Testcontainers MySQL race coverage proves both sequences with the actual
   `PeriodCloseService`: Settlement wins, Close waits and then closes from committed
   terminal truth; Close wins, Settlement records `PERIOD_CLOSING` retryable work,
-  Close returns OPEN/BLOCKED, and the due worker retry settles it. A genuinely CLOSED
-  period routes a later Settlement to reconciliation without Ledger/Actual mutation.
+  Close returns OPEN/BLOCKED, and the due worker retry settles it. The close begin
+  transaction retries only MySQL deadlock/serialization losers caused by the
+  cross-module lock order. A genuinely CLOSED period routes a later Settlement to
+  reconciliation without Ledger/Actual mutation.
 
 ## RED/GREEN checkpoints
 
@@ -153,9 +156,9 @@ gateway: .\\mvnw.cmd -B -Dgroups=integration verify
 - No M14, M15, FX, negative realtime credits, new Provider calls, credential
   decryption, Redis financial truth, new Budget fallback selection, or new Commitment
   binding policy was added.
-- Hosted CI and Security for the final PR head are recorded in the follow-up
-  evidence metadata commit. They must cover backend architecture/unit/integration,
-  gateway architecture/unit/integration, frontend, Docker, browser E2E, CodeQL
-  Java/Kotlin, CodeQL JavaScript/TypeScript, and Trivy.
+- Hosted CI and Security for the final PR head are recorded in the final handoff.
+  The required run covers backend architecture/unit/integration, gateway
+  architecture/unit/integration, frontend, Docker, browser E2E, CodeQL Java/Kotlin,
+  CodeQL JavaScript/TypeScript, and Trivy.
 - PR #143: https://github.com/BangShou1st/AI-CostOps/pull/143, against `main`,
   closing #138. It remains OPEN/unmerged for independent Sol review.
