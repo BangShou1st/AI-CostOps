@@ -65,6 +65,9 @@ aicostops:
     provider-kek-v1: ${AICOSTOPS_PROVIDER_KEK_V1:}
     dev-bootstrap-enabled: ${AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED:false}
     dev-raw-key: ${AICOSTOPS_GATEWAY_DEV_RAW_KEY:}
+    settlement:
+      worker-enabled: ${AICOSTOPS_GATEWAY_SETTLEMENT_WORKER_ENABLED:true}
+      poll-interval: ${AICOSTOPS_GATEWAY_SETTLEMENT_POLL_INTERVAL:5s}
   storage:
     endpoint: ${AICOSTOPS_STORAGE_ENDPOINT:http://localhost:9000}
     access-key: ${AICOSTOPS_STORAGE_ACCESS_KEY:aicostops}
