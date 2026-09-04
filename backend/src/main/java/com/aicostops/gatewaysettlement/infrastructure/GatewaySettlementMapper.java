@@ -63,6 +63,34 @@ public interface GatewaySettlementMapper {
             @Param("now") Instant now,
             @Param("limit") int limit);
 
+    /**
+     * Bounded organization scan for the scheduled worker. The first branch
+     * discovers new current FINAL usage; the second branch revisits durable
+     * retry work. It returns ids only, never claims or locks a Settlement.
+     */
+    @Select("""
+            SELECT org_id
+            FROM (
+                SELECT gr.org_id
+                FROM gateway_request gr
+                JOIN gateway_usage_fact uf
+                  ON uf.id=gr.current_usage_fact_id AND uf.org_id=gr.org_id
+                LEFT JOIN gateway_settlement gs
+                  ON gs.request_id=gr.id AND gs.org_id=gr.org_id
+                WHERE uf.status='FINAL' AND gs.id IS NULL
+                UNION
+                SELECT gs.org_id
+                FROM gateway_settlement gs
+                WHERE gs.status='PENDING'
+                   OR (gs.status='RETRYABLE_FAILED'
+                       AND (gs.next_attempt_at IS NULL OR gs.next_attempt_at <= #{now}))
+            ) work_orgs
+            ORDER BY org_id ASC
+            LIMIT #{limit}
+            """)
+    List<Long> selectOrganizationsWithWork(
+            @Param("now") Instant now, @Param("limit") int limit);
+
     @Insert("""
             INSERT INTO gateway_settlement(
               org_id,settlement_key,request_id,route_attempt_id,usage_fact_id,reservation_id,
@@ -144,6 +172,11 @@ public interface GatewaySettlementMapper {
               ra.provider_account_id AS attempt_provider_account_id,
               ra.provider_model_id AS attempt_provider_model_id,
               ra.pricing_version_id AS attempt_pricing_version_id,
+              gr.current_route_attempt_id,
+              gr.billing_period_id AS request_billing_period_id,
+              gr.financial_scope_type AS request_financial_scope_type,
+              gr.financial_scope_id AS request_financial_scope_id,
+              pa.provider_code,
               pv.currency AS pricing_currency
             FROM gateway_settlement gs
             JOIN gateway_request gr
@@ -154,6 +187,8 @@ public interface GatewaySettlementMapper {
               ON uf.id=gs.usage_fact_id AND uf.org_id=gs.org_id
             JOIN pricing_version pv
               ON pv.id=gs.pricing_version_id AND pv.org_id=gs.org_id
+            JOIN provider_account pa
+              ON pa.id=gs.provider_account_id AND pa.org_id=gs.org_id
             WHERE gs.org_id=#{organizationId} AND gs.id=#{settlementId}
             """)
     LineageRow selectLineage(
@@ -245,6 +280,11 @@ public interface GatewaySettlementMapper {
             long attemptProviderAccountId,
             long attemptProviderModelId,
             long attemptPricingVersionId,
+            Long currentRouteAttemptId,
+            Long requestBillingPeriodId,
+            String requestFinancialScopeType,
+            Long requestFinancialScopeId,
+            String providerCode,
             String pricingCurrency) {
     }
 

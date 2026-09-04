@@ -7,8 +7,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.stereotype.Component;
 
 /** Exact, frozen-rate Gateway cost calculation. */
+@Component
 public final class GatewaySettlementCostCalculator {
 
     private static final int RAW_PRECISION = 38;
