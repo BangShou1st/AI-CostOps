@@ -99,7 +99,7 @@ class V22LegacyRoutingBackfillIntegrationTest {
         assertThat(countPolicies("future")).isZero();
 
         var currentOrgId = orgId("current");
-        var currentModelId = modelId("current");
+        var currentModelId = modelId();
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM routing_policy
                 WHERE org_id=? AND project_id IS NULL AND model_id=?
@@ -117,7 +117,7 @@ class V22LegacyRoutingBackfillIntegrationTest {
                 """, Integer.class, currentOrgId, policyId)).isOne();
 
         var expectedAccountId = accountId("current");
-        var expectedProviderModelId = providerModelId("current");
+        var expectedProviderModelId = providerModelId();
         var candidate = jdbc.queryForList("""
                 SELECT provider_account_id, provider_model_id, priority
                 FROM routing_policy_candidate
@@ -176,14 +176,14 @@ class V22LegacyRoutingBackfillIntegrationTest {
         return jdbc.queryForObject("""
                 SELECT COUNT(*) FROM routing_policy
                 WHERE org_id=? AND model_id=? AND project_id IS NULL
-                """, Integer.class, orgId(state), modelId(state));
+                """, Integer.class, orgId(state), modelId());
     }
 
     private long orgId(String state) {
         return jdbc.queryForObject("SELECT id FROM organization WHERE slug=?", Long.class, "v22-" + state);
     }
 
-    private long modelId(String state) {
+    private long modelId() {
         return legacyModelId;
     }
 
@@ -195,7 +195,7 @@ class V22LegacyRoutingBackfillIntegrationTest {
                 """, Long.class, "v22-" + state);
     }
 
-    private long providerModelId(String state) {
+    private long providerModelId() {
         return legacyProviderModelId;
     }
 
