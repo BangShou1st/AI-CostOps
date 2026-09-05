@@ -30,7 +30,7 @@ public class SafeReservationReleaseService {
             var budget = reservationMapper.lockBudgetById(orgId, existing.budgetId());
             if (budget == null) return new ReleaseResult(ReleaseStatus.SKIPPED, existing.id());
             var reservation = reservationMapper.lockReservationByRouteAttempt(orgId, attemptId);
-            var attempt = requestMapper.findAttemptById(orgId, attemptId);
+            var attempt = requestMapper.findAttemptByIdAndRequest(orgId, requestId, attemptId);
             if (attempt == null || !"SAFE_NO_BILLABLE_EXECUTION".equals(attempt.status())) {
                 return new ReleaseResult(ReleaseStatus.SKIPPED, existing.id());
             }

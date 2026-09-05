@@ -33,6 +33,8 @@ public interface RoutingPolicyMapper {
                    rpc.provider_account_id,
                    pa.provider_code,
                    rpc.provider_model_id,
+                   pm.model_id AS provider_model_logical_model_id,
+                   pm.provider_code AS provider_model_provider_code,
                    pm.provider_model_name,
                    pv.id AS pricing_version_id,
                    pv.currency,
@@ -91,8 +93,9 @@ public interface RoutingPolicyMapper {
     }
 
     record CandidateRow(long id, int priority, Long providerAccountId, String providerCode,
-            Long providerModelId, String providerModelName, Long pricingVersionId, String currency,
-            String baseUrl, String adapterCode, boolean credentialReady, boolean routingEligible,
+            Long providerModelId, Long providerModelLogicalModelId, String providerModelProviderCode,
+            String providerModelName, Long pricingVersionId, String currency, String baseUrl,
+            String adapterCode, boolean credentialReady, boolean routingEligible,
             boolean chatCapable, boolean streamCapable) {
     }
 

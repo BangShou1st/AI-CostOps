@@ -116,7 +116,7 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
     void safeReleasedGapConvergesToTerminalWithoutBackgroundDispatch() {
         var env = GatewayTestFixture.seed(jdbc, "rec-safe-released", HMAC_KEY, rawKey());
         var ids = insertValidatedRequest(env, "rec-safe-released-key");
-        var admission = reservationService.admit(admissionCommand(
+        reservationService.admit(admissionCommand(
                 required(env), env, ids.requestId(), ids.attemptId())).block();
         requestMapper.markAttemptSafe(ids.attemptId(), env.orgId(), "DNS_PRE_CONNECT");
         jdbc.update("UPDATE gateway_request SET state='UPSTREAM_ACTIVE' WHERE id=?", ids.requestId());

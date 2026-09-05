@@ -56,7 +56,7 @@ public class RedisCircuitBreakerService implements CircuitBreakerService {
         var redisKey = key.redisKey();
         return redis.opsForValue().get(redisKey)
                 .defaultIfEmpty("CLOSED|0|0")
-                .flatMap(value -> redisBeforeCall(key, redisKey, value))
+                .flatMap(value -> redisBeforeCall(redisKey, value))
                 .onErrorResume(ignored -> Mono.fromSupplier(() -> localBeforeCall(key)));
     }
 
@@ -93,7 +93,7 @@ public class RedisCircuitBreakerService implements CircuitBreakerService {
                 });
     }
 
-    private Mono<CircuitDecision> redisBeforeCall(RouteCircuitKey key, String redisKey, String value) {
+    private Mono<CircuitDecision> redisBeforeCall(String redisKey, String value) {
         var parsed = parse(value);
         if (parsed.state == CircuitState.CLOSED) return Mono.just(CircuitDecision.closed());
         if (parsed.state == CircuitState.HALF_OPEN) return acquireProbe(redisKey);

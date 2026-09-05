@@ -152,6 +152,27 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
     }
 
     @Test
+    void safeHistoricalAttemptPlusSettledSuccessorDoesNotBlockClose() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(47), digest(48));
+        var safeAttempt = insertRouteAttempt(fixture, requestId, 1,
+                "grd_48111111-1111-4111-8111-111111111111");
+        jdbc.update("UPDATE gateway_route_attempt SET status='SAFE_NO_BILLABLE_EXECUTION', "
+                + "safety_reason_code='DNS_PRE_CONNECT' WHERE id=?", safeAttempt);
+        var releasedReservation = insertReservation(fixture, requestId, safeAttempt, "RELEASED");
+
+        var completedAttempt = insertRouteAttempt(fixture, requestId, 2,
+                "grd_49111111-1111-4111-8111-111111111111");
+        jdbc.update("UPDATE gateway_route_attempt SET status='COMPLETED' WHERE id=?", completedAttempt);
+        var finalizedReservation = insertReservation(fixture, requestId, completedAttempt, "FINALIZED");
+        var usageFactId = insertFinalUsage(fixture, requestId, completedAttempt);
+        insertSettledSettlement(fixture, requestId, completedAttempt, usageFactId, finalizedReservation);
+
+        assertThat(releasedReservation).isPositive();
+        assertThat(provider.evaluate(context(fixture)).passed()).isTrue();
+    }
+
+    @Test
     void currentFinalUsageWithoutSettlementStillBlocksClose() {
         var fixture = insertFullFixture();
         var requestId = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(33), digest(34));

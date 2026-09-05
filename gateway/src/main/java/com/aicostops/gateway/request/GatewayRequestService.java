@@ -146,13 +146,22 @@ public class GatewayRequestService {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
                     "No eligible Provider route is available for the requested model");
         }
-        var route = routeSelector.orderedCandidates(policy).stream()
-                .filter(candidate -> eligibilityEvaluator.evaluate(candidate,
-                        new CandidateEligibilityEvaluator.RequestCapabilities(true, command.streaming()),
-                        Set.of(), now).eligible())
-                .findFirst()
-                .orElseThrow(() -> new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
-                        "No eligible Provider route is available for the requested model"));
+        ResolvedRoutingPolicy.Candidate route = null;
+        boolean skippedBefore = false;
+        for (var candidate : routeSelector.orderedCandidates(policy)) {
+            if (eligibilityEvaluator.evaluate(candidate, policy.logicalModelId(),
+                    new CandidateEligibilityEvaluator.RequestCapabilities(true, command.streaming()),
+                    Set.of()).eligible()) {
+                route = candidate;
+                break;
+            }
+            skippedBefore = true;
+        }
+        if (route == null) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
+                    "No eligible Provider route is available for the requested model");
+        }
+        var routeReasonCode = skippedBefore ? "INITIAL_FALLBACK" : "INITIAL_PRIMARY";
 
         // 3. M12 TX1 MySQL-authoritative budget admission is resolved after
         // the VALIDATED request and PLANNED attempt exist (step 5/6 below);
@@ -179,7 +188,7 @@ public class GatewayRequestService {
                 requestMapper.insertRouteAttempt(new GatewayRequestMapper.RouteAttemptInsert(
                         principal.organizationId(), requestId, 1, routeDecisionId,
                         policy.id(), route.providerAccountId(), route.providerModelId(), route.pricingVersionId(),
-                        "INITIAL_PRIMARY"));
+                        routeReasonCode));
             } catch (DuplicateKeyException ex) {
                 // A concurrent identical call created the attempt between our
                 // read and write; converge on the appended row.

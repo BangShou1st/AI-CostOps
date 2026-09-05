@@ -5,6 +5,7 @@ import com.aicostops.gateway.provider.ProviderSafetyReason;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -30,13 +31,36 @@ public class RouteAttemptCoordinator {
         var planned = transactions.execute(status -> {
             var request = mapper.findByIdForUpdate(requestId, orgId);
             if (request == null) throw new IllegalStateException("Gateway request is not available");
+            if (!Set.of("VALIDATED", "RESERVED", "DISPATCH_INTENT", "UPSTREAM_ACTIVE")
+                    .contains(request.state())) {
+                throw new PlanRejectedException(PlanRejection.REQUEST_NOT_ROUTEABLE,
+                        "The Gateway request is already terminal");
+            }
             var previous = mapper.findLatestAttempt(orgId, requestId);
             int attemptNo = previous == null ? 1 : previous.attemptNo() + 1;
-            if (previous != null && (!"SAFE_NO_BILLABLE_EXECUTION".equals(previous.status())
-                    || "INITIAL_PRIMARY".equals(routeReasonCode)
-                    || mapper.countNonSafeAttempts(orgId, requestId) != 0)) {
-                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
-                        "The same idempotency identity is already being dispatched");
+            if (attemptNo == 1 && !Set.of("INITIAL_PRIMARY", "INITIAL_FALLBACK").contains(routeReasonCode)) {
+                throw new PlanRejectedException(PlanRejection.INVALID_ROUTE_REASON,
+                        "The first route must use an initial route reason");
+            }
+            if (mapper.countHistoricalCandidateAttempts(
+                    orgId, requestId, providerAccountId, providerModelId) != 0) {
+                throw new PlanRejectedException(PlanRejection.CANDIDATE_ALREADY_ATTEMPTED,
+                        "The Provider candidate was already attempted for this request");
+            }
+            if (attemptNo > 1) {
+                // This is the durable N+1 invariant. The caller's ordering is
+                // advisory only; every predecessor, and every effective hold
+                // belonging to this request, is checked while the request row
+                // serializes all route planners.
+                if (!"SAFE_FAILOVER".equals(routeReasonCode)
+                        || mapper.countNonSafeAttempts(orgId, requestId) != 0) {
+                    throw new PlanRejectedException(PlanRejection.PREDECESSOR_NOT_SAFE,
+                            "A later route requires every predecessor to be SAFE");
+                }
+                if (mapper.countEffectiveReservations(orgId, requestId) != 0) {
+                    throw new PlanRejectedException(PlanRejection.EFFECTIVE_RESERVATION_REMAINS,
+                            "A later route requires no effective reservation for the request");
+                }
             }
             var decisionId = identity.newRouteDecisionId();
             try {
@@ -46,6 +70,11 @@ public class RouteAttemptCoordinator {
             } catch (DuplicateKeyException ex) {
                 var winner = mapper.findLatestAttempt(orgId, requestId);
                 if (winner == null || winner.attemptNo() != attemptNo) throw ex;
+                if (winner.providerAccountId() != providerAccountId
+                        || winner.providerModelId() != providerModelId) {
+                    throw new PlanRejectedException(PlanRejection.ATTEMPT_RACE,
+                            "A different route won the attempt allocation race");
+                }
                 return new PlannedAttempt(winner.id(), winner.attemptNo(), winner.routeDecisionId());
             }
             var persisted = mapper.findLatestAttempt(orgId, requestId);
@@ -74,4 +103,26 @@ public class RouteAttemptCoordinator {
     }
 
     public record PlannedAttempt(long id, int attemptNo, String routeDecisionId) { }
+
+    public enum PlanRejection {
+        CANDIDATE_ALREADY_ATTEMPTED,
+        PREDECESSOR_NOT_SAFE,
+        EFFECTIVE_RESERVATION_REMAINS,
+        ATTEMPT_RACE,
+        INVALID_ROUTE_REASON,
+        REQUEST_NOT_ROUTEABLE
+    }
+
+    public static final class PlanRejectedException extends GatewayErrorException {
+        private final PlanRejection rejection;
+
+        public PlanRejectedException(PlanRejection rejection, String message) {
+            super(GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS, message);
+            this.rejection = rejection;
+        }
+
+        public PlanRejection rejection() {
+            return rejection;
+        }
+    }
 }

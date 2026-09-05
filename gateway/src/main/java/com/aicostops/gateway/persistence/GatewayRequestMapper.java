@@ -96,6 +96,14 @@ public interface GatewayRequestMapper {
     RouteAttemptRow findAttemptById(@Param("orgId") long orgId, @Param("attemptId") long attemptId);
 
     @Select("""
+            SELECT id, route_decision_id, status FROM gateway_route_attempt
+            WHERE org_id=#{orgId} AND request_id=#{requestId} AND id=#{attemptId}
+            """)
+    RouteAttemptRow findAttemptByIdAndRequest(
+            @Param("orgId") long orgId, @Param("requestId") long requestId,
+            @Param("attemptId") long attemptId);
+
+    @Select("""
             SELECT id,attempt_no,route_decision_id,status,routing_policy_id,provider_account_id,
                    provider_model_id,pricing_version_id,safety_reason_code,provider_request_id
             FROM gateway_route_attempt
@@ -111,6 +119,27 @@ public interface GatewayRequestMapper {
               AND status <> 'SAFE_NO_BILLABLE_EXECUTION'
             """)
     int countNonSafeAttempts(@Param("orgId") long orgId, @Param("requestId") long requestId);
+
+    /** Authoritative per-request candidate history; in-memory routing state is not sufficient. */
+    @Select("""
+            SELECT COUNT(*) FROM gateway_route_attempt
+            WHERE org_id=#{orgId} AND request_id=#{requestId}
+              AND provider_account_id=#{providerAccountId}
+              AND provider_model_id=#{providerModelId}
+            """)
+    int countHistoricalCandidateAttempts(
+            @Param("orgId") long orgId, @Param("requestId") long requestId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId);
+
+    @Select("""
+            SELECT provider_account_id, provider_model_id
+            FROM gateway_route_attempt
+            WHERE org_id=#{orgId} AND request_id=#{requestId}
+            ORDER BY attempt_no ASC
+            """)
+    List<AttemptedCandidateRow> findAttemptedCandidates(
+            @Param("orgId") long orgId, @Param("requestId") long requestId);
 
     @Select("""
             SELECT gr.id AS request_id, gr.org_id AS org_id
@@ -189,6 +218,33 @@ public interface GatewayRequestMapper {
             """)
     int markRequestFailedPreDispatch(@Param("requestId") long requestId, @Param("orgId") long orgId);
 
+    /**
+     * Cancellation-safe terminal convergence. This is an atomic fence: it can
+     * only close a request when every historical attempt is SAFE and no
+     * effective reservation remains, so a later TX2 cannot be mistaken for a
+     * no-billable terminal outcome.
+     */
+    @Update("""
+            UPDATE gateway_request gr
+            SET state='FAILED_PRE_DISPATCH', terminal_at=UTC_TIMESTAMP(6),
+                updated_at=UTC_TIMESTAMP(6)
+            WHERE gr.id=#{requestId} AND gr.org_id=#{orgId}
+              AND gr.state IN ('VALIDATED','RESERVED','DISPATCH_INTENT','UPSTREAM_ACTIVE')
+              AND EXISTS (
+                SELECT 1 FROM gateway_route_attempt ra
+                WHERE ra.org_id=gr.org_id AND ra.request_id=gr.id)
+              AND NOT EXISTS (
+                SELECT 1 FROM gateway_route_attempt ra_live
+                WHERE ra_live.org_id=gr.org_id AND ra_live.request_id=gr.id
+                  AND ra_live.status <> 'SAFE_NO_BILLABLE_EXECUTION')
+              AND NOT EXISTS (
+                SELECT 1 FROM budget_reservation br
+                WHERE br.org_id=gr.org_id AND br.request_id=gr.id
+                  AND br.status IN ('ACTIVE','PENDING_HOLD'))
+            """)
+    int markRequestFailedPreDispatchIfSafeAndReleased(
+            @Param("requestId") long requestId, @Param("orgId") long orgId);
+
     @Update("""
             UPDATE gateway_request
             SET state='REJECTED_BUDGET', billing_period_id=#{periodId},
@@ -232,6 +288,26 @@ public interface GatewayRequestMapper {
             """)
     int markAttemptSafe(@Param("attemptId") long attemptId, @Param("orgId") long orgId,
             @Param("reason") String reason);
+
+    @Update("""
+            UPDATE gateway_route_attempt
+            SET status='SAFE_NO_BILLABLE_EXECUTION',safety_reason_code=#{reason}
+            WHERE id=#{attemptId} AND org_id=#{orgId} AND request_id=#{requestId}
+              AND status IN ('PLANNED','DISPATCH_INTENT')
+            """)
+    int markAttemptSafeForRequest(@Param("requestId") long requestId,
+            @Param("attemptId") long attemptId, @Param("orgId") long orgId,
+            @Param("reason") String reason);
+
+    @Update("""
+            UPDATE gateway_route_attempt
+            SET status='BILLABLE_POSSIBLE',safety_reason_code=#{reason},provider_request_id=#{providerRequestId}
+            WHERE id=#{attemptId} AND org_id=#{orgId} AND request_id=#{requestId}
+              AND status IN ('DISPATCH_INTENT','UPSTREAM_ACTIVE')
+            """)
+    int markAttemptBillablePossibleWithEvidenceForRequest(@Param("requestId") long requestId,
+            @Param("attemptId") long attemptId, @Param("orgId") long orgId,
+            @Param("reason") String reason, @Param("providerRequestId") String providerRequestId);
 
     @Update("""
             UPDATE gateway_route_attempt
@@ -286,6 +362,9 @@ public interface GatewayRequestMapper {
     }
 
     record SafeReleasedRequest(long requestId, long orgId) {
+    }
+
+    record AttemptedCandidateRow(long providerAccountId, long providerModelId) {
     }
 
     record GatewayRequestInsert(

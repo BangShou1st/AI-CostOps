@@ -129,6 +129,8 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
                 String.class, env.orgId())).containsExactly("SAFE_NO_BILLABLE_EXECUTION", "COMPLETED");
         assertThat(jdbc.queryForList("SELECT provider_account_id FROM gateway_route_attempt WHERE org_id=? ORDER BY attempt_no",
                 Long.class, env.orgId())).containsExactly(env.providerAccountId(), secondAccountId);
+        assertThat(jdbc.queryForList("SELECT route_reason_code FROM gateway_route_attempt WHERE org_id=? ORDER BY attempt_no",
+                String.class, env.orgId())).containsExactly("INITIAL_PRIMARY", "SAFE_FAILOVER");
 
         var holds = jdbc.queryForList("""
                 SELECT br.status FROM budget_reservation br
@@ -190,5 +192,26 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
                 String.class, env.orgId())).containsExactly("BILLABLE_POSSIBLE");
         assertThat(jdbc.queryForList("SELECT status FROM budget_reservation WHERE org_id=?",
                 String.class, env.orgId())).containsExactly("PENDING_HOLD");
+    }
+
+    @Test
+    void staticallySkippedPrimaryMakesFirstActualAttemptInitialFallback() {
+        jdbc.update("UPDATE provider_model SET routing_eligible=FALSE WHERE id=?", env.providerModelId());
+        secondAccountId = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+                "http://127.0.0.1:" + upstream.getAddress().getPort() + "/v1", 1);
+
+        web.post().uri("/v1/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + RAW_KEY)
+                .header("Idempotency-Key", "initial-fallback-1")
+                .bodyValue("{\"model\":\"default-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+                .exchange()
+                .expectStatus().isOk();
+
+        assertThat(calls).hasValue(1);
+        assertThat(jdbc.queryForList("SELECT attempt_no FROM gateway_route_attempt WHERE org_id=? ORDER BY attempt_no",
+                Integer.class, env.orgId())).containsExactly(1);
+        assertThat(jdbc.queryForList("SELECT route_reason_code FROM gateway_route_attempt WHERE org_id=?",
+                String.class, env.orgId())).containsExactly("INITIAL_FALLBACK");
     }
 }

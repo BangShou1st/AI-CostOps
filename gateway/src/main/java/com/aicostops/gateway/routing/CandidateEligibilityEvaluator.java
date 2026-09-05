@@ -1,7 +1,7 @@
 package com.aicostops.gateway.routing;
 
 import com.aicostops.gateway.provider.ProviderChatAdapterRegistry;
-import java.time.Instant;
+import java.util.Objects;
 import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -22,14 +22,34 @@ public class CandidateEligibilityEvaluator {
     }
 
     public CandidateEligibility evaluate(ResolvedRoutingPolicy.Candidate candidate,
-            RequestCapabilities capabilities, Set<ResolvedRoutingPolicy.RouteIdentity> attempted,
-            Instant now) {
+            RequestCapabilities capabilities, Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
+        return evaluate(candidate, null, capabilities, attempted);
+    }
+
+    /**
+     * Runtime-bound eligibility check. The logical model is deliberately passed
+     * from the frozen policy/request context so a malformed Provider Model row
+     * cannot dispatch merely because Control Plane activation once accepted it.
+     */
+    public CandidateEligibility evaluate(ResolvedRoutingPolicy.Candidate candidate,
+            long logicalModelId, RequestCapabilities capabilities,
+            Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
+        return evaluate(candidate, Long.valueOf(logicalModelId), capabilities, attempted);
+    }
+
+    private CandidateEligibility evaluate(ResolvedRoutingPolicy.Candidate candidate,
+            Long logicalModelId, RequestCapabilities capabilities,
+            Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
         if (attempted.contains(candidate.identity())) return CandidateEligibility.rejected(EligibilityReason.ALREADY_ATTEMPTED);
         if (candidate.providerAccountId() < 0) return CandidateEligibility.rejected(EligibilityReason.ACCOUNT_INACTIVE);
         if (!candidate.credentialReady()) return CandidateEligibility.rejected(EligibilityReason.CREDENTIAL_MISSING);
         if (candidate.providerModelId() < 0) return CandidateEligibility.rejected(EligibilityReason.MODEL_INACTIVE);
         if (!candidate.routingEligible()) return CandidateEligibility.rejected(EligibilityReason.MODEL_NOT_ROUTING_ELIGIBLE);
-        if (candidate.providerCode() == null || candidate.providerModelName() == null) {
+        if (candidate.providerCode() == null || candidate.providerModelName() == null
+                || (logicalModelId != null
+                    && candidate.providerModelLogicalModelId() != logicalModelId)
+                || (logicalModelId != null
+                    && !Objects.equals(candidate.providerCode(), candidate.providerModelProviderCode()))) {
             return CandidateEligibility.rejected(EligibilityReason.LOGICAL_MODEL_MISMATCH);
         }
         if (candidate.adapterCode() == null || candidate.adapterCode().isBlank()) {

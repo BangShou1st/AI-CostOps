@@ -38,7 +38,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.core.io.buffer.DataBufferLimitException;
@@ -254,6 +256,9 @@ public class ChatCompletionController {
         setCorrelationHeaders(exchange, initial.publicRequestId());
         var current = new AtomicReference<>(initial);
         var emitted = new AtomicBoolean(false);
+        var canceled = new AtomicBoolean(false);
+        var currentLock = new Object();
+        var cancellationFinalizedAttempts = ConcurrentHashMap.<Long>newKeySet();
         var command = new ChatCompletionCommand(
                 request.model(),
                 request.messages().stream()
@@ -263,8 +268,17 @@ public class ChatCompletionController {
                 effectiveMaxTokens,
                 true);
         Flux<ServerSentEvent<String>> body = Flux.defer(() -> streamAttempt(
-                        exchange, principal, current, emitted, command, request))
-                .doOnCancel(() -> finalizeCancellation(current.get()))
+                        exchange, principal, current, emitted, canceled, currentLock, command, request,
+                        cancellationFinalizedAttempts))
+                .doOnCancel(() -> {
+                    PreparedDispatch target;
+                    synchronized (currentLock) {
+                        canceled.set(true);
+                        target = current.get();
+                    }
+                    finalizeCancellation(target, cancellationFinalizedAttempts);
+                    orchestrator.convergeSafeTerminal(target).subscribe();
+                })
                 .doFinally(ignored -> releasePermit.run());
         return Mono.just(ResponseEntity.ok()
                 .contentType(MediaType.TEXT_EVENT_STREAM)
@@ -274,7 +288,9 @@ public class ChatCompletionController {
     private Flux<ServerSentEvent<String>> streamAttempt(
             ServerWebExchange exchange, GatewayPrincipal principal,
             AtomicReference<PreparedDispatch> current, AtomicBoolean emitted,
-            ChatCompletionCommand command, ChatCompletionRequest request) {
+            AtomicBoolean canceled, Object currentLock,
+            ChatCompletionCommand command, ChatCompletionRequest request,
+            Set<Long> cancellationFinalizedAttempts) {
         var prepared = current.get();
         var result = prepared.dispatch();
         var upstreamDone = new AtomicBoolean(false);
@@ -328,16 +344,17 @@ public class ChatCompletionController {
                                     .build()));
                 }))
                 .onErrorResume(ex -> handleStreamFailure(
-                        exchange, principal, current, emitted, command, request, prepared,
-                        latestMetering.get(), ex));
+                        exchange, principal, current, emitted, canceled, currentLock, command, request, prepared,
+                        latestMetering.get(), ex, cancellationFinalizedAttempts));
     }
 
     private Flux<ServerSentEvent<String>> handleStreamFailure(
             ServerWebExchange exchange, GatewayPrincipal principal,
             AtomicReference<PreparedDispatch> current, AtomicBoolean emitted,
+            AtomicBoolean canceled, Object currentLock,
             ChatCompletionCommand command, ChatCompletionRequest request,
             PreparedDispatch prepared, GatewayUsageObservation latestObservation,
-            Throwable error) {
+            Throwable error, Set<Long> cancellationFinalizedAttempts) {
         var failure = asProviderFailure(error);
         var result = prepared.dispatch();
         metrics.recordProviderSafety(result.adapterCode(), failure.safetyOutcome().name(),
@@ -346,11 +363,19 @@ public class ChatCompletionController {
                 result.providerAccountId(), result.providerModelId());
         var recordFailure = recordCircuitFailure(key, failure);
         if (!emitted.get() && failure.safetyOutcome() == ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION) {
-            return recordFailure.thenMany(orchestrator.prepareNextSafe(prepared, failure)
-                    .doOnNext(current::set)
+            return recordFailure.thenMany(orchestrator.prepareNextSafe(prepared, failure,
+                            canceled::get, next -> installCurrentOrFinalizeCancellation(
+                                    current, canceled, currentLock, next,
+                                    cancellationFinalizedAttempts))
                     .doOnNext(ignored -> metrics.recordFailover("ADVANCED", "SAFE_NO_BILLABLE_EXECUTION"))
-                    .flatMapMany(next -> streamAttempt(
-                            exchange, principal, current, emitted, command, request)));
+                    .flatMapMany(next -> {
+                        if (canceled.get()) {
+                            finalizeCancellation(next, cancellationFinalizedAttempts);
+                            return Flux.empty();
+                        }
+                        return streamAttempt(exchange, principal, current, emitted, canceled,
+                                currentLock, command, request, cancellationFinalizedAttempts);
+                    }));
         }
         var observation = latestObservation == null
                 ? failureObservation(failure) : latestObservation.withDispatched(true);
@@ -368,7 +393,7 @@ public class ChatCompletionController {
             ServerWebExchange exchange, GatewayPrincipal principal, PreparedDispatch prepared,
             ChatCompletionRequest request, int effectiveMaxTokens) {
         setCorrelationHeaders(exchange, prepared.publicRequestId());
-        return invokeProviderOnce(exchange, principal, prepared, request, effectiveMaxTokens)
+        return invokeProviderOnce(principal, prepared, request, effectiveMaxTokens)
                 .map(completion -> new CompletedDispatch(prepared.dispatch(), completion))
                 .onErrorResume(error -> {
                     var failure = asProviderFailure(error);
@@ -396,7 +421,7 @@ public class ChatCompletionController {
     }
 
     private Mono<ProviderChatCompletion> invokeProviderOnce(
-            ServerWebExchange exchange, GatewayPrincipal principal, PreparedDispatch prepared,
+            GatewayPrincipal principal, PreparedDispatch prepared,
             ChatCompletionRequest request, int effectiveMaxTokens) {
         var result = prepared.dispatch();
         var requestId = prepared.requestId();
@@ -484,8 +509,11 @@ public class ChatCompletionController {
                 .onErrorResume(ignored -> Mono.empty());
     }
 
-    private void finalizeCancellation(PreparedDispatch prepared) {
+    private void finalizeCancellation(PreparedDispatch prepared, Set<Long> finalizedAttempts) {
         var result = prepared.dispatch();
+        if (!finalizedAttempts.add(result.routeAttemptId())) {
+            return;
+        }
         metrics.recordRequestOutcome("CANCELED");
         usageFinalization.finalizeFailure(
                         prepared.requestId(), prepared.principal().organizationId(),
@@ -498,6 +526,22 @@ public class ChatCompletionController {
                 .onErrorResume(ignored -> streamingLifecycle.cancelAfterDispatch(
                         prepared.requestId(), prepared.principal().organizationId()))
                 .subscribe();
+    }
+
+    private void installCurrentOrFinalizeCancellation(
+            AtomicReference<PreparedDispatch> current, AtomicBoolean canceled,
+            Object currentLock, PreparedDispatch next,
+            Set<Long> cancellationFinalizedAttempts) {
+        boolean cancelWon;
+        synchronized (currentLock) {
+            current.set(next);
+            cancelWon = canceled.get();
+        }
+        if (cancelWon) {
+            // TX2 has already committed, so the new current route must follow
+            // conservative BILLABLE_POSSIBLE cancellation semantics.
+            finalizeCancellation(next, cancellationFinalizedAttempts);
+        }
     }
 
     private static final class ProviderAttemptFailure extends RuntimeException {

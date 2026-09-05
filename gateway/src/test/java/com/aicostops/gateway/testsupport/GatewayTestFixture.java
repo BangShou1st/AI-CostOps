@@ -223,7 +223,7 @@ public final class GatewayTestFixture {
     /** Add a second certified MiMo-compatible account to the seeded policy. */
     public static long addMimoCompatibleCandidate(JdbcTemplate jdbc, SeededEnv env,
             String baseUrl, int priority) {
-        var providerCode = "MIMO_TEST_" + priority;
+        var providerCode = "MIMO_TEST_" + priority + "_" + System.nanoTime();
         jdbc.update("""
                 INSERT INTO provider_catalog(
                   provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at)

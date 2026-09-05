@@ -29,7 +29,19 @@ public record ResolvedRoutingPolicy(
             boolean credentialReady,
             boolean routingEligible,
             boolean chatCapable,
-            boolean streamCapable) {
+            boolean streamCapable,
+            long providerModelLogicalModelId,
+            String providerModelProviderCode) {
+
+        /** Backward-compatible constructor for pure routing tests and legacy callers. */
+        public Candidate(long id, int priority, long providerAccountId, String providerCode,
+                long providerModelId, String providerModelName, Long pricingVersionId,
+                String currency, String baseUrl, String adapterCode, boolean credentialReady,
+                boolean routingEligible, boolean chatCapable, boolean streamCapable) {
+            this(id, priority, providerAccountId, providerCode, providerModelId, providerModelName,
+                    pricingVersionId, currency, baseUrl, adapterCode, credentialReady,
+                    routingEligible, chatCapable, streamCapable, -1L, null);
+        }
 
         public RouteIdentity identity() {
             return new RouteIdentity(providerAccountId, providerModelId);
@@ -38,7 +50,8 @@ public record ResolvedRoutingPolicy(
         public Candidate withPricing(Long newPricingVersionId, String newCurrency) {
             return new Candidate(id, priority, providerAccountId, providerCode, providerModelId,
                     providerModelName, newPricingVersionId, newCurrency, baseUrl, adapterCode,
-                    credentialReady, routingEligible, chatCapable, streamCapable);
+                    credentialReady, routingEligible, chatCapable, streamCapable,
+                    providerModelLogicalModelId, providerModelProviderCode);
         }
     }
 

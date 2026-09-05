@@ -43,7 +43,8 @@ public class RoutingPolicyResolver {
         return new ResolvedRoutingPolicy.Candidate(
                 row.id(), row.priority(), value(row.providerAccountId()), row.providerCode(), value(row.providerModelId()),
                 row.providerModelName(), row.pricingVersionId(), row.currency(), row.baseUrl(), row.adapterCode(),
-                row.credentialReady(), row.routingEligible(), row.chatCapable(), row.streamCapable());
+                row.credentialReady(), row.routingEligible(), row.chatCapable(), row.streamCapable(),
+                value(row.providerModelLogicalModelId()), row.providerModelProviderCode());
     }
 
     private static long value(Long value) {

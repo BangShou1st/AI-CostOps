@@ -84,6 +84,12 @@ public class GatewayUsageFinalizationService {
         if (lineage == null) {
             throw new IllegalStateException("Gateway request route lineage is unavailable");
         }
+        if ("SAFE_NO_BILLABLE_EXECUTION".equals(lineage.routeStatus())) {
+            // SAFE is a routing fact, not a metering outcome. A late success
+            // or cancellation signal can race with failover/recovery, but it
+            // must never manufacture usage or settlement lineage for SAFE.
+            return new FinalizationResult(GatewayUsageStatus.UNKNOWN, 0L, false);
+        }
 
         GatewayUsageMapper.FactRow current = null;
         if (lineage.currentUsageFactId() != null) {
@@ -142,6 +148,11 @@ public class GatewayUsageFinalizationService {
         var lineage = usageMapper.lockLineage(orgId, requestId, routeAttemptId);
         if (lineage == null) {
             throw new IllegalStateException("Gateway request route lineage is unavailable");
+        }
+        if ("SAFE_NO_BILLABLE_EXECUTION".equals(lineage.routeStatus())) {
+            // See finalizeBlocking: SAFE finalization is deliberately a
+            // fail-safe no-op. Recovery owns any still-active SAFE hold.
+            return new FinalizationResult(GatewayUsageStatus.UNKNOWN, 0L, false);
         }
         var current = lineage.currentUsageFactId() == null
                 ? null : usageMapper.findFact(orgId, lineage.currentUsageFactId());

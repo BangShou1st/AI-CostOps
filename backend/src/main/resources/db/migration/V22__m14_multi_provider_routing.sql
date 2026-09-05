@@ -83,7 +83,9 @@ JOIN provider_credential pcred
  AND pcred.status = 'ACTIVE'
 JOIN pricing_version pv
   ON pv.org_id = pa.org_id AND pv.provider_account_id = pa.id
- AND pv.provider_model_id = pm.id AND pv.status = 'ACTIVE'
+  AND pv.provider_model_id = pm.id AND pv.status = 'ACTIVE'
+  AND pv.effective_from <= UTC_TIMESTAMP(6)
+  AND (pv.effective_to IS NULL OR pv.effective_to > UTC_TIMESTAMP(6))
 WHERE pa.provider_code = 'MIMO'
   AND pa.status = 'ACTIVE'
 GROUP BY pa.org_id, pm.model_id;
@@ -104,7 +106,9 @@ JOIN provider_credential pcred
  AND pcred.status = 'ACTIVE'
 JOIN pricing_version pv
   ON pv.org_id = pa.org_id AND pv.provider_account_id = pa.id
- AND pv.provider_model_id = pm.id AND pv.status = 'ACTIVE'
+  AND pv.provider_model_id = pm.id AND pv.status = 'ACTIVE'
+  AND pv.effective_from <= UTC_TIMESTAMP(6)
+  AND (pv.effective_to IS NULL OR pv.effective_to > UTC_TIMESTAMP(6))
 WHERE rp.project_id IS NULL AND rp.version = 1 AND rp.status = 'ACTIVE'
   AND pv.id = (
       SELECT MIN(pv2.id)

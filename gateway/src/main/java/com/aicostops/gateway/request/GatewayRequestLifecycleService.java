@@ -24,20 +24,32 @@ public class GatewayRequestLifecycleService {
     /** Best-effort transition before Provider I/O: only the request becomes active. */
     public Mono<Void> beginUpstream(long requestId, long orgId, long attemptId) {
         return blockingIo.run(() -> {
+            if (requestMapper.findAttemptByIdAndRequest(orgId, requestId, attemptId) == null) {
+                throw new IllegalStateException("Route attempt does not belong to the Gateway request");
+            }
             requestMapper.markRequestUpstreamActive(requestId, orgId);
         });
     }
 
     public Mono<Void> markSafe(long requestId, long orgId, long attemptId,
             com.aicostops.gateway.provider.ProviderSafetyReason reason) {
-        return blockingIo.run(() -> requestMapper.markAttemptSafe(
-                attemptId, orgId, reason.name()));
+        return blockingIo.run(() -> {
+            if (requestMapper.findAttemptByIdAndRequest(orgId, requestId, attemptId) == null
+                    || requestMapper.markAttemptSafeForRequest(requestId, attemptId, orgId, reason.name()) != 1) {
+                throw new IllegalStateException("Route attempt does not belong to the Gateway request");
+            }
+        });
     }
 
     public Mono<Void> markBillablePossible(long requestId, long orgId, long attemptId,
             com.aicostops.gateway.provider.ProviderSafetyReason reason, String providerRequestId) {
-        return blockingIo.run(() -> requestMapper.markAttemptBillablePossibleWithEvidence(
-                attemptId, orgId, reason.name(), providerRequestId));
+        return blockingIo.run(() -> {
+            if (requestMapper.findAttemptByIdAndRequest(orgId, requestId, attemptId) == null
+                    || requestMapper.markAttemptBillablePossibleWithEvidenceForRequest(
+                            requestId, attemptId, orgId, reason.name(), providerRequestId) != 1) {
+                throw new IllegalStateException("Route attempt does not belong to the Gateway request");
+            }
+        });
     }
 
     /** Successful transport: request TRANSPORT_COMPLETED, route COMPLETED. */

@@ -22,6 +22,8 @@ class GatewayRequestLifecycleServiceTest {
             return Mono.empty();
         });
         var service = new GatewayRequestLifecycleService(mapper, blockingIo);
+        when(mapper.findAttemptByIdAndRequest(20, 10, 30))
+                .thenReturn(new GatewayRequestMapper.RouteAttemptRow(30, "route", "DISPATCH_INTENT"));
 
         service.beginUpstream(10, 20, 30).block();
 
@@ -38,7 +40,10 @@ class GatewayRequestLifecycleServiceTest {
             return Mono.empty();
         });
         var service = new GatewayRequestLifecycleService(mapper, blockingIo);
+        when(mapper.findAttemptByIdAndRequest(20, 10, 30))
+                .thenReturn(new GatewayRequestMapper.RouteAttemptRow(30, "route", "DISPATCH_INTENT"));
+        when(mapper.markAttemptSafeForRequest(10, 30, 20, "DNS_PRE_CONNECT")).thenReturn(1);
         service.markSafe(10, 20, 30, ProviderSafetyReason.DNS_PRE_CONNECT).block();
-        verify(mapper).markAttemptSafe(30, 20, "DNS_PRE_CONNECT");
+        verify(mapper).markAttemptSafeForRequest(10, 30, 20, "DNS_PRE_CONNECT");
     }
 }
