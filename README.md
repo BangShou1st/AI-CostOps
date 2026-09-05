@@ -25,7 +25,12 @@ v1.1.0 = RELEASED
 M10 V2 DETAILED DESIGN = COMPLETE / FROZEN
 AIC-084 ~ AIC-093 = PASS / FROZEN
 M10 design merge = PR #129 / main@1ed62c68c09458570c5cd04f812a2525028db7a2
-M11 GATEWAY EDGE MVP = NEXT IMPLEMENTATION MILESTONE
+M11 GATEWAY EDGE MVP = COMPLETE / ACCEPTED
+M12 IDENTITY / ATTRIBUTION / BUDGET RESERVATION = COMPLETE / ACCEPTED
+M13 REALTIME METERING / SETTLEMENT = COMPLETE / ACCEPTED
+M14 MULTI-PROVIDER ROUTING / RESILIENCE = COMPLETE / ACCEPTED
+M14 merge baseline = PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b (feat(m14): deliver multi-provider routing and resilience)
+M15 HYBRID RECONCILIATION = NEXT IMPLEMENTATION MILESTONE
 ```
 
 M10 冻结入口：
@@ -56,7 +61,25 @@ V1 已覆盖 Provider Import、费用证据、Canonical Cost、归属、Budget /
 
 ## Local Development
 
-推荐日常开发模式：Docker 只运行基础设施（MySQL / Redis / MinIO），Backend 与 Frontend 直接在本机运行。
+### Daily Development Default（日常开发默认模式，AI agent 必须遵守）
+
+Daily Development 只用 Docker 运行基础设施（MySQL / Redis / MinIO），Backend / Gateway / Frontend 三个应用进程全部在本机原生运行。
+
+```text
+Daily Development Default
+
+Docker:
+- MySQL
+- Redis
+- MinIO
+
+Native:
+- Backend
+- Gateway
+- Frontend
+```
+
+明确声明：Backend / Frontend / Gateway 的 Docker 镜像可以存在，但它们 **不是** 日常本地开发的默认运行时（`Backend / Frontend / Gateway Docker images may exist, but they are NOT the default local development runtime.`）。日常 edit-test 循环不要执行 `docker compose build` / `docker compose up --build` / `docker build backend|frontend|gateway`。
 
 当前本地仓库路径：
 
@@ -67,25 +90,56 @@ E:\project\AI-CostOps
 ```text
 Frontend      http://localhost:5173    （Vite，本机，HMR）
 Backend       http://localhost:8080    （Spring Boot，本机）
+Gateway       http://localhost:8081    （Spring WebFlux，本机）
 MySQL         localhost:3307          （Docker）
 Redis         localhost:6379          （Docker）
 MinIO         localhost:9000 / 9001   （Docker API / Console）
 ```
 
-启动：
+启动（先起基础设施，再分别本机启动三个应用进程）：
 
 ```powershell
 Set-Location "E:\project\AI-CostOps"
 .\scripts\dev\start-infra.ps1
 cd backend && .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
+cd gateway && $env:SPRING_PROFILES_ACTIVE = "local"; .\mvnw.cmd spring-boot:run
 cd frontend && npm run dev
 ```
 
 详细说明见 [docs/02-development/implementation/05-bootstrap-local-development-runbook.md](docs/02-development/implementation/05-bootstrap-local-development-runbook.md)。
 
-M11 已允许开始 Gateway Runtime 实现；在 Gateway bootstrap 落地后，日常开发方向是将 `gateway/` 作为独立本机 Java 进程运行，而不是为了日常循环把完整应用栈全部 Docker 化。M11 尚未实现的 Gateway 进程不作为现有 Backend/Frontend 的强制启动依赖。
+Gateway 已真实存在并作为 Daily Development 的三个本机应用进程之一运行（Frontend / Backend / Gateway）。Gateway 本机启动、测试与 smoke 命令见 [docs/02-development/implementation/06-m11-gateway-local-runbook.md](docs/02-development/implementation/06-m11-gateway-local-runbook.md)。
 
 ## 本地完整 Compose Quick Start
+
+> ⚠️ **HARD WARNING — Full Compose is NOT the default Daily Development mode.**
+>
+> 本段落描述的完整 Compose 栈（含 backend / frontend / gateway 容器镜像的 build 与 up）**只**用于以下场景：
+>
+> - full integration（最终集成验证）
+> - E2E
+> - smoke
+> - release validation
+> - explicit Docker validation
+>
+> **AI agents MUST NOT use this flow as the routine edit-test loop.**
+>
+> 日常开发循环中**禁止**反复执行：
+>
+> ```text
+> docker compose build
+> docker compose up --build
+> docker build backend
+> docker build frontend
+> docker build gateway
+> ```
+>
+> 日常开发请改用：
+>
+> - Docker 只运行 MySQL / Redis / MinIO（`scripts/dev/start-infra.ps1`）
+> - Backend / Gateway / Frontend 三个进程本机原生运行
+>
+> 注意：CI / Security 流水线中的 Docker build 属于合法验证流程，不受上述日常循环禁令约束。
 
 PowerShell：
 
@@ -164,7 +218,7 @@ Validated V1 flows：Import lifecycle, Cost allocation, Budget commitment, Expen
 
 M8 的真实 Compose smoke 和 benchmark 使用合成 DeepSeek export。M9（AIC-082）完成了一次真实 MiMo 导入认证（real-but-redacted，`REAL_PROVIDER_CERTIFICATION_PASS`，见 `docs/03-acceptance/m9-provider-certification-mimo.md`）；其余 Provider 未被解释为已完成真实生产导入认证。
 
-MiMo 同时是 M11 Gateway Edge MVP 的首个 Provider Adapter 候选；这不等同于声明 MiMo Realtime Gateway 已实现或已完成 streaming financial-metering certification，后者必须在 M11 实际验证。
+MiMo 是 M11 Gateway Edge MVP 首个接入的 Provider Adapter，M11 验收证据见 [m11-gateway-edge-evidence.md](docs/03-acceptance/m11-gateway-edge-evidence.md)；M14 已完成 Multi-provider Routing / Resilience（PR #146）。各 Provider 的实时 streaming / financial-metering 认证边界以对应里程碑的验收证据为准。
 
 ## V2 冻结架构原则
 
@@ -237,7 +291,7 @@ M10 最终设计验收见 [m10-design-freeze-matrix.md](docs/03-acceptance/m10-d
 
 ## V2 方向
 
-V1 已关闭，M10 V2 Detailed Design 已冻结。当前进入 **M11 — Gateway Edge MVP** 实施规划与开发阶段。
+V1 已关闭，M10 V2 Detailed Design 已冻结，M11–M14 已全部完成并验收。当前进入 **M15 — Hybrid Reconciliation** 实施规划与开发阶段。
 
 现有产品/设计入口：
 
@@ -246,7 +300,7 @@ V1 已关闭，M10 V2 Detailed Design 已冻结。当前进入 **M11 — Gateway
 - [V2 Detailed Design](docs/02-development/v2-detailed-design/README.md)
 - [Gateway OpenAPI](docs/02-development/api/gateway-openapi.yaml)
 
-M11 只实现冻结设计允许的 Edge MVP slice；M12 Identity/Attribution/Budget Reservation、M13 Settlement、M14 Multi-provider Routing 的语义已在 M10 预先冻结，但不得被 M11 越界一次性实现。
+M11–M14 已按 M10 冻结契约分里程碑交付（各自验收证据见 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)）；M15 Hybrid Reconciliation 同样必须服从冻结设计的语义边界，不得越界实现。
 
 ## Git 协作
 
@@ -254,4 +308,4 @@ M11 只实现冻结设计允许的 Edge MVP slice；M12 Identity/Attribution/Bud
 Issue → Short-lived Branch → Pull Request → CI → Human Acceptance → Squash Merge → main
 ~~~
 
-当前 V1 状态：`COMPLETE / FROZEN`。M9 状态：`COMPLETE / ACCEPTED`。M10 状态：`COMPLETE / FROZEN`。当前稳定（已发布）版本：`v1.1.0`。下一实现里程碑：`M11 — Gateway Edge MVP`。
+当前 V1 状态：`COMPLETE / FROZEN`。M9 状态：`COMPLETE / ACCEPTED`。M10 状态：`COMPLETE / FROZEN`。M11–M14 状态：`COMPLETE / ACCEPTED`。当前稳定（已发布）版本：`v1.1.0`。M14 merge baseline：`PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b`。下一实现里程碑：`M15 — Hybrid Reconciliation`。

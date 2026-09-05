@@ -23,7 +23,13 @@ M10 V2 Detailed Design = COMPLETE / FROZEN
 AIC-084 ~ AIC-093 = FROZEN / PASS
 M10 principal design merge = PR #129 / main@1ed62c68c09458570c5cd04f812a2525028db7a2
 V2 Gateway detailed design = FROZEN
-M11 Gateway Edge MVP = NEXT IMPLEMENTATION MILESTONE
+M11 Gateway Edge MVP = COMPLETE / ACCEPTED
+M12 Identity / Attribution / Budget Reservation = COMPLETE / ACCEPTED
+M13 Realtime Metering / Settlement = COMPLETE / ACCEPTED
+M14 Multi-provider Routing / Resilience = COMPLETE / ACCEPTED
+M14 merge baseline = PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b
+(feat(m14): deliver multi-provider routing and resilience)
+M15 Hybrid Reconciliation = NEXT IMPLEMENTATION MILESTONE
 ```
 
 M10 冻结入口：
@@ -258,12 +264,12 @@ Redis 不承担 Final Ledger、Final Budget、Final Settlement History，也不�
 ```text
 M9  — V1.1 Production Foundation                COMPLETE / ACCEPTED
 M10 — V2 Detailed Design                        COMPLETE / FROZEN
-M11 — Gateway Edge MVP                          NEXT
-M12 — Identity / Attribution / Budget Reservation
-M13 — Realtime Metering / Settlement
-M14 — Multi-provider Routing / Resilience
-M15 — Hybrid Reconciliation
-M16 — V2 Production Acceptance
+M11 — Gateway Edge MVP                          COMPLETE / ACCEPTED
+M12 — Identity / Attribution / Budget Reservation  COMPLETE / ACCEPTED
+M13 — Realtime Metering / Settlement            COMPLETE / ACCEPTED
+M14 — Multi-provider Routing / Resilience       COMPLETE / ACCEPTED
+M15 — Hybrid Reconciliation                     NEXT
+M16 — V2 Production Acceptance                  FUTURE
 ```
 
 详细路线：
@@ -308,16 +314,19 @@ Cost per PR / issue / agent outcome
 
 ## Daily Development Mode
 
-日常开发继续优先只用 Docker 运行基础设施（MySQL / Redis / MinIO），应用进程直接在本机运行：
+Daily Development Default：只用 Docker 运行基础设施（MySQL / Redis / MinIO），Frontend / Backend / Gateway 三个应用进程全部在本机原生运行：
 
 ```text
 Frontend      localhost:5173    （Vite，本机，HMR）
 Backend       localhost:8080    （Spring Boot，本机）
+Gateway       localhost:8081    （Spring WebFlux，本机）
 MySQL         localhost:3307    （Docker）
 Redis         localhost:6379    （Docker）
 MinIO         localhost:9000    （Docker API）
               localhost:9001    （Docker Console）
 ```
+
+Backend / Frontend / Gateway 的 Docker 镜像可以存在，但它们不是日常本地开发的默认运行时（`Backend / Frontend / Gateway Docker images may exist, but they are NOT the default local development runtime.`）。日常 edit-test 循环禁止反复执行 `docker compose build` / `docker compose up --build` / `docker build backend|frontend|gateway`。
 
 启动基础设施：
 
@@ -326,7 +335,7 @@ Set-Location "E:\project\AI-CostOps"
 .\scripts\dev\start-infra.ps1
 ```
 
-M11 已获准开始 Gateway Runtime 实现。Gateway bootstrap 完成后，日常开发应把 Gateway 作为独立本机 Java 进程运行；在 M11 bootstrap 尚未落地前，不把尚不存在的 Gateway 进程强制作为现有 Backend/Frontend 日常开发依赖。Full Compose 仍优先用于 CI / E2E / Security / Smoke / Release，而不是日常代码循环。
+Full Compose 仍优先用于 CI / E2E / Security / Smoke / Release 与最终集成 / Docker 验证，而不是日常代码循环；详细警告见 README.md 的"本地完整 Compose Quick Start"段落。
 
 ## Repository Workflow
 
@@ -345,7 +354,8 @@ Peer Review 按需，不作为全局 Merge Gate。
 ## 当前下一步
 
 ```text
-1. Plan and execute M11 Gateway Edge MVP from the frozen M10 contracts
-2. Keep M12+ financial / identity / settlement / routing semantics frozen; M11 only implements its approved slice
-3. Continue Sol final review of CI, Security, diff and head before each milestone closure
+1. Plan and execute M15 Hybrid Reconciliation from the frozen V2 architecture
+2. Preserve the existing financial truth / settlement / routing invariants from M10-M14
+3. Keep Daily Development native-app + Docker-infra only
+4. Continue Sol independent final review before milestone closure / merge
 ```
