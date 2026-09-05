@@ -1,102 +1,114 @@
-# M14 Multi-provider Routing / Resilience 验收证据
+# M14 Multi-provider Routing / Resilience 最终证据
 
 ## 版本与范围
 
-- 工作分支：`feat/m14-multi-provider-routing-resilience`
-- 基线：`origin/main`，merge-base 为 `3eee76d`
-- Implementation SHA：`8c11044`
-- Evidence/docs-only SHA：本次最终 docs-only refresh commit（在最终报告中记录其提交号）
-- GitHub Issue：`#145`
-- 未修改 `main`，未执行 merge。
+- 分支：`feat/m14-multi-provider-routing-resilience`
+- PR：[#146](https://github.com/BangShou1st/AI-CostOps/pull/146)
+- Implementation SHA：`54b11522c0ea6a758117dc94f50b7ac1fee22ca3`（生产源码未修改）
+- Evidence/test HEAD SHA：`db716e64921ea78ed04359f3ea84b6c0edcf79dd`
+- Evidence/final HEAD：`db716e64921ea78ed04359f3ea84b6c0edcf79dd`（后续仅有 docs-only refresh）
+- Issue：[#145](https://github.com/BangShou1st/AI-CostOps/issues/145)
+- 未创建新 branch、未创建新 PR、未 merge。
 
-本次交付覆盖冻结设计中的 Task 1 → Task 15：V22 schema/backfill、routing policy control plane、确定性候选选择、MiMo/OpenAI adapter、Redis/local circuit breaker、SAFE failover、streaming、replay、crash recovery、Close 与 M13 settlement continuity。
+本轮只增加 migration/backfill 与 streaming cancellation 的 deterministic regression evidence，并刷新本文件与 PR 描述；没有新增生产架构改动。
 
-## Schema 与 migration
+## V22 legacy backfill regression
 
-- 新增唯一 migration：`backend/src/main/resources/db/migration/V22__m14_multi_provider_routing.sql`。
-- `routing_policy` 与 `routing_policy_candidate` 已落地；通过生成的 `project_scope_key` 处理 MySQL `NULL` unique 语义，保证 org-default 的 version uniqueness 与 exact-scope 单 ACTIVE 约束。
-- `gateway_route_attempt` 增加 M14 route reason、同组织 policy 外键、状态约束与查询索引。
-- V22 包含现有 eligible MiMo org-default policy/candidate backfill，避免单 MiMo 旧租户升级后失去路由。
-- backend 全量集成测试在干净 MySQL 8.4 Testcontainers 上验证 Flyway `22 migrations`，V1–V22 成功应用；migration 目录相对 `origin/main` 仅新增 V22。
+测试：`V22LegacyRoutingBackfillIntegrationTest.backfillOnlyCreatesOneActiveOrgDefaultPolicyAndOneCandidateForCurrentRoute`
 
-## Routing policy、API 与 UI
+测试启动真实 MySQL 8.4 Testcontainer，先执行 Flyway V1–V21，插入 legacy provider/account/model/pricing fixture，再执行真实 V22 migration/backfill，最后直接查询 backfill 结果：
 
-- ACTIVE policy precedence：exact project →（仅 exact 不存在时）org-default → fail closed；exact policy 存在但 candidates 不可用时不会 fallback。
-- request 首次选择后冻结 policy id/version；SAFE failover 继续使用同一冻结 policy，即使管理员随后激活新 revision。
-- candidate 排序固定为 `priority ASC, candidate id ASC`，同一 request 每个 candidate 最多一次；没有随机、cost/latency scoring、RL 或通用 DSL。
-- API 覆盖 list/detail/history、create revision、candidate edit、activate/readiness；权限复用 `PROVIDER_ACCOUNT_READ` / `PROVIDER_ACCOUNT_MANAGE`。
-- 前端 `/settings/routing-policies` 使用中文 UI，支持 DRAFT/ACTIVE/RETIRED 语义、revision、candidate priority/status、readiness warnings；ACTIVE/RETIRED 只读。
-- UI/API 验收确认 routing policy 可 revision/activate，页面出现 `路由策略` 与 `已启用`，响应与页面不暴露 provider secret。
+- expired `ACTIVE` pricing：legacy routing policy 数量为 0，不创建 `ACTIVE` policy。
+- future `ACTIVE` pricing：legacy routing policy 数量为 0，不创建 `ACTIVE` policy。
+- currently-effective MiMo legacy route：恰好一个 org-default `ACTIVE` policy，恰好一个 `ACTIVE` candidate，candidate 指向预期 legacy account/provider model，priority 为 0。
 
-## Provider certification
+这不是 SQL 字符串检查，也不是最终 schema metadata 检查；断言发生在真实 migration/backfill 执行后的数据上。V1–V21 文件未修改。
 
-- Registry 固定注册 `MIMO → MimoChatAdapter`、`OPENAI → OpenAiChatAdapter`；重复 adapter 在启动时失败；缺少 adapter 的 candidate 不可选。
-- `ProviderCallContext` 为 provider-neutral，不含 generic `providerKeyHeader`；secret 不进入 log、metric label、API response、frontend、audit、exception body、toString 或 route fact。
-- MiMo：adapter 自行设置 API key header，覆盖 non-streaming、SSE usage/terminal parsing、保守 response matrix；没有 provider-level retry。
-- OpenAI compatibility surface：adapter 使用数据库冻结的 `provider_model_name`，Bearer auth，non-streaming/SSE，`stream_options.include_usage=true`，terminal usage normalization，provider `x-request-id` correlation 与 bounded `X-Client-Request-Id`；生产 endpoint allowlist 与 bounded/redacted error handling 已实现。
-- 测试均使用 mock upstream/Testcontainers；本地 CI 验证未依赖真实 OpenAI key 或真实外网 Provider call。
+## Streaming SAFE cancellation regression
 
-## Safety matrix 与 dispatch fence
+测试：`GatewayStreamingSafeFailoverCancellationIntegrationTest`
 
-- `TX2 committed → DISPATCH_INTENT → request UPSTREAM_ACTIVE`；Provider I/O 前不预先写 `BILLABLE_POSSIBLE`。
-- 只有正向 `SAFE_NO_BILLABLE_EXECUTION` 证据允许换下一个 candidate；未知情况统一按 `BILLABLE_POSSIBLE` 处理。
-- SAFE 证据限于 pre-network/pre-write 的本地校验、DNS failure、connection refused、connect timeout、TLS handshake failure；HTTP 429/5xx、read/idle/hard timeout、write 后 reset、malformed response、generic I/O/timeout、client cancel 等均不会自动 failover。
-- `DispatchFenceService` 阻止 replay/非 server-owned attempt 创建重复 Provider dispatch；同一个 client idempotency key 不因 failover 创建并行 attempt。
-- streaming 仅允许首个 candidate 在 pre-write SAFE 且未向下游发出 delta 时切换；禁止 A partial output 与 B output 混合；`[DONE]` 仍在 usage/lifecycle durable commit 后下发。
+测试使用 `CountDownLatch`、`AtomicBoolean`、`BooleanSupplier` cancellation seam 与 dispatch-commit callback 控制事务窗口，没有 sleep timing，也没有修改生产架构。
 
-## Budget、SAFE failover 与 recovery
+### Window A
 
-- candidate admission failure 不再把整个 request 直接标为 `REJECTED_BUDGET`；A 不足时 A attempt SAFE、释放 A reservation 后才尝试 B。
-- 每个 B candidate 重新解析 pricing version，并在同一 request billing period 内寻找对应 currency budget；禁止 FX、reservation resize/retarget/reuse。
-- 强制顺序已实现并由真实 MySQL 集成测试覆盖：
+`clientCancellationAfterASafeReleaseBeforeBTx2StaysNoBillable`
 
-  `A positive SAFE → durable A SAFE → release A → verify no ACTIVE/PENDING_HOLD → same frozen policy → fresh pricing → B attempt → fresh admission/reservation → B TX2 DISPATCH_INTENT → one B call`
+A 已获得 positive SAFE、durable `SAFE_NO_BILLABLE_EXECUTION`，A reservation 已 `RELEASED`；barrier 在 B 跨 TX2 前阻塞，随后触发 client cancellation。结果：
 
-- 财务锁序保持 `BillingPeriod → Budget → Reservation`；M13 settlement 使用实际 billable attempt 的 frozen pricing version。
-- recovery 只释放有正向 SAFE/definitive pre-dispatch 证据的 hold，进程死亡时不在后台发起 Provider call；全 SAFE 链收敛为 no-charge terminal failure。
-- Close 忽略 SAFE + RELEASED 历史链，但继续阻塞 ACTIVE/PENDING_HOLD、未解决 BILLABLE_POSSIBLE、未知 usage、未 settlement 及 pending/retryable/reconciliation settlement。
+- A 仍为 `SAFE_NO_BILLABLE_EXECUTION`。
+- A 为 zero Usage Fact、zero Settlement。
+- A reservation 为 `RELEASED`。
+- B 没有 route attempt/provider call。
+- 不存在 `BILLABLE_POSSIBLE` route。
+- request 收敛为 no-billable terminal `FAILED_PRE_DISPATCH`。
 
-## Circuit breaker 与 M13 continuity
+### Window B
 
-- Redis key scope：`org_id/provider_account_id/provider_model_id`；状态 CLOSED/OPEN/HALF_OPEN。
-- 默认 failure threshold=5、OPEN duration=30s、HALF_OPEN probe lease=15s；Redis Lua 原子计数/开启与 probe lease，多副本只有一个 probe owner；Redis 不可用时退化到 bounded local breaker。
-- circuit 只影响未来 candidate selection，不修改 Route Attempt、Reservation、Usage Fact、Settlement、Ledger；HALF_OPEN probe 使用正常用户请求。
-- 多个 historical SAFE attempts 可存在；最多一个 possibly-billable/completed attempt 产生 Usage Fact、Settlement、Ledger posting、Budget Actual。
+`clientCancellationAfterBTx2KeepsBConservativeWithoutCFailover`
 
-## 实际执行的验证
+A 为 SAFE + RELEASED；barrier 在 B 已提交 TX2 / `DISPATCH_INTENT` 后、完成 provider dispatch 前触发 client cancellation。结果：
 
-以下均为本地实际执行结果：
+- A 仍 SAFE，zero usage。
+- B 以 conservative post-dispatch semantics 收敛为 `BILLABLE_POSSIBLE`。
+- B reservation 保持 `PENDING_HOLD`，没有被当成 SAFE hold 释放。
+- 没有后台 retry/failover 到 C，C 没有 attempt/provider call。
+- request 收敛为 `CANCELED_AFTER_DISPATCH`。
 
-| 范围 | 命令/验证 | 结果 |
+两窗口均通过真实 MySQL/Redis integration fixture 验证；本轮没有暴露生产 bug，因此没有生产修复。
+
+## SAFE stability 与真实 concurrency 的区分
+
+SAFE failover stability 的证据是 `GatewaySafeFailoverIntegrationTest`；它不作为 MySQL concurrency evidence。
+
+真实 concurrency 的证据是 `GatewayFailoverConcurrencyIntegrationTest`，包含：
+
+- two workers；
+- `CountDownLatch`/barrier；
+- `@RepeatedTest(5)`；
+- candidate uniqueness；
+- N+1 predecessor SAFE；
+- `ACTIVE` / `PENDING_HOLD` rejection；
+- real MySQL/Redis Testcontainers。
+
+focused concurrency run：`13 tests, 0 failures, 0 errors, 0 skipped`。
+
+## Migration diff
+
+相对 `origin/main`，migration 目录 diff 仅为：
+
+- `backend/src/main/resources/db/migration/V22__m14_multi_provider_routing.sql`
+
+V1–V21 migration untouched；本轮新增的 V22 regression test 不修改任何 migration 文件。
+
+## 本轮验证结果
+
+| 范围 | 实际验证 | 结果 |
 |---|---|---|
-| backend unit/integration/architecture | `backend\\mvnw.cmd -B verify` | `905 tests`, 0 failures, 0 errors, 0 skipped；BUILD SUCCESS |
-| gateway unit/integration/architecture | `gateway\\mvnw.cmd -B verify` | `127` unit + `63` integration，0 failures/errors/skipped；BUILD SUCCESS |
-| gateway focused safety | `OpenAiChatAdapterTest`, `CandidateEligibilityEvaluatorTest`, `GatewaySafeFailoverIntegrationTest`, `ReservationRecoveryIntegrationTest`, `ChatCompletionControllerTest`, `CircuitBreakerRedisIntegrationTest` | 通过 |
-| replay/streaming | `GatewayRequestIdempotencyIntegrationTest`, `MimoStreamingIntegrationTest`, `StreamingLifecycleIntegrationTest` | 分别 `3/3`、`9/9`、`2/2` 通过 |
-| MySQL concurrency repeat | Failsafe `GatewaySafeFailoverIntegrationTest`，真实 MySQL/Redis Testcontainers，连续 5 次 | 每次 `3/3`，共 `15/15` 通过 |
-| Redis multi-instance | `CircuitBreakerRedisIntegrationTest` | 通过 |
-| frontend unit | `npm test -- --run --maxWorkers=1` | `48` files、`434` tests 通过 |
-| frontend lint | `npm run lint` | 通过 |
-| frontend build | `npm run build` | 通过；仅有既有 bundle size warning |
-| browser E2E | `AICOSTOPS_E2E_BASE_URL=http://localhost:18080; npm run test:e2e`，干净 isolated Compose project | `6 passed` |
-| Docker | backend/gateway/frontend 三个 Docker build，分别使用 `ai-costops-backend:m14-local`、`ai-costops-gateway:m14-local`、`ai-costops-frontend:m14-local` | 全部通过 |
-| whitespace/markers | `git diff --check`；检查 `.retry(`、`retryWhen(`、`M11_PROVIDER_CODE`、`providerKeyHeader`、`TODO`、`TBD`、`FIXME` | 无命中、无 whitespace error |
+| backend migration focused | `V22LegacyRoutingBackfillIntegrationTest` | `1/1` pass；真实 MySQL 8.4；真实 V1–V22 Flyway execution |
+| gateway streaming cancellation focused | `GatewayStreamingSafeFailoverCancellationIntegrationTest` | `2/2` pass；两个 deterministic windows |
+| gateway concurrency focused | `GatewayFailoverConcurrencyIntegrationTest` | `13/13` pass；two workers、barrier、`@RepeatedTest(5)` |
+| backend full verify | `backend\mvnw.cmd -B verify` | `523` unit（1 skipped）+ `907` integration；0 failures/errors；BUILD SUCCESS |
+| gateway full verify | `gateway\mvnw.cmd -B verify` | `129` unit + `80` integration；0 failures/errors/skipped；BUILD SUCCESS |
+| frontend test | `npm test -- --run --maxWorkers=1` | `48` files、`434` tests pass |
+| frontend lint | `npm run lint` | pass |
+| frontend build | `npm run build` | pass；仅既有 bundle size warning |
+| browser E2E | hosted CI isolated Compose + Playwright | `6/6` pass |
+| Docker | backend/gateway/frontend local builds | 三个 image build pass：`ai-costops-backend:m14-local`、`ai-costops-gateway:m14-local`、`ai-costops-frontend:m14-local` |
+| whitespace | `git diff --check` | pass |
 
-前端 Vitest 并行运行曾出现 1 个 reconciliation 测试环境抖动；针对该测试单独复现通过，随后单线程全量 `48/48`、`434/434` 通过。测试期间的 jsdom `getComputedStyle` 与 Mockito dynamic-agent 提示均为 warning，不是失败。
+本地 isolated Compose browser E2E 曾因开发 bootstrap credential/rate-limit 状态漂移未通过；未将该次本地结果作为 evidence，hosted CI 的 isolated Compose `6/6` 为 browser E2E 结果。
 
-## Hosted CI 与 Security
+## Hosted CI / Security
 
-- PR：[#146](https://github.com/BangShou1st/AI-CostOps/pull/146)，通过 `Refs #145` 关联 Issue #145。
-- CI run [`33923415512`](https://github.com/BangShou1st/AI-CostOps/actions/runs/33923415512)：backend/gateway unit、integration、architecture，frontend lint/test/build，browser-e2e 与 docker-build 全部 pass。
-- Security run [`33923415536`](https://github.com/BangShou1st/AI-CostOps/actions/runs/33923415536)：CodeQL Java/Kotlin、CodeQL JavaScript/TypeScript 与 Trivy 全部 pass。
-- 两个 run 均验证最终 HEAD `8c1104432e7c8cc14d98d8c1bd92bc5588569b92`。
+- latest hosted CI：[`33944974372`](https://github.com/BangShou1st/AI-CostOps/actions/runs/33944974372)，`db716e64921ea78ed04359f3ea84b6c0edcf79dd`，完全 green；backend/gateway unit、integration、architecture，frontend test/lint/build，browser E2E 与 Docker build 全部 pass。
+- latest hosted Security：[`33944974385`](https://github.com/BangShou1st/AI-CostOps/actions/runs/33944974385)，`db716e64921ea78ed04359f3ea84b6c0edcf79dd`，完全 green；CodeQL Java/Kotlin、CodeQL JavaScript/TypeScript 与 Trivy 全部 pass。
+- unresolved review threads：`0`。
+- backend/gateway/frontend totals：backend `523 unit + 907 integration`；gateway `129 unit + 80 integration`；frontend `48 files / 434 tests`。
+- PR #146 description 已同步本轮测试名称、真实 concurrency 语义、最新 totals 与 hosted run IDs。
 
-## Secret/content redaction 与 UAT
+## Safety / content
 
-- evidence 不包含 provider secret、raw gateway key、完整 upstream prompt/completion 或 token；测试只使用 bounded mock payload/headers。
-- browser UAT 已验证登录后可进入 `/settings/routing-policies`、policy revision/activation 成功、ACTIVE 状态可见，页面 body 不包含 `sk-`。
-- 本地 Compose clean stack 使用开发 bootstrap 生成 ACTIVE org-default routing policy，E2E 完成后保留原开发栈数据，不删除原有 volumes。
-
-## Remaining concerns
-
-- 未执行真实 OpenAI 外网调用，这是设计要求；OpenAI 行为由 mock upstream certification 覆盖。
+- provider secret、raw gateway key、完整 prompt/completion、token 未写入本证据。
+- 未执行真实外网 provider call；provider adapter 行为由 mock upstream certification 覆盖。
+- 本轮没有 merge，等待 Sol 最后一眼确认。
