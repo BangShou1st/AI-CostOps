@@ -242,6 +242,23 @@ public interface ReconciliationMapper {
             SET status='RESOLVED',reason_code=#{reasonCode},resolution_note=#{resolutionNote},
                 resolved_by_member_id=#{resolvedByMemberId},resolved_at=#{resolvedAt},
                 updated_at=#{updatedAt}
+            WHERE org_id=#{organizationId} AND id=#{caseId}
+              AND status IN ('OPEN','INVESTIGATING')
+            """)
+    int markResolvedForAdjustment(
+            @Param("organizationId") long organizationId,
+            @Param("caseId") long caseId,
+            @Param("reasonCode") String reasonCode,
+            @Param("resolutionNote") String resolutionNote,
+            @Param("resolvedByMemberId") long resolvedByMemberId,
+            @Param("resolvedAt") Instant resolvedAt,
+            @Param("updatedAt") Instant updatedAt);
+
+    @Update("""
+            UPDATE reconciliation_case
+            SET status='RESOLVED',reason_code=#{reasonCode},resolution_note=#{resolutionNote},
+                resolved_by_member_id=#{resolvedByMemberId},resolved_at=#{resolvedAt},
+                updated_at=#{updatedAt}
             WHERE org_id=#{organizationId} AND id=#{caseId} AND status='INVESTIGATING'
             """)
     int markResolved(

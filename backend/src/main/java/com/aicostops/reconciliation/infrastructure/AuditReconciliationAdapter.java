@@ -43,6 +43,20 @@ public final class AuditReconciliationAdapter implements ReconciliationAuditPort
     }
 
     @Override
+    public void adjustmentPosted(long organizationId, long actorUserId, long adjustmentId,
+            long caseId, long runId, String scope, java.math.BigDecimal amount,
+            String currency, long adjustmentPeriodId) {
+        audit.append("RECONCILIATION_ADJUSTMENT_POSTED", organizationId, actorUserId,
+                "RECONCILIATION_ADJUSTMENT", adjustmentId,
+                Map.of("caseId", caseId,
+                        "runId", runId,
+                        "scope", scope,
+                        "amount", amount.toPlainString(),
+                        "currency", currency,
+                        "adjustmentPeriodId", adjustmentPeriodId));
+    }
+
+    @Override
     public void closeStarted(long organizationId, long actorUserId, long closeRunId,
             long billingPeriodId, long closeGeneration, int attemptNo) {
         audit.append("PERIOD_CLOSE_STARTED", organizationId, actorUserId,

@@ -112,6 +112,72 @@ public interface HybridReconciliationMapper {
             @Param("billingPeriodId") long billingPeriodId);
 
     @Insert("""
+            INSERT INTO reconciliation_adjustment(
+                org_id,reconciliation_run_id,reconciliation_case_id,adjustment_key,
+                adjustment_scope,provider_account_id,currency,amount,adjustment_period_id,
+                gateway_request_id,gateway_route_attempt_id,statement_charge_fact_id,
+                created_by_member_id,reason_code,reason_note,created_at)
+            VALUES (#{adjustment.organizationId},#{adjustment.runId},#{adjustment.caseId},
+                #{adjustment.adjustmentKey},#{adjustment.adjustmentScope},
+                #{adjustment.providerAccountId},#{adjustment.currency},#{adjustment.amount},
+                #{adjustment.adjustmentPeriodId},NULL,NULL,NULL,
+                #{adjustment.createdByMemberId},#{adjustment.reasonCode},#{adjustment.reasonNote},
+                #{adjustment.createdAt})
+            """)
+    int insertAdjustment(@Param("adjustment") AdjustmentInsert adjustment);
+
+    @Select("SELECT LAST_INSERT_ID()")
+    long lastInsertId();
+
+    @Select("""
+            SELECT id,org_id,reconciliation_run_id,reconciliation_case_id,adjustment_key,
+                   adjustment_scope,provider_account_id,currency,amount,adjustment_period_id,
+                   gateway_request_id,gateway_route_attempt_id,statement_charge_fact_id,
+                   created_by_member_id,reason_code,reason_note,created_at
+            FROM reconciliation_adjustment
+            WHERE org_id=#{organizationId} AND id=#{adjustmentId}
+            """)
+    AdjustmentRow selectAdjustmentByIdAndOrganization(
+            @Param("organizationId") long organizationId,
+            @Param("adjustmentId") long adjustmentId);
+
+    record AdjustmentInsert(
+            long organizationId,
+            long runId,
+            Long caseId,
+            String adjustmentKey,
+            String adjustmentScope,
+            long providerAccountId,
+            String currency,
+            BigDecimal amount,
+            long adjustmentPeriodId,
+            long createdByMemberId,
+            String reasonCode,
+            String reasonNote,
+            Instant createdAt) {
+    }
+
+    record AdjustmentRow(
+            long id,
+            long organizationId,
+            long reconciliationRunId,
+            Long reconciliationCaseId,
+            String adjustmentKey,
+            String adjustmentScope,
+            long providerAccountId,
+            String currency,
+            BigDecimal amount,
+            long adjustmentPeriodId,
+            Long gatewayRequestId,
+            Long gatewayRouteAttemptId,
+            Long statementChargeFactId,
+            long createdByMemberId,
+            String reasonCode,
+            String reasonNote,
+            Instant createdAt) {
+    }
+
+    @Insert("""
             INSERT INTO reconciliation_evidence(
                 org_id,reconciliation_run_id,reconciliation_case_id,evidence_key,
                 provider_account_id,currency,match_kind,difference_kind,charge_fact_id,

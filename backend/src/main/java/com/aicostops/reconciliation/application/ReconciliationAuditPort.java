@@ -7,6 +7,9 @@ public interface ReconciliationAuditPort {
             long billingPeriodId, String errorCode);
     void caseTransition(long organizationId, long actorUserId, long caseId,
             String action, String reasonCode);
+    void adjustmentPosted(long organizationId, long actorUserId, long adjustmentId,
+            long caseId, long runId, String scope, java.math.BigDecimal amount,
+            String currency, long adjustmentPeriodId);
     void closeStarted(long organizationId, long actorUserId, long closeRunId,
             long billingPeriodId, long closeGeneration, int attemptNo);
     void closeBlocked(long organizationId, long actorUserId, long closeRunId,

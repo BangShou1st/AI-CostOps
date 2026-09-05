@@ -57,6 +57,16 @@ public class AiCostOpsMetrics {
         registry.counter("aicostops.reconciliation.run", "result", result).increment();
     }
 
+    /** Reconciliation adjustment outcome: scope CASE_FULL / GATEWAY_REQUEST; result POSTED / FAILED. */
+    public void reconciliationAdjustment(String scope, String result) {
+        var safeScope = switch (scope == null ? "" : scope) {
+            case "CASE_FULL", "GATEWAY_REQUEST" -> scope;
+            default -> "UNKNOWN";
+        };
+        registry.counter("aicostops.reconciliation.adjustment",
+                "scope", safeScope, "result", result).increment();
+    }
+
     /** Period close outcome: CLOSED / BLOCKED / FAILED. */
     public void periodClose(String result) {
         registry.counter("aicostops.period.close", "result", result).increment();
