@@ -9,6 +9,7 @@ import com.aicostops.gatewaysettlement.application.GatewaySettlementFailureInjec
 import com.aicostops.gatewaysettlement.application.GatewaySettlementService;
 import com.aicostops.gatewaysettlement.application.GatewaySettlementWorker;
 import com.aicostops.iam.application.AuthorizationContextService;
+import com.aicostops.reconciliation.application.ReconciliationCaseService;
 import com.aicostops.reconciliation.domain.PeriodCloseCheckResult;
 import com.aicostops.reconciliation.domain.PeriodCloseRunStatus;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -34,6 +35,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
 
     @Autowired ReconciliationRunService reconciliationRuns;
+    @Autowired ReconciliationCaseService cases;
     @Autowired PeriodCloseService close;
     @Autowired AuthorizationContextService authorizationContexts;
     @Autowired GatewaySettlementDiscoveryService settlements;
@@ -144,27 +146,56 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
             return null;
         }).when(failureInjector).after(org.mockito.ArgumentMatchers.anyString());
 
+        var closed = close.close(actor, periodId);
         try (var executor = Executors.newFixedThreadPool(2)) {
             var settlementFuture = executor.submit(
                     () -> settlementService.settle(orgId, settlement.id()));
             assertThat(periodLocked.await(10, TimeUnit.SECONDS)).isTrue();
 
-            var closeFuture = executor.submit(() -> close.close(actor, periodId));
+            var rerunCloseFuture = executor.submit(() -> close.close(actor, periodId));
             Thread.sleep(250);
-            assertThat(closeFuture.isDone()).isFalse();
+            assertThat(rerunCloseFuture.isDone()).isFalse();
 
             releaseSettlement.countDown();
             assertThat(settlementFuture.get(20, TimeUnit.SECONDS).settlement().status().name())
                     .isEqualTo("SETTLED");
-            var closed = closeFuture.get(20, TimeUnit.SECONDS);
-            assertThat(closed.period().status().name()).isEqualTo("CLOSED");
-            assertThat(closed.run().status()).isEqualTo(PeriodCloseRunStatus.CLOSED);
-            assertThat(closed.checks()).anySatisfy(check -> {
+            // M15 includes Gateway Settlement Ledger in reconciliation truth, so
+            // the committed settlement changes the basis: Close is blocked with
+            // FINANCIAL_BASIS_CHANGED instead of closing over changed truth.
+            var blocked = rerunCloseFuture.get(20, TimeUnit.SECONDS);
+            assertThat(blocked.period().status().name()).isEqualTo("OPEN");
+            assertThat(blocked.run().status()).isEqualTo(PeriodCloseRunStatus.BLOCKED);
+            assertThat(blocked.checks()).anySatisfy(check -> {
                 if (check.blockerCode().name().equals("PENDING_GATEWAY_FINANCIAL_WORK")) {
                     assertThat(check.result()).isEqualTo(PeriodCloseCheckResult.PASS);
                 }
             });
+            assertThat(blocked.checks()).anySatisfy(check -> {
+                if (check.blockerCode().name().equals("OPEN_MATERIAL_RECONCILIATION")) {
+                    assertThat(check.result()).isEqualTo(PeriodCloseCheckResult.FAIL);
+                }
+            });
         }
+        assertThat(closed.period().status().name()).isEqualTo("OPEN");
+
+        // Financial mutation forces a reconciliation rerun before Close.
+        reconciliationRuns.run(actor, periodId);
+        // The settled request has no Provider statement charge: hybrid truth
+        // produces a MISSING_EXTERNAL case that must be explicitly explained.
+        var caseId = jdbc.queryForObject("""
+                SELECT rc.id FROM reconciliation_case rc
+                JOIN reconciliation_run rr ON rr.id=rc.reconciliation_run_id
+                WHERE rc.org_id=? AND rr.billing_period_id=?
+                ORDER BY rr.started_at DESC, rr.id DESC, rc.id DESC LIMIT 1
+                """, Long.class, orgId, periodId);
+        cases.investigate(actor, caseId);
+        cases.resolve(actor, caseId, new ReconciliationCaseService.ResolveCaseCommand(
+                "ACCEPT_EXPLAINED_DIFFERENCE",
+                "Settled Gateway request without a Provider statement line."));
+
+        var finalClose = close.close(actor, periodId);
+        assertThat(finalClose.period().status().name()).isEqualTo("CLOSED");
+        assertThat(finalClose.run().status()).isEqualTo(PeriodCloseRunStatus.CLOSED);
 
         assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
                 BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("1.80000000");

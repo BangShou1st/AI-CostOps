@@ -6,6 +6,7 @@ import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.ledger.application.ReconciliationInternalTruthPort;
 import com.aicostops.observability.AiCostOpsMetrics;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper;
 import com.aicostops.reconciliation.infrastructure.ReconciliationMapper;
 import com.aicostops.shared.security.AuthenticatedUser;
 import java.time.Clock;
@@ -31,6 +32,8 @@ public final class ReconciliationRunService {
     private final ReconciliationMatchEngine matchEngine;
     private final ReconciliationTruthHasher hasher;
     private final ReconciliationMapper mapper;
+    private final HybridReconciliationMapper hybridMapper;
+    private final HybridReconciliationEvidenceService evidenceService;
     private final ReconciliationAuditPort audit;
     private final ObjectMapper objectMapper;
     private final AiCostOpsMetrics metrics;
@@ -47,6 +50,8 @@ public final class ReconciliationRunService {
             ReconciliationMatchEngine matchEngine,
             ReconciliationTruthHasher hasher,
             ReconciliationMapper mapper,
+            HybridReconciliationMapper hybridMapper,
+            HybridReconciliationEvidenceService evidenceService,
             ReconciliationAuditPort audit,
             ObjectMapper objectMapper,
             AiCostOpsMetrics metrics,
@@ -60,6 +65,8 @@ public final class ReconciliationRunService {
         this.matchEngine = matchEngine;
         this.hasher = hasher;
         this.mapper = mapper;
+        this.hybridMapper = hybridMapper;
+        this.evidenceService = evidenceService;
         this.audit = audit;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
@@ -78,7 +85,8 @@ public final class ReconciliationRunService {
         var now = clock.instant();
 
         var started = transactions.execute(status -> {
-            var period = periodFence.lockOpenById(context.organizationId(), billingPeriodId);
+            var period = periodFence.lockForReconciliationAdmission(
+                    context.organizationId(), billingPeriodId);
             mapper.insertRun(context.organizationId(), period.id(), "RUNNING",
                     ReconciliationAlgorithm.VERSION, tolerance, "{}",
                     context.organizationMemberId(), now, now, now);
@@ -96,7 +104,10 @@ public final class ReconciliationRunService {
                 var internal = internalTruth.aggregateProviderLedger(
                         context.organizationId(), billingPeriodId);
                 var summary = matchEngine.match(external, internal, tolerance);
-                return new Snapshot(summary, hasher.hash(summary.rows()));
+                var evidence = evidenceService.buildEvidence(context.organizationId(),
+                        started.runId(), billingPeriodId, started.periodStart(),
+                        started.periodEnd(), summary.rows(), clock.instant());
+                return new Snapshot(summary, hasher.hash(summary.rows()), evidence);
             });
             if (snapshot == null) {
                 throw new IllegalStateException("Reconciliation snapshot transaction returned no result");
@@ -109,18 +120,46 @@ public final class ReconciliationRunService {
                         != com.aicostops.reconciliation.domain.ReconciliationRunStatus.RUNNING) {
                     throw new IllegalStateException("Reconciliation run is no longer RUNNING");
                 }
+                var caseIdByKey = new java.util.HashMap<String, Long>();
                 for (var row : snapshot.summary().rows()) {
                     if (row.caseType() != null) {
                         mapper.insertCase(context.organizationId(), started.runId(),
                                 row.providerAccountId(), row.currency(), row.caseType().name(),
                                 row.externalAmount(), row.internalAmount(), row.difference(),
                                 row.externalRowCount(), row.internalRowCount(), finished, finished);
+                        caseIdByKey.put(row.providerAccountId() + ":" + row.currency(),
+                                mapper.lastInsertId());
+                    }
+                }
+                var exactCount = 0L;
+                var unresolvedCount = 0L;
+                for (var evidence : snapshot.evidence()) {
+                    var caseId = "AGGREGATE_SCOPE".equals(evidence.matchKind())
+                            ? caseIdByKey.get(evidence.providerAccountId() + ":"
+                                    + evidence.currency())
+                            : null;
+                    hybridMapper.insertEvidence(new HybridReconciliationMapper
+                            .ReconciliationEvidenceRow(
+                            evidence.organizationId(), evidence.runId(), caseId,
+                            evidence.evidenceKey(), evidence.providerAccountId(),
+                            evidence.currency(), evidence.matchKind(), evidence.differenceKind(),
+                            evidence.chargeFactId(), evidence.gatewayRequestId(),
+                            evidence.gatewayRouteAttemptId(), evidence.gatewayUsageFactId(),
+                            evidence.gatewaySettlementId(), evidence.providerRequestId(),
+                            evidence.externalAmount(), evidence.internalAmount(),
+                            evidence.differenceAmount(), evidence.createdAt()));
+                    if ("EXACT_PROVIDER_REQUEST".equals(evidence.matchKind())) {
+                        exactCount++;
+                    } else if ("GATEWAY_UNRESOLVED".equals(evidence.matchKind())) {
+                        unresolvedCount++;
                     }
                 }
                 var summaryJson = objectMapper.writeValueAsString(Map.of(
                         "totalKeys", snapshot.summary().rows().size(),
                         "matchedCount", snapshot.summary().matchedCount(),
-                        "discrepancyCount", snapshot.summary().discrepancyCount()));
+                        "discrepancyCount", snapshot.summary().discrepancyCount(),
+                        "exactEvidenceCount", exactCount,
+                        "unresolvedGatewayCount", unresolvedCount));
                 if (mapper.markRunCompleted(context.organizationId(), started.runId(),
                         snapshot.basisHash(), summaryJson, finished, finished) != 1) {
                     throw new IllegalStateException("Reconciliation run completion CAS failed");
@@ -166,6 +205,7 @@ public final class ReconciliationRunService {
     private record StartedRun(long runId, java.time.Instant periodStart, java.time.Instant periodEnd) {
     }
 
-    private record Snapshot(ReconciliationReadModels.MatchSummary summary, String basisHash) {
+    private record Snapshot(ReconciliationReadModels.MatchSummary summary, String basisHash,
+            java.util.List<HybridReconciliationMapper.ReconciliationEvidenceRow> evidence) {
     }
 }
