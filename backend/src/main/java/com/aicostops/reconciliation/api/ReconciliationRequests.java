@@ -37,9 +37,9 @@ public final class ReconciliationRequests {
             String caseId,
             String requestId,
             String resolutionType,
-            String adjustmentAmount,
+            String statementChargeFactId,
+            String positiveEvidenceReference,
             String correctionPeriodId,
-            String commitmentId,
             String reasonCode,
             String reasonNote) {
     }

@@ -1075,6 +1075,9 @@ components:
         gatewayFinancialResolutionId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         ledgerPostingId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         providerRequestId: { oneOf: [{ type: string, maxLength: 255 }, { type: 'null' }] }
+        evidenceReference:
+          oneOf: [{ type: string, maxLength: 256 }, { type: 'null' }]
+          description: Bounded auditable reference to reviewed positive proof (e.g. for NO_CHARGE_CONFIRMED).
         externalAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
         internalAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
         differenceAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
@@ -1126,7 +1129,7 @@ components:
         reasonNote: { type: string, maxLength: 2000 }
     ReconciliationAdjustmentResponse:
       type: object
-      required: [id, runId, adjustmentScope, amount, currency]
+      required: [id, runId, adjustmentScope, amount, currency, adjustmentPeriodId]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         caseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
@@ -1134,17 +1137,38 @@ components:
         adjustmentScope: { type: string, enum: [CASE_FULL, GATEWAY_REQUEST] }
         amount: { $ref: '#/components/schemas/Money' }
         currency: { type: string }
-        adjustmentPeriodId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        adjustmentPeriodId: { $ref: '#/components/schemas/Id' }
     GatewayResolutionRequest:
       type: object
       required: [requestId, resolutionType, reasonCode, reasonNote]
+      description: |
+        The adjustment amount for STATEMENT_ADJUSTMENT_POSTED is always
+        server-derived from one strongly-bound authoritative statement Charge
+        minus the immutable Ledger amount attributable to the same Gateway
+        request; clients can never define a Ledger amount. A Commitment is
+        only ever consumed through the locked reservation's own commitment
+        lineage.
       properties:
         caseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         requestId: { $ref: '#/components/schemas/Id' }
         resolutionType: { type: string, enum: [STATEMENT_ADJUSTMENT_POSTED, NO_CHARGE_CONFIRMED] }
-        adjustmentAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        statementChargeFactId:
+          oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }]
+          description: >-
+            Required for STATEMENT_ADJUSTMENT_POSTED: the authoritative
+            statement Charge binding. It must equal the run's exact
+            correlation evidence when one exists; otherwise it creates a
+            reviewed MANUAL_BINDING validated against the request scope.
+        positiveEvidenceReference:
+          type: string
+          maxLength: 256
+          description: >-
+            Required for NO_CHARGE_CONFIRMED together with a bounded
+            positive-proof reasonCode (PROVIDER_PORTAL_CONFIRMED_NO_CHARGE,
+            PROVIDER_SUPPORT_CONFIRMED_NO_CHARGE,
+            EXPLICIT_ZERO_PROVIDER_RECORD). Persisted as the auditable proof
+            reference; statement absence alone never proves zero cost.
         correctionPeriodId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
-        commitmentId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
         reasonCode: { type: string, maxLength: 64 }
         reasonNote: { type: string, maxLength: 2000 }
     GatewayResolutionResponse:

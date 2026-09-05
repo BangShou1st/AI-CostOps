@@ -214,22 +214,18 @@ public final class ReconciliationController {
                         ? null : parseId(request.caseId(), "caseId"),
                 parseId(request == null ? null : request.requestId(), "requestId"),
                 request == null ? null : request.resolutionType(),
-                request == null || request.adjustmentAmount() == null
-                        || request.adjustmentAmount().isBlank() ? null
-                        : parseAmount(request.adjustmentAmount(), "adjustmentAmount"),
+                request == null || request.statementChargeFactId() == null
+                        || request.statementChargeFactId().isBlank() ? null
+                        : parseId(request.statementChargeFactId(), "statementChargeFactId"),
+                request == null ? null : request.positiveEvidenceReference(),
                 request == null || request.correctionPeriodId() == null
                         || request.correctionPeriodId().isBlank() ? null
                         : parseId(request.correctionPeriodId(), "correctionPeriodId"),
-                request == null || request.commitmentId() == null
-                        || request.commitmentId().isBlank() ? null
-                        : parseId(request.commitmentId(), "commitmentId"),
                 request == null ? null : request.reasonCode(),
                 request == null ? null : request.reasonNote());
         var result = gatewayResolutions.resolveGatewayFinancialWork(user, command,
                 idempotencyKey);
-        return ReconciliationResponses.GatewayResolutionResponse.from(result.resolutionId(),
-                runId, command.caseId(), command.requestId(), command.resolutionType(),
-                result.reservationOutcome(), result.adjustmentId());
+        return ReconciliationResponses.GatewayResolutionResponse.from(result);
     }
 
     @PostMapping("/api/v1/reconciliation-cases/{caseId}/link-correction")

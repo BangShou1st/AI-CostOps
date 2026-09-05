@@ -98,6 +98,7 @@ public final class ReconciliationResponses {
             String gatewayFinancialResolutionId,
             String ledgerPostingId,
             String providerRequestId,
+            String evidenceReference,
             String externalAmount,
             String internalAmount,
             String differenceAmount,
@@ -130,6 +131,7 @@ public final class ReconciliationResponses {
                             : Long.toString(row.gatewayFinancialResolutionId()),
                     row.ledgerPostingId() == null ? null : Long.toString(row.ledgerPostingId()),
                     row.providerRequestId(),
+                    row.evidenceReference(),
                     row.externalAmount() == null ? null : ReconciliationMoney.format(row.externalAmount()),
                     row.internalAmount() == null ? null : ReconciliationMoney.format(row.internalAmount()),
                     row.differenceAmount() == null ? null : ReconciliationMoney.format(row.differenceAmount()),
@@ -175,7 +177,7 @@ public final class ReconciliationResponses {
                     "CASE_FULL",
                     ReconciliationMoney.format(result.amount()),
                     result.currency(),
-                    null);
+                    Long.toString(result.adjustmentPeriodId()));
         }
     }
 
@@ -191,17 +193,17 @@ public final class ReconciliationResponses {
             String reservationOutcome,
             String adjustmentId) {
 
-        public static GatewayResolutionResponse from(long resolutionId, long runId, Long caseId,
-                long requestId, String resolutionType, String reservationOutcome,
-                Long adjustmentId) {
+        public static GatewayResolutionResponse from(
+                com.aicostops.reconciliation.application.GatewayFinancialResolutionService
+                        .GatewayResolutionResult result) {
             return new GatewayResolutionResponse(
-                    Long.toString(resolutionId),
-                    Long.toString(runId),
-                    caseId == null ? null : Long.toString(caseId),
-                    Long.toString(requestId),
-                    resolutionType,
-                    reservationOutcome,
-                    adjustmentId == null ? null : Long.toString(adjustmentId));
+                    Long.toString(result.resolutionId()),
+                    Long.toString(result.runId()),
+                    result.caseId() == null ? null : Long.toString(result.caseId()),
+                    Long.toString(result.requestId()),
+                    result.resolutionType(),
+                    result.reservationOutcome(),
+                    result.adjustmentId() == null ? null : Long.toString(result.adjustmentId()));
         }
     }
 }

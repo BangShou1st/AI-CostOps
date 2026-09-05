@@ -107,11 +107,13 @@ CREATE TABLE reconciliation_adjustment (
         (adjustment_scope = 'CASE_FULL'
             AND reconciliation_case_id IS NOT NULL
             AND gateway_request_id IS NULL
-            AND gateway_route_attempt_id IS NULL)
+            AND gateway_route_attempt_id IS NULL
+            AND statement_charge_fact_id IS NULL)
         OR
         (adjustment_scope = 'GATEWAY_REQUEST'
             AND gateway_request_id IS NOT NULL
-            AND gateway_route_attempt_id IS NOT NULL)),
+            AND gateway_route_attempt_id IS NOT NULL
+            AND statement_charge_fact_id IS NOT NULL)),
     KEY idx_reconciliation_adjustment_org_period
         (org_id, adjustment_period_id, id),
     KEY idx_reconciliation_adjustment_org_case
@@ -203,10 +205,12 @@ CREATE TABLE gateway_financial_resolution (
         CHECK (reservation_outcome IN ('FINALIZED','RELEASED','NONE')),
     CONSTRAINT chk_gateway_financial_resolution_type_shape CHECK (
         (resolution_type = 'STATEMENT_ADJUSTMENT_POSTED'
-            AND reconciliation_adjustment_id IS NOT NULL)
+            AND reconciliation_adjustment_id IS NOT NULL
+            AND statement_charge_fact_id IS NOT NULL)
         OR
         (resolution_type = 'NO_CHARGE_CONFIRMED'
-            AND reconciliation_adjustment_id IS NULL)),
+            AND reconciliation_adjustment_id IS NULL
+            AND statement_charge_fact_id IS NULL)),
     CONSTRAINT chk_gateway_financial_resolution_reservation_outcome CHECK (
         (resolution_type = 'STATEMENT_ADJUSTMENT_POSTED'
             AND reservation_outcome IN ('FINALIZED','NONE'))
@@ -241,6 +245,7 @@ CREATE TABLE reconciliation_evidence (
     gateway_financial_resolution_id BIGINT NULL,
     ledger_posting_id BIGINT NULL,
     provider_request_id VARCHAR(255) NULL,
+    evidence_reference VARCHAR(256) NULL,
     external_amount DECIMAL(20,8) NULL,
     internal_amount DECIMAL(20,8) NULL,
     difference_amount DECIMAL(20,8) NULL,

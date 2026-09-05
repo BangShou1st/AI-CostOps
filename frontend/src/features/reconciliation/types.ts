@@ -50,11 +50,22 @@ export interface ReconciliationEvidenceResponse {
   gatewayFinancialResolutionId: string | null
   ledgerPostingId: string | null
   providerRequestId: string | null
+  evidenceReference: string | null
   externalAmount: string | null
   internalAmount: string | null
   differenceAmount: string | null
   createdAt: string
 }
+
+/** Bounded positive-proof vocabulary for NO_CHARGE_CONFIRMED. */
+export const NO_CHARGE_PROOF_CODES = [
+  'PROVIDER_PORTAL_CONFIRMED_NO_CHARGE',
+  'PROVIDER_SUPPORT_CONFIRMED_NO_CHARGE',
+  'EXPLICIT_ZERO_PROVIDER_RECORD',
+] as const
+
+/** Bounded binding vocabulary for STATEMENT_ADJUSTMENT_POSTED. */
+export const STATEMENT_REASON_CODES = ['EXACT_PROVIDER_REQUEST', 'MANUAL_BINDING'] as const
 
 export interface ChargeDispositionRequest {
   chargeFactId: string
@@ -100,9 +111,11 @@ export interface GatewayResolutionRequest {
   caseId?: string | null
   requestId: string
   resolutionType: 'STATEMENT_ADJUSTMENT_POSTED' | 'NO_CHARGE_CONFIRMED'
-  adjustmentAmount?: string | null
+  /** Required for STATEMENT_ADJUSTMENT_POSTED; the server derives the amount. */
+  statementChargeFactId?: string | null
+  /** Required for NO_CHARGE_CONFIRMED; auditable positive-proof reference. */
+  positiveEvidenceReference?: string | null
   correctionPeriodId?: string | null
-  commitmentId?: string | null
   reasonCode: string
   reasonNote: string
 }

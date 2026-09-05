@@ -1,194 +1,190 @@
 # M15 Hybrid Reconciliation — Acceptance Evidence
 
-> Status: implementation complete on `feat/m15-hybrid-reconciliation`, pending independent review (GPT-5.6 Sol) and user merge instruction.
-> Issue: #148 — `feat(m15): deliver hybrid reconciliation`
+> Status: **independent-review remediation complete on `feat/m15-hybrid-reconciliation`**, awaiting GPT-5.6 Sol re-review and user merge instruction. Hosted CI will be rerun only after independent Sol re-review passes.
+> Issue: #148 — `feat(m15): deliver hybrid reconciliation` (PR #149)
 > Spec: `docs/superpowers/specs/2026-09-05-m15-hybrid-reconciliation-design.md`
 > Plan: `docs/superpowers/plans/2026-09-05-m15-hybrid-reconciliation-plan.md`
 > Base: `main@502b8aa38a70a0afc4751097365ec6543592280f`
-> This document records only results that were actually executed and observed on this machine. Hosted CI/Security results are recorded separately in the PR once observed.
+> Review anchor reviewed by Sol: `cc8ebe12a2d0c42b28bf4aa293543e3c7088b01b`
+> This document records only results actually executed and observed on this machine. The previous "implementation complete" self-report and its hosted-CI evidence (PR run 33966798874/33966798865) were superseded by the independent review and are no longer claimed as correctness evidence.
+
+## 0. What this round changed (Sol review remediation)
+
+Every P0/P1 finding from the independent review of PR #149 was fixed with a RED test first, then a minimal implementation, then targeted GREEN. The previously recorded claims that the review refuted are retracted; the evidence below replaces them.
+
+### P0-1 Charge disposition scope (BLOCKER)
+
+- Root cause: `HybridReconciliationActionService.decideChargeDisposition` validated only same-org existence of the charge and the case, so an unrelated same-org charge could be dispositioned under any case and bypass the Hybrid posting fence.
+- RED tests: `HybridChargeDispositionScopeIntegrationTest` — same org + wrong provider account → reject; wrong currency → reject; `period_start` outside the run BillingPeriod window → reject; unconfirmed import batch → reject; unsupported review status (`EXCLUDED_NONCOST`) → reject; in-scope CLEAN/SUSPECTED_DUPLICATE charge → MANUAL disposition succeeds (both `DIRECT_PROVIDER_CHARGE` and `RECONCILIATION_EVIDENCE`).
+- Implementation: one bounded projection `HybridReconciliationMapper.selectChargeScopeContext` (charge currency/period/review status + confirmed-import batch lineage `provider_account_id`, `status='CONFIRMED'`, `confirmed_attempt_id`, run period window) validated inside the disposition transaction. The posting guard still trusts the disposition; creation is now strictly scoped.
+
+### P0-2 Server-derived statement adjustment amount (BLOCKER)
+
+- Root cause: `GatewayResolutionRequest.adjustmentAmount` flowed client → command → `reconciliation_adjustment` → Ledger → Budget Actual. The client could define a Ledger amount.
+- RED tests: `GatewayFinancialResolutionIntegrationTest.statementResolutionDerivesAmountFromBoundStatementCharge` (amount = bound charge amount, `statement_charge_fact_id` persisted on both the adjustment and the resolution), `.statementResolutionSubtractsInternalLedgerTruthOfTheSameRequest` (RECONCILIATION_REQUIRED settlement posting of 0.50 subtracted: 2.00 − 0.50 = 1.50 posted), `.statementResolutionRequiresABoundStatementCharge` (no charge → reject).
+- Implementation: `adjustmentAmount` and `commitmentId` were **removed** from the public API, DTOs, OpenAPI, frontend types/client/UI and all tests. The amount is now `server-derived = bound statement Charge amount − immutable Ledger amount attributable to the same request` via `selectRequestPostedInternalAmount` (direct-source lineage: `source_gateway_settlement_id → gateway_settlement.request_id` and `source_reconciliation_adjustment_id → reconciliation_adjustment.gateway_request_id`; corrections contribute because they preserve direct sources). Aggregate case differences and pro-rata are never referenced. `ReconciliationMoney.requireScale8Exact` is applied; a zero derived amount is rejected with an explicit conflict.
+
+### P0-3 Run/case/request lineage (BLOCKER)
+
+- Root cause: any same-org COMPLETED run could resolve any request; `caseId` was not validated beyond same-org existence.
+- RED tests: `.resolutionNeverCrossesRunPeriodOrCaseLineage` — COMPLETED run of another period → reject; case of another run → reject; case provider account mismatch → reject; case currency mismatch → reject.
+- Implementation: pre-read lineage proves `run.billingPeriodId == request.billingPeriodId` before any financial lock; an optional case must belong to the run, the request's provider account and the request's financial currency. Everything is revalidated after the identity locks and again after the request source-row lock.
+
+### Statement Charge ↔ Gateway Request strong binding (§7/§18)
+
+- V23 `chk_reconciliation_adjustment_scope_shape` now requires `statement_charge_fact_id IS NOT NULL` for `GATEWAY_REQUEST` adjustments (and forbids it for `CASE_FULL`); `chk_gateway_financial_resolution_type_shape` requires statement-charge lineage for `STATEMENT_ADJUSTMENT_POSTED` and forbids it for `NO_CHARGE_CONFIRMED`. No V24 was needed; M15 is unmerged so V23 was amended in place and re-proven by the full Flyway V1→V23 real-MySQL run.
+- Exact binding: when the run holds `EXACT_PROVIDER_REQUEST` evidence for the request, the server revalidates it against the *current* immutable source lineage (same run/request/org/provider account/currency, unique charge and request, certified profile, attempt not PLANNED/SAFE) and requires a client-supplied `statementChargeFactId` to equal it. RED test: `manualStatementBindingValidatesChargeScopeAgainstTheRequest` (foreign account, wrong currency, outside period, unconfirmed batch, excluded duplicate all reject).
+- Manual binding: without exact evidence the reviewer selects `statementChargeFactId`; the server validates it against the same scope rules and persists a `MANUAL_BINDING` reconciliation_evidence row (charge + request + attempt lineage) in the same transaction. RED test: `.statementResolutionDerivesAmountFromBoundStatementCharge` asserts the MANUAL_BINDING evidence row exists.
+- Exclusivity: a statement charge can back at most one resolution per org and cannot be manually bound to another request in the run. RED test: `.statementChargeIsBoundExclusivelyToOneRequest`.
+
+### NO_CHARGE_CONFIRMED positive proof (§10)
+
+- Root cause: any free-text `reasonCode`/`reasonNote` could confirm no-charge.
+- RED tests: `.statementAbsenceOrGenericReasonIsNeverPositiveNoChargeProof` (statement-absence code → reject; generic review code → reject; bounded proof code without an auditable reference → reject), `.noChargeWithoutRunUnresolvedEvidenceIsRejected` (no `GATEWAY_UNRESOLVED` evidence in the run → reject).
+- Implementation: bounded positive-proof vocabulary `PROVIDER_PORTAL_CONFIRMED_NO_CHARGE`, `PROVIDER_SUPPORT_CONFIRMED_NO_CHARGE`, `EXPLICIT_ZERO_PROVIDER_RECORD` plus a required persisted `positiveEvidenceReference` (6–256 chars), stored on the resolution evidence (`reconciliation_evidence.evidence_reference`, new bounded V23 column). Statement absence never proves zero cost.
+
+### P0-4 Exact matching same provider account (BLOCKER)
+
+- Root cause: `selectExactCorrelationGroups` joined `gateway_route_attempt` without `ra.provider_account_id=ib.provider_account_id`, so a charge of account A exactly matched a request of account B on the same provider request id. `pricing_version` was not org-qualified either.
+- RED test: `HybridReconciliationEvidenceIntegrationTest.exactCorrelationRequiresTheSameProviderAccount` (account A charge + account B request, same certified id, same currency → MUST NOT exact match); the happy-path test now constructs same-account fixtures.
+- Implementation: exact join requires `ra.provider_account_id=ib.provider_account_id`, `pv.org_id=ra.org_id`, and groups by `(provider_request_id, provider_account_id)`.
+
+### P1-5 Reservation-bound commitment only (§12)
+
+- Root cause: `GatewayResolutionRequest.commitmentId` let the client pick any commitment of the budget.
+- RED tests: commitment lineage assertions in `GatewayFinancialResolutionRollbackIntegrationTest.failureAfterCommitmentConsumeRollsEverythingBack` and eligibility rejections; cross-period consumption is still rejected (`A cross-period resolution never consumes the historical commitment`).
+- Implementation: `commitmentId` was removed from the public API. The commitment is locked only from `budget_reservation.commitment_id` of the bound reservation and revalidated (`lockedCommitment.id == lockedReservation.commitmentId`, `commitment.budgetId == selected budget`, `canConsume`, same-period positive amount) before consumption.
+
+### P1-6 Canonical financial lock order (§13)
+
+- Root cause: both financial services locked BillingPeriod → run/case → Budget (CASE_FULL) and re-min/max-sorted already-locked cross-period rows (Gateway resolution), a reverse lock order.
+- Implementation (both services): pre-read immutable ids/context without financial locks → determine all BillingPeriod ids → lock all period rows strictly ascending id in one pass → resolve & lock Budgets sorted → (Gateway resolution) lock the reservation-bound Commitment then the Reservation → lock reconciliation run/case → revalidate → Gateway Request source-row lock → mutation. Cross-period locking never depends on period creation order; `TreeMap`-sorted distinct ids guarantee ascending order regardless of which period id is larger.
+- RED tests: `M15HybridRaceMatrixIntegrationTest` (posting vs dispatch, cross-period adjustment vs explicit reopen, CLOSED run admission vs reopen) and `M15FinancialConcurrencyIntegrationTest` pass repeatedly with no deadlock flakes; `ReconciliationAdjustmentIntegrationTest` cross-period/CLOSED cases stay green.
+
+### P1-7 Idempotent replay returns the same business response (§14)
+
+- Root cause: replay returned `(resolutionId, null, null)`.
+- RED test: `.idempotentReplayReturnsTheCommittedBusinessResponse` — same key + same canonical request replays `resolutionId/runId/caseId/requestId/resolutionType/reservationOutcome/adjustmentId` field-by-field from the committed `gateway_financial_resolution` row; same key + different body → conflict.
+- `GatewayResolutionResult` now carries the full committed business response.
+
+### P1-8 React Rules-of-Hooks bug (§19)
+
+- Root cause: `ReconciliationCaseDetailPage` called `useQuery(runDetail)` after an early return.
+- RED test: `ReconciliationPages.test.tsx > survives the loading-to-loaded transition without a Rules-of-Hooks violation` — the case promise resolves after initial render; all hooks run unconditionally (`runDetail` uses `enabled: reconciliationRunId.length > 0`).
+
+### P1-9 Frontend/E2E completeness (§20/§21)
+
+- Case detail now separates **整体案例操作** (whole-case: CASE_FULL adjustment modal showing the server-required difference `external − internal`, explicit allocation line with a same-org ACTIVE target picker, OPEN adjustment period) from **单条证据操作** (evidence-item: charge disposition modal, gateway no-charge/statement-adjustment modal, correction link). The gateway statement-adjustment UI never asks for an amount (server-derived); the no-charge UI requires the bounded proof code + auditable reference. Evidence-item actions never claim to resolve the case.
+- Permissions: financial actions render only with `RECONCILIATION_RESOLVE` (+ `LEDGER_CORRECT` for adjustments/gateway resolution); the backend rejects independently (tested server-side).
+- A real sign bug found by E2E was fixed: the UI previously submitted `differenceAmount` (internal − external) as the CASE_FULL amount; it now submits its exact negation (`external − internal`), matching the server rule.
+- New `frontend/e2e/m15-hybrid-reconciliation.spec.ts` (scenario B + E end-to-end in the browser over an isolated Compose stack): confirmed two-cost statement, partial posting → aggregate case with attached evidence, whole-case vs evidence-item separation, CASE_FULL adjustment posted with explicit lines, rerun clean (no fabricated case), close, CLOSED-period banner without auto reopen, explicit governed reopen. Scenarios A/D (run-level GATEWAY_UNRESOLVED without a case; statement-backed gateway resolution) need durable Gateway request facts that no public E2E surface can create; they are proven against real MySQL by `GatewayFinancialResolutionIntegrationTest` and the race matrix (documented in the spec header).
+
+### linkCorrection lineage (§16)
+
+- Root cause: only same-org existence of the correction group was checked.
+- RED tests: `HybridChargeDispositionScopeIntegrationTest.linkCorrection*` — correction of another provider account/currency → reject; mixed-scope correction group → reject; entries without a recognizable provider source (expense-sourced) → reject; own-scope charge correction → link succeeds with evidence.
+- Implementation: every corrected Ledger entry must resolve through its preserved direct source (`source_charge_fact_id` → confirmed import lineage, `source_gateway_settlement_id` → settlement, `source_reconciliation_adjustment_id` → adjustment) to exactly one provider account+currency equal to the case scope.
+
+### Exact/request evidence attached to the case (§17)
+
+- Root cause: only `AGGREGATE_SCOPE` evidence got `reconciliation_case_id`; exact and request-level evidence stayed NULL.
+- RED test: `GatewayFinancialResolutionIntegrationTest`/`HybridReconciliationEvidenceIntegrationTest` aggregate attachment assertions and the E2E `AGGREGATE_SCOPE` case-id assertion.
+- Implementation: run finalization attaches every evidence item whose `(provider account, currency)` matches an aggregate case to that case; only evidence without a matching aggregate case stays run-level (`case_id NULL`), and no zero-amount case is fabricated.
+
+### Meaningless concurrency assertion removed (§22) + Task 11 races (§23/§24)
+
+- `assertThat(postings).isEqualTo(resolutionCount == 1 ? 0L : 0L)` was deleted and replaced with exact per-outcome invariants: resolution win → zero settlement postings/zero adjustments, discovery empty; late-FINAL win → the request goes through the *whole normal M13 path* (discovery finds exactly that request, settlement posts exactly one `GATEWAY_SETTLEMENT` posting), never both.
+- New `M15HybridRaceMatrixIntegrationTest` (real MySQL, latches/row locks, no sleeps, direct DB counts): Provider Charge posting vs Gateway dispatch (dispatch-first blocks without disposition, never a false allow; legal scoped `DIRECT_PROVIDER_CHARGE` still posts), cross-period CASE_FULL adjustment vs explicit PERIOD_REOPEN (both converge; no auto reopen), CLOSED-period run admission vs reopen (stable state, zero financial mutation).
+- Rollback matrix for the gateway resolution transaction (§25): `GatewayFinancialResolutionRollbackIntegrationTest` injects failure after adjustment insert / Ledger entry / Budget Actual / Commitment consume / Reservation transition / Audit / resolution insert / evidence insert and after the no-charge release — every run leaves zero adjustments, zero Ledger postings/entries, unchanged Budget Actual/Commitment usage, `ACTIVE` reservation, no resolution/evidence and no idempotency residue. Production injector remains a noop component.
 
 ## 1. Git
 
 ```text
 Repository        : BangShou1st/AI-CostOps
 Branch            : feat/m15-hybrid-reconciliation
+Review anchor SHA : cc8ebe12a2d0c42b28bf4aa293543e3c7088b01b (Sol's reviewed HEAD; no rebase/reset performed)
 Base SHA          : 502b8aa38a70a0afc4751097365ec6543592280f (origin/main at freeze)
-Design freeze     : 31c744c (docs), plan merge 435fa78
-Implementation    : 26c8e1f → 1b852e6 (11 semantic commits, see §12)
-Working tree      : clean at evidence time (excluding this document commit)
+Remediation       : one local commit on top of cc8ebe1 (see git log; not pushed)
+Working tree      : clean at evidence time
 ```
 
 ## 2. Schema / migration proof
 
-- Migration: `backend/src/main/resources/db/migration/V23__m15_hybrid_reconciliation.sql` — the only M15 migration; V1–V22 untouched (`git diff --name-only origin/main...HEAD -- backend/src/main/resources/db/migration` shows only V23).
-- Test class: `M15HybridSchemaIntegrationTest` (9 tests, real MySQL 8.4 Testcontainer, Flyway V1→V23):
-  - M15 tables exist (`provider_charge_disposition`, `reconciliation_adjustment`, `gateway_financial_resolution`, `reconciliation_evidence`) with DECIMAL(20,8) money and CHAR(3) currency.
-  - One disposition per Charge (`uq_provider_charge_disposition_org_charge`), MANUAL actor/reason constraints, LEGACY_POSTED/SYSTEM_EXACT never impersonate a member, SYSTEM_EXACT requires run lineage.
-  - CASE_FULL requires case and forbids gateway_request/route_attempt; GATEWAY_REQUEST requires request + attempt (`chk_reconciliation_adjustment_scope_shape`); amount <> 0; DECIMAL(20,8) bound.
-  - One resolution per Gateway Request (`uq_gateway_financial_resolution_org_request`); STATEMENT_ADJUSTMENT_POSTED requires GATEWAY_REQUEST adjustment lineage; NO_CHARGE_CONFIRMED forbids adjustment; reservation outcome is type-bound (FINALIZED/NONE vs RELEASED/NONE).
-  - Evidence: unique `(org, run, evidence_key)`; run-level rows with `reconciliation_case_id NULL` are legal; bounded match/difference vocabularies.
-  - Ledger forward extension: `ledger_posting.source_type` accepts `RECONCILIATION_ADJUSTMENT`; `ledger_entry.source_reconciliation_adjustment_id` participates in the direct-source XOR (`chk_ledger_entry_source_xor`, at most one of charge/expense/settlement/adjustment).
-  - Legacy backfill is exactly-once idempotent: re-executing the shipped statement against seeded `PROVIDER_CHARGE` postings yields exactly one `DIRECT_PROVIDER_CHARGE / LEGACY_POSTED` row per Charge.
+- Still exactly one M15 migration: `V23__m15_hybrid_reconciliation.sql`; V1–V22 untouched (`git diff --name-only origin/main...HEAD -- backend/src/main/resources/db/migration`).
+- V23 amendments this round (M15 unmerged): `reconciliation_evidence.evidence_reference VARCHAR(256) NULL`; `chk_reconciliation_adjustment_scope_shape` requires statement-charge lineage for `GATEWAY_REQUEST` and forbids it for `CASE_FULL`; `chk_gateway_financial_resolution_type_shape` requires statement-charge lineage for `STATEMENT_ADJUSTMENT_POSTED` and forbids it for `NO_CHARGE_CONFIRMED`.
+- `M15HybridSchemaIntegrationTest` (9 tests, real MySQL 8.4, Flyway V1→V23) re-proves all previous constraints plus the strengthened structural checks (including new negative inserts for the amended CHECKs).
 
-## 3. Hybrid internal truth and algorithm
-
-- `ReconciliationInternalTruthAdapter` aggregates Provider-related Ledger truth by direct source lineage: Provider Charge (via confirmed import lineage), Gateway Settlement, Reconciliation Adjustment; append-only corrections contribute through the preserved direct source of the historical entry they correct; Expense entries are excluded.
-- Test: `ReconciliationTruthIntegrationTest.internalTruthIncludesGatewaySettlementAdjustmentAndSourcePreservingCorrections` proves mixed Provider A (charge 10 − correction 2 = 8) and Provider B (settlement 4 + adjustment 1 = 5) aggregate per provider account/currency.
-- Algorithm version switched to `M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2` (`ReconciliationAlgorithm.VERSION`). Old M6 runs remain immutable history; `OPEN_MATERIAL_RECONCILIATION` treats a stale algorithm/tolerance/basis as stale (existing rule reused, unchanged).
-
-## 4. Matching safety
-
-Test: `HybridReconciliationEvidenceIntegrationTest` (9 tests, certified-profile property `aicostops.reconciliation.correlation-certified-providers=GLM`):
-
-- Certified PROVIDER_REQUEST_ID + exactly one external charge + exactly one non-PLANNED/non-SAFE current attempt → `EXACT_PROVIDER_REQUEST` evidence; no `provider_charge_disposition` is ever created by matching.
-- `SAFE_NO_BILLABLE_EXECUTION` and `PLANNED` attempts never match exactly.
-- Ambiguous duplicate Provider request id (two charges, one request) never auto-binds.
-- Uncertified provider profile (registry default `NONE`) never matches exactly; reconciliation stays aggregate.
-- Amount/time proximity alone never matches (no fuzzy fallback).
-- Aggregate case carries `AGGREGATE_SCOPE` evidence with fail-closed `UNCLASSIFIED` difference label.
-- UNKNOWN/no-ledger/no-external Gateway work produces run-level `GATEWAY_UNRESOLVED` evidence with `reconciliation_case_id NULL`; no zero-amount case is fabricated.
-- Run admission: OPEN allowed, CLOSED allowed (evidence/read-only; zero financial mutation; period stays CLOSED), CLOSING rejected (`lockForReconciliationAdmission`).
-
-## 5. Double-count prevention (Provider Charge posting fence)
-
-Test: `ProviderChargeHybridFenceIntegrationTest` (5 tests):
-
-- Hybrid overlap (same org/provider account/currency/period + non-PLANNED/non-SAFE route attempt) without disposition → V1 posting blocked (`HYBRID_RECONCILIATION_REQUIRED` conflict), zero Ledger/Budget mutation.
-- Explicit `DIRECT_PROVIDER_CHARGE` disposition → normal V1 posting works.
-- `RECONCILIATION_EVIDENCE` disposition → permanently non-postable through the normal V1 path.
-- Non-Hybrid charge → V1 posting unchanged.
-- Already-posted legacy charge remains replayable under later overlap and is not reclassified.
-- Guard evaluated inside the posting transaction after the BillingPeriod lock and before posting (`ProviderChargeHybridPostingGuard` consumer-owned port + reconciliation-owned adapter; no reconciliation imports from Ledger).
-
-## 6. Correction lineage
-
-Test: `LedgerCorrectionIntegrationTest` (new gateway/adjustment lineage tests):
-
-- Gateway Settlement correction (REVERSAL_ONLY and REPLACE) preserves `source_gateway_settlement_id` on reversal and replacement entries; exactly one direct source; historical target unchanged.
-- Reconciliation Adjustment correction preserves `source_reconciliation_adjustment_id`.
-- Provider/Expense paths unchanged (`LedgerCorrectionRollbackIntegrationTest`, `LedgerFinancialInvariantIntegrationTest`, `LedgerCorrectionIntegrityIntegrationTest`, `GatewaySettlementLedgerServiceTest` green).
-
-## 7. CASE_FULL Reconciliation Adjustment
-
-Tests: `ReconciliationAdjustmentIntegrationTest` (12) + `ReconciliationAdjustmentRollbackIntegrationTest`:
-
-- Amount must equal current external − internal exactly (scale-8); zero required adjustment rejected; stale run basis rejected (`STALE_BASIS`) before any financial mutation, validated after period + reconciliation identity locks.
-- Explicit allocation lines only: sum must equal amount, exactly one same-org ACTIVE target per line, no inferred split/remainder.
-- OPEN case period → same-period posting only; CLOSED case period → only an explicit OPEN correction period (same-period write rejected); CLOSING rejected; historical CLOSED period never reopened.
-- Budget selected by existing exact/ORG same-currency rules; signed amount mutates Actual exactly; no Budget → Ledger still posts (unbudgeted).
-- CASE_FULL never consumes Commitments.
-- Idempotency over shared `api_idempotency` (operation `RECONCILIATION_ADJUSTMENT`): same key replays once; different body conflicts; reservation participates in the financial transaction so rollback leaves no provisional row.
-- Failure injection after each boundary (adjustment insert, ledger entry insert, budget actual, audit, case resolution) rolls the whole transaction back — no partial state, no provisional idempotency row.
-- Success marks the historical case RESOLVED atomically for audit (`RECONCILIATION_ADJUSTMENT_POSTED` reason), but the financial mutation still makes the run basis stale and forces a rerun before Close.
-
-## 8. Gateway financial resolution
-
-Tests: `GatewayFinancialResolutionIntegrationTest` (9):
-
-- Eligible: usage absent / INCOMPLETE / UNKNOWN, or Settlement `RECONCILIATION_REQUIRED`.
-- Rejected: SAFE attempt; ordinary FINAL usage without Settlement; PENDING; RETRYABLE_FAILED; SETTLED (bounded conflict messages).
-- `NO_CHARGE_CONFIRMED` works from run-level unresolved evidence with `case_id NULL`, zero Ledger mutation, effective reservation RELEASED. Reviewed positive evidence is required (bounded reason); a resolution contradicting a RECONCILIATION_REQUIRED Settlement is rejected.
-- `STATEMENT_ADJUSTMENT_POSTED` posts a first-class `GATEWAY_REQUEST` `reconciliation_adjustment` + `RECONCILIATION_ADJUSTMENT` Ledger posting/entry (entry carries `source_reconciliation_adjustment_id`), mutates Budget Actual, FINALIZES an effective reservation; historical `RECONCILIATION_REQUIRED` Settlement is not rewritten.
-- Resolution never marks sibling case evidence resolved (case stays OPEN).
-- Gateway Request source row is locked (`FOR UPDATE`) as the serialization point; Gateway request/usage/settlement facts are never mutated.
-- M13 defense in depth: `GatewaySettlementDiscoveryService`/mapper exclude resolved requests (also in the org-work scan); `GatewaySettlementService.settle` revalidates `GATEWAY_FINANCIAL_RESOLUTION_EXISTS` after locks before any financial write. Late FINAL usage after a committed resolution persists as evidence but discovery yields nothing and settle refuses (`RECONCILIATION_REQUIRED`).
-- Reservation authority: only `finalizeForSettlement` and the new reviewed `releaseForReconciliation` transitions exist (no create/resize/retarget); enforced by `GatewayReservationSettlementMapperTest`.
-
-## 9. Close integration
-
-Tests: `GatewayFinancialWorkCloseIntegrationTest` (20, incl. 5 new M15 cases) + coordinator regression:
-
-- Valid immutable resolution (NO_CHARGE_CONFIRMED + RELEASED, or STATEMENT_ADJUSTMENT_POSTED + FINALIZED) terminates only that request's `PENDING_GATEWAY_FINANCIAL_WORK` contribution; sibling unresolved request still blocks.
-- Resolution with a contradicting still-effective reservation (recorded RELEASED, actual ACTIVE) does not clear the blocker.
-- No ninth Close blocker: blocker set remains exactly the frozen eight; no `HYBRID_RECONCILIATION` blocker added.
-- Financial mutation → basis staleness → `FINANCIAL_BASIS_CHANGED` blocks Close; rerun produces a fresh basis and (after explicit case resolution) Close may pass (`PeriodCloseCoordinatorIntegrationTest.realCloseWaitsForSettlementAndThenEvaluatesTerminalGatewayTruth`, updated for the M15 truth model).
-
-## 10. Real-MySQL concurrency / fault injection
-
-Test: `M15FinancialConcurrencyIntegrationTest` (4 races, deterministic latches + row locks, no sleeps), repeated 5 consecutive runs — all green:
+## 3. Full local verification results (actual totals)
 
 ```text
-Race 1  duplicate CASE_FULL adjustment commands (same idempotency key, 2 threads)
-        invariant: one adjustment row / one posting / one Actual mutation; both commands converge to the same adjustmentId
-Race 2  CASE_FULL adjustment vs Close
-        invariant: either the adjustment posts and Close cannot close on stale basis, or Close wins and the adjustment cannot write; never both; ledger entry count stays exact
-Race 3  M15 resolution vs normal M13 Settlement (PENDING settlement)
-        invariant: resolution rejected ("PENDING"), settlement SETTLED, zero resolutions/adjustments, exactly one settlement posting
-Race 4  M15 resolution vs late FINAL usage publication (same request-row serialization point)
-        invariant: either FINAL wins and resolution is rejected, or resolution wins and late FINAL cannot create a normal Settlement (discovery empty); no duplicate financial posting in either ordering
+Backend unit        (mvnw -B -DexcludedGroups=architecture,integration test)
+                    : Tests run 487, Failures 0, Errors 0, Skipped 1 (pre-existing M8/M9 scale benchmark skip) — BUILD SUCCESS
+Backend architecture(mvnw -B -Dgroups=architecture test)
+                    : Tests run 36,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
+                    (ModuleDependencyArchitectureTest + LedgerImmutabilityArchitectureTest included)
+Backend integration (mvnw -B -Dgroups=integration verify)
+                    : Tests run 977, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
+
+Gateway unit        : Tests run 107, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
+Gateway architecture: Tests run 0 (groups=architecture finds no tagged gateway tests, same as before M15; GatewayArchitectureTest runs inside the unit phase)
+Gateway integration : Tests run 80,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0 (M14 failover/safety suites included and green)
+
+Frontend npm test --run --maxWorkers=1 : 48 files, 437 tests passed (incl. 7 reconciliation tests:
+                    hooks regression + whole-case/evidence separation + permission hiding + no-amount submission)
+Frontend npm run lint  : 0 problems
+Frontend npm run build : success (pre-existing bundle-size warning only)
+
+Playwright E2E (isolated Compose stack, serial) : 7 passed / 0 failed, ~25–31s
+  includes new frontend/e2e/m15-hybrid-reconciliation.spec.ts
+
+Concurrency x5 (M15FinancialConcurrencyIntegrationTest +
+M15HybridRaceMatrixIntegrationTest + GatewayFinancialResolutionConcurrencyIntegrationTest,
+5 consecutive full runs) : 5 x "Tests run 9, Failures 0, Errors 0" + 5 x BUILD SUCCESS, no flakes/sleeps
+
+Docker builds (CI definition) : backend / gateway / frontend images all build successfully, EXIT=0 each
 ```
 
-Rollback/failure-injection matrix: `ReconciliationAdjustmentRollbackIntegrationTest` (after adjustment insert / ledger entry insert / budget actual / audit / case resolution) — full rollback, no partial terminal state.
-
-## 11. Full verification results
-
-Recorded from the actual final runs (Surefire/Failsafe totals):
+## 4. Financial invariants — how each is proven now
 
 ```text
-Backend  unit (mvnw -B test)          : Tests run 523, Failures 0, Errors 0, Skipped 1  (BUILD SUCCESS)
-Backend  verify (mvnw -B verify)      : BUILD SUCCESS, EXIT=0 (unit 523 + failsafe integration 968, all green)
-Gateway  unit (mvnw -B test)          : Tests run 129, Failures 0, Errors 0, Skipped 0  (BUILD SUCCESS)
-Gateway  verify (mvnw -B verify)      : BUILD SUCCESS, EXIT=0 (failsafe integration 80, all green)
-Frontend npm test --run --maxWorkers=1: 48 files, 434 tests passed
-Frontend npm run lint                 : 0 problems
-Frontend npm run build                : success (pre-existing bundle-size warning only, not a failure per plan)
-Architecture                          : ModuleDependencyArchitectureTest + LedgerImmutabilityArchitectureTest run inside backend `test`; GatewayArchitectureTest inside gateway `test` — all green
+no Provider/Gateway double count
+  : Hybrid posting fence tests + dispatch/posting race matrix (no false allow);
+    disposition creation is case-scoped so the fence cannot be bypassed
+    (HybridChargeDispositionScopeIntegrationTest)
+no client-defined ledger amount
+  : adjustmentAmount/commitmentId removed from API/OpenAPI/frontend;
+    server-derived amount tests (derive/subtract/zero-reject);
+    CASE_FULL amount must equal external-internal (existing tests) and the UI
+    now submits the exact negated difference (E2E)
+no arbitrary commitment consumption
+    : commitment locked only via bound reservation lineage; rollback test asserts
+    remaining_amount/usage unchanged on failure; cross-period never consumes
+no request resolution cross-run
+    : run-period equality + case lineage tests (P0-3)
+no late FINAL double settlement
+    : resolution-vs-late-FINAL race now proves the FINAL-winner branch executes
+    the full M13 path (discovery + SETTLED posting) and the resolution-winner
+    branch stays discovery-empty with zero postings
+no sibling implicit resolution
+    : requestResolutionNeverResolvesSiblingCaseEvidence (case stays OPEN) + E2E
+    assertion that an evidence-item action never calls the whole-case resolve
 ```
 
-### 11.1 Backend / Gateway integration totals
+## 5. Known limitations / deviations
 
-```text
-Backend  failsafe integration : Tests run 968, Failures 0, Errors 0, Skipped 0  (BUILD SUCCESS, EXIT=0, 15:24 min)
-Gateway  failsafe integration : Tests run 80,  Failures 0, Errors 0, Skipped 0  (BUILD SUCCESS, EXIT=0)
-```
+1. Scenarios A (run-level GATEWAY_UNRESOLVED in the browser) and D (statement-backed gateway resolution driven from the UI) of the E2E plan require durable Gateway request facts; no public E2E surface can create them, so they are covered by real-MySQL backend suites instead. Documented in the E2E spec header.
+2. `ProviderCorrelationProfileRegistry` still defaults every provider to `NONE` (unchanged from the previous round; no adapter certifies a request-id field).
+3. `compose.yaml` network name is now parameterized (`AICOSTOPS_NETWORK_NAME`, default unchanged to `ai-costops-network`) so a local isolated E2E stack does not share the dev stack's DNS aliases. CI behavior is unchanged.
+4. The E2E local stack runs on port 18080 because the developer's dev backend occupies 8080; CI keeps 8080.
+5. Hosted CI / Security were **not** rerun this round (no push allowed). They will be rerun only after independent Sol re-review passes.
 
-The 1 skipped backend unit test is the pre-existing M8/M9 scale benchmark skip
-(unrelated to M15; it was skipped before the M15 branch as well).
-
-## 12. Commits on this branch
-
-```text
-435fa78 docs: add M15 hybrid reconciliation implementation plan
-26c8e1f feat(m15): add hybrid reconciliation schema
-b9838e7 feat(m15): extend reconciliation truth to hybrid ledger sources
-3416bc9 feat(m15): generate hybrid evidence and admit OPEN/CLOSED reconciliation
-05cbb7e feat(m15): prevent provider gateway double counting via hybrid posting fence
-7df12df feat(m15): preserve correction direct source lineage for gateway settlements and adjustments
-b144f19 feat(m15): add CASE_FULL reconciliation adjustments
-bd4df1c feat(m15): resolve gateway financial uncertainty and guard m13 settlement
-18a5aac feat(m15): expose hybrid reconciliation workflow api
-1b5f908 feat(m15): integrate gateway financial resolution into close blockers
-1b852e6 test(m15): prove reconciliation financial races on real mysql
-bb5adfa feat(m15): expose hybrid reconciliation workflow in frontend and ledger lineage
-```
-
-(plus the evidence/documentation commit that carries this file)
-
-## 13. Known limitations / deviations
-
-1. `PeriodCloseCoordinatorIntegrationTest.realCloseWaitsForSettlementAndThenEvaluatesTerminalGatewayTruth` was updated: under the M15-approved design the Gateway Settlement Ledger is part of reconciliation internal truth (spec §13/§75), so a settlement committed after the run makes the basis stale; the test now proves Close blocks with `FINANCIAL_BASIS_CHANGED`, reruns, explicitly explains the resulting MISSING_EXTERNAL case (ACCEPT_EXPLAINED_DIFFERENCE), and then closes. This is a mandated semantic evolution, not a weakening.
-2. `GatewayReservationSettlementMapperTest` was updated to the M15 narrow authority set (adds the reviewed `releaseForReconciliation` transition mandated by the plan; still forbids create/resize/retarget/insert).
-3. Difference classification is deliberately fail-closed: only the stored duplicate-review state could prove `DUPLICATE_EXTERNAL_CHARGE`, and it is not yet wired into automatic labels — every automatic aggregate label is `UNCLASSIFIED` pending reviewed evidence, exactly as the spec requires ("如果证据不足:UNCLASSIFIED。不要猜。").
-4. `ProviderCorrelationProfileRegistry` defaults every provider to `NONE` (no current import adapter certifies a request-id field); exact correlation activates only via the bounded configuration property. No adapter was forced to fabricate a key.
-5. Hosted CI / Security results (PR #149, run 33966798874 / 33966798865) — observed directly from GitHub after push, all PASS:
-
-```text
-backend-unit              pass (52s)        backend-integration    pass (5m37s)
-backend-architecture      pass (45s)        gateway-unit           pass (34s)
-gateway-integration       pass              gateway-architecture   pass (19s)
-frontend-test             pass (1m42s)      frontend-lint          pass (19s)
-frontend-build            pass (25s)        browser-e2e            pass (2m39s)
-docker-build              pass (2m0s)       trivy                  pass
-CodeQL (java-kotlin)      pass (3m46s)      CodeQL (javascript-ts) pass (1m43s)
-```
-
-## 14. Definition-of-Done checklist
+## 6. Definition-of-Done checklist (updated)
 
 ```text
 [x] one M6-evolved reconciliation run/case lifecycle
 [x] run-level Gateway evidence without fabricating zero-amount cases
 [x] external statement truth vs Provider/Gateway/Adjustment Ledger truth
-[x] exact matching requires strong unique certified evidence
+[x] exact matching requires strong unique certified evidence (same provider account enforced)
 [x] aggregate matching never invents request ownership or per-Charge disposition
 [x] bounded, evidence-gated difference vocabulary (UNCLASSIFIED fallback)
 [x] Provider Charge Hybrid posting fence prevents realtime + statement double count
@@ -198,14 +194,31 @@ CodeQL (java-kotlin)      pass (3m46s)      CodeQL (javascript-ts) pass (1m43s)
 [x] no-history/aggregate differences use first-class RECONCILIATION_ADJUSTMENT with explicit scope
 [x] request-level resolution never resolves sibling evidence or trusts aggregate pro-rata
 [x] aggregate money actions reject stale reconciliation basis (STALE_BASIS)
-[x] unresolved Gateway work requires reviewed gateway_financial_resolution
+[x] unresolved Gateway work requires reviewed gateway_financial_resolution (bounded positive proof + auditable reference for NO_CHARGE)
+[x] statement adjustments are strongly bound to one authoritative statement Charge; amount server-derived
+[x] manual statement bindings are real, validated and audited (MANUAL_BINDING evidence)
 [x] M15 resolution never competes with normal FINAL/PENDING/RETRYABLE_FAILED/SETTLED M13 paths
-[x] committed M15 resolution prevents later late-FINAL M13 Settlement double posting
+[x] committed M15 resolution prevents later late-FINAL M13 Settlement double posting (M13 path proven end-to-end)
 [x] PENDING_HOLD finalized/released only by a valid financial terminal path
+[x] charge dispositions are case-scoped (account/currency/period/batch/review status)
 [x] OPEN and CLOSED periods reconcilable; CLOSING rejected; CLOSED never auto-reopened
 [x] financial mutations force reconciliation rerun through basis staleness
 [x] existing Close blockers reused; no ninth blocker
-[x] idempotency/atomicity/real-MySQL races proven (incl. 5x repeated concurrency suite)
-[x] frontend exposes Gateway/Adjustment lineage without secrets (decimal-string money preserved)
-[x] V23 is the only M15 migration from the approved baseline
+[x] reservation-bound commitment only; cross-period never consumes
+[x] canonical financial lock order (periods ascending, budgets sorted, commitment/reservation, identity, source row)
+[x] idempotent replay returns the committed business response field-by-field
+[x] adjustmentPeriodId returned as the real decimal-string id on post and replay
+[x] linkCorrection bound to correction lineage (provider account/currency)
+[x] exact/request evidence attached to the matching aggregate case
+[x] Case Detail Rules-of-Hooks fixed with a real loading→loaded regression
+[x] frontend whole-case vs evidence-item actions complete; no client amounts for statement adjustments
+[x] m15-hybrid-reconciliation.spec.ts exists and passes in the isolated Compose run
+[x] meaningless concurrency assertion removed; M13 settlement path proven in the FINAL-wins branch
+[x] Task 11 races covered (posting vs dispatch, adjustment vs Close/Reopen, CLOSED run vs Reopen included)
+[x] Gateway resolution rollback matrix covered
+[x] backend/gateway/frontend full local verification green (real totals above)
+[x] local browser E2E green (7 passed)
+[x] local Docker builds green (backend/gateway/frontend)
+[x] V23 is the only M15 migration from the approved baseline (amended in place, V1–V22 untouched)
+[ ] hosted CI / Security — intentionally not rerun (no push this round; rerun after Sol re-review)
 ```

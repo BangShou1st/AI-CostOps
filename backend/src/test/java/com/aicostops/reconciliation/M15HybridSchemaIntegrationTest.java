@@ -203,6 +203,32 @@ class M15HybridSchemaIntegrationTest extends MySqlContainerSupport {
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("chk_reconciliation_adjustment_scope_shape");
         insertAdjustment("GATEWAY_REQUEST", caseId, requestId, attemptId);
+        // A GATEWAY_REQUEST adjustment without statement charge lineage and a
+        // CASE_FULL adjustment with one are both structurally invalid.
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO reconciliation_adjustment(
+                  org_id,reconciliation_run_id,reconciliation_case_id,adjustment_key,
+                  adjustment_scope,provider_account_id,currency,amount,adjustment_period_id,
+                  gateway_request_id,gateway_route_attempt_id,created_by_member_id,reason_code,
+                  reason_note,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))
+                """, orgId, runId, caseId, "adj-nocharge-" + UUID.randomUUID(),
+                "GATEWAY_REQUEST", providerAccountId, "USD", "1.00000000", periodId,
+                requestId, attemptId, memberId, "REASON", "note"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("chk_reconciliation_adjustment_scope_shape");
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO reconciliation_adjustment(
+                  org_id,reconciliation_run_id,reconciliation_case_id,adjustment_key,
+                  adjustment_scope,provider_account_id,currency,amount,adjustment_period_id,
+                  statement_charge_fact_id,created_by_member_id,reason_code,reason_note,
+                  created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))
+                """, orgId, runId, caseId, "adj-casecharge-" + UUID.randomUUID(),
+                "CASE_FULL", providerAccountId, "USD", "1.00000000", periodId, chargeId,
+                memberId, "REASON", "note"))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("chk_reconciliation_adjustment_scope_shape");
 
         assertThatThrownBy(() -> insertAdjustmentWithAmount("CASE_FULL", caseId, null, null,
                 "0.00000000"))
@@ -517,15 +543,19 @@ class M15HybridSchemaIntegrationTest extends MySqlContainerSupport {
 
     private long insertAdjustmentWithAmount(String scope, Long caseRef, Long requestRef,
             Long attemptRef, String amount) {
+        // GATEWAY_REQUEST adjustments carry a statement charge lineage; the
+        // structural CHECK requires it. CASE_FULL forbids it.
+        Long statementChargeRef = "GATEWAY_REQUEST".equals(scope) ? chargeId : null;
         jdbc.update("""
                 INSERT INTO reconciliation_adjustment(
                   org_id,reconciliation_run_id,reconciliation_case_id,adjustment_key,
                   adjustment_scope,provider_account_id,currency,amount,adjustment_period_id,
-                  gateway_request_id,gateway_route_attempt_id,created_by_member_id,reason_code,
-                  reason_note,created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))
+                  gateway_request_id,gateway_route_attempt_id,statement_charge_fact_id,
+                  created_by_member_id,reason_code,reason_note,created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6))
                 """, orgId, runId, caseRef, "adj-" + UUID.randomUUID(), scope, providerAccountId,
-                "USD", amount, periodId, requestRef, attemptRef, memberId, "REASON", "note");
+                "USD", amount, periodId, requestRef, attemptRef, statementChargeRef,
+                memberId, "REASON", "note");
         return lastId();
     }
 
@@ -536,15 +566,19 @@ class M15HybridSchemaIntegrationTest extends MySqlContainerSupport {
 
     private void insertResolutionForRequest(long request, String resolutionType,
             String reservationOutcome, Long adjustmentId) {
+        // STATEMENT_ADJUSTMENT_POSTED requires statement charge lineage;
+        // NO_CHARGE_CONFIRMED forbids it (structural CHECK).
+        Long statementChargeRef =
+                "STATEMENT_ADJUSTMENT_POSTED".equals(resolutionType) ? chargeId : null;
         jdbc.update("""
                 INSERT INTO gateway_financial_resolution(
                   org_id,reconciliation_run_id,reconciliation_case_id,request_id,route_attempt_id,
                   usage_fact_id,gateway_settlement_id,statement_charge_fact_id,
                   reconciliation_adjustment_id,reservation_id,resolution_type,reservation_outcome,
                   resolved_by_member_id,reason_code,reason_note,resolved_at,created_at)
-                VALUES (?,?,?,?,?,?,NULL,NULL,?,NULL,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                """, orgId, runId, caseId, request, attemptId, usageFactId, adjustmentId,
-                resolutionType, reservationOutcome, memberId, "REASON", "note");
+                VALUES (?,?,?,?,?,?,NULL,?,?,NULL,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, runId, caseId, request, attemptId, usageFactId, statementChargeRef,
+                adjustmentId, resolutionType, reservationOutcome, memberId, "REASON", "note");
     }
 
     private void insertEvidence(long run, Long caseRef, String matchKind, String differenceKind,

@@ -5,14 +5,19 @@ import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.ledger.application.LedgerCorrectionIdempotencyStore;
 import com.aicostops.reconciliation.domain.ReconciliationCase;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.ChargeScopeContext;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.CorrectionEntrySource;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.DispositionInsert;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.ReconciliationEvidenceRow;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.SourceScope;
 import com.aicostops.reconciliation.infrastructure.ReconciliationMapper;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -22,6 +27,13 @@ import org.springframework.transaction.support.TransactionTemplate;
  * Evidence-item actions on a reconciliation case: charge posting dispositions
  * and correction linkage. These append immutable bounded evidence; they never
  * resolve sibling evidence and never mutate financial truth by themselves.
+ *
+ * <p>Both actions are bound to the case scope: a manual charge disposition is
+ * only legal for a Charge whose confirmed import lineage belongs to the
+ * case's provider account, currency and run BillingPeriod window with an
+ * eligible review status, and a correction link is only legal when every
+ * corrected Ledger entry resolves to the case's provider account and currency
+ * through its preserved direct-source lineage.
  */
 @Service
 public class HybridReconciliationActionService {
@@ -79,9 +91,8 @@ public class HybridReconciliationActionService {
             if (currentCase == null) {
                 throw notFound("Reconciliation case");
             }
-            if (!hybridMapper.chargeExists(context.organizationId(), command.chargeFactId())) {
-                throw notFound("Charge");
-            }
+            validateChargeInCaseScope(context.organizationId(), command.chargeFactId(),
+                    currentCase);
             if (hybridMapper.countDisposition(context.organizationId(),
                     command.chargeFactId()) > 0) {
                 throw conflict("The charge already has a final posting disposition.");
@@ -100,12 +111,52 @@ public class HybridReconciliationActionService {
                     "DISPOSITION:CHARGE:" + command.chargeFactId(),
                     currentCase.providerAccountId(), currentCase.currency(),
                     "RESOLUTION_ACTION", null, command.chargeFactId(),
-                    null, null, null, null, null, null, null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null,
+                    null, null, null, null, null,
                     now));
             idempotency.finalize(reservation.id(), 200, Long.toString(createdDispositionId));
             return createdDispositionId;
         });
         return dispositionId;
+    }
+
+    /**
+     * Proves that the Charge belongs to the real scope of the reconciliation
+     * case through one bounded projection: the confirmed import lineage must
+     * own the case's provider account and currency, the Charge period must sit
+     * inside the run's BillingPeriod window, the batch must be CONFIRMED with
+     * the Charge's own attempt as its confirmed attempt, and the review status
+     * must be eligible external truth. Without this proof the posting fence
+     * could be bypassed by writing a disposition under an unrelated case.
+     */
+    private void validateChargeInCaseScope(long organizationId, long chargeFactId,
+            ReconciliationCase currentCase) {
+        var charge = hybridMapper.selectChargeScopeContext(organizationId, chargeFactId,
+                currentCase.reconciliationRunId());
+        if (charge == null) {
+            throw notFound("Charge");
+        }
+        if (charge.providerAccountId() != currentCase.providerAccountId()) {
+            throw conflict("The charge provider account does not belong to the provider "
+                    + "account scope of this reconciliation case.");
+        }
+        if (!charge.currency().equals(currentCase.currency())) {
+            throw conflict("The charge currency does not match the currency scope of this "
+                    + "reconciliation case.");
+        }
+        if (charge.periodStart() == null
+                || charge.periodStart().isBefore(charge.runPeriodStart())
+                || !charge.periodStart().isBefore(charge.runPeriodEnd())) {
+            throw conflict("The charge period_start is outside the reconciliation run's "
+                    + "BillingPeriod window.");
+        }
+        if (!"CONFIRMED".equals(charge.batchStatus()) || !charge.confirmedLineage()) {
+            throw conflict("The charge is not part of a confirmed external import.");
+        }
+        if (!"CLEAN".equals(charge.reviewStatus())
+                && !"SUSPECTED_DUPLICATE".equals(charge.reviewStatus())) {
+            throw conflict("The charge review status is not eligible external truth.");
+        }
     }
 
     public long linkCorrection(AuthenticatedUser user, long caseId,
@@ -129,18 +180,84 @@ public class HybridReconciliationActionService {
                     "CORRECTION_LINK:" + command.correctionGroupId()) > 0) {
                 throw conflict("The correction is already linked to this run.");
             }
+            validateCorrectionLineage(context.organizationId(), command.correctionGroupId(),
+                    currentCase);
             var now = clock.instant();
             hybridMapper.insertEvidence(new ReconciliationEvidenceRow(
                     context.organizationId(), currentCase.reconciliationRunId(), caseId,
                     "CORRECTION_LINK:" + command.correctionGroupId(),
                     currentCase.providerAccountId(), currentCase.currency(),
-                    "RESOLUTION_ACTION", null, null, null, null, null, null,
-                    command.correctionGroupId(), null, null, null, null, null, null, null,
+                    "RESOLUTION_ACTION", null,
+                    null, null, null, null, null, command.correctionGroupId(),
+                    null, null, null, null, null, null, null, null,
                     now));
             audit.correctionLinked(context.organizationId(), context.userId(), caseId,
                     command.correctionGroupId());
             return command.correctionGroupId();
         });
+    }
+
+    /**
+     * Proves, through the preserved direct-source lineage of the corrected
+     * Ledger entries, that the correction group belongs to the case's provider
+     * account and currency. Mixed accounts, mixed currencies, entries without a
+     * recognizable provider source and foreign scopes are all rejected; no
+     * time/amount approximation is ever used.
+     */
+    private void validateCorrectionLineage(long organizationId, long correctionGroupId,
+            ReconciliationCase currentCase) {
+        var entries = hybridMapper.selectCorrectionEntrySources(organizationId,
+                correctionGroupId);
+        if (entries.isEmpty()) {
+            throw conflict("The correction group has no Ledger entries to link.");
+        }
+        var scopes = new LinkedHashSet<SourceScope>();
+        for (CorrectionEntrySource entry : entries) {
+            var scope = resolveEntryProviderScope(organizationId, entry);
+            if (scope == null) {
+                throw conflict("A corrected Ledger entry has no recognizable provider "
+                        + "financial source.");
+            }
+            scopes.add(scope);
+        }
+        if (scopes.size() != 1) {
+            throw conflict("The correction group mixes multiple provider financial scopes.");
+        }
+        var scope = scopes.iterator().next();
+        if (scope.providerAccountId() != currentCase.providerAccountId()
+                || !scope.currency().equals(currentCase.currency())) {
+            throw conflict("The correction group provider lineage does not match the "
+                    + "provider account and currency scope of this reconciliation case.");
+        }
+    }
+
+    private SourceScope resolveEntryProviderScope(long organizationId,
+            CorrectionEntrySource entry) {
+        var providerSources = 0;
+        SourceScope resolved = null;
+        if (entry.sourceChargeFactId() != null) {
+            providerSources++;
+            resolved = hybridMapper.selectChargeProviderScope(organizationId,
+                    entry.sourceChargeFactId());
+        }
+        if (entry.sourceGatewaySettlementId() != null) {
+            providerSources++;
+            resolved = hybridMapper.selectGatewaySettlementScope(organizationId,
+                    entry.sourceGatewaySettlementId());
+        }
+        if (entry.sourceReconciliationAdjustmentId() != null) {
+            providerSources++;
+            var adjustment = hybridMapper.selectAdjustmentByIdAndOrganization(organizationId,
+                    entry.sourceReconciliationAdjustmentId());
+            resolved = adjustment == null ? null
+                    : new SourceScope(adjustment.providerAccountId(), adjustment.currency());
+        }
+        if (providerSources != 1) {
+            // Exactly one provider direct source is required; a mixed or
+            // provider-less entry can never prove case lineage.
+            return null;
+        }
+        return resolved;
     }
 
     private static void validateDispositionCommand(ChargeDispositionCommand command) {

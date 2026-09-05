@@ -220,6 +220,7 @@ class M15FinancialConcurrencyIntegrationTest extends AllocationApiTestSupport {
         var fixture = buildGatewayCase("FINAL", true, false);
         jdbc.update("UPDATE gateway_settlement SET status='PENDING' WHERE id=?",
                 fixture.settlementId());
+        insertUnresolvedEvidence(fixture);
 
         var ready = new CountDownLatch(2);
         var release = new CountDownLatch(1);
@@ -230,8 +231,9 @@ class M15FinancialConcurrencyIntegrationTest extends AllocationApiTestSupport {
             try {
                 return resolutions.resolveGatewayFinancialWork(actor,
                         new GatewayResolutionCommand(runId, null, fixture.requestId(),
-                                "STATEMENT_ADJUSTMENT_POSTED", new BigDecimal("2.00000000"),
-                                null, null, "STATEMENT_EVIDENCE", "Reviewed statement line"),
+                                "NO_CHARGE_CONFIRMED", null, "race-portal-proof-1", null,
+                                "PROVIDER_PORTAL_CONFIRMED_NO_CHARGE",
+                                "Provider confirmed no charge"),
                         "race-gwres-1");
             } catch (Throwable failure) {
                 resolutionOutcome.set(failure);
@@ -267,6 +269,7 @@ class M15FinancialConcurrencyIntegrationTest extends AllocationApiTestSupport {
     @Test
     void resolutionAndLateFinalUsageNeverBothBecomeFinancialTruth() throws Exception {
         var fixture = buildGatewayCase("UNKNOWN", false, false);
+        insertUnresolvedEvidence(fixture);
 
         var ready = new CountDownLatch(2);
         var release = new CountDownLatch(1);
@@ -280,8 +283,9 @@ class M15FinancialConcurrencyIntegrationTest extends AllocationApiTestSupport {
             try {
                 return resolutions.resolveGatewayFinancialWork(actor,
                         new GatewayResolutionCommand(runId, null, fixture.requestId(),
-                                "NO_CHARGE_CONFIRMED", null, null, null,
-                                "POSITIVE_NO_CHARGE", "Provider confirmed no charge"),
+                                "NO_CHARGE_CONFIRMED", null, "race-portal-proof-2", null,
+                                "PROVIDER_PORTAL_CONFIRMED_NO_CHARGE",
+                                "Provider confirmed no charge"),
                         "race-late-1");
             } catch (Throwable failure) {
                 resolutionFailure.set(failure);
@@ -299,6 +303,11 @@ class M15FinancialConcurrencyIntegrationTest extends AllocationApiTestSupport {
                             Long.class, orgId, fixture.requestId());
                     jdbc.update("UPDATE gateway_usage_fact SET status='FINAL' WHERE id=?",
                             fixture.usageFactId());
+                    jdbc.update("""
+                            INSERT INTO gateway_usage_dimension(org_id,usage_fact_id,
+                              dimension_code,quantity,provenance)
+                            VALUES (?,?,'INPUT_TOKEN',1,'PROVIDER_FINAL')
+                            """, orgId, fixture.usageFactId());
                     return null;
                 });
                 return null;
@@ -328,18 +337,34 @@ class M15FinancialConcurrencyIntegrationTest extends AllocationApiTestSupport {
             assertThat(discovery.discover(orgId)).isEmpty();
         } else {
             // FINAL usage won the source row: the resolution is rejected and
-            // the normal M13 discovery owns the request.
+            // the normal M13 settlement owns the request through its whole
+            // normal path: discovery creates the settlement and it posts.
             assertThat(resolutionCount).isZero();
             assertThat(resolutionFailure.get()).isInstanceOf(DomainException.class);
             assertThat(usageStatus).isEqualTo("FINAL");
+            var created = discovery.discover(orgId);
+            assertThat(created).hasSize(1);
+            assertThat(created.getFirst().requestId()).isEqualTo(fixture.requestId());
+            var settled = settlementService.settle(orgId, created.getFirst().id());
+            assertThat(settled.settlement().status().name()).isEqualTo("SETTLED");
         }
-        // Either ordering: exactly one financial terminal decision exists and
-        // no duplicate Gateway settlement posting is ever created.
-        var postings = jdbc.queryForObject(
+        // Either ordering: exactly one financial terminal decision exists. A
+        // resolution win leaves zero postings (no-charge), a FINAL win leaves
+        // exactly one Gateway Settlement posting; never both.
+        var settlementPostings = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? "
-                        + "AND source_type IN ('GATEWAY_SETTLEMENT','RECONCILIATION_ADJUSTMENT')",
+                        + "AND source_type='GATEWAY_SETTLEMENT'",
                 Long.class, orgId);
-        assertThat(postings).isEqualTo(resolutionCount == 1 ? 0L : 0L);
+        var adjustments = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_adjustment WHERE org_id=?",
+                Long.class, orgId);
+        if (resolutionCount == 1) {
+            assertThat(settlementPostings).isZero();
+            assertThat(adjustments).isZero();
+        } else {
+            assertThat(settlementPostings).isEqualTo(1);
+            assertThat(adjustments).isZero();
+        }
     }
 
     // ------------------------------------------------------------------
@@ -349,6 +374,18 @@ class M15FinancialConcurrencyIntegrationTest extends AllocationApiTestSupport {
     private record GatewayFixture(long requestId, long attemptId, Long usageFactId,
             Long settlementId, long providerAccountId, long providerModelId,
             long pricingVersionId) {
+    }
+
+    private void insertUnresolvedEvidence(GatewayFixture fixture) {
+        jdbc.update("""
+                INSERT INTO reconciliation_evidence(org_id,reconciliation_run_id,evidence_key,
+                  provider_account_id,currency,match_kind,gateway_request_id,
+                  gateway_route_attempt_id,gateway_usage_fact_id,gateway_settlement_id,created_at)
+                VALUES (?,?,CONCAT('GATEWAY_UNRESOLVED:REQUEST:',?),?,?,'GATEWAY_UNRESOLVED',
+                  ?,?,?,?,UTC_TIMESTAMP(6))
+                """, orgId, runId, fixture.requestId(), fixture.providerAccountId(), "USD",
+                fixture.requestId(), fixture.attemptId(), fixture.usageFactId(),
+                fixture.settlementId());
     }
 
     private void buildAdjustmentCase() {

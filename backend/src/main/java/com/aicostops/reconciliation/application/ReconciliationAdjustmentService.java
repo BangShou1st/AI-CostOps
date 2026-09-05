@@ -145,6 +145,7 @@ public class ReconciliationAdjustmentService {
 
     private CaseFullAdjustmentResult postInTransaction(long organizationId, long actorUserId,
             long actorMemberId, CaseFullAdjustmentCommand command, long reservationId) {
+        // Pre-read immutable identity/context without financial locks.
         var caseRow = mapper.selectCaseByIdAndOrganization(organizationId, command.caseId());
         if (caseRow == null) {
             throw notFound("Reconciliation case");
@@ -155,24 +156,39 @@ public class ReconciliationAdjustmentService {
             throw notFound("Reconciliation run");
         }
 
-        // Financial lock order starts with the BillingPeriod rows, ascending id.
-        var casePeriod = periodFence.lockById(organizationId, preRun.billingPeriodId());
-        validateCasePeriodRules(casePeriod.status(), command.adjustmentPeriodId(),
-                preRun.billingPeriodId());
-        var lockedPeriodIds = command.adjustmentPeriodId() == preRun.billingPeriodId()
-                ? List.of(preRun.billingPeriodId())
-                : List.of(Math.min(preRun.billingPeriodId(), command.adjustmentPeriodId()),
-                        Math.max(preRun.billingPeriodId(), command.adjustmentPeriodId()));
-        for (var periodId : lockedPeriodIds) {
-            periodFence.lockById(organizationId, periodId);
+        // Financial lock order: all BillingPeriod rows strictly ascending id in
+        // one pass, then sorted Budgets, then the reconciliation identity. The
+        // lock ordering never depends on period creation order or on locking the
+        // case first to discover the budget.
+        var lockedPeriods = new java.util.TreeMap<Long, com.aicostops.budget.domain.BillingPeriod>();
+        for (var periodId : java.util.stream.Stream
+                .of(preRun.billingPeriodId(), command.adjustmentPeriodId())
+                .distinct()
+                .sorted()
+                .toList()) {
+            lockedPeriods.put(periodId, periodFence.lockById(organizationId, periodId));
         }
-        var adjustmentPeriod = periodFence.lockById(organizationId, command.adjustmentPeriodId());
-        if (adjustmentPeriod.status() != BillingPeriodStatus.OPEN) {
-            throw conflict("The correction period must be OPEN; current status is "
-                    + adjustmentPeriod.status() + ".");
-        }
+        var casePeriod = lockedPeriods.get(preRun.billingPeriodId());
+        var adjustmentPeriod = lockedPeriods.get(command.adjustmentPeriodId());
+        validateCasePeriodRulesLocked(casePeriod.status(), adjustmentPeriod.status(),
+                command.adjustmentPeriodId(), preRun.billingPeriodId());
 
-        // Reconciliation identity locks, then the authoritative basis revalidation.
+        // Budget selection and locks before the reconciliation identity locks.
+        var selections = budgets.resolveSelections(organizationId, adjustmentPeriod.id(),
+                lineScopes(command.lines(), caseRow.currency()));
+        var lockedBudgets = budgets.lockBudgets(organizationId, selections.stream()
+                .map(BudgetSelection::budget)
+                .filter(Objects::nonNull)
+                .map(Budget::id)
+                .sorted()
+                .toList());
+        var budgetById = lockedBudgets.stream()
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Budget::id, b -> b));
+        var budgetByIndex = new java.util.HashMap<Integer, Budget>();
+        selections.forEach(selection -> budgetByIndex.put(selection.entryIndex(),
+                selection.budget() == null ? null : budgetById.get(selection.budget().id())));
+
+        // Reconciliation identity locks, then the authoritative revalidation.
         var run = mapper.selectRunByIdForUpdate(organizationId, preRun.id());
         var currentCase = mapper.selectCaseByIdForUpdate(organizationId, caseRow.id());
         if (run == null || currentCase == null) {
@@ -201,26 +217,13 @@ public class ReconciliationAdjustmentService {
 
         // Explicit allocation lines only; no inferred split or remainder.
         validateAllocationTargets(organizationId, command.lines());
-        var selections = budgets.resolveSelections(organizationId, adjustmentPeriod.id(),
-                lineScopes(command.lines(), currentCase.currency()));
-        var lockedBudgets = budgets.lockBudgets(organizationId, selections.stream()
-                .map(BudgetSelection::budget)
-                .filter(Objects::nonNull)
-                .map(Budget::id)
-                .sorted()
-                .toList());
-        var budgetById = lockedBudgets.stream()
-                .collect(java.util.stream.Collectors.toUnmodifiableMap(Budget::id, b -> b));
-        var budgetByIndex = new java.util.HashMap<Integer, Budget>();
-        selections.forEach(selection -> budgetByIndex.put(selection.entryIndex(),
-                selection.budget() == null ? null : budgetById.get(selection.budget().id())));
 
         var now = clock.instant();
         var adjustmentKey = "ADJ:" + reservationId;
         hybridMapper.insertAdjustment(new HybridReconciliationMapper.AdjustmentInsert(
                 organizationId, run.id(), currentCase.id(), adjustmentKey, "CASE_FULL",
                 currentCase.providerAccountId(), currentCase.currency(), command.amount(),
-                adjustmentPeriod.id(), null, null, actorMemberId, command.reasonCode(),
+                adjustmentPeriod.id(), null, null, null, actorMemberId, command.reasonCode(),
                 command.reasonNote(), now));
         var adjustmentId = hybridMapper.lastInsertId();
         failureInjector.after("ADJUSTMENT_INSERTED");
@@ -260,7 +263,7 @@ public class ReconciliationAdjustmentService {
 
         idempotency.finalize(reservationId, 200, Long.toString(adjustmentId));
         return new CaseFullAdjustmentResult(adjustmentId, currentCase.id(), run.id(),
-                command.amount(), currentCase.currency());
+                command.amount(), currentCase.currency(), adjustmentPeriod.id());
     }
 
     private String currentBasisHash(long organizationId, long billingPeriodId,
@@ -300,8 +303,16 @@ public class ReconciliationAdjustmentService {
         return List.copyOf(scopes);
     }
 
-    private static void validateCasePeriodRules(BillingPeriodStatus casePeriodStatus,
-            long adjustmentPeriodId, long casePeriodId) {
+    /**
+     * Period rules revalidated after both period rows are locked. An OPEN
+     * reconciled period receives only its own adjustment; a CLOSED historical
+     * period is never written directly (explicit reopen or another OPEN
+     * correction period instead); a CLOSING period is never reconciled. The
+     * correction period itself must be OPEN.
+     */
+    private static void validateCasePeriodRulesLocked(BillingPeriodStatus casePeriodStatus,
+            BillingPeriodStatus adjustmentPeriodStatus, long adjustmentPeriodId,
+            long casePeriodId) {
         switch (casePeriodStatus) {
             case CLOSING -> throw conflict(
                     "A CLOSING billing period cannot be reconciled with a financial action.");
@@ -318,6 +329,10 @@ public class ReconciliationAdjustmentService {
                 }
             }
             default -> throw conflict("Unsupported billing period state.");
+        }
+        if (adjustmentPeriodStatus != BillingPeriodStatus.OPEN) {
+            throw conflict("The correction period must be OPEN; current status is "
+                    + adjustmentPeriodStatus + ".");
         }
     }
 
@@ -392,7 +407,8 @@ public class ReconciliationAdjustmentService {
             throw new IllegalStateException("A committed adjustment must be readable");
         }
         return new CaseFullAdjustmentResult(adjustment.id(), adjustment.reconciliationCaseId(),
-                adjustment.reconciliationRunId(), adjustment.amount(), adjustment.currency());
+                adjustment.reconciliationRunId(), adjustment.amount(), adjustment.currency(),
+                adjustment.adjustmentPeriodId());
     }
 
     private String requestHash(long organizationId, long actorMemberId,
@@ -484,6 +500,7 @@ public class ReconciliationAdjustmentService {
             Long caseId,
             long runId,
             BigDecimal amount,
-            String currency) {
+            String currency,
+            long adjustmentPeriodId) {
     }
 }

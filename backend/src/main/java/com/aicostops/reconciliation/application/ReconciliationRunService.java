@@ -134,10 +134,11 @@ public final class ReconciliationRunService {
                 var exactCount = 0L;
                 var unresolvedCount = 0L;
                 for (var evidence : snapshot.evidence()) {
-                    var caseId = "AGGREGATE_SCOPE".equals(evidence.matchKind())
-                            ? caseIdByKey.get(evidence.providerAccountId() + ":"
-                                    + evidence.currency())
-                            : null;
+                    // One aggregate case hosts every evidence item of its
+                    // provider/currency scope; only evidence without a matching
+                    // aggregate case stays run-level (reconciliation_case_id NULL).
+                    var caseId = caseIdByKey.get(evidence.providerAccountId() + ":"
+                            + evidence.currency());
                     hybridMapper.insertEvidence(new HybridReconciliationMapper
                             .ReconciliationEvidenceRow(
                             evidence.organizationId(), evidence.runId(), caseId,
@@ -148,7 +149,7 @@ public final class ReconciliationRunService {
                             evidence.gatewaySettlementId(), evidence.correctionGroupId(),
                             evidence.reconciliationAdjustmentId(),
                             evidence.gatewayFinancialResolutionId(), evidence.ledgerPostingId(),
-                            evidence.providerRequestId(),
+                            evidence.providerRequestId(), evidence.evidenceReference(),
                             evidence.externalAmount(), evidence.internalAmount(),
                             evidence.differenceAmount(), evidence.createdAt()));
                     if ("EXACT_PROVIDER_REQUEST".equals(evidence.matchKind())) {

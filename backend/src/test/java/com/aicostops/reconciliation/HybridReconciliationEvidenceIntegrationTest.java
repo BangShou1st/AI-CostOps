@@ -53,9 +53,11 @@ class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSuppo
 
     @Test
     void certifiedExactCorrelationProducesExactEvidenceWithoutChargeDisposition() {
-        var chargeId = insertPeriodCharge("10.00000000", "USD", "CLEAN",
+        var account = insertGatewayAccount("m15ev-exact");
+        var chargeId = insertPeriodChargeOn(account, "10.00000000", "USD", "CLEAN",
                 "2026-08-10 00:00:00", "prov-req-exact-1", "GLM");
-        var gateway = insertGatewayRequest("COMPLETED", "prov-req-exact-1", "FINAL", "USD");
+        var gateway = insertGatewayRequestOn(account, "COMPLETED", "prov-req-exact-1",
+                "FINAL", "USD");
 
         runs.run(actor, periodId);
 
@@ -77,13 +79,36 @@ class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSuppo
     }
 
     @Test
+    void exactCorrelationRequiresTheSameProviderAccount() {
+        // Provider Account A owns the statement charge; Provider Account B owns
+        // the gateway request with the same certified provider request id and
+        // the same currency. This must never exact match.
+        var chargeAccount = insertGatewayAccount("m15ev-cross-a");
+        insertPeriodChargeOn(chargeAccount, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "prov-req-cross-1", "GLM");
+        var requestAccount = insertGatewayAccount("m15ev-cross-b");
+        insertGatewayRequestOn(requestAccount, "COMPLETED", "prov-req-cross-1", "FINAL",
+                "USD");
+
+        runs.run(actor, periodId);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM reconciliation_evidence
+                WHERE org_id=? AND match_kind='EXACT_PROVIDER_REQUEST'
+                """, Long.class, orgId)).isZero();
+    }
+
+    @Test
     void safeAndPlannedAttemptsNeverMatchExactly() {
-        insertPeriodCharge("10.00000000", "USD", "CLEAN", "2026-08-10 00:00:00",
-                "prov-req-safe-1", "GLM");
-        insertGatewayRequest("SAFE_NO_BILLABLE_EXECUTION", "prov-req-safe-1", "FINAL", "USD");
-        insertPeriodCharge("20.00000000", "USD", "CLEAN", "2026-08-11 00:00:00",
-                "prov-req-planned-1", "GLM");
-        insertGatewayRequest("PLANNED", "prov-req-planned-1", "FINAL", "USD");
+        var safeAccount = insertGatewayAccount("m15ev-safe");
+        insertPeriodChargeOn(safeAccount, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "prov-req-safe-1", "GLM");
+        insertGatewayRequestOn(safeAccount, "SAFE_NO_BILLABLE_EXECUTION", "prov-req-safe-1",
+                "FINAL", "USD");
+        var plannedAccount = insertGatewayAccount("m15ev-planned");
+        insertPeriodChargeOn(plannedAccount, "20.00000000", "USD", "CLEAN",
+                "2026-08-11 00:00:00", "prov-req-planned-1", "GLM");
+        insertGatewayRequestOn(plannedAccount, "PLANNED", "prov-req-planned-1", "FINAL", "USD");
 
         runs.run(actor, periodId);
 
@@ -95,11 +120,12 @@ class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSuppo
 
     @Test
     void ambiguousDuplicateProviderRequestIdNeverAutoBinds() {
-        insertPeriodCharge("10.00000000", "USD", "CLEAN", "2026-08-10 00:00:00",
-                "prov-req-dup-1", "GLM");
-        insertPeriodCharge("12.00000000", "USD", "CLEAN", "2026-08-11 00:00:00",
-                "prov-req-dup-1", "GLM");
-        insertGatewayRequest("COMPLETED", "prov-req-dup-1", "FINAL", "USD");
+        var dupAccount = insertGatewayAccount("m15ev-dup");
+        insertPeriodChargeOn(dupAccount, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "prov-req-dup-1", "GLM");
+        insertPeriodChargeOn(dupAccount, "12.00000000", "USD", "CLEAN",
+                "2026-08-11 00:00:00", "prov-req-dup-1", "GLM");
+        insertGatewayRequestOn(dupAccount, "COMPLETED", "prov-req-dup-1", "FINAL", "USD");
 
         runs.run(actor, periodId);
 
@@ -113,9 +139,10 @@ class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSuppo
     void uncertifiedProviderProfileNeverMatchesExactly() {
         // The import provider code is OTHER, which is not certified by the
         // profile registry even though the raw key equals the Provider id.
-        insertPeriodCharge("10.00000000", "USD", "CLEAN", "2026-08-10 00:00:00",
-                "prov-req-other-1", "OTHER");
-        insertGatewayRequest("COMPLETED", "prov-req-other-1", "FINAL", "USD");
+        var otherAccount = insertGatewayAccount("m15ev-other");
+        insertPeriodChargeOn(otherAccount, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "prov-req-other-1", "OTHER");
+        insertGatewayRequestOn(otherAccount, "COMPLETED", "prov-req-other-1", "FINAL", "USD");
 
         runs.run(actor, periodId);
 
@@ -127,8 +154,11 @@ class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSuppo
 
     @Test
     void amountAndTimeProximityAloneNeverMatchesExactly() {
-        insertPeriodCharge("10.00000000", "USD", "CLEAN", "2026-08-10 00:00:00", null, "GLM");
-        insertGatewayRequest("COMPLETED", "prov-req-unrelated", "FINAL", "USD");
+        var proximityAccount = insertGatewayAccount("m15ev-prox");
+        insertPeriodChargeOn(proximityAccount, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", null, "GLM");
+        insertGatewayRequestOn(proximityAccount, "COMPLETED", "prov-req-unrelated", "FINAL",
+                "USD");
 
         runs.run(actor, periodId);
 
@@ -243,6 +273,26 @@ class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSuppo
     }
 
     /** Returns {requestId, attemptId}. */
+    /** A confirmed-import charge whose import lineage owns the given account. */
+    private long insertPeriodChargeOn(long accountId, String amount, String currency,
+            String reviewStatus, String periodStart, String providerRecordKey,
+            String providerCode) {
+        var rawRecordId = insertConfirmedRawRecord(orgId, actorMemberId, accountId,
+                "ev" + UUID.randomUUID().toString().replace("-", ""));
+        jdbc.update("UPDATE raw_provider_record SET provider_record_key=? WHERE id=?",
+                providerRecordKey, rawRecordId);
+        jdbc.update("""
+                INSERT INTO charge_fact(
+                    org_id,raw_record_id,fact_index,provider_code,charge_category,amount,currency,
+                    period_start,period_end,review_status,created_at)
+                VALUES (?,?,0,?,'USAGE',?,?,?,?,?,UTC_TIMESTAMP(6))
+                """, orgId, rawRecordId, providerCode, amount, currency, periodStart,
+                periodStart, reviewStatus);
+        return jdbc.queryForObject(
+                "SELECT MAX(id) FROM charge_fact WHERE org_id=? AND raw_record_id=?",
+                Long.class, orgId, rawRecordId);
+    }
+
     private long[] insertGatewayRequest(String attemptStatus, String providerRequestId,
             String usageStatus, String currency) {
         var account = insertGatewayAccount("m15ev");

@@ -72,6 +72,33 @@ export function deepSeekFixtureZip(
   ])
 }
 
+/**
+ * Two-cost statement (10.00 + 4.00 CNY): allocating and posting only the
+ * first charge creates a real aggregate provider/currency difference for the
+ * M15 hybrid reconciliation workflow.
+ */
+export function deepSeekTwoCostFixtureZip(
+  month: string,
+  startIso: string,
+  endIso: string,
+  suffix: string,
+): Buffer {
+  const amountRows = [
+    'user_id,start_time_iso,end_time_iso,model,api_key_name,api_key,type,price,amount',
+    `synthetic-user,${startIso},${endIso},deepseek-chat,e2e-key-${suffix},sk-SECRET-SENTINEL-DO-NOT-PERSIST,api_call,0.000002,125`,
+    `synthetic-user,${startIso},${endIso},deepseek-chat,e2e-key-${suffix},sk-SECRET-SENTINEL-DO-NOT-PERSIST,api_call,0.000002,75`,
+  ]
+  const costRows = [
+    'user_id,start_time_iso,end_time_iso,model,wallet_type,cost,currency',
+    `synthetic-user,${startIso},${endIso},deepseek-chat,main_wallet,10.00,CNY`,
+    `synthetic-user,${startIso},${endIso},deepseek-chat,main_wallet,4.00,CNY`,
+  ]
+  return buildZip([
+    { name: `amount-${month}.csv`, content: amountRows.join('\n') },
+    { name: `cost-${month}.csv`, content: costRows.join('\n') },
+  ])
+}
+
 export interface AuthBean {
   accessToken: string
   expiresIn: number
@@ -330,8 +357,52 @@ export class ApiClient {
     return this.json('post', `/commitments/${commitmentId}/approve`, token)
   }
 
+  async postCharge(token: string, chargeId: number): Promise<{ id: number; status: string }> {
+    return this.json('post', `/costs/charges/${chargeId}/post`, token)
+  }
+
+  async listRunReconciliationEvidence(
+    token: string,
+    runId: number,
+  ): Promise<{ items: Array<{ id: number; matchKind: string; reconciliationCaseId: number | null; chargeFactId: number | null; gatewayRequestId: number | null; evidenceReference: string | null }> }> {
+    return this.json('get', `/reconciliation-runs/${runId}/evidence?page=0&size=100`, token)
+  }
+
+  async listCaseReconciliationEvidence(
+    token: string,
+    caseId: number,
+  ): Promise<{ items: Array<{ id: number; matchKind: string; reconciliationCaseId: number | null; chargeFactId: number | null; gatewayRequestId: number | null; evidenceReference: string | null }> }> {
+    return this.json('get', `/reconciliation-cases/${caseId}/evidence?page=0&size=100`, token)
+  }
+
+  async postCaseAdjustment(
+    token: string,
+    caseId: number,
+    body: {
+      amount: string
+      adjustmentPeriodId: number
+      lines: Array<{ lineIndex: number; scopeType: string; scopeId: string; amount: string }>
+      reasonCode: string
+      reasonNote: string
+    },
+    idempotencyKey: string,
+  ): Promise<{ id: number; adjustmentPeriodId: string }> {
+    const response = await this.ctx.post(`${this.root}/reconciliation-cases/${caseId}/adjustments`, {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': idempotencyKey },
+      data: body,
+    })
+    return this.expectOk(response, 'reconciliation-cases/adjustments')
+  }
+
   async runReconciliation(token: string, billingPeriodId: number): Promise<{ id: number }> {
     return this.json('post', '/reconciliation-runs', token, { billingPeriodId: String(billingPeriodId) })
+  }
+
+  async getCaseDetail(
+    token: string,
+    caseId: number,
+  ): Promise<{ id: number; status: string; differenceAmount: string }> {
+    return this.json('get', `/reconciliation-cases/${caseId}`, token)
   }
 
   async listReconciliationCases(
