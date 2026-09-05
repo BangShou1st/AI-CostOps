@@ -37,4 +37,35 @@ public class AuditOrganizationAdapter implements OrganizationAuditPort {
                 "PROVIDER_ACCOUNT", providerAccountId,
                 Map.of("previousStatus", previousStatus));
     }
+
+    @Override
+    public void routingPolicyCreated(long organizationId, long actorUserId,
+            long policyId, int version, String status) {
+        appendRoutingPolicy("ROUTING_POLICY_CREATED", organizationId, actorUserId, policyId, version, status);
+    }
+
+    @Override
+    public void routingPolicyRevised(long organizationId, long actorUserId,
+            long policyId, int version, String status) {
+        appendRoutingPolicy("ROUTING_POLICY_REVISED", organizationId, actorUserId, policyId, version, status);
+    }
+
+    @Override
+    public void routingPolicyUpdated(long organizationId, long actorUserId,
+            long policyId, int version, String status) {
+        appendRoutingPolicy("ROUTING_POLICY_UPDATED", organizationId, actorUserId, policyId, version, status);
+    }
+
+    @Override
+    public void routingPolicyActivated(long organizationId, long actorUserId,
+            long policyId, int version, String status) {
+        appendRoutingPolicy("ROUTING_POLICY_ACTIVATED", organizationId, actorUserId, policyId, version, status);
+    }
+
+    private void appendRoutingPolicy(String eventType, long organizationId, long actorUserId,
+            long policyId, int version, String status) {
+        auditService.append(eventType, organizationId, actorUserId,
+                "ROUTING_POLICY", policyId,
+                Map.of("version", version, "status", status));
+    }
 }

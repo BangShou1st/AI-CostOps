@@ -5,6 +5,10 @@ import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
 import com.aicostops.gateway.provider.ProviderChatStreamEvent;
+import com.aicostops.gateway.provider.ProviderExecutionException;
+import com.aicostops.gateway.provider.ProviderHealthSignal;
+import com.aicostops.gateway.provider.ProviderSafetyOutcome;
+import com.aicostops.gateway.provider.ProviderSafetyReason;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
@@ -64,10 +68,20 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     }
 
     @Override
+    public String adapterCode() {
+        return "MIMO";
+    }
+
+    @Override
     public Mono<ProviderChatCompletion> complete(
             ProviderCallContext context, ChatCompletionCommand command) {
         if (enforceProductionEndpoint) {
             MimoEndpointPolicy.validate(context.baseUrl());
+        }
+        if (!"API_KEY".equals(context.credentialType())) {
+            return Mono.error(new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                    ProviderSafetyReason.UNKNOWN_POST_DISPATCH, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, false, null));
         }
         var wireRequest = new MimoWireDtos.WireRequest(
                 context.providerModelName(),
@@ -78,21 +92,23 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                 false);
         return webClient.post()
                 .uri(context.baseUrl() + CHAT_COMPLETIONS_SUFFIX)
-                .header(context.providerKeyHeader(),
+                .header("api-key",
                         new String(context.providerSecret(), StandardCharsets.UTF_8))
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(wireRequest)
                 .exchangeToMono(response -> {
                     if (response.statusCode().is2xxSuccessful()) {
-                        return response.bodyToMono(byte[].class)
-                                .map(body -> parseCompletion(context, body));
+                            return response.bodyToMono(byte[].class)
+                                .map(body -> parseCompletion(context, body, providerRequestId(response)));
                     }
                     // Bounded read then redact: never return the arbitrary body.
                     return response.bodyToMono(byte[].class)
-                            .flatMap(body -> Mono.error(new GatewayErrorException(
-                                    GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
-                                    "Provider request failed with HTTP "
-                                            + response.statusCode().value())));
+                            .flatMap(body -> Mono.<ProviderChatCompletion>error(new ProviderExecutionException(
+                                    ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                                    ProviderSafetyReason.HTTP_RESPONSE_RECEIVED,
+                                    healthSignal(response.statusCode().value()),
+                                    response.statusCode().value(),
+                                    providerRequestId(response), true, null)));
                 })
                 .onErrorResume(ex -> Mono.error(mapTransportError(ex)));
     }
@@ -102,6 +118,11 @@ public class MimoChatAdapter implements ProviderChatAdapter {
             ProviderCallContext context, ChatCompletionCommand command) {
         if (enforceProductionEndpoint) {
             MimoEndpointPolicy.validate(context.baseUrl());
+        }
+        if (!"API_KEY".equals(context.credentialType())) {
+            return Flux.error(new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                    ProviderSafetyReason.UNKNOWN_POST_DISPATCH, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, false, null));
         }
         var wireRequest = new MimoWireDtos.WireRequest(
                 context.providerModelName(),
@@ -116,17 +137,19 @@ public class MimoChatAdapter implements ProviderChatAdapter {
             var startNanos = System.nanoTime();
             return webClient.post()
                     .uri(context.baseUrl() + CHAT_COMPLETIONS_SUFFIX)
-                    .header(context.providerKeyHeader(),
+                    .header("api-key",
                             new String(context.providerSecret(), StandardCharsets.UTF_8))
                     .contentType(MediaType.APPLICATION_JSON)
                     .bodyValue(wireRequest)
                     .exchangeToFlux(response -> {
                         if (!response.statusCode().is2xxSuccessful()) {
                             return response.bodyToMono(byte[].class)
-                                    .flatMapMany(body -> Flux.error(new GatewayErrorException(
-                                            GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
-                                            "Provider request failed with HTTP "
-                                                    + response.statusCode().value())));
+                                    .flatMapMany(body -> Flux.error(new ProviderExecutionException(
+                                            ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                                            ProviderSafetyReason.HTTP_RESPONSE_RECEIVED,
+                                             healthSignal(response.statusCode().value()),
+                                            response.statusCode().value(),
+                                            providerRequestId(response), true, null)));
                         }
                         return response.bodyToFlux(DataBuffer.class)
                                 .concatMap(buffer -> decodeEvents(decoder, buffer));
@@ -180,12 +203,13 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                     ? null : choice.delta().content();
             return new ProviderChatStreamEvent.Delta(wire.id(), created, wire.model(), content);
         } catch (Exception ex) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
-                    "Provider returned a malformed stream event");
+            throw new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                    ProviderSafetyReason.MALFORMED_PROVIDER_RESPONSE,
+                    ProviderHealthSignal.QUALIFYING_FAILURE, null, null, true, ex);
         }
     }
 
-    private ProviderChatCompletion parseCompletion(ProviderCallContext context, byte[] body) {
+    private ProviderChatCompletion parseCompletion(ProviderCallContext context, byte[] body, String providerRequestId) {
         try {
             var wire = objectMapper.readValue(body, MimoWireDtos.WireResponse.class);
             var choices = new ArrayList<ProviderChatCompletion.CompletionChoice>();
@@ -205,28 +229,84 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                         wire.usage().total_tokens());
             }
             return new ProviderChatCompletion(
-                    null,
+                    providerRequestId,
                     wire.id(),
                     wire.created() == null ? 0L : wire.created(),
                     wire.model() == null ? context.providerModelName() : wire.model(),
                     choices,
                     usage);
         } catch (Exception ex) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
-                    "Provider returned an unparseable response");
+            throw new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                    ProviderSafetyReason.MALFORMED_PROVIDER_RESPONSE,
+                    ProviderHealthSignal.QUALIFYING_FAILURE, null, null, true, ex);
         }
     }
 
     private static GatewayErrorException mapTransportError(Throwable ex) {
+        if (ex instanceof ProviderExecutionException providerError) {
+            return providerError;
+        }
         if (ex instanceof GatewayErrorException gatewayError) {
             return gatewayError;
         }
-        if (isTimeout(ex)) {
-            return new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_TIMEOUT,
-                    "Provider response-header timeout");
+        if (hasCause(ex, java.net.UnknownHostException.class)) {
+            return new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
+                    ProviderSafetyReason.DNS_PRE_CONNECT, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, false, ex);
         }
-        return new GatewayErrorException(GatewayErrorCode.GATEWAY_UPSTREAM_FAILED,
-                "Provider request could not be completed");
+        if (hasCause(ex, io.netty.channel.ConnectTimeoutException.class)) {
+            return new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
+                    ProviderSafetyReason.CONNECT_TIMEOUT_PRE_WRITE, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, false, ex);
+        }
+        if (hasCause(ex, java.net.ConnectException.class)) {
+            return new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
+                    ProviderSafetyReason.CONNECT_REFUSED_PRE_WRITE, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, false, ex);
+        }
+        if (hasCause(ex, javax.net.ssl.SSLHandshakeException.class)) {
+            return new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
+                    ProviderSafetyReason.TLS_HANDSHAKE_PRE_HTTP_WRITE, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, false, ex);
+        }
+        if (isTimeout(ex)) {
+            return new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                    ProviderSafetyReason.HEADER_TIMEOUT_WRITE_POSSIBLE, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, false, ex);
+        }
+        if (hasCause(ex, java.net.SocketException.class)) {
+            return new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                    ProviderSafetyReason.CONNECTION_RESET_WRITE_POSSIBLE, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, true, ex);
+        }
+        return new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                ProviderSafetyReason.UNKNOWN_POST_DISPATCH, ProviderHealthSignal.QUALIFYING_FAILURE,
+                null, null, true, ex);
+    }
+
+    private static ProviderHealthSignal healthSignal(int status) {
+        return status == 401 || status == 403 || status == 404
+                ? ProviderHealthSignal.ROUTE_CONFIGURATION_FAILURE
+                : status >= 400 && status < 500 && status != 429
+                        ? ProviderHealthSignal.NONE : ProviderHealthSignal.QUALIFYING_FAILURE;
+    }
+
+    private static Throwable rootCause(Throwable ex) {
+        Throwable current = reactor.core.Exceptions.unwrap(ex);
+        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
+        return current;
+    }
+
+    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+        for (var current = reactor.core.Exceptions.unwrap(error); current != null;
+                current = current.getCause()) {
+            if (type.isInstance(current)) return true;
+        }
+        return false;
+    }
+
+    private static String providerRequestId(org.springframework.web.reactive.function.client.ClientResponse response) {
+        return response.headers().asHttpHeaders().getFirst("x-request-id");
     }
 
     private static boolean isTimeout(Throwable ex) {

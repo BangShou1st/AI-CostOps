@@ -37,6 +37,7 @@ import { PublicRoute } from './PublicRoute'
 import { PermissionRoute } from './PermissionRoute'
 import { SettingsRedirect } from './SettingsRedirect'
 import { WorkbenchPage } from '../../features/workbench/WorkbenchPage'
+import { RoutingPoliciesPage } from '../../features/settings/routingPolicies/RoutingPoliciesPage'
 
 export function AppRouter() {
   const auth = useAuth()
@@ -115,6 +116,9 @@ export function AppRouter() {
         </Route>
         <Route path="/settings/provider-accounts" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
           <Route index element={<ProviderAccountsPage />} />
+        </Route>
+        <Route path="/settings/routing-policies" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
+          <Route index element={<RoutingPoliciesPage />} />
         </Route>
         <Route path="/settings" element={<SettingsRedirect />} />
       </Route>

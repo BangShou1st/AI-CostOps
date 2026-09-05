@@ -64,6 +64,43 @@ public class ReservationRecoveryService {
         for (var hold : holds) {
             recoverOne(hold);
         }
+        recoverSafeReleasedRequests();
+    }
+
+    private void recoverSafeReleasedRequests() {
+        List<GatewayRequestMapper.SafeReleasedRequest> requests;
+        try {
+            requests = requestMapper.findSafeReleasedRequests(
+                    properties.reservationRecoveryBatchSize());
+        } catch (RuntimeException ex) {
+            log.warn("Safe released request recovery scan failed", ex);
+            metrics.recordReservationRecovery("FAILED");
+            return;
+        }
+        for (var request : requests) {
+            try {
+                var outcome = transactions.execute(status -> recoverSafeReleasedRequest(request));
+                metrics.recordReservationRecovery(outcome == null ? "SKIPPED" : outcome);
+            } catch (RuntimeException ex) {
+                log.warn("Safe released request recovery failed for request {}",
+                        request.requestId(), ex);
+                metrics.recordReservationRecovery("FAILED");
+            }
+        }
+    }
+
+    private String recoverSafeReleasedRequest(GatewayRequestMapper.SafeReleasedRequest candidate) {
+        var request = requestMapper.findByIdForUpdate(candidate.requestId(), candidate.orgId());
+        if (request == null || !List.of("VALIDATED", "RESERVED", "DISPATCH_INTENT", "UPSTREAM_ACTIVE")
+                .contains(request.state())) {
+            return "SKIPPED";
+        }
+        if (requestMapper.countNonSafeAttempts(candidate.orgId(), candidate.requestId()) != 0
+                || requestMapper.countEffectiveReservations(candidate.orgId(), candidate.requestId()) != 0) {
+            return "SKIPPED";
+        }
+        return requestMapper.markRequestFailedPreDispatch(candidate.requestId(), candidate.orgId()) == 1
+                ? "SAFE_RELEASED_TERMINAL" : "SKIPPED";
     }
 
     private void recoverOne(ExpiredHold hold) {
@@ -122,8 +159,12 @@ public class ReservationRecoveryService {
     }
 
     private static boolean isDefinitivelyPreDispatch(String requestState, String attemptStatus) {
-        return ("RESERVED".equals(requestState) || "VALIDATED".equals(requestState))
-                && "PLANNED".equals(attemptStatus);
+        // A durable SAFE attempt is stronger than the request lifecycle
+        // state: a crash can happen after beginUpstream moved the request to
+        // UPSTREAM_ACTIVE but before the SAFE hold release committed.
+        return "SAFE_NO_BILLABLE_EXECUTION".equals(attemptStatus)
+                || (("RESERVED".equals(requestState) || "VALIDATED".equals(requestState))
+                        && "PLANNED".equals(attemptStatus));
     }
 
     public record ExpiredHold(

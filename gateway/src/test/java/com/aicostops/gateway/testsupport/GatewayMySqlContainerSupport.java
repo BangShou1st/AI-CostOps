@@ -40,7 +40,9 @@ public abstract class GatewayMySqlContainerSupport {
             "V17__m8_budget_lookup_index.sql",
             "V18__m11_gateway_edge_foundation.sql",
             "V19__m12_budget_reservation.sql",
-            "V20__m13_gateway_usage_fact.sql");
+            "V20__m13_gateway_usage_fact.sql",
+            "V21__m13_gateway_settlement.sql",
+            "V22__m14_multi_provider_routing.sql");
 
     protected static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("aicostops_test")

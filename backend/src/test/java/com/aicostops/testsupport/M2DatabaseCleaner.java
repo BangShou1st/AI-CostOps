@@ -62,8 +62,11 @@ public final class M2DatabaseCleaner {
         // circular (gateway_request.current_route_attempt_id), so the
         // convenience pointer is cleared before either table is deleted.
         jdbc.update("UPDATE gateway_request SET current_route_attempt_id = NULL");
+        jdbc.update("UPDATE gateway_route_attempt SET routing_policy_id = NULL");
         jdbc.update("DELETE FROM gateway_route_attempt");
         jdbc.update("DELETE FROM gateway_request");
+        jdbc.update("DELETE FROM routing_policy_candidate");
+        jdbc.update("DELETE FROM routing_policy");
         jdbc.update("DELETE FROM gateway_credential_model");
         jdbc.update("DELETE FROM gateway_credential");
         jdbc.update("DELETE FROM provider_credential");

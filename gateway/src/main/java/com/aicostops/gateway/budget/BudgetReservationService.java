@@ -167,15 +167,13 @@ public class BudgetReservationService {
 
     private AdmissionResult noBudget(GatewayPrincipal principal, AdmissionCommand command) {
         if ("REQUIRED".equals(principal.budgetEnforcementMode())) {
+            persistTerminalBudgetRejection(command);
             // Terminal business result: persist REJECTED_BUDGET inside TX1 and
             // return it. Throwing here would roll the rejection back; the
             // caller maps the outcome to GATEWAY_BUDGET_EXHAUSTED after commit.
-            if (reservationMapper.markRequestRejectedBudget(
-                    command.requestId(), principal.organizationId(),
-                    command.billingPeriodId()) != 1) {
-                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                        "Request cannot reach rejected state");
-            }
+            // Candidate admission is not request exhaustion. The caller may
+            // safely release this route and evaluate the next frozen policy
+            // candidate before a request-level rejection is persisted.
             return new AdmissionResult(AdmissionOutcome.REJECTED_BUDGET, -1L, -1L, null);
         }
         // OPTIONAL without a matching Budget: explicitly allowed unbudgeted.
@@ -189,12 +187,8 @@ public class BudgetReservationService {
         // Persist the terminal rejection inside TX1 and let the caller map it
         // after commit: REQUIRED -> DEPENDENCY_UNAVAILABLE (unsafe bound),
         // OPTIONAL -> BUDGET_EXHAUSTED (existing budget cannot be bypassed).
-        if (reservationMapper.markRequestRejectedBudget(
-                command.requestId(), principal.organizationId(),
-                command.billingPeriodId()) != 1) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                    "Request cannot reach rejected state");
-        }
+        // A non-evaluable bound is a SAFE candidate outcome; request-level
+        // rejection is decided only after deterministic candidate exhaustion.
         if ("REQUIRED".equals(principal.budgetEnforcementMode())) {
             return new AdmissionResult(AdmissionOutcome.REJECTED_DEPENDENCY, -1L, -1L, null);
         }
@@ -203,13 +197,19 @@ public class BudgetReservationService {
 
     private AdmissionResult insufficient(
             GatewayPrincipal principal, AdmissionCommand command) {
-        if (reservationMapper.markRequestRejectedBudget(
-                command.requestId(), principal.organizationId(),
-                command.billingPeriodId()) != 1) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                    "Request cannot reach rejected state");
-        }
+        persistTerminalBudgetRejection(command);
         return new AdmissionResult(AdmissionOutcome.REJECTED_BUDGET, -1L, -1L, null);
+    }
+
+    private void persistTerminalBudgetRejection(AdmissionCommand command) {
+        if (command.candidateOnly()) {
+            return;
+        }
+        if (requestMapper.markRequestRejectedBudget(
+                command.requestId(), command.principal().organizationId(), command.billingPeriodId()) != 1) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Request cannot reach rejected budget state");
+        }
     }
 
     private AdmissionResult replayExisting(
@@ -240,7 +240,20 @@ public class BudgetReservationService {
             long pricingVersionId,
             String currency,
             long effectiveMaxOutputTokens,
-            long expectedBudgetId) {
+            long expectedBudgetId,
+            boolean candidateOnly) {
+        public AdmissionCommand(
+                GatewayPrincipal principal,
+                long requestId,
+                long routeAttemptId,
+                long billingPeriodId,
+                long pricingVersionId,
+                String currency,
+                long effectiveMaxOutputTokens,
+                long expectedBudgetId) {
+            this(principal, requestId, routeAttemptId, billingPeriodId, pricingVersionId,
+                    currency, effectiveMaxOutputTokens, expectedBudgetId, false);
+        }
     }
 
     public record AdmissionResult(

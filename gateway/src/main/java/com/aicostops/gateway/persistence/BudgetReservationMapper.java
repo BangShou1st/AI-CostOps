@@ -123,9 +123,11 @@ public interface BudgetReservationMapper {
 
     @Update("""
             UPDATE gateway_request
-            SET state='RESERVED', billing_period_id=#{periodId},
+            SET state=CASE WHEN state='VALIDATED' THEN 'RESERVED' ELSE state END,
+                billing_period_id=COALESCE(billing_period_id,#{periodId}),
                 current_route_attempt_id=#{attemptId}, updated_at=UTC_TIMESTAMP(6)
-            WHERE id=#{requestId} AND org_id=#{orgId} AND state='VALIDATED'
+            WHERE id=#{requestId} AND org_id=#{orgId}
+              AND state IN ('VALIDATED','DISPATCH_INTENT','UPSTREAM_ACTIVE')
             """)
     int markRequestReserved(
             @Param("requestId") long requestId,
@@ -149,7 +151,7 @@ public interface BudgetReservationMapper {
             SET state='FAILED_PRE_DISPATCH', terminal_at=UTC_TIMESTAMP(6),
                 updated_at=UTC_TIMESTAMP(6)
             WHERE id=#{requestId} AND org_id=#{orgId}
-              AND state IN ('VALIDATED','RESERVED')
+              AND state IN ('VALIDATED','RESERVED','DISPATCH_INTENT','UPSTREAM_ACTIVE')
             """)
     int markRequestFailedPreDispatch(
             @Param("requestId") long requestId, @Param("orgId") long orgId);

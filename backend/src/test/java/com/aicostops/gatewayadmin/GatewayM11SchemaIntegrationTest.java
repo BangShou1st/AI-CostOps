@@ -44,7 +44,7 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
                         "gateway_request", "gateway_route_attempt");
 
         assertThat(queryTables())
-                .doesNotContain("routing_policy", "routing_policy_candidate");
+                .contains("routing_policy", "routing_policy_candidate");
     }
 
     @Test

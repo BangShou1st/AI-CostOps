@@ -49,6 +49,15 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/api/v1/provider-accounts").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/provider-accounts").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/provider-accounts/{id}").authenticated()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/routing-policies",
+                                "/api/v1/routing-policies/{id}",
+                                "/api/v1/routing-options").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/routing-policies",
+                                "/api/v1/routing-policies/{id}/revisions",
+                                "/api/v1/routing-policies/{id}/activate").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/routing-policies/{id}").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/projects/{id}/members").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/projects/{id}/members").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/projects/{id}/members/{memberId}").authenticated()

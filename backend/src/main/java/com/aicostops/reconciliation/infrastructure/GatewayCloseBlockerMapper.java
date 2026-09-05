@@ -8,9 +8,9 @@ import org.apache.ibatis.annotations.Select;
  * Read projection over Gateway-owned durable facts used by the reconciliation
  * Close blockers. M12 extends the M11 conservative rule with ACTIVE and
  * PENDING_HOLD budget reservations: held money blocks normal Close.
- * RELEASED/FINALIZED holds never block on their own. A current FINAL usage is
- * financially terminal only when its Settlement is SETTLED; transport state
- * alone is not a Close blocker once the financial truth is durable.
+ * RELEASED/FINALIZED holds never block on their own. Route history is
+ * evaluated only for unresolved possible-billable work, so SAFE history and
+ * a completed/settled successor do not create a false blocker.
  */
 @Mapper
 public interface GatewayCloseBlockerMapper {
@@ -18,21 +18,33 @@ public interface GatewayCloseBlockerMapper {
     @Select("""
             SELECT COUNT(*)
             FROM gateway_request gr
-            LEFT JOIN gateway_usage_fact uf
-              ON uf.id=gr.current_usage_fact_id AND uf.org_id=gr.org_id
-            LEFT JOIN gateway_settlement gs
-              ON gs.request_id=gr.id AND gs.org_id=gr.org_id
             WHERE gr.org_id=#{orgId} AND gr.billing_period_id=#{billingPeriodId}
               AND gr.state IN (
                 'DISPATCH_INTENT','UPSTREAM_ACTIVE','TRANSPORT_COMPLETED',
                 'CANCELED_AFTER_DISPATCH','TIMED_OUT_AFTER_DISPATCH','FAILED_AFTER_DISPATCH')
               AND (
-                uf.id IS NULL
-                OR uf.status IN ('INCOMPLETE','UNKNOWN')
-                OR (uf.status='FINAL'
-                    AND (gs.id IS NULL OR gs.status IN (
-                      'PENDING','RETRYABLE_FAILED','RECONCILIATION_REQUIRED')))
-              )
+                NOT EXISTS (
+                  SELECT 1 FROM gateway_route_attempt ra_any
+                  WHERE ra_any.org_id=gr.org_id AND ra_any.request_id=gr.id)
+                OR EXISTS (
+                  SELECT 1
+                  FROM gateway_route_attempt ra_live
+                  LEFT JOIN gateway_usage_fact uf_live
+                    ON uf_live.org_id=ra_live.org_id
+                   AND uf_live.route_attempt_id=ra_live.id
+                   AND uf_live.status='FINAL'
+                   LEFT JOIN gateway_settlement gs_live
+                     ON gs_live.org_id=ra_live.org_id
+                    AND gs_live.route_attempt_id=ra_live.id
+                    AND gs_live.usage_fact_id=uf_live.id
+                   WHERE ra_live.org_id=gr.org_id AND ra_live.request_id=gr.id
+                     AND (
+                       ra_live.status IN ('PLANNED','DISPATCH_INTENT','BILLABLE_POSSIBLE','COMPLETED')
+                       AND (uf_live.id IS NULL OR gs_live.id IS NULL
+                            OR gs_live.status <> 'SETTLED')
+                     )
+                 )
+               )
             """)
     long countUnresolvedFinancialWork(
             @Param("orgId") long orgId, @Param("billingPeriodId") long billingPeriodId);

@@ -14,10 +14,26 @@ import org.springframework.stereotype.Component;
 @Component
 public class GatewayMetrics {
 
-    private static final Set<String> PROVIDER_CODES = Set.of("MIMO", "UNKNOWN");
+    private static final Set<String> PROVIDER_CODES = Set.of("MIMO", "OPENAI", "UNKNOWN");
+    private static final Set<String> ROUTING_REASONS = Set.of(
+            "INITIAL_PRIMARY", "INITIAL_FALLBACK", "SAFE_FAILOVER", "CIRCUIT_OPEN",
+            "NO_ELIGIBLE_CANDIDATE", "UNKNOWN");
+    private static final Set<String> SAFETY_OUTCOMES = Set.of(
+            "SAFE_NO_BILLABLE_EXECUTION", "BILLABLE_POSSIBLE", "UNKNOWN");
+    private static final Set<String> CIRCUIT_STATES = Set.of("CLOSED", "OPEN", "HALF_OPEN", "UNKNOWN");
     private static final Set<String> REASON_CODES = Set.of(
             "MISSING_DIMENSION", "NO_USAGE", "MALFORMED_USAGE",
-            "POSTDISPATCH_UNCERTAINTY", "DB_FINALIZATION_FAILED", "UNKNOWN");
+            "POSTDISPATCH_UNCERTAINTY", "DB_FINALIZATION_FAILED",
+            "BUDGET_NO_MATCH_PRE_PROVIDER", "BUDGET_INSUFFICIENT_PRE_PROVIDER",
+            "BUDGET_BOUND_UNSAFE_PRE_PROVIDER", "CLIENT_CANCEL_BEFORE_DISPATCH",
+            "LOCAL_PRE_NETWORK_FAILURE", "DNS_PRE_CONNECT", "CONNECT_REFUSED_PRE_WRITE",
+            "CONNECT_TIMEOUT_PRE_WRITE", "TLS_HANDSHAKE_PRE_HTTP_WRITE",
+            "HTTP_RESPONSE_RECEIVED", "HEADER_TIMEOUT_WRITE_POSSIBLE", "READ_TIMEOUT",
+            "STREAM_TIMEOUT", "CONNECTION_RESET_WRITE_POSSIBLE", "MALFORMED_PROVIDER_RESPONSE",
+            "UNKNOWN_POST_DISPATCH", "CREDENTIAL_MISSING", "MODEL_INACTIVE",
+            "MODEL_NOT_ROUTING_ELIGIBLE", "ADAPTER_UNAVAILABLE", "CHAT_CAPABILITY_MISMATCH",
+            "STREAM_CAPABILITY_MISMATCH", "PRICING_UNAVAILABLE", "ALREADY_ATTEMPTED",
+            "CIRCUIT_OPEN", "BUDGET_REJECTED", "NO_ELIGIBLE_CANDIDATE", "UNKNOWN");
     private static final Set<String> REQUEST_OUTCOMES = Set.of(
             "COMPLETED", "FAILED", "TIMED_OUT", "CANCELED", "RATE_LIMITED",
             "REJECTED", "DEPENDENCY_UNAVAILABLE");
@@ -94,6 +110,44 @@ public class GatewayMetrics {
     public void recordProviderUsageParseError(String providerCode) {
         registry.counter("gateway_provider_usage_parse_error_total",
                 "provider_code", boundedProvider(providerCode)).increment();
+    }
+
+    public void recordRoutingDecision(String adapterCode, String reason) {
+        registry.counter("gateway_routing_decision_total",
+                "adapter_code", boundedProvider(adapterCode),
+                "reason", bounded(reason, ROUTING_REASONS)).increment();
+    }
+
+    public void recordCandidateRejection(String reason) {
+        registry.counter("gateway_candidate_rejection_total",
+                "reason", boundedReason(reason)).increment();
+    }
+
+    public void recordProviderSafety(String adapterCode, String outcome, String reason) {
+        registry.counter("gateway_provider_safety_total",
+                "adapter_code", boundedProvider(adapterCode),
+                "outcome", bounded(outcome, SAFETY_OUTCOMES),
+                "reason", boundedReason(reason)).increment();
+    }
+
+    public void recordFailover(String outcome, String reason) {
+        registry.counter("gateway_failover_total",
+                "outcome", bounded(outcome, Set.of("ADVANCED", "STOPPED", "UNKNOWN")),
+                "reason", boundedReason(reason)).increment();
+    }
+
+    public void recordCircuitTransition(String adapterCode, String from, String to, String reason) {
+        registry.counter("gateway_circuit_transition_total",
+                "adapter_code", boundedProvider(adapterCode),
+                "from", bounded(from, CIRCUIT_STATES),
+                "to", bounded(to, CIRCUIT_STATES),
+                "reason", boundedReason(reason)).increment();
+    }
+
+    public void recordCircuitRedisError(String operation) {
+        registry.counter("gateway_circuit_redis_error_total",
+                "operation", bounded(operation, Set.of("BEFORE_CALL", "RECORD_SUCCESS",
+                        "RECORD_FAILURE", "UNKNOWN"))).increment();
     }
 
     private static String boundedProvider(String providerCode) {

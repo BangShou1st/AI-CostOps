@@ -17,4 +17,8 @@ export const settingsKeys = {
   costCenters: (page: number, size: number) => ['settings', 'cost-centers', 'list', page, size] as const,
   providerAccountsAll: () => ['settings', 'provider-accounts'] as const,
   providerAccounts: (page: number, size: number) => ['settings', 'provider-accounts', 'list', page, size] as const,
+  routingPoliciesAll: () => ['settings', 'routing-policies'] as const,
+  routingPolicies: (page: number, size: number) => ['settings', 'routing-policies', 'list', page, size] as const,
+  routingPolicy: (id: string) => ['settings', 'routing-policies', 'detail', id] as const,
+  routingOptions: (modelId: string) => ['settings', 'routing-options', modelId] as const,
 }

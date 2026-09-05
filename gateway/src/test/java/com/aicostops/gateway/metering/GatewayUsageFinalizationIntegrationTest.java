@@ -189,6 +189,28 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
                 .isLessThanOrEqualTo(GatewayUsageFinalizationService.MAX_SAFE_METADATA_BYTES);
     }
 
+    @Test
+    void safeRouteFinalizationIsNoOpAndCreatesNoUsageLineage() {
+        var request = insertDispatchedRequest("safe-no-op");
+        jdbc.update("UPDATE gateway_route_attempt SET status='SAFE_NO_BILLABLE_EXECUTION', "
+                + "safety_reason_code='DNS_PRE_CONNECT' WHERE id=?", request.attemptId());
+
+        var success = finalization.finalizeSuccess(request.requestId(), env.orgId(), request.attemptId(),
+                GatewayUsageObservation.providerFinal(5, 3, null, OBSERVED_AT)).block();
+        var failure = finalization.finalizeFailure(request.requestId(), env.orgId(), request.attemptId(),
+                GatewayUsageObservation.noUsage(OBSERVED_AT).withDispatched(true),
+                GatewayUsageFinalizationService.TransportFailure.CANCELED).block();
+
+        assertThat(success.newlyPublished()).isFalse();
+        assertThat(failure.newlyPublished()).isFalse();
+        assertThat(success.usageFactId()).isZero();
+        assertThat(failure.usageFactId()).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_usage_fact WHERE org_id=?",
+                Integer.class, env.orgId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_settlement WHERE org_id=?",
+                Integer.class, env.orgId())).isZero();
+    }
+
     private GatewayUsageFinalizationService.FinalizationResult publish(Request request) {
         return finalization.finalizeSuccess(request.requestId(), env.orgId(), request.attemptId(),
                 GatewayUsageObservation.providerFinal(5, 3, null, OBSERVED_AT)).block();
