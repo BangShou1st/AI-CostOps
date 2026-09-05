@@ -29,7 +29,7 @@ M13 Realtime Metering / Settlement = COMPLETE / ACCEPTED
 M14 Multi-provider Routing / Resilience = COMPLETE / ACCEPTED
 M14 merge baseline = PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b
 (feat(m14): deliver multi-provider routing and resilience)
-M15 Hybrid Reconciliation = NEXT IMPLEMENTATION MILESTONE
+M15 Hybrid Reconciliation = IMPLEMENTATION IN DELIVERY (feat/m15-hybrid-reconciliation; pending independent review + user merge)
 ```
 
 M10 冻结入口：
@@ -268,7 +268,7 @@ M11 — Gateway Edge MVP                          COMPLETE / ACCEPTED
 M12 — Identity / Attribution / Budget Reservation  COMPLETE / ACCEPTED
 M13 — Realtime Metering / Settlement            COMPLETE / ACCEPTED
 M14 — Multi-provider Routing / Resilience       COMPLETE / ACCEPTED
-M15 — Hybrid Reconciliation                     NEXT
+M15 — Hybrid Reconciliation                     IN DELIVERY
 M16 — V2 Production Acceptance                  FUTURE
 ```
 
