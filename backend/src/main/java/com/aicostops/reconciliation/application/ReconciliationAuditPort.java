@@ -10,6 +10,10 @@ public interface ReconciliationAuditPort {
     void adjustmentPosted(long organizationId, long actorUserId, long adjustmentId,
             long caseId, long runId, String scope, java.math.BigDecimal amount,
             String currency, long adjustmentPeriodId);
+    void chargeDispositionDecided(long organizationId, long actorUserId, long dispositionId,
+            long caseId, long chargeFactId, String disposition);
+    void correctionLinked(long organizationId, long actorUserId, long caseId,
+            long correctionGroupId);
     void gatewayFinancialResolved(long organizationId, long actorUserId, long runId,
             Long caseId, long requestId, String resolutionType, String reservationOutcome,
             String currency);

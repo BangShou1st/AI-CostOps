@@ -130,6 +130,56 @@ public interface HybridReconciliationMapper {
     @Select("SELECT LAST_INSERT_ID()")
     long lastInsertId();
 
+    @Select("""
+            SELECT COUNT(*) FROM correction_group
+            WHERE org_id=#{organizationId} AND id=#{correctionGroupId}
+            """)
+    boolean correctionGroupExists(
+            @Param("organizationId") long organizationId,
+            @Param("correctionGroupId") long correctionGroupId);
+
+    @Select("""
+            SELECT COUNT(*) FROM charge_fact
+            WHERE org_id=#{organizationId} AND id=#{chargeFactId}
+            """)
+    boolean chargeExists(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    @Select("""
+            SELECT COUNT(*) FROM provider_charge_disposition
+            WHERE org_id=#{organizationId} AND charge_fact_id=#{chargeFactId}
+            """)
+    long countDisposition(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    @Insert("""
+            INSERT INTO provider_charge_disposition(
+                org_id,charge_fact_id,disposition,decision_source,reconciliation_run_id,
+                reconciliation_case_id,decided_by_member_id,reason_code,resolution_note,
+                created_at)
+            VALUES (#{disposition.organizationId},#{disposition.chargeFactId},
+                #{disposition.disposition},#{disposition.decisionSource},
+                #{disposition.reconciliationRunId},#{disposition.reconciliationCaseId},
+                #{disposition.decidedByMemberId},#{disposition.reasonCode},
+                #{disposition.reasonNote},#{disposition.createdAt})
+            """)
+    int insertDisposition(@Param("disposition") DispositionInsert disposition);
+
+    record DispositionInsert(
+            long organizationId,
+            long chargeFactId,
+            String disposition,
+            String decisionSource,
+            long reconciliationRunId,
+            long reconciliationCaseId,
+            long decidedByMemberId,
+            String reasonCode,
+            String reasonNote,
+            Instant createdAt) {
+    }
+
     /**
      * Bounded resolution lineage of one Gateway request: current attempt, usage,
      * settlement, reservation and frozen financial scope. Org-scoped.
@@ -317,6 +367,86 @@ public interface HybridReconciliationMapper {
             @Param("organizationId") long organizationId,
             @Param("runId") long runId,
             @Param("evidenceKey") String evidenceKey);
+
+    String EVIDENCE_COLUMNS = """
+            re.id,re.org_id,re.reconciliation_run_id,re.reconciliation_case_id,re.evidence_key,
+            re.provider_account_id,re.currency,re.match_kind,re.difference_kind,
+            re.charge_fact_id,re.gateway_request_id,re.gateway_route_attempt_id,
+            re.gateway_usage_fact_id,re.gateway_settlement_id,re.correction_group_id,
+            re.reconciliation_adjustment_id,re.gateway_financial_resolution_id,
+            re.ledger_posting_id,re.provider_request_id,re.external_amount,
+            re.internal_amount,re.difference_amount,re.created_at
+            """;
+
+    @Select("""
+            SELECT
+            """ + EVIDENCE_COLUMNS + """
+            FROM reconciliation_evidence re
+            WHERE re.org_id=#{organizationId} AND re.reconciliation_run_id=#{runId}
+            ORDER BY re.id ASC
+            LIMIT #{size} OFFSET #{offset}
+            """)
+    List<EvidenceRow> selectEvidenceByRun(
+            @Param("organizationId") long organizationId,
+            @Param("runId") long runId,
+            @Param("size") int size,
+            @Param("offset") int offset);
+
+    @Select("""
+            SELECT COUNT(*) FROM reconciliation_evidence
+            WHERE org_id=#{organizationId} AND reconciliation_run_id=#{runId}
+            """)
+    long countEvidenceByRun(
+            @Param("organizationId") long organizationId,
+            @Param("runId") long runId);
+
+    @Select("""
+            SELECT
+            """ + EVIDENCE_COLUMNS + """
+            FROM reconciliation_evidence re
+            WHERE re.org_id=#{organizationId} AND re.reconciliation_case_id=#{caseId}
+            ORDER BY re.id ASC
+            LIMIT #{size} OFFSET #{offset}
+            """)
+    List<EvidenceRow> selectEvidenceByCase(
+            @Param("organizationId") long organizationId,
+            @Param("caseId") long caseId,
+            @Param("size") int size,
+            @Param("offset") int offset);
+
+    @Select("""
+            SELECT COUNT(*) FROM reconciliation_evidence
+            WHERE org_id=#{organizationId} AND reconciliation_case_id=#{caseId}
+            """)
+    long countEvidenceByCase(
+            @Param("organizationId") long organizationId,
+            @Param("caseId") long caseId);
+
+    record EvidenceRow(
+            long id,
+            long organizationId,
+            long reconciliationRunId,
+            Long reconciliationCaseId,
+            String evidenceKey,
+            long providerAccountId,
+            String currency,
+            String matchKind,
+            String differenceKind,
+            Long chargeFactId,
+            Long gatewayRequestId,
+            Long gatewayRouteAttemptId,
+            Long gatewayUsageFactId,
+            Long gatewaySettlementId,
+            Long correctionGroupId,
+            Long reconciliationAdjustmentId,
+            Long gatewayFinancialResolutionId,
+            Long ledgerPostingId,
+            String providerRequestId,
+            BigDecimal externalAmount,
+            BigDecimal internalAmount,
+            BigDecimal differenceAmount,
+            Instant createdAt) {
+    }
 
     record ExactCorrelationGroup(
             String providerRequestId,

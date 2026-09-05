@@ -57,6 +57,23 @@ public final class AuditReconciliationAdapter implements ReconciliationAuditPort
     }
 
     @Override
+    public void chargeDispositionDecided(long organizationId, long actorUserId,
+            long dispositionId, long caseId, long chargeFactId, String disposition) {
+        audit.append("RECONCILIATION_CHARGE_DISPOSITION_DECIDED", organizationId, actorUserId,
+                "PROVIDER_CHARGE_DISPOSITION", dispositionId,
+                Map.of("caseId", caseId,
+                        "chargeFactId", chargeFactId,
+                        "disposition", disposition));
+    }
+
+    @Override
+    public void correctionLinked(long organizationId, long actorUserId, long caseId,
+            long correctionGroupId) {
+        audit.append("RECONCILIATION_CORRECTION_LINKED", organizationId, actorUserId,
+                "RECONCILIATION_CASE", caseId, Map.of("correctionGroupId", correctionGroupId));
+    }
+
+    @Override
     public void gatewayFinancialResolved(long organizationId, long actorUserId, long runId,
             Long caseId, long requestId, String resolutionType, String reservationOutcome,
             String currency) {

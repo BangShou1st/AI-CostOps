@@ -141,8 +141,10 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/reconciliation-runs",
                                 "/api/v1/reconciliation-runs/{runId}",
+                                "/api/v1/reconciliation-runs/{runId}/evidence",
                                 "/api/v1/reconciliation-cases",
                                 "/api/v1/reconciliation-cases/{caseId}",
+                                "/api/v1/reconciliation-cases/{caseId}/evidence",
                                 "/api/v1/billing-periods/{periodId}/close-readiness",
                                 "/api/v1/billing-periods/{periodId}/close-runs",
                                 "/api/v1/billing-periods/{periodId}/close-runs/{runId}").authenticated()
@@ -151,6 +153,10 @@ public class SecurityConfiguration {
                                 "/api/v1/reconciliation-cases/{caseId}/investigate",
                                 "/api/v1/reconciliation-cases/{caseId}/return-open",
                                 "/api/v1/reconciliation-cases/{caseId}/resolve",
+                                "/api/v1/reconciliation-cases/{caseId}/charge-dispositions",
+                                "/api/v1/reconciliation-cases/{caseId}/adjustments",
+                                "/api/v1/reconciliation-cases/{caseId}/link-correction",
+                                "/api/v1/reconciliation-runs/{runId}/gateway-resolutions",
                                 "/api/v1/billing-periods/{periodId}/close",
                                 "/api/v1/billing-periods/{periodId}/reopen").authenticated()
                         // M7 read-only workbench aggregation. Section content
