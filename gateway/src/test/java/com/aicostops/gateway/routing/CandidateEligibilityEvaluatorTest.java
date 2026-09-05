@@ -12,9 +12,9 @@ class CandidateEligibilityEvaluatorTest {
     @Test
     void rejectsPreviouslyAttemptedCandidateAndMissingPricing() {
         var candidate = candidate(11, 12L, 13L, null, null);
-        var attempted = evaluator.evaluate(candidate, new CandidateEligibilityEvaluator.RequestCapabilities(true, false),
+        var attempted = evaluator.evaluateWithoutRuntimeModel(candidate, new CandidateEligibilityEvaluator.RequestCapabilities(true, false),
                 Set.of(candidate.identity()));
-        var noPricing = evaluator.evaluate(candidate, new CandidateEligibilityEvaluator.RequestCapabilities(true, false),
+        var noPricing = evaluator.evaluateWithoutRuntimeModel(candidate, new CandidateEligibilityEvaluator.RequestCapabilities(true, false),
                 Set.of());
         assertThat(attempted.reason()).isEqualTo(CandidateEligibilityEvaluator.EligibilityReason.ALREADY_ATTEMPTED);
         assertThat(noPricing.reason()).isEqualTo(CandidateEligibilityEvaluator.EligibilityReason.PRICING_UNAVAILABLE);

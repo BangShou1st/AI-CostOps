@@ -21,9 +21,9 @@ public class CandidateEligibilityEvaluator {
         this.adapterRegistry = adapterRegistry;
     }
 
-    public CandidateEligibility evaluate(ResolvedRoutingPolicy.Candidate candidate,
+    public CandidateEligibility evaluateWithoutRuntimeModel(ResolvedRoutingPolicy.Candidate candidate,
             RequestCapabilities capabilities, Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
-        return evaluate(candidate, null, capabilities, attempted);
+        return evaluateCandidate(candidate, null, capabilities, attempted);
     }
 
     /**
@@ -34,10 +34,10 @@ public class CandidateEligibilityEvaluator {
     public CandidateEligibility evaluate(ResolvedRoutingPolicy.Candidate candidate,
             long logicalModelId, RequestCapabilities capabilities,
             Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
-        return evaluate(candidate, Long.valueOf(logicalModelId), capabilities, attempted);
+        return evaluateCandidate(candidate, Long.valueOf(logicalModelId), capabilities, attempted);
     }
 
-    private CandidateEligibility evaluate(ResolvedRoutingPolicy.Candidate candidate,
+    private CandidateEligibility evaluateCandidate(ResolvedRoutingPolicy.Candidate candidate,
             Long logicalModelId, RequestCapabilities capabilities,
             Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
         if (attempted.contains(candidate.identity())) return CandidateEligibility.rejected(EligibilityReason.ALREADY_ATTEMPTED);
