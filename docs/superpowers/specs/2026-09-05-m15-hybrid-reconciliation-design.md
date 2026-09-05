@@ -358,6 +358,8 @@ The statement side is confirmed canonical Charges in the period. The internal si
 
 A Provider export's day/month/bucket granularity remains authoritative as imported; M15 does not split one statement Charge into synthetic requests.
 
+**An aggregate match never auto-classifies any individual Charge as `RECONCILIATION_EVIDENCE` or `DIRECT_PROVIDER_CHARGE`.** Aggregate arithmetic proves a scope-level relationship, not per-Charge ownership. When an individual Charge requires a posting disposition and no exact correlation exists, the disposition remains a reviewed manual decision.
+
 ## 18. Human-reviewed binding
 
 A user with reconciliation resolution permission may explicitly bind a statement Charge to an unresolved Gateway request when automatic matching is impossible but the operator has external evidence.
@@ -504,9 +506,10 @@ Decision sources are bounded:
 ```text
 LEGACY_POSTED
 SYSTEM_EXACT
-SYSTEM_AGGREGATE_MATCH
 MANUAL
 ```
+
+`SYSTEM_EXACT` is allowed only after the exact Provider-request correlation rules in section 15 succeed. Aggregate matching never creates a system disposition for an individual Charge.
 
 `DIRECT_PROVIDER_CHARGE` means the entire canonical Charge may be handled by the existing V1 allocation/posting workflow. It must not be used to split an aggregate statement bucket that mixes Gateway and direct traffic.
 
@@ -687,7 +690,35 @@ They may also retain `PENDING_HOLD` and block Close.
 
 M15 needs an explicit reviewed terminal financial decision without rewriting Gateway request/usage/Settlement facts.
 
-## 37. Gateway financial resolution record
+## 37. Resolution eligibility — never compete with normal M13 Settlement
+
+M15 Gateway financial resolution is **not** an alternate fast path around normal Settlement.
+
+It is eligible only when the request has a non-SAFE possible-billable attempt and one of these is true:
+
+```text
+A. current financial observation is absent, INCOMPLETE or UNKNOWN
+
+or
+
+B. a Gateway Settlement already exists in RECONCILIATION_REQUIRED
+```
+
+It is explicitly **not eligible** when:
+
+```text
+route attempt = SAFE_NO_BILLABLE_EXECUTION
+current usage is ordinary FINAL and no Settlement exists yet
+Settlement status = PENDING
+Settlement status = RETRYABLE_FAILED
+Settlement status = SETTLED
+```
+
+For ordinary current `FINAL` usage, M13 Settlement owns the normal path. `PENDING` / `RETRYABLE_FAILED` must continue through the existing worker/retry semantics rather than being overridden by a reviewer.
+
+Before a resolution commits, the transaction re-reads current usage/Settlement lineage under the appropriate source locks. If normal M13 Settlement has become `SETTLED`, that committed Settlement wins and M15 resolution aborts/converges without an adjustment. A fresh reconciliation run may then evaluate any remaining statement difference.
+
+## 38. Gateway financial resolution record
 
 M15 adds one immutable final resolution per Gateway Request:
 
@@ -711,7 +742,7 @@ review actor/reason/time
 
 M14 guarantees at most one attempt per request can be possible-billable/completed, so one resolution per request is sufficient.
 
-## 38. Resolution types
+## 39. Resolution types
 
 Exactly these initial types are supported:
 
@@ -734,7 +765,7 @@ No Ledger amount is invented. Any effective Reservation is changed to `RELEASED`
 
 Statement absence alone can never automatically create this resolution.
 
-## 39. Settlement status is not rewritten
+## 40. Settlement status is not rewritten
 
 A `RECONCILIATION_REQUIRED` Settlement remains historical `RECONCILIATION_REQUIRED` after M15 review.
 
@@ -742,7 +773,7 @@ An `INCOMPLETE`/`UNKNOWN` usage fact remains historical `INCOMPLETE`/`UNKNOWN`.
 
 The new resolution is the downstream financial terminal fact used by Close/recovery.
 
-## 40. Gateway Close blocker evolution
+## 41. Gateway Close blocker evolution
 
 `PENDING_GATEWAY_FINANCIAL_WORK` continues to block the existing unresolved states **unless** the exact request has a valid M15 `gateway_financial_resolution`.
 
@@ -750,7 +781,7 @@ A valid resolution also requires no still-effective reservation contradicting th
 
 M15 does not add a ninth Close blocker.
 
-## 41. Gateway resolution transaction
+## 42. Gateway resolution transaction
 
 For `STATEMENT_ADJUSTMENT_POSTED`, the financial transaction uses deterministic locking:
 
@@ -760,6 +791,7 @@ BillingPeriod row(s), ascending id
 → explicitly-bound Commitment when same-period exact resolution requires it
 → bound Reservation
 → reconciliation case / resolution identity
+→ current Gateway usage/Settlement source truth
 → Reconciliation Adjustment
 → Ledger uniqueness/insertion
 → Budget Actual / optional explicit Commitment consumption
@@ -777,6 +809,7 @@ original BillingPeriod
 → bound Budget
 → Reservation
 → reconciliation case / resolution identity
+→ current Gateway usage/Settlement source truth
 → Reservation RELEASED
 → Audit
 → gateway_financial_resolution insert
@@ -790,7 +823,7 @@ No Provider call and no Redis mutation occurs inside these transactions.
 
 # Part H — Case Lifecycle and Staleness
 
-## 42. Existing case lifecycle stays
+## 43. Existing case lifecycle stays
 
 ```text
 OPEN
@@ -800,7 +833,7 @@ OPEN
 
 M15 keeps the existing explicit reason code + resolution note requirement.
 
-## 43. Resolution actions
+## 44. Resolution actions
 
 A case can be resolved by a bounded action:
 
@@ -827,7 +860,7 @@ Posts the exact required signed adjustment and resolves the case atomically.
 
 Creates the immutable Gateway financial resolution and, for a positive/credit financial amount, the required adjustment in one transaction.
 
-## 44. Financial mutation forces rerun
+## 45. Financial mutation forces rerun
 
 Any Correction, Provider Charge posting, or Reconciliation Adjustment changes current internal financial truth.
 
@@ -849,7 +882,7 @@ Therefore a financial resolution is followed by a new reconciliation run before 
 
 # Part I — OPEN / CLOSED BillingPeriod Semantics
 
-## 45. Reconciliation is evidence work, not always a financial write
+## 46. Reconciliation is evidence work, not always a financial write
 
 M6 currently starts a run only through `lockOpenById`. M15 changes run admission to:
 
@@ -863,7 +896,7 @@ Starting a run briefly locks the BillingPeriod row so Close/Reopen cannot race w
 
 The snapshot remains repeatable-read and read-only.
 
-## 46. CLOSED run never reopens automatically
+## 47. CLOSED run never reopens automatically
 
 A reconciliation run against a CLOSED period may discover late statement evidence, Provider correction, period mismatch or legacy unresolved Gateway work.
 
@@ -879,7 +912,7 @@ reservation mutation
 
 All financial action remains an explicit reviewed command.
 
-## 47. Reopen interaction
+## 48. Reopen interaction
 
 Existing `PERIOD_REOPEN` permission/reason/audit remains the only way to reopen a CLOSED period.
 
@@ -889,7 +922,7 @@ If a period is reopened after a CLOSED evidence run, later Close uses the curren
 
 # Part J — V23 Schema
 
-## 48. Migration ownership
+## 49. Migration ownership
 
 At the approved baseline, V22 is the highest migration.
 
@@ -903,7 +936,7 @@ unless a newer verified `main` consumes V23 before implementation begins.
 
 V1-V22 are immutable.
 
-## 49. `provider_charge_disposition`
+## 50. `provider_charge_disposition`
 
 Logical fields:
 
@@ -913,7 +946,7 @@ org_id
 charge_fact_id
 
 disposition = RECONCILIATION_EVIDENCE | DIRECT_PROVIDER_CHARGE
-decision_source = LEGACY_POSTED | SYSTEM_EXACT | SYSTEM_AGGREGATE_MATCH | MANUAL
+decision_source = LEGACY_POSTED | SYSTEM_EXACT | MANUAL
 reconciliation_run_id NULL
 reconciliation_case_id NULL
 decided_by_member_id NULL
@@ -929,12 +962,13 @@ UNIQUE(org_id, charge_fact_id)
 same-org FK to charge_fact
 same-org optional FK to reconciliation_run/case/member
 MANUAL requires member + bounded reason/note
+SYSTEM_EXACT requires reconciliation evidence proving exact correlation
 system/legacy sources do not impersonate a member
 ```
 
 V23 backfills existing `PROVIDER_CHARGE` Ledger source Charge ids as `DIRECT_PROVIDER_CHARGE / LEGACY_POSTED`.
 
-## 50. `reconciliation_adjustment`
+## 51. `reconciliation_adjustment`
 
 Logical fields:
 
@@ -968,7 +1002,7 @@ same-org FKs for case/provider account/period/request/attempt/statement Charge/m
 
 Allocation lines live in immutable `ledger_entry` rows; no duplicate adjustment-line table is required.
 
-## 51. Ledger forward extension
+## 52. Ledger forward extension
 
 V23 extends:
 
@@ -991,7 +1025,7 @@ source_reconciliation_adjustment_id
 
 Correction rows preserve exactly the source lineage of their corrected historical entry.
 
-## 52. `gateway_financial_resolution`
+## 53. `gateway_financial_resolution`
 
 Logical fields:
 
@@ -1040,7 +1074,7 @@ Checks require adjustment lineage for `STATEMENT_ADJUSTMENT_POSTED` and forbid a
 
 All relational references are same-organization where an org-owned parent exists.
 
-## 53. `reconciliation_evidence`
+## 54. `reconciliation_evidence`
 
 This is immutable, bounded lineage/evidence, not a free-form evidence dump.
 
@@ -1091,7 +1125,7 @@ UNIQUE(org_id, reconciliation_run_id, evidence_key)
 
 No raw Prompt/Completion/provider body is stored here.
 
-## 54. No new idempotency table
+## 55. No new idempotency table
 
 M15 financial actions reuse `api_idempotency` through a genericized/narrow M15 adapter and distinct operation codes such as:
 
@@ -1105,7 +1139,7 @@ RECONCILIATION_CHARGE_DISPOSITION
 
 # Part K — API / Permission Contract
 
-## 55. Existing APIs remain compatible
+## 56. Existing APIs remain compatible
 
 Keep:
 
@@ -1122,7 +1156,7 @@ POST /api/v1/reconciliation-cases/{id}/resolve
 
 The existing simple `/resolve` path maps to `ACCEPT_EXPLAINED_DIFFERENCE` for backward compatibility, with M15 evidence classification added to the request/response contract as optional bounded fields.
 
-## 56. M15 APIs
+## 57. M15 APIs
 
 Add:
 
@@ -1138,7 +1172,7 @@ Financial POSTs require `Idempotency-Key`.
 
 All identifier fields remain decimal strings in JSON, matching existing frontend/API convention.
 
-## 57. Permissions
+## 58. Permissions
 
 Reuse existing permission families; do not invent a new M15 permission namespace.
 
@@ -1172,7 +1206,7 @@ A user lacking the financial permission receives the normal authorization failur
 
 # Part L — Frontend
 
-## 58. Reconciliation pages evolve, not duplicate
+## 59. Reconciliation pages evolve, not duplicate
 
 Extend the existing reconciliation feature rather than adding a second Hybrid section.
 
@@ -1207,7 +1241,7 @@ available reviewed resolution actions
 
 CLOSED-period cases display an explicit banner that reconciliation does not reopen history automatically.
 
-## 59. Ledger frontend debt fixed in M15
+## 60. Ledger frontend debt fixed in M15
 
 The frontend Ledger contract must recognize all Backend Ledger sources:
 
@@ -1234,7 +1268,7 @@ No Provider credential or request content is exposed.
 
 # Part M — Close / Concurrency / Failure Safety
 
-## 60. Close blockers
+## 61. Close blockers
 
 M15 reuses:
 
@@ -1257,7 +1291,7 @@ latest-run cases all RESOLVED
 
 `PENDING_GATEWAY_FINANCIAL_WORK` recognizes a valid immutable `gateway_financial_resolution` as reviewed terminal financial truth for that request.
 
-## 61. Financial lock order
+## 62. Financial lock order
 
 M15 must never acquire Ledger/source locks before BillingPeriod/Budget locks.
 
@@ -1284,7 +1318,7 @@ BillingPeriods sorted by id
 
 This is tested against Close/Reopen and existing M13 Settlement lock behavior on real MySQL.
 
-## 62. Required races
+## 63. Required races
 
 Real MySQL integration tests must prove at least:
 
@@ -1307,21 +1341,24 @@ Gateway financial resolution vs duplicate reviewer commands
 → one resolution / one adjustment / one Budget mutation / one reservation terminal transition
 
 Gateway financial resolution vs M13 Settlement retry
-→ one financial terminal path wins; no Settlement + Adjustment double posting
+→ normal PENDING/RETRYABLE_FAILED Settlement cannot be overridden;
+   if Settlement becomes SETTLED it wins and no M15 adjustment is posted
 
 Correction vs M15 reconciliation rerun
 → basis change is detected; old run is stale
 ```
 
-## 63. Settlement-vs-resolution conflict
+## 64. Settlement-vs-resolution conflict
 
-Before committing a Gateway financial resolution, M15 re-reads Gateway Settlement under the relevant source lock.
+Before committing a Gateway financial resolution, M15 re-reads current usage and Gateway Settlement under the relevant source lock.
+
+If the request is in an ordinary M13 Settlement path (`FINAL` with no Settlement yet, `PENDING`, or `RETRYABLE_FAILED`), the M15 resolution command is rejected and cannot post an adjustment.
 
 If the request became normally `SETTLED` concurrently, M15 does not also post a reconciliation adjustment for missing financial truth. It fails/converges to the newly settled history and requires a fresh reconciliation run if a statement difference remains.
 
 This prevents `SETTLED + missing-usage adjustment` double accounting.
 
-## 64. Failure atomicity
+## 65. Failure atomicity
 
 Injected failure after any of these steps must roll the whole financial transaction back:
 
@@ -1342,7 +1379,7 @@ No partial financial terminal state may remain.
 
 # Part N — Audit / Metrics / Privacy
 
-## 65. Audit
+## 66. Audit
 
 Representative bounded events:
 
@@ -1367,7 +1404,7 @@ reasoning
 raw Provider response body
 ```
 
-## 66. Metrics
+## 67. Metrics
 
 Bounded metrics include:
 
@@ -1385,7 +1422,7 @@ Never use org/request/case/Provider-request ids as metric labels.
 
 # Part O — Required Acceptance Evidence
 
-## 67. Schema
+## 68. Schema
 
 Real MySQL 8.4 Flyway test proves:
 
@@ -1399,7 +1436,7 @@ legacy Provider Charge disposition backfill
 business uniqueness
 ```
 
-## 68. Aggregate reconciliation
+## 69. Aggregate reconciliation
 
 Tests prove:
 
@@ -1411,7 +1448,7 @@ Reconciliation Adjustment contributes through source lineage
 mixed direct + Gateway provider/currency scope aggregates correctly
 ```
 
-## 69. Matching safety
+## 70. Matching safety
 
 Tests prove:
 
@@ -1420,10 +1457,11 @@ exact request id + unique lineage → exact evidence
 SAFE attempt → never exact billable match
 ambiguous duplicate Provider request id → no automatic binding
 missing Provider request id → aggregate only
+aggregate match → never creates automatic per-Charge disposition
 amount/time proximity → never creates exact match
 ```
 
-## 70. Double-count prevention
+## 71. Double-count prevention
 
 Tests prove:
 
@@ -1434,7 +1472,7 @@ non-Hybrid Provider Charge → existing V1 posting works unchanged
 already-posted legacy Charge remains replayable and is not reclassified as Gateway evidence
 ```
 
-## 71. Financial resolution
+## 72. Financial resolution
 
 Tests prove:
 
@@ -1443,11 +1481,15 @@ SETTLED mismatch → original Settlement unchanged + append-only Correction
 Gateway correction preserves source_gateway_settlement_id
 missing/UNKNOWN Gateway cost → reviewed Adjustment + resolution + hold finalization
 positive no-charge proof → no Ledger posting + hold release
+ordinary FINAL with no Settlement → M15 resolution rejected; normal M13 Settlement owns path
+PENDING Settlement → M15 resolution rejected
+RETRYABLE_FAILED Settlement → M15 resolution rejected
+concurrent M13 SETTLED winner → no M15 adjustment/resolution duplicate
 aggregate difference → explicit lines only; no inferred pro-rata split
 cross-period CLOSED case → no auto reopen; adjustment only into explicit OPEN correction period
 ```
 
-## 72. Close
+## 73. Close
 
 Tests prove:
 
@@ -1459,7 +1501,7 @@ valid Gateway financial resolution clears only that request's Gateway blocker
 invalid/missing resolution keeps blocker
 ```
 
-## 73. Regression matrix
+## 74. Regression matrix
 
 M15 final verification includes:
 
@@ -1482,13 +1524,13 @@ M14 routing/failover/provider-call behavior must remain green without needing ne
 
 # Part P — Definition of Done
 
-## 74. M15 complete only when all are true
+## 75. M15 complete only when all are true
 
 ```text
 [freeze] one canonical M6-evolved reconciliation run/case lifecycle
 [freeze] external statement truth vs Provider/Gateway/Adjustment Ledger truth
 [freeze] exact matching requires strong unique evidence
-[freeze] aggregate matching never invents request ownership
+[freeze] aggregate matching never invents request ownership or per-Charge disposition
 [freeze] required difference vocabulary is represented and evidence-gated
 [freeze] Provider Charge Hybrid posting fence prevents realtime + statement double count
 [freeze] existing committed Provider Charge history remains compatible
@@ -1496,6 +1538,7 @@ M14 routing/failover/provider-call behavior must remain green without needing ne
 [freeze] Gateway corrections preserve source_gateway_settlement_id
 [freeze] no-history/aggregate differences use first-class RECONCILIATION_ADJUSTMENT
 [freeze] unresolved Gateway work has explicit reviewed gateway_financial_resolution
+[freeze] M15 resolution never competes with normal FINAL/PENDING/RETRYABLE_FAILED M13 Settlement
 [freeze] PENDING_HOLD is finalized/released only by a valid financial terminal path
 [freeze] OPEN and CLOSED periods may be reconciled; CLOSING may not
 [freeze] CLOSED period is never automatically reopened
@@ -1506,4 +1549,4 @@ M14 routing/failover/provider-call behavior must remain green without needing ne
 [freeze] V23 is the only M15 migration from the approved baseline
 ```
 
-Any implementation that uses fuzzy matching, posts the same Provider statement Charge on top of already-covered Gateway cost, mutates `SETTLED` history, silently reassigns BillingPeriod, treats statement absence as zero, or resolves possible-billable Gateway work without durable reviewed evidence violates this design.
+Any implementation that uses fuzzy matching, posts the same Provider statement Charge on top of already-covered Gateway cost, mutates `SETTLED` history, silently reassigns BillingPeriod, treats statement absence as zero, overrides a normal M13 Settlement path, or resolves possible-billable Gateway work without durable reviewed evidence violates this design.
