@@ -196,7 +196,7 @@ public class ProviderChargePostingService {
             ledger.insertEntry(organizationId, postingId, line.lineIndex(),
                     entryType(line.allocatedAmount()).name(), line.allocatedAmount(), line.currency(),
                     line.projectId(), line.costCenterId(), line.teamId(), budgetId,
-                    chargeFactId, null, line.id(), null, null, now);
+                    chargeFactId, null, null, null, line.id(), null, null, now);
             var entryId = ledger.lastEntryId();
             var entry = ledger.selectEntryByIdForUpdate(organizationId, entryId);
             insertedEntries.add(entry);

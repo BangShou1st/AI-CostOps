@@ -48,7 +48,7 @@ class GatewaySettlementLedgerServiceTest {
                 LedgerPostingActorType.SYSTEM, null, command.now(), command.now());
         var entry = new LedgerEntry(55, 7, 44, 0, LedgerEntryType.COST,
                 command.amount(), "USD", 12L, null, null, 88L, null, null, 9L,
-                null, null, null, command.now());
+                null, null, null, null, command.now());
         when(mapper.selectPostingByKey(7, "GATEWAY_SETTLEMENT:9")).thenReturn(posting);
         when(mapper.selectEntriesByPostingId(7, 44)).thenReturn(List.of(entry));
 

@@ -25,7 +25,7 @@ public interface LedgerPostingMapper {
             le.id,le.org_id,le.posting_id,le.entry_index,le.entry_type,le.amount,le.currency,
             le.project_id,le.cost_center_id,le.team_id,le.budget_id,
             le.source_charge_fact_id,le.source_expense_claim_id,le.source_gateway_settlement_id,
-            le.allocation_line_id,
+            le.source_reconciliation_adjustment_id,le.allocation_line_id,
             le.correction_group_id,le.reverses_entry_id,le.created_at
             """;
 
@@ -106,11 +106,13 @@ public interface LedgerPostingMapper {
             INSERT INTO ledger_entry(
                 org_id,posting_id,entry_index,entry_type,amount,currency,
                 project_id,cost_center_id,team_id,budget_id,
-                source_charge_fact_id,source_expense_claim_id,allocation_line_id,
+                source_charge_fact_id,source_expense_claim_id,source_gateway_settlement_id,
+                source_reconciliation_adjustment_id,allocation_line_id,
                 correction_group_id,reverses_entry_id,created_at)
             VALUES (#{organizationId},#{postingId},#{entryIndex},#{entryType},#{amount},#{currency},
                     #{projectId},#{costCenterId},#{teamId},#{budgetId},
-                    #{sourceChargeFactId},#{sourceExpenseClaimId},#{allocationLineId},
+                    #{sourceChargeFactId},#{sourceExpenseClaimId},#{sourceGatewaySettlementId},
+                    #{sourceReconciliationAdjustmentId},#{allocationLineId},
                     #{correctionGroupId},#{reversesEntryId},#{createdAt})
             """)
     int insertEntry(
@@ -126,6 +128,8 @@ public interface LedgerPostingMapper {
             @Param("budgetId") Long budgetId,
             @Param("sourceChargeFactId") Long sourceChargeFactId,
             @Param("sourceExpenseClaimId") Long sourceExpenseClaimId,
+            @Param("sourceGatewaySettlementId") Long sourceGatewaySettlementId,
+            @Param("sourceReconciliationAdjustmentId") Long sourceReconciliationAdjustmentId,
             @Param("allocationLineId") Long allocationLineId,
             @Param("correctionGroupId") Long correctionGroupId,
             @Param("reversesEntryId") Long reversesEntryId,
