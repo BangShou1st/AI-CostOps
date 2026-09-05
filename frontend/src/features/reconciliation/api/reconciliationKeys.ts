@@ -6,4 +6,6 @@ export const reconciliationKeys = {
   run: (runId: string) => ['reconciliation', 'run', runId] as const,
   cases: (params: ReconciliationCaseListParams) => ['reconciliation', 'cases', params] as const,
   case: (caseId: string) => ['reconciliation', 'case', caseId] as const,
+  runEvidence: (runId: string) => ['reconciliation', 'run', runId, 'evidence'] as const,
+  caseEvidence: (caseId: string) => ['reconciliation', 'case', caseId, 'evidence'] as const,
 }

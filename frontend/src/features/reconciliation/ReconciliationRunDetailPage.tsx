@@ -31,6 +31,7 @@ export function ReconciliationRunDetailPage() {
   const run = useQuery({ queryKey: reconciliationKeys.run(runId), queryFn: () => reconciliationApi.getRun(runId), enabled: runId.length > 0 })
   const caseParams = useMemo(() => ({ runId, page: casePage, size: PAGE_SIZE, status: caseStatus }), [casePage, caseStatus, runId])
   const cases = useQuery({ queryKey: reconciliationKeys.cases(caseParams), queryFn: () => reconciliationApi.listCases(caseParams), enabled: runId.length > 0 && Boolean(run.data) })
+  const evidence = useQuery({ queryKey: reconciliationKeys.runEvidence(runId), queryFn: () => reconciliationApi.listRunEvidence(runId), enabled: runId.length > 0, retry: false })
   const rerun = useMutation({
     mutationFn: () => reconciliationApi.createRun({ billingPeriodId: run.data!.billingPeriodId }, createIdempotencyKey()),
     retry: false,
@@ -45,6 +46,9 @@ export function ReconciliationRunDetailPage() {
   const data = run.data
   const matchedCount = data.summary.matchedCount
   const differenceCount = data.summary.discrepancyCount
+  const unresolvedGatewayEvidence = (evidence.data?.items ?? []).filter(
+    (row) => row.matchKind === 'GATEWAY_UNRESOLVED',
+  )
 
   return (
     <main className="settings-page m6-page">
@@ -63,6 +67,8 @@ export function ReconciliationRunDetailPage() {
         <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="运行状态" value={formatReconciliationRunStatus(data.status)} /></Card></Col>
         <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="已匹配记录" value={matchedCount ?? '—'} suffix={matchedCount === null ? undefined : '条'} /></Card></Col>
         <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="差异案例" value={differenceCount ?? '—'} suffix={differenceCount === null ? undefined : '个'} /></Card></Col>
+        <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="精确请求证据" value={data.summary.exactEvidenceCount ?? '—'} suffix={data.summary.exactEvidenceCount === undefined ? undefined : '条'} /></Card></Col>
+        <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="未决网关财务工作" value={data.summary.unresolvedGatewayCount ?? '—'} suffix={data.summary.unresolvedGatewayCount === undefined ? undefined : '项'} /></Card></Col>
       </Row>
 
       <Card className="m6-section-card" title="运行摘要">
@@ -85,6 +91,23 @@ export function ReconciliationRunDetailPage() {
           title="存在需要处理的对账阻塞项"
           description={`当前运行产生 ${differenceCount} 个差异案例。未解决的案例可能影响账期关闭准备度。`}
         />
+      )}
+
+      {unresolvedGatewayEvidence.length > 0 && (
+        <Card
+          className="m6-section-card"
+          title="未决网关财务工作（运行级）"
+          extra={<Typography.Text type="secondary">无需金额差异即可存在，不会为此虚构零金额案例</Typography.Text>}
+        >
+          <Alert
+            type="warning"
+            showIcon
+            title={`${unresolvedGatewayEvidence.length} 个网关请求仍需人工财务决定`}
+            description={unresolvedGatewayEvidence
+              .map((row) => `请求 #${row.gatewayRequestId ?? '?'} · 供应商账号 ${row.providerAccountId} · ${row.currency}`)
+              .join('；')}
+          />
+        </Card>
       )}
 
       <Card className="m6-section-card" title="差异案例" extra={<Typography.Text type="secondary">金额以服务端结果为准</Typography.Text>}>
