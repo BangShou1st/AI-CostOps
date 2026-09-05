@@ -45,6 +45,7 @@ public final class GatewaySettlementService {
     private final CommitmentConsumeService commitmentConsume;
     private final GatewaySettlementAuditPort audit;
     private final GatewaySettlementFailureInjector failureInjector;
+    private final GatewayFinancialTerminalPort financialTerminal;
     private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -62,6 +63,7 @@ public final class GatewaySettlementService {
             CommitmentConsumeService commitmentConsume,
             GatewaySettlementAuditPort audit,
             GatewaySettlementFailureInjector failureInjector,
+            GatewayFinancialTerminalPort financialTerminal,
             AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
             Clock clock) {
@@ -76,6 +78,7 @@ public final class GatewaySettlementService {
         this.commitmentConsume = commitmentConsume;
         this.audit = audit;
         this.failureInjector = failureInjector;
+        this.financialTerminal = financialTerminal;
         this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
@@ -98,7 +101,13 @@ public final class GatewaySettlementService {
             Clock clock) {
         this(settlements, lineageReader, calculator, periodFence, budgets, reservations,
                 gatewayLedger, ledger, commitmentConsume, audit,
-                GatewaySettlementFailureInjector.noop(), metrics, transactionManager, clock);
+                GatewaySettlementFailureInjector.noop(),
+                new GatewayFinancialTerminalPort() {
+                    @Override
+                    public boolean hasTerminalResolution(long organizationId, long requestId) {
+                        return false;
+                    }
+                }, metrics, transactionManager, clock);
     }
 
     public SettlementResult settle(long organizationId, long settlementId) {
@@ -171,6 +180,13 @@ public final class GatewaySettlementService {
         // Frozen lock order: BillingPeriod -> Budget -> Commitment -> Reservation -> Settlement.
         var lockedReservation = preReservation == null ? null
                 : reservations.selectByIdForUpdate(organizationId, preReservation.id());
+        // M15 defense in depth: a committed gateway financial resolution is the
+        // terminal financial decision for this request; no normal Settlement
+        // may post after it (stale-discovery/concurrency window closed here).
+        if (financialTerminal.hasTerminalResolution(organizationId, before.requestId())) {
+            throw reconcile("GATEWAY_FINANCIAL_RESOLUTION_EXISTS",
+                    "A gateway financial resolution is already terminal for this request");
+        }
         var settlement = settlements.selectByIdForUpdate(organizationId, before.id());
         if (settlement == null) {
             throw reconcile("SETTLEMENT_LINEAGE_MISSING", "Settlement disappeared while processing");

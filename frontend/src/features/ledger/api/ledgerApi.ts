@@ -1,7 +1,7 @@
 import { apiClient } from '../../auth/authApi'
 import type { PageResponse } from '../../../api/pagination'
 
-export type LedgerSourceType = 'PROVIDER_CHARGE' | 'EXPENSE_CLAIM' | 'CORRECTION'
+export type LedgerSourceType = 'PROVIDER_CHARGE' | 'EXPENSE_CLAIM' | 'CORRECTION' | 'GATEWAY_SETTLEMENT' | 'RECONCILIATION_ADJUSTMENT'
 export type LedgerEntryType = 'COST' | 'CREDIT' | 'ADJUSTMENT' | 'REVERSAL'
 
 export interface LedgerEntryResponse {
@@ -16,6 +16,8 @@ export interface LedgerEntryResponse {
   budgetId: string | null
   sourceChargeFactId: string | null
   sourceExpenseClaimId: string | null
+  sourceGatewaySettlementId: string | null
+  sourceReconciliationAdjustmentId: string | null
   allocationLineId: string | null
   correctionGroupId: string | null
   reversesEntryId: string | null

@@ -15,12 +15,19 @@ public final class M2DatabaseCleaner {
     }
 
     public static void clean(JdbcTemplate jdbc) {
+        // M15 hybrid reconciliation lineage: evidence references resolution,
+        // adjustment and correction rows, so it is removed first; resolution
+        // and adjustment precede their run/case and Gateway parents.
+        jdbc.update("DELETE FROM reconciliation_evidence");
+        jdbc.update("DELETE FROM gateway_financial_resolution");
+        jdbc.update("DELETE FROM provider_charge_disposition");
+
         // M6 close/reconciliation history references BillingPeriod, provider
         // account, organization members and (optionally) reconciliation runs.
+        // reconciliation_case/run themselves are children of the adjustment
+        // rows removed below, so they are deleted after the Ledger history.
         jdbc.update("DELETE FROM period_close_check");
         jdbc.update("DELETE FROM period_close_run");
-        jdbc.update("DELETE FROM reconciliation_case");
-        jdbc.update("DELETE FROM reconciliation_run");
 
         // M5 immutable history is append-only in production, but test fixtures
         // must remove its children before allocation/budget source rows.
@@ -43,6 +50,11 @@ public final class M2DatabaseCleaner {
         // budget_commitment, so it is deleted before all of its parents.
         jdbc.update("DELETE FROM budget_reservation");
         jdbc.update("DELETE FROM ledger_posting");
+        // Reconciliation adjustments are Ledger entry sources and parents of
+        // reconciliation_case/run; remove them before that M6 history.
+        jdbc.update("DELETE FROM reconciliation_adjustment");
+        jdbc.update("DELETE FROM reconciliation_case");
+        jdbc.update("DELETE FROM reconciliation_run");
         jdbc.update("DELETE FROM duplicate_candidate");
         jdbc.update("DELETE FROM allocation_line");
         // V11 budget/period chain: usage -> commitment -> budget -> period.

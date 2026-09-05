@@ -9,7 +9,12 @@ V1.1 / M9 = COMPLETE / ACCEPTED (v1.1.0 RELEASED; AIC-074~AIC-083 all PASS)
 v1.1.0 = RELEASED
 M10 V2 Detailed Design = COMPLETE / FROZEN (AIC-084~AIC-093 PASS)
 M10 design merge = PR #129 / main@1ed62c68c09458570c5cd04f812a2525028db7a2
-M11 Gateway Edge MVP = NEXT IMPLEMENTATION MILESTONE
+M11 Gateway Edge MVP = COMPLETE / ACCEPTED
+M12 Identity / Attribution / Budget Reservation = COMPLETE / ACCEPTED
+M13 Realtime Metering / Settlement = COMPLETE / ACCEPTED
+M14 Multi-provider Routing / Resilience = COMPLETE / ACCEPTED (PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b)
+M15 Hybrid Reconciliation = IMPLEMENTATION IN DELIVERY (feat/m15-hybrid-reconciliation; complete after independent review + acceptance)
+M16 V2 Production Acceptance = NEXT AFTER M15 ACCEPTANCE
 ```
 
 V1 的冻结历史、AIC-001～AIC-073、M0～M8 与最终验收证据继续保留，不改写为当前待办。

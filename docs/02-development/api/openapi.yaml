@@ -1047,6 +1047,128 @@ components:
       required: [billingPeriodId]
       properties:
         billingPeriodId: { $ref: '#/components/schemas/Id' }
+    ReconciliationMatchKind:
+      type: string
+      enum: [EXACT_PROVIDER_REQUEST, AGGREGATE_SCOPE, GATEWAY_UNRESOLVED, MANUAL_BINDING, RESOLUTION_ACTION]
+    ReconciliationDifferenceKind:
+      type: string
+      enum: [PRICING_DRIFT, DISCOUNT, ROUNDING, PROVIDER_CORRECTION, LATE_CHARGE, BILLING_PERIOD_MISMATCH, MISSING_GATEWAY_USAGE, UNKNOWN_PROVIDER_CHARGE, DUPLICATE_EXTERNAL_CHARGE, UNCLASSIFIED]
+    ReconciliationEvidenceResponse:
+      type: object
+      required: [id, reconciliationRunId, evidenceKey, providerAccountId, currency, matchKind, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        reconciliationRunId: { $ref: '#/components/schemas/Id' }
+        reconciliationCaseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        evidenceKey: { type: string, maxLength: 128 }
+        providerAccountId: { $ref: '#/components/schemas/Id' }
+        currency: { type: string }
+        matchKind: { $ref: '#/components/schemas/ReconciliationMatchKind' }
+        differenceKind: { oneOf: [{ $ref: '#/components/schemas/ReconciliationDifferenceKind' }, { type: 'null' }] }
+        chargeFactId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        gatewayRequestId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        gatewayRouteAttemptId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        gatewayUsageFactId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        gatewaySettlementId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        correctionGroupId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        reconciliationAdjustmentId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        gatewayFinancialResolutionId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        ledgerPostingId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        providerRequestId: { oneOf: [{ type: string, maxLength: 255 }, { type: 'null' }] }
+        externalAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        internalAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        differenceAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+    PageResponseReconciliationEvidence:
+      type: object
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ReconciliationEvidenceResponse' } }
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+    ChargeDispositionRequest:
+      type: object
+      required: [chargeFactId, disposition, reasonCode, reasonNote]
+      properties:
+        chargeFactId: { $ref: '#/components/schemas/Id' }
+        disposition: { type: string, enum: [RECONCILIATION_EVIDENCE, DIRECT_PROVIDER_CHARGE] }
+        reasonCode: { type: string, maxLength: 64 }
+        reasonNote: { type: string, maxLength: 2000 }
+    ChargeDispositionResponse:
+      type: object
+      required: [id, caseId, chargeFactId, disposition, decisionSource]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        caseId: { $ref: '#/components/schemas/Id' }
+        chargeFactId: { $ref: '#/components/schemas/Id' }
+        disposition: { type: string, enum: [RECONCILIATION_EVIDENCE, DIRECT_PROVIDER_CHARGE] }
+        decisionSource: { type: string, enum: [MANUAL] }
+    CaseAdjustmentRequest:
+      type: object
+      required: [amount, adjustmentPeriodId, lines, reasonCode, reasonNote]
+      properties:
+        amount: { $ref: '#/components/schemas/Money' }
+        adjustmentPeriodId: { $ref: '#/components/schemas/Id' }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [lineIndex, scopeType, scopeId, amount]
+            properties:
+              lineIndex: { type: integer, minimum: 0 }
+              scopeType: { type: string, enum: [PROJECT, COST_CENTER, TEAM] }
+              scopeId: { $ref: '#/components/schemas/Id' }
+              amount: { $ref: '#/components/schemas/Money' }
+        reasonCode: { type: string, maxLength: 64 }
+        reasonNote: { type: string, maxLength: 2000 }
+    ReconciliationAdjustmentResponse:
+      type: object
+      required: [id, runId, adjustmentScope, amount, currency]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        caseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        runId: { $ref: '#/components/schemas/Id' }
+        adjustmentScope: { type: string, enum: [CASE_FULL, GATEWAY_REQUEST] }
+        amount: { $ref: '#/components/schemas/Money' }
+        currency: { type: string }
+        adjustmentPeriodId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+    GatewayResolutionRequest:
+      type: object
+      required: [requestId, resolutionType, reasonCode, reasonNote]
+      properties:
+        caseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        requestId: { $ref: '#/components/schemas/Id' }
+        resolutionType: { type: string, enum: [STATEMENT_ADJUSTMENT_POSTED, NO_CHARGE_CONFIRMED] }
+        adjustmentAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        correctionPeriodId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        commitmentId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        reasonCode: { type: string, maxLength: 64 }
+        reasonNote: { type: string, maxLength: 2000 }
+    GatewayResolutionResponse:
+      type: object
+      required: [id, runId, requestId, resolutionType]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        runId: { $ref: '#/components/schemas/Id' }
+        caseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        requestId: { $ref: '#/components/schemas/Id' }
+        resolutionType: { type: string, enum: [STATEMENT_ADJUSTMENT_POSTED, NO_CHARGE_CONFIRMED] }
+        reservationOutcome: { type: string, enum: [FINALIZED, RELEASED, NONE] }
+        adjustmentId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+    LinkCorrectionRequest:
+      type: object
+      required: [correctionGroupId]
+      properties:
+        correctionGroupId: { $ref: '#/components/schemas/Id' }
+    LinkCorrectionResponse:
+      type: object
+      required: [caseId, correctionGroupId]
+      properties:
+        caseId: { $ref: '#/components/schemas/Id' }
+        correctionGroupId: { $ref: '#/components/schemas/Id' }
     ResolveCaseRequest:
       type: object
       required: [reasonCode, resolutionNote]
@@ -1570,6 +1692,37 @@ paths:
     post:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ResolveCaseRequest' } } } }
       responses: { '200': { description: Case resolved without accounting mutation, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationCaseResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-runs/{runId}/evidence:
+    get:
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses: { '200': { description: M15 hybrid evidence for a reconciliation run, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseReconciliationEvidence' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases/{caseId}/evidence:
+    get:
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses: { '200': { description: M15 hybrid evidence linked to one reconciliation case, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseReconciliationEvidence' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases/{caseId}/charge-dispositions:
+    post:
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ChargeDispositionRequest' } } } }
+      responses: { '200': { description: Reviewed posting disposition decided for one statement Charge, content: { application/json: { schema: { $ref: '#/components/schemas/ChargeDispositionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases/{caseId}/adjustments:
+    post:
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CaseAdjustmentRequest' } } } }
+      responses: { '200': { description: CASE_FULL reconciliation adjustment posted; amount is exactly the current external-internal difference, content: { application/json: { schema: { $ref: '#/components/schemas/ReconciliationAdjustmentResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-runs/{runId}/gateway-resolutions:
+    post:
+      parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string, maxLength: 200 } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GatewayResolutionRequest' } } } }
+      responses: { '200': { description: Reviewed terminal gateway financial resolution for one request, content: { application/json: { schema: { $ref: '#/components/schemas/GatewayResolutionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-cases/{caseId}/link-correction:
+    post:
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LinkCorrectionRequest' } } } }
+      responses: { '200': { description: Existing ledger correction linked as case evidence, content: { application/json: { schema: { $ref: '#/components/schemas/LinkCorrectionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
   /billing-periods/{periodId}/close-readiness:
     get:
       responses: { '200': { description: Non-mutating preview of all seven Close blockers, content: { application/json: { schema: { $ref: '#/components/schemas/CloseReadinessResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }

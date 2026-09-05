@@ -465,6 +465,138 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
         return bytes;
     }
 
+    @Test
+    void validResolutionClearsOnlyItsOwnRequestBlocker() {
+        var fixture = insertFullFixture();
+        var requestA = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(31), digest(32));
+        var requestB = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(33), digest(34));
+        var attemptA = insertRouteAttempt(fixture, requestA, 1, "grd_a1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptA, requestA);
+        var attemptB = insertRouteAttempt(fixture, requestB, 1, "grd_b1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptB, requestB);
+        var runId = insertRun(fixture);
+        insertResolution(fixture, runId, requestA, "NO_CHARGE_CONFIRMED", "NONE", null, null);
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    @Test
+    void noChargeResolutionWithReleasedReservationPasses() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(35), digest(36));
+        jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH' WHERE id=?", requestId);
+        var attemptId = insertRouteAttempt(fixture, requestId, 1, "grd_c1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptId, requestId);
+        var reservationId = insertReservation(fixture, requestId, attemptId, "RELEASED");
+        var runId = insertRun(fixture);
+        insertResolution(fixture, runId, requestId, "NO_CHARGE_CONFIRMED", "RELEASED",
+                reservationId, null);
+
+        assertThat(provider.evaluate(context(fixture)).passed()).isTrue();
+    }
+
+    @Test
+    void statementResolutionWithFinalizedReservationPasses() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(37), digest(38));
+        jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH' WHERE id=?", requestId);
+        var attemptId = insertRouteAttempt(fixture, requestId, 1, "grd_d1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptId, requestId);
+        var reservationId = insertReservation(fixture, requestId, attemptId, "FINALIZED");
+        var runId = insertRun(fixture);
+        jdbc.update("""
+                INSERT INTO reconciliation_adjustment(
+                  org_id,reconciliation_run_id,reconciliation_case_id,adjustment_key,
+                  adjustment_scope,provider_account_id,currency,amount,adjustment_period_id,
+                  gateway_request_id,gateway_route_attempt_id,created_by_member_id,reason_code,
+                  reason_note,created_at)
+                SELECT ?,?,NULL,?,'GATEWAY_REQUEST',?,?, '2.00000000',?,?,?,m.id,
+                  'STATEMENT_EVIDENCE','Reviewed',UTC_TIMESTAMP(6)
+                FROM provider_account pa
+                JOIN organization_member m ON m.org_id=pa.org_id
+                WHERE pa.id=?
+                """, fixture.orgId(), runId, "adj-close-" + System.nanoTime(),
+                fixture.providerAccountId(), "USD", fixture.periodId(), requestId, attemptId,
+                fixture.providerAccountId());
+        var adjustmentId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        insertResolution(fixture, runId, requestId, "STATEMENT_ADJUSTMENT_POSTED", "FINALIZED",
+                reservationId, adjustmentId);
+
+        assertThat(provider.evaluate(context(fixture)).passed()).isTrue();
+    }
+
+    @Test
+    void resolutionWithContradictingEffectiveReservationStillBlocks() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(39), digest(40));
+        jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH' WHERE id=?", requestId);
+        var attemptId = insertRouteAttempt(fixture, requestId, 1, "grd_e1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptId, requestId);
+        var reservationId = insertReservation(fixture, requestId, attemptId, "ACTIVE");
+        var runId = insertRun(fixture);
+        insertResolution(fixture, runId, requestId, "NO_CHARGE_CONFIRMED", "RELEASED",
+                reservationId, null);
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    private long insertRun(Fixture fixture) {
+        jdbc.update("""
+                INSERT INTO reconciliation_run(org_id,billing_period_id,status,algorithm_version,
+                  tolerance_amount,basis_hash,summary_json,created_by_member_id,started_at,
+                  finished_at,created_at,updated_at)
+                VALUES (?,?,'COMPLETED','M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2','0.00000000',
+                  ?,JSON_OBJECT(),?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),
+                  UTC_TIMESTAMP(6))
+                """.replace("?,JSON_OBJECT()", "?,JSON_OBJECT()"), fixture.orgId(),
+                fixture.periodId(), "9".repeat(64), orgMemberId(fixture));
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long orgMemberId(Fixture fixture) {
+        jdbc.update("""
+                INSERT INTO app_user(email_normalized,display_name,status,security_version,
+                  created_at,updated_at)
+                VALUES (?,?, 'ACTIVE',0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """.replace("?, ?, 'ACTIVE'", "?,?,'ACTIVE'"), "close-m15-" + System.nanoTime()
+                + "@example.test", "close-m15");
+        var userId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO organization_member(org_id,user_id,status,joined_at)
+                VALUES (?,?,'ACTIVE',UTC_TIMESTAMP(6))
+                """, fixture.orgId(), userId);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void insertResolution(Fixture fixture, long runId, long requestId,
+            String resolutionType, String reservationOutcome, Long reservationId,
+            Long adjustmentId) {
+        jdbc.update("""
+                INSERT INTO gateway_financial_resolution(
+                  org_id,reconciliation_run_id,reconciliation_case_id,request_id,route_attempt_id,
+                  usage_fact_id,gateway_settlement_id,statement_charge_fact_id,
+                  reconciliation_adjustment_id,reservation_id,resolution_type,reservation_outcome,
+                  resolved_by_member_id,reason_code,reason_note,resolved_at,created_at)
+                SELECT ?,?,NULL,?,gr.current_route_attempt_id,NULL,NULL,NULL,?,?,
+                  ?,?,m.id,'POSITIVE_EVIDENCE','Reviewed',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)
+                FROM gateway_request gr
+                JOIN organization_member m ON m.org_id=gr.org_id
+                WHERE gr.id=?
+                """, fixture.orgId(), runId, requestId, adjustmentId, reservationId,
+                resolutionType, reservationOutcome, requestId);
+    }
+
     private record Fixture(long orgId, long periodId, long serviceIdentityId, long modelId,
             long credentialId, long providerAccountId, long providerModelId,
             long pricingVersionId, long budgetId) {

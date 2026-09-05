@@ -54,4 +54,22 @@ public interface GatewayReservationSettlementMapper {
             @Param("reservationId") long reservationId,
             @Param("expectedVersion") long expectedVersion,
             @Param("now") Instant now);
+
+    /**
+     * Narrow M15 reconciliation authority: an explicitly reviewed NO_CHARGE
+     * or cross-period financial resolution may release the effective hold.
+     * No create/resize/retarget semantics exist here.
+     */
+    @Update("""
+            UPDATE budget_reservation
+            SET status='RELEASED',released_at=#{now},version=version+1,updated_at=#{now}
+            WHERE org_id=#{organizationId} AND id=#{reservationId}
+              AND version=#{expectedVersion}
+              AND status IN ('ACTIVE','PENDING_HOLD')
+            """)
+    int releaseForReconciliation(
+            @Param("organizationId") long organizationId,
+            @Param("reservationId") long reservationId,
+            @Param("expectedVersion") long expectedVersion,
+            @Param("now") Instant now);
 }
