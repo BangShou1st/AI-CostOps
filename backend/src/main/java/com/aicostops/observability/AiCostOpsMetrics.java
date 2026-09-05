@@ -57,6 +57,16 @@ public class AiCostOpsMetrics {
         registry.counter("aicostops.reconciliation.run", "result", result).increment();
     }
 
+    /** Gateway financial resolution outcome: STATEMENT_ADJUSTMENT_POSTED / NO_CHARGE_CONFIRMED. */
+    public void gatewayFinancialResolution(String resolutionType, String result) {
+        var safeType = switch (resolutionType == null ? "" : resolutionType) {
+            case "STATEMENT_ADJUSTMENT_POSTED", "NO_CHARGE_CONFIRMED" -> resolutionType;
+            default -> "UNKNOWN";
+        };
+        registry.counter("aicostops.reconciliation.gateway_financial_resolution",
+                "resolutionType", safeType, "result", result).increment();
+    }
+
     /** Reconciliation adjustment outcome: scope CASE_FULL / GATEWAY_REQUEST; result POSTED / FAILED. */
     public void reconciliationAdjustment(String scope, String result) {
         var safeScope = switch (scope == null ? "" : scope) {

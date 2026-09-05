@@ -48,7 +48,7 @@ public class HybridReconciliationEvidenceService {
                     row.providerAccountId(), row.currency(),
                     "AGGREGATE_SCOPE", classifyAggregateDifference(organizationId, row,
                             periodStart, periodEnd),
-                    null, null, null, null, null, null,
+                    null, null, null, null, null, null, null, null, null, null,
                     row.externalAmount(), row.internalAmount(), row.difference(),
                     now));
         }
@@ -70,7 +70,7 @@ public class HybridReconciliationEvidenceService {
                     "EXACT:CHARGE:" + group.chargeFactId() + ":REQUEST:" + group.requestId(),
                     group.providerAccountId(), group.currency(), "EXACT_PROVIDER_REQUEST", null,
                     group.chargeFactId(), group.requestId(), group.routeAttemptId(),
-                    null, null, group.providerRequestId(),
+                    null, null, null, null, null, null, group.providerRequestId(),
                     null, null, null, now));
         }
 
@@ -83,7 +83,8 @@ public class HybridReconciliationEvidenceService {
                     "GATEWAY_UNRESOLVED", null,
                     null, unresolved.requestId(), unresolved.routeAttemptId(),
                     unresolved.usageFactId(), unresolved.settlementId(), null,
-                    null, null, null, now));
+                    null, null, null, null, null,
+                    null, null, now));
         }
         return List.copyOf(evidence);
     }

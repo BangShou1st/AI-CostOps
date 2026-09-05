@@ -120,7 +120,8 @@ public interface HybridReconciliationMapper {
             VALUES (#{adjustment.organizationId},#{adjustment.runId},#{adjustment.caseId},
                 #{adjustment.adjustmentKey},#{adjustment.adjustmentScope},
                 #{adjustment.providerAccountId},#{adjustment.currency},#{adjustment.amount},
-                #{adjustment.adjustmentPeriodId},NULL,NULL,NULL,
+                #{adjustment.adjustmentPeriodId},#{adjustment.gatewayRequestId},
+                #{adjustment.gatewayRouteAttemptId},NULL,
                 #{adjustment.createdByMemberId},#{adjustment.reasonCode},#{adjustment.reasonNote},
                 #{adjustment.createdAt})
             """)
@@ -128,6 +129,111 @@ public interface HybridReconciliationMapper {
 
     @Select("SELECT LAST_INSERT_ID()")
     long lastInsertId();
+
+    /**
+     * Bounded resolution lineage of one Gateway request: current attempt, usage,
+     * settlement, reservation and frozen financial scope. Org-scoped.
+     */
+    @Select("""
+            SELECT gr.id AS request_id,
+                   gr.current_route_attempt_id AS route_attempt_id,
+                   ra.status AS attempt_status,
+                   ra.provider_account_id AS provider_account_id,
+                   gr.financial_scope_type AS financial_scope_type,
+                   gr.financial_scope_id AS financial_scope_id,
+                   gr.billing_period_id AS billing_period_id,
+                   gr.current_usage_fact_id AS usage_fact_id,
+                   uf.status AS usage_status,
+                   gs.id AS settlement_id,
+                   gs.status AS settlement_status,
+                   pv.currency AS currency,
+                   br.id AS reservation_id,
+                   br.status AS reservation_status,
+                   br.version AS reservation_version
+            FROM gateway_request gr
+            JOIN gateway_route_attempt ra
+              ON ra.id=gr.current_route_attempt_id AND ra.org_id=gr.org_id
+            JOIN pricing_version pv ON pv.id=ra.pricing_version_id
+            LEFT JOIN gateway_usage_fact uf ON uf.id=gr.current_usage_fact_id
+            LEFT JOIN gateway_settlement gs
+              ON gs.request_id=gr.id AND gs.org_id=gr.org_id
+            LEFT JOIN budget_reservation br
+              ON br.route_attempt_id=ra.id AND br.org_id=ra.org_id
+            WHERE gr.org_id=#{organizationId} AND gr.id=#{requestId}
+            """)
+    RequestResolutionLineage selectRequestResolutionLineage(
+            @Param("organizationId") long organizationId,
+            @Param("requestId") long requestId);
+
+    @Select("""
+            SELECT id FROM gateway_request
+            WHERE org_id=#{organizationId} AND id=#{requestId}
+            FOR UPDATE
+            """)
+    Long lockGatewayRequest(
+            @Param("organizationId") long organizationId,
+            @Param("requestId") long requestId);
+
+    @Insert("""
+            INSERT INTO gateway_financial_resolution(
+                org_id,reconciliation_run_id,reconciliation_case_id,request_id,route_attempt_id,
+                usage_fact_id,gateway_settlement_id,statement_charge_fact_id,
+                reconciliation_adjustment_id,reservation_id,resolution_type,reservation_outcome,
+                resolved_by_member_id,reason_code,reason_note,resolved_at,created_at)
+            VALUES (#{resolution.organizationId},#{resolution.runId},#{resolution.caseId},
+                #{resolution.requestId},#{resolution.routeAttemptId},#{resolution.usageFactId},
+                #{resolution.settlementId},#{resolution.statementChargeFactId},
+                #{resolution.reconciliationAdjustmentId},#{resolution.reservationId},
+                #{resolution.resolutionType},#{resolution.reservationOutcome},
+                #{resolution.resolvedByMemberId},#{resolution.reasonCode},#{resolution.reasonNote},
+                #{resolution.resolvedAt},#{resolution.resolvedAt})
+            """)
+    int insertResolution(@Param("resolution") ResolutionInsert resolution);
+
+    @Select("""
+            SELECT COUNT(*) FROM gateway_financial_resolution
+            WHERE org_id=#{organizationId} AND request_id=#{requestId}
+            """)
+    long countResolution(
+            @Param("organizationId") long organizationId,
+            @Param("requestId") long requestId);
+
+    record RequestResolutionLineage(
+            long requestId,
+            Long routeAttemptId,
+            String attemptStatus,
+            long providerAccountId,
+            String financialScopeType,
+            long financialScopeId,
+            Long billingPeriodId,
+            Long usageFactId,
+            String usageStatus,
+            Long settlementId,
+            String settlementStatus,
+            String currency,
+            Long reservationId,
+            String reservationStatus,
+            Long reservationVersion) {
+    }
+
+    record ResolutionInsert(
+            long organizationId,
+            long runId,
+            Long caseId,
+            long requestId,
+            long routeAttemptId,
+            Long usageFactId,
+            Long settlementId,
+            Long statementChargeFactId,
+            Long reconciliationAdjustmentId,
+            Long reservationId,
+            String resolutionType,
+            String reservationOutcome,
+            long resolvedByMemberId,
+            String reasonCode,
+            String reasonNote,
+            Instant resolvedAt) {
+    }
 
     @Select("""
             SELECT id,org_id,reconciliation_run_id,reconciliation_case_id,adjustment_key,
@@ -151,6 +257,8 @@ public interface HybridReconciliationMapper {
             String currency,
             BigDecimal amount,
             long adjustmentPeriodId,
+            Long gatewayRequestId,
+            Long gatewayRouteAttemptId,
             long createdByMemberId,
             String reasonCode,
             String reasonNote,
@@ -191,8 +299,9 @@ public interface HybridReconciliationMapper {
                 #{evidence.differenceKind},#{evidence.chargeFactId},
                 #{evidence.gatewayRequestId},#{evidence.gatewayRouteAttemptId},
                 #{evidence.gatewayUsageFactId},
-                #{evidence.gatewaySettlementId},NULL,NULL,NULL,NULL,
-                #{evidence.providerRequestId},
+                #{evidence.gatewaySettlementId},#{evidence.correctionGroupId},
+                #{evidence.reconciliationAdjustmentId},#{evidence.gatewayFinancialResolutionId},
+                #{evidence.ledgerPostingId},#{evidence.providerRequestId},
                 #{evidence.externalAmount},#{evidence.internalAmount},
                 #{evidence.differenceAmount},#{evidence.createdAt})
             """)
@@ -245,6 +354,10 @@ public interface HybridReconciliationMapper {
             Long gatewayRouteAttemptId,
             Long gatewayUsageFactId,
             Long gatewaySettlementId,
+            Long correctionGroupId,
+            Long reconciliationAdjustmentId,
+            Long gatewayFinancialResolutionId,
+            Long ledgerPostingId,
             String providerRequestId,
             BigDecimal externalAmount,
             BigDecimal internalAmount,

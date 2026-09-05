@@ -145,7 +145,10 @@ public final class ReconciliationRunService {
                             evidence.currency(), evidence.matchKind(), evidence.differenceKind(),
                             evidence.chargeFactId(), evidence.gatewayRequestId(),
                             evidence.gatewayRouteAttemptId(), evidence.gatewayUsageFactId(),
-                            evidence.gatewaySettlementId(), evidence.providerRequestId(),
+                            evidence.gatewaySettlementId(), evidence.correctionGroupId(),
+                            evidence.reconciliationAdjustmentId(),
+                            evidence.gatewayFinancialResolutionId(), evidence.ledgerPostingId(),
+                            evidence.providerRequestId(),
                             evidence.externalAmount(), evidence.internalAmount(),
                             evidence.differenceAmount(), evidence.createdAt()));
                     if ("EXACT_PROVIDER_REQUEST".equals(evidence.matchKind())) {

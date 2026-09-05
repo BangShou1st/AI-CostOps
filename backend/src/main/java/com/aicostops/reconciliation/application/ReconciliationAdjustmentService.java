@@ -220,7 +220,7 @@ public class ReconciliationAdjustmentService {
         hybridMapper.insertAdjustment(new HybridReconciliationMapper.AdjustmentInsert(
                 organizationId, run.id(), currentCase.id(), adjustmentKey, "CASE_FULL",
                 currentCase.providerAccountId(), currentCase.currency(), command.amount(),
-                adjustmentPeriod.id(), actorMemberId, command.reasonCode(),
+                adjustmentPeriod.id(), null, null, actorMemberId, command.reasonCode(),
                 command.reasonNote(), now));
         var adjustmentId = hybridMapper.lastInsertId();
         failureInjector.after("ADJUSTMENT_INSERTED");

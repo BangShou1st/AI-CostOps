@@ -30,6 +30,9 @@ public interface ReconciliationAdjustmentLedgerPort {
             Instant postedAt) {
     }
 
-    /** Inserts the posting and its entries; returns the posting id. */
-    long postAdjustment(AdjustmentPostCommand command);
+    record AdjustmentPostResult(long postingId, java.util.List<Long> entryIds) {
+    }
+
+    /** Inserts the posting and its entries; returns the posting and entry ids. */
+    AdjustmentPostResult postAdjustment(AdjustmentPostCommand command);
 }

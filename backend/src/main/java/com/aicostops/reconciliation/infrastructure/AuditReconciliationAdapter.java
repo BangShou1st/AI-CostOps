@@ -57,6 +57,23 @@ public final class AuditReconciliationAdapter implements ReconciliationAuditPort
     }
 
     @Override
+    public void gatewayFinancialResolved(long organizationId, long actorUserId, long runId,
+            Long caseId, long requestId, String resolutionType, String reservationOutcome,
+            String currency) {
+        var metadata = new java.util.HashMap<String, Object>();
+        metadata.put("runId", runId);
+        metadata.put("requestId", requestId);
+        metadata.put("resolutionType", resolutionType);
+        metadata.put("reservationOutcome", reservationOutcome);
+        metadata.put("currency", currency);
+        if (caseId != null) {
+            metadata.put("caseId", caseId);
+        }
+        audit.append("GATEWAY_FINANCIAL_RESOLVED", organizationId, actorUserId,
+                "GATEWAY_FINANCIAL_RESOLUTION", requestId, metadata);
+    }
+
+    @Override
     public void closeStarted(long organizationId, long actorUserId, long closeRunId,
             long billingPeriodId, long closeGeneration, int attemptNo) {
         audit.append("PERIOD_CLOSE_STARTED", organizationId, actorUserId,
