@@ -170,7 +170,17 @@ bb5adfa feat(m15): expose hybrid reconciliation workflow in frontend and ledger 
 2. `GatewayReservationSettlementMapperTest` was updated to the M15 narrow authority set (adds the reviewed `releaseForReconciliation` transition mandated by the plan; still forbids create/resize/retarget/insert).
 3. Difference classification is deliberately fail-closed: only the stored duplicate-review state could prove `DUPLICATE_EXTERNAL_CHARGE`, and it is not yet wired into automatic labels — every automatic aggregate label is `UNCLASSIFIED` pending reviewed evidence, exactly as the spec requires ("如果证据不足:UNCLASSIFIED。不要猜。").
 4. `ProviderCorrelationProfileRegistry` defaults every provider to `NONE` (no current import adapter certifies a request-id field); exact correlation activates only via the bounded configuration property. No adapter was forced to fabricate a key.
-5. Hosted CI / CodeQL / Trivy results are not asserted here; they will be recorded from the PR checks after push.
+5. Hosted CI / Security results (PR #149, run 33966798874 / 33966798865) — observed directly from GitHub after push, all PASS:
+
+```text
+backend-unit              pass (52s)        backend-integration    pass (5m37s)
+backend-architecture      pass (45s)        gateway-unit           pass (34s)
+gateway-integration       pass              gateway-architecture   pass (19s)
+frontend-test             pass (1m42s)      frontend-lint          pass (19s)
+frontend-build            pass (25s)        browser-e2e            pass (2m39s)
+docker-build              pass (2m0s)       trivy                  pass
+CodeQL (java-kotlin)      pass (3m46s)      CodeQL (javascript-ts) pass (1m43s)
+```
 
 ## 14. Definition-of-Done checklist
 
