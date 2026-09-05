@@ -34,7 +34,7 @@ Copy-Item .env.example .env
 
 ## 3. 推荐日常开发模式 — Daily Development Mode
 
-日常开发时 Docker 只运行基础设施（MySQL / Redis / MinIO），Backend 与 Frontend 直接在 Windows 本机运行，全程不执行任何 `docker build`。
+日常开发时 Docker 只运行基础设施（MySQL / Redis / MinIO），Backend、Gateway、Frontend 三个应用进程直接在 Windows 本机运行，全程不执行任何 `docker build`。
 
 前置条件：仓库根目录存在 `.env`（首次执行 `Copy-Item .env.example .env`）。
 
@@ -61,7 +61,17 @@ cd backend
 
 IDE 用户：Run Configuration 设置 `active profiles = local` 即可，不需要手工复制十几个环境变量；`application-local.yml` 的每个值都支持同名环境变量覆盖（规则与 `application.yml` 一致）。
 
-Terminal 3 — Vite 前端（本机，HMR）：
+Terminal 3 — Gateway（本机 Spring WebFlux 数据面，默认监听 `http://localhost:8081`）：
+
+```powershell
+cd gateway
+$env:SPRING_PROFILES_ACTIVE = "local"
+.\mvnw.cmd spring-boot:run
+```
+
+Gateway 的本机启动、测试、smoke 与验证命令以 [06-m11-gateway-local-runbook.md](06-m11-gateway-local-runbook.md) 为准。
+
+Terminal 4 — Vite 前端（本机，HMR）：
 
 ```powershell
 cd frontend
@@ -76,6 +86,7 @@ Vite dev server 监听 `http://localhost:5173`，并把 `/api/v1` 代理到本�
 ```text
 Frontend dev server   http://localhost:5173   （Vite，本机，HMR）
 Backend               http://localhost:8080   （Spring Boot，本机，BACKEND_PORT）
+Gateway               http://localhost:8081   （Spring WebFlux，本机，AICOSTOPS_GATEWAY_PORT）
 MySQL                 localhost:3307          （Docker）
 Redis                 localhost:6379          （Docker）
 MinIO API / Console   localhost:9000 / 9001   （Docker）
@@ -110,15 +121,19 @@ minio
 
 浏览器只访问前端，同源 `/api/v1` 反代后端。
 
+注意：本地 Full Integration 不包含 Gateway。根 `compose.yaml` / `compose.dev.yaml` 中没有 gateway service，`docker compose up` 不会启动 Gateway。Gateway 在 Daily Development 中是本机原生进程（`localhost:8081`）；它的 Docker 镜像只在 CI / Security / explicit Docker validation 场合单独构建，不由日常 Full Integration Compose 启动。
+
 默认端口：
 
 ```text
 Frontend  http://localhost:8080
-Backend   容器网络内 8080（compose.dev.yaml 可映射到 localhost:8081）
+Backend   容器网络内 8080（compose.dev.yaml 不映射宿主机端口）
 MySQL     compose.dev.yaml 映射到 localhost:3307
 Redis     compose.dev.yaml 映射到 localhost:6379
 MinIO     compose.dev.yaml 映射到 localhost:9000 / 9001
 ```
+
+8081 是 Gateway 本机原生进程的默认端口，不是 backend 容器在宿主机上的映射端口。
 
 注意：`docker compose up -d --build` 会真实构建 backend / frontend 两张镜像并产生 BuildKit cache，不是日常开发方式；日常开发请使用第 3 节的 Daily Development Mode。
 
