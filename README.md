@@ -96,14 +96,39 @@ Redis         localhost:6379          （Docker）
 MinIO         localhost:9000 / 9001   （Docker API / Console）
 ```
 
-启动（先起基础设施，再分别本机启动三个应用进程）：
+启动需要四个独立终端（Windows PowerShell，不用 `&&` 链接；`npm ci` 仅在首次 clone 或依赖变更后运行，不是每次启动都必须）：
+
+Terminal 1 — Docker 基础设施：
 
 ```powershell
+# Terminal 1 — infrastructure
 Set-Location "E:\project\AI-CostOps"
 .\scripts\dev\start-infra.ps1
-cd backend && .\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
-cd gateway && $env:SPRING_PROFILES_ACTIVE = "local"; .\mvnw.cmd spring-boot:run
-cd frontend && npm run dev
+```
+
+Terminal 2 — Backend（本机）：
+
+```powershell
+# Terminal 2 — Backend
+Set-Location "E:\project\AI-CostOps\backend"
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
+```
+
+Terminal 3 — Gateway（本机）：
+
+```powershell
+# Terminal 3 — Gateway
+Set-Location "E:\project\AI-CostOps\gateway"
+$env:SPRING_PROFILES_ACTIVE = "local"
+.\mvnw.cmd spring-boot:run
+```
+
+Terminal 4 — Frontend（本机，HMR）：
+
+```powershell
+# Terminal 4 — Frontend
+Set-Location "E:\project\AI-CostOps\frontend"
+npm run dev
 ```
 
 详细说明见 [docs/02-development/implementation/05-bootstrap-local-development-runbook.md](docs/02-development/implementation/05-bootstrap-local-development-runbook.md)。
@@ -114,7 +139,24 @@ Gateway 已真实存在并作为 Daily Development 的三个本机应用进程�
 
 > ⚠️ **HARD WARNING — Full Compose is NOT the default Daily Development mode.**
 >
-> 本段落描述的完整 Compose 栈（含 backend / frontend / gateway 容器镜像的 build 与 up）**只**用于以下场景：
+> 当前根 `compose.yaml` 的本地 Full Compose 只包含以下五个服务（**没有** gateway service，`docker compose up` 不会启动 Gateway）：
+>
+> ```text
+> Current local root Full Compose:
+> - backend
+> - frontend
+> - mysql
+> - redis
+> - minio
+> ```
+>
+> Gateway 的定位：
+>
+> - Daily Development 中 Gateway 是本机原生进程（`localhost:8081`），不是 Compose 服务
+> - Gateway 的 Docker 镜像可以单独构建，仅用于 CI / Security / explicit Docker validation
+> - 不得声称当前根 compose 会启动 Gateway
+>
+> 本段落描述的完整 Compose 栈**只**用于以下场景：
 >
 > - full integration（最终集成验证）
 > - E2E
