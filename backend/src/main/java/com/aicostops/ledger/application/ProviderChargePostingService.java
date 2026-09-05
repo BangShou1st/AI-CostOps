@@ -57,6 +57,7 @@ public class ProviderChargePostingService {
     private final LedgerBudgetPort budgets;
     private final LedgerPostingMapper ledger;
     private final CommitmentConsumeService commitmentConsume;
+    private final ProviderChargeHybridPostingGuard hybridGuard;
     private final LedgerAuditPort audit;
     private final AiCostOpsMetrics metrics;
     private final TransactionTemplate transactions;
@@ -69,6 +70,7 @@ public class ProviderChargePostingService {
             LedgerBudgetPort budgets,
             LedgerPostingMapper ledger,
             CommitmentConsumeService commitmentConsume,
+            ProviderChargeHybridPostingGuard hybridGuard,
             LedgerAuditPort audit,
             AiCostOpsMetrics metrics,
             PlatformTransactionManager transactionManager,
@@ -79,6 +81,7 @@ public class ProviderChargePostingService {
         this.budgets = budgets;
         this.ledger = ledger;
         this.commitmentConsume = commitmentConsume;
+        this.hybridGuard = hybridGuard;
         this.audit = audit;
         this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
@@ -158,7 +161,25 @@ public class ProviderChargePostingService {
         var postingKey = "CHARGE:" + chargeFactId + ":ALLOCATION:" + decisionId;
         var existing = ledger.selectPostingByKey(organizationId, postingKey);
         if (existing != null) {
+            // Already-posted legacy history replays unchanged, even when Hybrid
+            // overlap appeared after the original posting.
             return detail(existing);
+        }
+
+        // Hybrid fence: revalidated after the BillingPeriod lock and immediately
+        // before the Charge posting decision.
+        var decision = hybridGuard.checkHybridPostingEligibility(
+                organizationId, chargeFactId, period.id(), source.currency());
+        if (!decision.allowed()) {
+            metrics.ledgerPosting("CHARGE", decision.outcome().name());
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Provider charge posting blocked",
+                    decision.outcome() == ProviderChargeHybridPostingGuard
+                            .HybridPostingOutcome.BLOCKED_RECONCILIATION_EVIDENCE
+                            ? "A RECONCILIATION_EVIDENCE charge can never be posted through "
+                                    + "the normal provider charge path."
+                            : "The charge overlaps durable Gateway financial work without a "
+                                    + "DIRECT_PROVIDER_CHARGE disposition (HYBRID_RECONCILIATION_REQUIRED).");
         }
 
         var now = clock.instant();
