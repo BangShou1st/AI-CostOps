@@ -492,7 +492,44 @@ public interface HybridReconciliationMapper {
             re.ledger_posting_id,re.provider_request_id,re.evidence_reference,re.external_amount,
             re.internal_amount,re.difference_amount,re.created_at,
             gfr.id AS current_gateway_resolution_id,
-            pcd.disposition AS current_charge_disposition
+            pcd.disposition AS current_charge_disposition,
+            CASE
+              WHEN re.gateway_request_id IS NULL THEN NULL
+              WHEN gfr.id IS NOT NULL THEN FALSE
+              WHEN cgr.id IS NULL THEN FALSE
+              WHEN cra.id IS NULL OR cra.id != re.gateway_route_attempt_id THEN FALSE
+              WHEN cra.provider_account_id != re.provider_account_id THEN FALSE
+              WHEN cpv.currency != re.currency THEN FALSE
+              WHEN cra.status NOT IN
+                ('DISPATCH_INTENT','BILLABLE_POSSIBLE','COMPLETED') THEN FALSE
+              WHEN cgs.id IS NOT NULL
+                AND cgs.status IN ('PENDING','RETRYABLE_FAILED','SETTLED') THEN FALSE
+              WHEN cuf.id IS NOT NULL AND cuf.status = 'FINAL'
+                AND cgs.id IS NULL THEN FALSE
+              WHEN cuf.id IS NULL THEN TRUE
+              WHEN cuf.status IN ('INCOMPLETE','UNKNOWN') THEN TRUE
+              WHEN cgs.status = 'RECONCILIATION_REQUIRED' THEN TRUE
+              ELSE FALSE
+            END AS current_gateway_actionable,
+            CASE
+              WHEN re.gateway_request_id IS NULL THEN NULL
+              WHEN gfr.id IS NOT NULL THEN 'RESOLVED'
+              WHEN cgr.id IS NULL THEN 'STALE_ROUTE'
+              WHEN cra.id IS NULL OR cra.id != re.gateway_route_attempt_id THEN 'STALE_ROUTE'
+              WHEN cra.provider_account_id != re.provider_account_id THEN 'STALE_ROUTE'
+              WHEN cpv.currency != re.currency THEN 'STALE_ROUTE'
+              WHEN cra.status NOT IN
+                ('DISPATCH_INTENT','BILLABLE_POSSIBLE','COMPLETED') THEN 'STALE_ROUTE'
+              WHEN cuf.id IS NOT NULL AND cuf.status = 'FINAL'
+                AND cgs.id IS NULL THEN 'M13_FINAL'
+              WHEN cgs.status = 'PENDING' THEN 'SETTLEMENT_PENDING'
+              WHEN cgs.status = 'RETRYABLE_FAILED' THEN 'RETRYABLE_FAILED'
+              WHEN cgs.status = 'SETTLED' THEN 'SETTLED'
+              WHEN cuf.id IS NULL THEN 'ACTIONABLE'
+              WHEN cuf.status IN ('INCOMPLETE','UNKNOWN') THEN 'ACTIONABLE'
+              WHEN cgs.status = 'RECONCILIATION_REQUIRED' THEN 'ACTIONABLE'
+              ELSE 'STALE_ROUTE'
+            END AS current_gateway_state
             """;
 
     /**
@@ -500,26 +537,61 @@ public interface HybridReconciliationMapper {
      * The current-state columns project whether the referenced Gateway request
      * already carries a terminal gateway_financial_resolution and whether the
      * referenced Charge already carries its final posting disposition, so the
-     * UI can separate immutable history from currently actionable work.
+     * referenced Charge already carries its final posting disposition, plus
+     * whether the referenced request is still currently M15-actionable (same
+     * current attempt, account and currency; possible-billable attempt;
+     * missing/INCOMPLETE/UNKNOWN usage or RECONCILIATION_REQUIRED
+     * Settlement), so the UI can separate immutable history from currently
+     * actionable work.
      */
     String EVIDENCE_CURRENT_STATE_JOINS = """
             LEFT JOIN gateway_financial_resolution gfr
               ON gfr.org_id=re.org_id AND gfr.request_id=re.gateway_request_id
             LEFT JOIN provider_charge_disposition pcd
               ON pcd.org_id=re.org_id AND pcd.charge_fact_id=re.charge_fact_id
+            LEFT JOIN gateway_request cgr
+              ON cgr.org_id=re.org_id AND cgr.id=re.gateway_request_id
+            LEFT JOIN gateway_route_attempt cra
+              ON cra.id=cgr.current_route_attempt_id AND cra.org_id=cgr.org_id
+            LEFT JOIN pricing_version cpv ON cpv.id=cra.pricing_version_id
+            LEFT JOIN gateway_usage_fact cuf ON cuf.id=cgr.current_usage_fact_id
+            LEFT JOIN gateway_settlement cgs
+              ON cgs.request_id=cgr.id AND cgs.org_id=cgr.org_id
             """;
 
     /**
      * The actionable filter is only meaningful for GATEWAY_UNRESOLVED rows: it
-     * excludes requests that already carry a terminal gateway financial
-     * resolution. The same predicate must be applied by the COUNT query so
-     * items and totals always agree.
+     * keeps only currently M15-actionable work - the historical evidence row,
+     * a still-existing request without a terminal resolution, the same
+     * current route attempt/account/currency, a possible-billable attempt
+     * and missing/INCOMPLETE/UNKNOWN usage or a RECONCILIATION_REQUIRED
+     * Settlement. FINAL usage owned by M13, PENDING/RETRYABLE_FAILED/SETTLED
+     * Settlements and stale routes are excluded. The same predicate must be
+     * applied by the COUNT query so items and totals always agree.
      */
     String ACTIONABLE_FILTER = """
             <if test="actionableOnly">
               AND re.gateway_request_id IS NOT NULL
               AND NOT EXISTS (SELECT 1 FROM gateway_financial_resolution gfr2
                 WHERE gfr2.org_id=re.org_id AND gfr2.request_id=re.gateway_request_id)
+              AND EXISTS (
+                SELECT 1 FROM gateway_request egr
+                JOIN gateway_route_attempt era
+                  ON era.id=egr.current_route_attempt_id AND era.org_id=egr.org_id
+                JOIN pricing_version epv ON epv.id=era.pricing_version_id
+                LEFT JOIN gateway_usage_fact euf ON euf.id=egr.current_usage_fact_id
+                LEFT JOIN gateway_settlement egs
+                  ON egs.request_id=egr.id AND egs.org_id=egr.org_id
+                WHERE egr.org_id=re.org_id AND egr.id=re.gateway_request_id
+                  AND era.id=re.gateway_route_attempt_id
+                  AND era.provider_account_id=re.provider_account_id
+                  AND epv.currency=re.currency
+                  AND era.status IN ('DISPATCH_INTENT','BILLABLE_POSSIBLE','COMPLETED')
+                  AND (egs.id IS NULL
+                    OR egs.status NOT IN ('PENDING','RETRYABLE_FAILED','SETTLED'))
+                  AND (euf.id IS NULL OR euf.status IN ('INCOMPLETE','UNKNOWN')
+                    OR egs.status='RECONCILIATION_REQUIRED')
+              )
             </if>
             """;
 
@@ -619,7 +691,9 @@ public interface HybridReconciliationMapper {
             BigDecimal differenceAmount,
             Instant createdAt,
             Long currentGatewayResolutionId,
-            String currentChargeDisposition) {
+            String currentChargeDisposition,
+            Boolean currentGatewayActionable,
+            String currentGatewayState) {
     }
 
     record ExactCorrelationCandidate(

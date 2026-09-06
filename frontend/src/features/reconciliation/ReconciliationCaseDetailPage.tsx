@@ -84,6 +84,15 @@ export function ReconciliationCaseDetailPage() {
   // Hooks order rule: every hook runs before any early return; the run query
   // simply waits for the case identity instead of being called conditionally.
   const reconciliationRunId = detail.data?.reconciliationRunId ?? ''
+  // Reconciliation-owned period context for the Gateway resolution modal
+  // (RECONCILIATION_READ only, never BUDGET_READ); loading/error/missing
+  // maps to UNKNOWN and disables submission instead of defaulting to OPEN.
+  const resolutionContext = useQuery({
+    queryKey: [...reconciliationKeys.run(reconciliationRunId), 'financial-resolution-context'],
+    queryFn: () => reconciliationApi.getFinancialResolutionContext(reconciliationRunId),
+    enabled: reconciliationRunId.length > 0,
+    retry: false,
+  })
   const runDetail = useQuery({
     queryKey: reconciliationKeys.run(reconciliationRunId),
     queryFn: () => reconciliationApi.getRun(reconciliationRunId),
@@ -292,12 +301,32 @@ export function ReconciliationCaseDetailPage() {
                   )
                 }
                 if (row.matchKind === 'GATEWAY_UNRESOLVED' && row.gatewayRequestId) {
-                  if (!canResolveGateway) return <Typography.Text type="secondary">需要 RECONCILIATION_RESOLVE 与 LEDGER_CORRECT</Typography.Text>
-                  return (
-                    <Space>
-                      <Button size="small" onClick={() => setGatewayTarget(row)}>处理网关财务工作</Button>
-                    </Space>
-                  )
+                  // Current actionability comes from the read-model state, never
+                  // from the immutable history alone: only ACTIONABLE rows (or
+                  // legacy rows without the projection that carry no terminal
+                  // resolution) offer the action; every other current state is
+                  // shown without a button.
+                  const gatewayState = row.currentGatewayState
+                  if (gatewayState === 'ACTIONABLE'
+                    || (gatewayState == null && !row.currentGatewayResolutionId)) {
+                    if (!canResolveGateway) return <Typography.Text type="secondary">需要 RECONCILIATION_RESOLVE 与 LEDGER_CORRECT</Typography.Text>
+                    return (
+                      <Space>
+                        <Button size="small" onClick={() => setGatewayTarget(row)}>处理网关财务工作</Button>
+                      </Space>
+                    )
+                  }
+                  if (gatewayState === 'RESOLVED' || row.currentGatewayResolutionId) {
+                    return <Tag color="blue">已处理{row.currentGatewayResolutionId ? `（终端财务决定 #${row.currentGatewayResolutionId}）` : ''}</Tag>
+                  }
+                  const stateLabel: Record<string, string> = {
+                    M13_FINAL: 'M13 终态（FINAL 用量归正常结算）',
+                    SETTLEMENT_PENDING: '结算处理中（PENDING）',
+                    RETRYABLE_FAILED: '结算可重试失败（RETRYABLE_FAILED）',
+                    SETTLED: '已结算（SETTLED）',
+                    STALE_ROUTE: '路由已变更（STALE_ROUTE）',
+                  }
+                  return <Tag>{gatewayState ? (stateLabel[gatewayState] ?? gatewayState) : '非当前可操作'}</Tag>
                 }
                 if (row.matchKind === 'AGGREGATE_SCOPE') {
                   return (
@@ -451,9 +480,13 @@ export function ReconciliationCaseDetailPage() {
         caseId={caseId}
         target={gatewayTarget}
         onClose={() => setGatewayTarget(null)}
-        originalPeriodId={runDetail.data?.billingPeriodId ?? null}
-        originalPeriodStatus={(periods.data ?? []).find((candidate) => candidate.id === runDetail.data?.billingPeriodId)?.status ?? 'OPEN'}
-        openPeriods={(periods.data ?? []).filter((candidate) => candidate.status === 'OPEN')}
+        periodContext={resolutionContext.data
+          ? {
+            originalPeriodId: resolutionContext.data.originalBillingPeriodId,
+            status: resolutionContext.data.originalBillingPeriodStatus as 'OPEN' | 'CLOSING' | 'CLOSED',
+            eligibleCorrectionPeriods: resolutionContext.data.eligibleCorrectionPeriods,
+          }
+          : { originalPeriodId: null, status: 'UNKNOWN' as const, eligibleCorrectionPeriods: [] as { id: string }[] }}
       />
     </main>
   )

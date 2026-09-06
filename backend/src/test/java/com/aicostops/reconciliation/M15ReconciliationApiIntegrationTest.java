@@ -127,11 +127,13 @@ class M15ReconciliationApiIntegrationTest extends AllocationApiTestSupport {
 
     @Test
     void actionableEvidenceFilterExcludesTerminalResolvedRequests() throws Exception {
-        var unresolvedId = insertCaseEvidence("GATEWAY_UNRESOLVED", requestId);
+        var unresolvedLineage = currentLineageOf(requestId);
+        var unresolvedId = insertBoundUnresolvedEvidence(unresolvedLineage);
         // A second request whose historical GATEWAY_UNRESOLVED evidence already
         // has a committed terminal gateway_financial_resolution.
         var resolvedRequestId = insertGatewayRequest();
-        var resolvedEvidenceId = insertCaseEvidence("GATEWAY_UNRESOLVED", resolvedRequestId);
+        var resolvedLineage = currentLineageOf(resolvedRequestId);
+        var resolvedEvidenceId = insertBoundUnresolvedEvidence(resolvedLineage);
         var attemptId = jdbc.queryForObject(
                 "SELECT id FROM gateway_route_attempt WHERE org_id=? AND request_id=?",
                 Long.class, orgId, resolvedRequestId);
@@ -199,6 +201,150 @@ class M15ReconciliationApiIntegrationTest extends AllocationApiTestSupport {
                 .andExpect(jsonPath("$.items[0].id").value(Long.toString(chargeEvidenceId)))
                 .andExpect(jsonPath("$.items[0].currentChargeDisposition")
                         .value("DIRECT_PROVIDER_CHARGE"));
+    }
+
+    @Test
+    void resolutionContextReadableWithoutBudgetRead() throws Exception {
+        // The reconciliation operator owns RECONCILIATION_READ/RESOLVE and
+        // LEDGER_CORRECT but must never require BUDGET_READ to complete a
+        // Gateway correction workflow: the bounded context endpoint serves
+        // only period identity, never budget-sensitive fields.
+        jdbc.update("""
+                DELETE rp FROM role_permission rp
+                JOIN `role` r ON r.id=rp.role_id
+                JOIN permission p ON p.id=rp.permission_id
+                WHERE r.code='ALLOC_WORKER' AND p.code='BUDGET_READ'
+                """);
+
+        mvc.perform(get("/api/v1/billing-periods")
+                        .header("Authorization", bearer()))
+                .andExpect(status().isForbidden());
+
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/financial-resolution-context"
+                        .formatted(runId))
+                        .header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.originalBillingPeriodId")
+                        .value(Long.toString(periodId)))
+                .andExpect(jsonPath("$.originalBillingPeriodStatus").value("OPEN"))
+                .andExpect(jsonPath("$.eligibleCorrectionPeriods").isArray());
+    }
+
+    @Test
+    void actionableFilterExcludesFinalUsageOwnedByM13() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        insertUsage(lineage, "FINAL");
+        var evidenceId = insertBoundUnresolvedEvidence(lineage);
+
+        assertActionableTotal(0);
+        assertUnfilteredTotal("GATEWAY_UNRESOLVED", 1);
+        org.assertj.core.api.Assertions.assertThat(evidenceId).isPositive();
+    }
+
+    @Test
+    void actionableFilterExcludesPendingSettlement() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        var usageId = insertUsage(lineage, "FINAL");
+        insertSettlement(lineage, usageId, "PENDING");
+        insertBoundUnresolvedEvidence(lineage);
+
+        assertActionableTotal(0);
+        assertUnfilteredTotal("GATEWAY_UNRESOLVED", 1);
+    }
+
+    @Test
+    void actionableFilterExcludesRetryableFailedSettlement() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        var usageId = insertUsage(lineage, "FINAL");
+        insertSettlement(lineage, usageId, "RETRYABLE_FAILED");
+        insertBoundUnresolvedEvidence(lineage);
+
+        assertActionableTotal(0);
+        assertUnfilteredTotal("GATEWAY_UNRESOLVED", 1);
+    }
+
+    @Test
+    void actionableFilterExcludesSettledRequest() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        var usageId = insertUsage(lineage, "FINAL");
+        var settlementId = insertSettlement(lineage, usageId, "PENDING");
+        // A SETTLED Settlement is immutable financial truth with posted
+        // amounts and a Ledger posting: transition the row the governed way.
+        jdbc.update("""
+                INSERT INTO ledger_posting(org_id,posting_key,source_type,source_id,
+                  allocation_decision_id,billing_period_id,status,posting_actor_type,
+                  posted_by_member_id,posted_at,created_at)
+                VALUES (?,?,'GATEWAY_SETTLEMENT',?,NULL,?,'POSTED','SYSTEM',NULL,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, "GATEWAY_SETTLEMENT:" + settlementId, settlementId, periodId);
+        var postingId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                UPDATE gateway_settlement SET status='SETTLED',calculated_amount_raw=1.8,
+                  posted_amount=1.8,rounding_delta=0,ledger_posting_id=?,settled_at=UTC_TIMESTAMP(6)
+                WHERE id=?
+                """, postingId, settlementId);
+        insertBoundUnresolvedEvidence(lineage);
+
+        assertActionableTotal(0);
+        assertUnfilteredTotal("GATEWAY_UNRESOLVED", 1);
+    }
+
+    @Test
+    void actionableFilterExcludesStaleRouteAttempt() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        var evidenceId = insertBoundUnresolvedEvidence(lineage);
+        // A failover moves the request to a newer attempt: the evidence bound
+        // to the older attempt is history, not currently actionable work.
+        var freshAttempt = insertRouteAttempt(lineage.requestId(), "BILLABLE_POSSIBLE");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                freshAttempt, lineage.requestId());
+
+        assertActionableTotal(0);
+        assertUnfilteredTotal("GATEWAY_UNRESOLVED", 1);
+        org.assertj.core.api.Assertions.assertThat(evidenceId).isPositive();
+    }
+
+    @Test
+    void actionableFilterKeepsMissingUsage() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        var evidenceId = insertBoundUnresolvedEvidence(lineage);
+
+        assertActionableTotal(1);
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "GATEWAY_UNRESOLVED")
+                        .param("actionableOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(Long.toString(evidenceId)))
+                .andExpect(jsonPath("$.items[0].currentGatewayState").value("ACTIONABLE"));
+    }
+
+    @Test
+    void actionableFilterKeepsUnknownUsage() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        insertUsage(lineage, "UNKNOWN");
+        insertBoundUnresolvedEvidence(lineage);
+
+        assertActionableTotal(1);
+    }
+
+    @Test
+    void actionableFilterKeepsIncompleteUsage() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        insertUsage(lineage, "INCOMPLETE");
+        insertBoundUnresolvedEvidence(lineage);
+
+        assertActionableTotal(1);
+    }
+
+    @Test
+    void actionableFilterKeepsReconciliationRequiredSettlement() throws Exception {
+        var lineage = currentLineageOf(insertGatewayRequest());
+        var usageId = insertUsage(lineage, "FINAL");
+        insertSettlement(lineage, usageId, "RECONCILIATION_REQUIRED");
+        insertBoundUnresolvedEvidence(lineage);
+
+        assertActionableTotal(1);
     }
 
     @Test
@@ -414,6 +560,101 @@ class M15ReconciliationApiIntegrationTest extends AllocationApiTestSupport {
         var internal = internalTruth.aggregateProviderLedger(orgId, periodId);
         return hasher.hash(matchEngine.match(external, internal,
                 tolerancePolicy.amount()).rows());
+    }
+
+    private record GatewayLineage(long requestId, long attemptId, long providerAccountId,
+            long providerModelId, long pricingVersionId) {
+    }
+
+    private GatewayLineage currentLineageOf(long requestId) {
+        var row = jdbc.queryForMap("""
+                SELECT ra.id AS attempt_id, ra.provider_account_id AS provider_account_id,
+                       ra.provider_model_id AS provider_model_id,
+                       ra.pricing_version_id AS pricing_version_id
+                FROM gateway_route_attempt ra
+                WHERE ra.org_id=? AND ra.id=(
+                  SELECT current_route_attempt_id FROM gateway_request WHERE id=?)
+                """, orgId, requestId);
+        return new GatewayLineage(requestId,
+                ((Number) row.get("attempt_id")).longValue(),
+                ((Number) row.get("provider_account_id")).longValue(),
+                ((Number) row.get("provider_model_id")).longValue(),
+                ((Number) row.get("pricing_version_id")).longValue());
+    }
+
+    private long insertBoundUnresolvedEvidence(GatewayLineage lineage) {
+        var evidenceKey = "GATEWAY_UNRESOLVED:" + UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO reconciliation_evidence(
+                  org_id,reconciliation_run_id,reconciliation_case_id,evidence_key,
+                  provider_account_id,currency,match_kind,gateway_request_id,
+                  gateway_route_attempt_id,created_at)
+                VALUES (?,?,?,?,?,'USD','GATEWAY_UNRESOLVED',?,?,UTC_TIMESTAMP(6))
+                """, orgId, runId, caseId, evidenceKey, lineage.providerAccountId(),
+                lineage.requestId(), lineage.attemptId());
+        return jdbc.queryForObject(
+                "SELECT id FROM reconciliation_evidence WHERE org_id=? AND evidence_key=?",
+                Long.class, orgId, evidenceKey);
+    }
+
+    private long insertUsage(GatewayLineage lineage, String usageStatus) {
+        jdbc.update("""
+                INSERT INTO gateway_usage_fact(org_id,request_id,route_attempt_id,sequence,
+                  status,usage_effective_at,usage_effective_at_source,pricing_version_id,
+                  currency,observed_at,created_at)
+                VALUES (?,?,?,1,?,UTC_TIMESTAMP(6),
+                  'GATEWAY_DISPATCH_INTENT_TIMESTAMP',?,'USD',UTC_TIMESTAMP(6),
+                  UTC_TIMESTAMP(6))
+                """, orgId, lineage.requestId(), lineage.attemptId(), usageStatus,
+                lineage.pricingVersionId());
+        var usageId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("UPDATE gateway_request SET current_usage_fact_id=? WHERE id=?",
+                usageId, lineage.requestId());
+        return usageId;
+    }
+
+    private long insertSettlement(GatewayLineage lineage, Long usageId, String status) {
+        jdbc.update("""
+                INSERT INTO gateway_settlement(
+                  org_id,settlement_key,request_id,route_attempt_id,usage_fact_id,reservation_id,
+                  billing_period_id,financial_scope_type,financial_scope_id,provider_account_id,
+                  provider_model_id,pricing_version_id,currency,status,attempt_count,
+                  created_at,updated_at)
+                VALUES (?,?,?,?,?,NULL,?,'PROJECT',?,?,?,?,'USD',?,0,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, "M15 settlement " + UUID.randomUUID(), lineage.requestId(),
+                lineage.attemptId(), usageId, periodId, projectId, lineage.providerAccountId(),
+                lineage.providerModelId(), lineage.pricingVersionId(), status);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long insertRouteAttempt(long requestId, String status) {
+        var lineage = currentLineageOf(requestId);
+        jdbc.update("""
+                INSERT INTO gateway_route_attempt(org_id,request_id,attempt_no,route_decision_id,
+                  provider_account_id,provider_model_id,pricing_version_id,status,created_at)
+                VALUES (?,?,2,?,?,?,?,?,UTC_TIMESTAMP(6))
+                """, orgId, requestId, fixedRequestId(), lineage.providerAccountId(),
+                lineage.providerModelId(), lineage.pricingVersionId(), status);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void assertActionableTotal(int expected) throws Exception {
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "GATEWAY_UNRESOLVED")
+                        .param("actionableOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(expected))
+                .andExpect(jsonPath("$.items.length()").value(expected));
+    }
+
+    private void assertUnfilteredTotal(String matchKind, int expected) throws Exception {
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", matchKind))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(expected));
     }
 
     private long insertGatewayRequest() {

@@ -142,6 +142,7 @@ public class SecurityConfiguration {
                                 "/api/v1/reconciliation-runs",
                                 "/api/v1/reconciliation-runs/{runId}",
                                 "/api/v1/reconciliation-runs/{runId}/evidence",
+                                "/api/v1/reconciliation-runs/{runId}/financial-resolution-context",
                                 "/api/v1/reconciliation-cases",
                                 "/api/v1/reconciliation-cases/{caseId}",
                                 "/api/v1/reconciliation-cases/{caseId}/evidence",

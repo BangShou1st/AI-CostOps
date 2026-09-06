@@ -153,6 +153,15 @@ public final class ReconciliationController {
                 result.page(), result.size(), result.totalElements(), result.totalPages());
     }
 
+    @GetMapping("/api/v1/reconciliation-runs/{runId}/financial-resolution-context")
+    public ReconciliationResponses.FinancialResolutionContextResponse
+            financialResolutionContext(
+                @AuthenticationPrincipal AuthenticatedUser user,
+                @PathVariable long runId) {
+        return ReconciliationResponses.FinancialResolutionContextResponse.from(
+                hybridQueries.getFinancialResolutionContext(user, runId));
+    }
+
     @GetMapping("/api/v1/reconciliation-cases/{caseId}/evidence")
     public PageResponse<ReconciliationResponses.EvidenceResponse> listCaseEvidence(
             @AuthenticationPrincipal AuthenticatedUser user,

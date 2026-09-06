@@ -1,12 +1,44 @@
 # M15 Hybrid Reconciliation — Acceptance Evidence
 
-> Status: **Sol Round 4 remediation (round 5 local fixes) complete on `feat/m15-hybrid-reconciliation`**, awaiting GPT-5.6 Sol final independent review and user merge instruction. Pushing the branch triggers hosted CI automatically; no claim is made about hosted results here beyond the observed run states reported below.
+> Status: **Final Fix Round (Sol final merge-gate findings) remediation complete on `feat/m15-hybrid-reconciliation`**, awaiting GPT-5.6 Sol final merge-gate review and user merge instruction. Pushing the branch triggers hosted CI automatically; no claim is made about hosted results here beyond the observed run states reported below.
 > Issue: #148 — `feat(m15): deliver hybrid reconciliation` (PR #149)
 > Spec: `docs/superpowers/specs/2026-09-05-m15-hybrid-reconciliation-design.md`
 > Plan: `docs/superpowers/plans/2026-09-05-m15-hybrid-reconciliation-plan.md`
 > Base: `main@502b8aa38a70a0afc4751097365ec6543592280f`
-> Round 4 anchor reviewed by Sol: `47bfaa250a9771cca6794ec56e32fb9251047b00`
+> Round 5 anchor reviewed by Sol (broken starting baseline of this round): `b9380a444be2ea3fa6ff6a19889ad377ea7e1bc1`
 > This document records only results actually executed and observed on this machine.
+
+## 0R6. Final Fix Round — Sol final merge-gate findings: NO_CHARGE vs EXACT fence, fail-closed period context, true current actionability, current-vs-historical counts
+
+All four findings were fixed root-cause-first with RED tests observed failing on `b9380a4` before the production change. No migration was needed (no V24; V1–V23 unchanged).
+
+### R6-P0 NO_CHARGE_CONFIRMED can no longer cover a current valid non-zero EXACT Charge (BLOCKER)
+
+- Root cause: the resolution service bound a statement Charge only on the `STATEMENT_ADJUSTMENT_POSTED` path, so `NO_CHARGE_CONFIRMED` never looked at the run/request's `EXACT_PROVIDER_REQUEST` evidence while the evidence service independently generates both `EXACT_PROVIDER_REQUEST` and `GATEWAY_UNRESOLVED` for the same request — a reviewed non-zero statement Charge could be silently confirmed as no-charge.
+- RED tests (observed failing on `b9380a4`, both `Expecting code to raise a throwable`): `GatewayFinancialResolutionIntegrationTest.noChargeRejectsCurrentValidNonZeroExactStatementCharge` (portal-proof NO_CHARGE against a 10.00 exact Charge succeeded) and `.zeroExactProviderRecordAllowsNoChargeOnlyWithExplicitZeroProof` (portal-proof NO_CHARGE against a 0.00 exact Charge succeeded).
+- Implementation: after the Gateway Request source row is locked and the current lineage plus current run evidence are revalidated — and before any financial mutation — a NO_CHARGE path re-queries the run/request exact evidence and re-reads the authoritative `charge_fact.amount` for every current-valid exact Charge (same provider account, currency and current route attempt; client/aggregate amounts are never trusted). A non-zero exact Charge rejects with 409; an exact zero record resolves only with the `EXPLICIT_ZERO_PROVIDER_RECORD` proof and every other exact-zero combination fails closed. Because the throw happens before any mutation, the idempotency reservation rolls back with the transaction (proven by retrying the same key, which fails again instead of replaying).
+- GREEN: both tests pass — the fence rejects with zero `gateway_financial_resolution`, zero `reconciliation_adjustment`, zero `RECONCILIATION_ADJUSTMENT` Ledger postings, an unchanged ACTIVE reservation and zero `RESOLUTION_ACTION` evidence; the explicit-zero proof commits exactly one `NO_CHARGE_CONFIRMED` resolution.
+
+### R6-P1 Period context is fail-closed and independent of BUDGET_READ
+
+- Root cause: the shared modal derived the original period status from `periodCloseApi.listBillingPeriods()` with `status ?? 'OPEN'`, so loading/error/missing/CLOSING/unknown states all fell into the OPEN workflow; additionally that endpoint requires `BUDGET_READ`, so a reconciliation operator without it could not complete a Gateway correction at all.
+- RED tests (observed failing on `b9380a4`): `M15ReconciliationApiIntegrationTest.resolutionContextReadableWithoutBudgetRead` (no such endpoint — 403 via the security default-deny) and the frontend `periodContextUnknownDisablesGatewayResolution` (no unknown-state warning; the old modal even crashed without its period props contract).
+- Implementation: new bounded read endpoint `GET /api/v1/reconciliation-runs/{runId}/financial-resolution-context` requiring only `RECONCILIATION_READ`, served through the permission-neutral `BillingPeriodReadPort` seam (reconciliation.application still touches no budget/ledger infrastructure — the architecture test stays green). It returns only period identity (`originalBillingPeriodId`, `originalBillingPeriodStatus`, `eligibleCorrectionPeriods[]` with id+OPEN status), never budget-sensitive fields; the route was added to the security matcher allow-list. The modal now consumes this context: OPEN shows the fixed original period (`correctionPeriodId=null`), CLOSED requires one eligible OPEN correction period, CLOSING and UNKNOWN (loading/error/missing) show a bounded warning and disable submission — never defaulting to OPEN. `NO_CHARGE_CONFIRMED` follows the backend rules for OPEN/CLOSED, stays disabled for CLOSING/UNKNOWN, and never sends `correctionPeriodId`.
+- GREEN: the permission test proves `financial-resolution-context → 200` while `GET /billing-periods → 403` for a user without `BUDGET_READ`; `closingPeriodDisablesGatewayResolution` and `periodContextUnknownDisablesGatewayResolution` pass.
+
+### R6-P1 actionableOnly now means currently M15-actionable
+
+- Root cause: the filter only checked `NOT EXISTS gateway_financial_resolution`, so a historical `GATEWAY_UNRESOLVED` request that later gained FINAL usage, a PENDING/RETRYABLE_FAILED/SETTLED Settlement, or a stale route attempt (failover) still counted as current actionable work.
+- RED tests (observed failing on `b9380a4`): `actionableFilterExcludesFinalUsageOwnedByM13` (`totalElements` 1 instead of 0); the PENDING/RETRYABLE_FAILED/SETTLED/STALE variants failed the same way once their fixtures were corrected (the first fixture draft also exposed a placeholder-count bug and a SETTLED amount-check constraint, both fixed in the test setup, not in production).
+- Implementation (read model only): the `actionableOnly` predicate (shared by SELECT and COUNT) now additionally requires the still-existing request's current route attempt/account/currency to equal the evidence row, a possible-billable attempt status, a non-terminal Settlement state, and missing/INCOMPLETE/UNKNOWN usage or a RECONCILIATION_REQUIRED Settlement. The evidence projection additionally carries `currentGatewayActionable` and the bounded `currentGatewayState` (ACTIONABLE / RESOLVED / M13_FINAL / SETTLEMENT_PENDING / RETRYABLE_FAILED / SETTLED / STALE_ROUTE; null when the row references no Gateway request) via read-only joins; history rows are never mutated. The pre-existing `actionableEvidenceFilterExcludesTerminalResolvedRequests` fixtures were rebound to the requests' real attempts/accounts so they describe realistic lineage under the stricter predicate.
+- GREEN: all nine matrix tests pass (`...ExcludesFinalUsageOwnedByM13`, `...ExcludesPendingSettlement`, `...ExcludesRetryableFailedSettlement`, `...ExcludesSettledRequest`, `...ExcludesStaleRouteAttempt`, `...KeepsMissingUsage` (also asserting `currentGatewayState=ACTIONABLE`), `...KeepsUnknownUsage`, `...KeepsIncompleteUsage`, `...KeepsReconciliationRequiredSettlement`); unfiltered evidence still returns the full history in every case.
+
+### R6-P1/P2 Case timeline and run counts separate current from historical
+
+- Case Detail no longer treats `currentGatewayResolutionId == null + GATEWAY_UNRESOLVED` as actionable: `ACTIONABLE` (or legacy rows without the projection and without a terminal resolution) shows the action button, `RESOLVED` shows 已处理， and every other current state (`M13_FINAL` / `SETTLEMENT_PENDING` / `RETRYABLE_FAILED` / `SETTLED` / `STALE_ROUTE`) shows its bounded state label with no button. Charge-disposition handling is unchanged and still takes precedence.
+- The run header statistic was split: “当前未决网关财务工作” reads the actionable queue total (`actionableOnly.totalElements`), while “运行生成时未决项” keeps the run snapshot (`summary.unresolvedGatewayCount`); the unresolved panel header shows both (`当前可操作 X 项 · 运行生成时 Y 项`).
+- RED tests (observed failing on `b9380a4`): `runCurrentUnresolvedStatisticUsesActionableTotal` (no current-actionable headline existed) and the case-level `shows the current state without an action for non-actionable gateway work` (STALE_ROUTE still offered the action).
+- GREEN: both pass; the pre-existing `shows the committed resolution...` and `shows the final disposition...` tests now run against the state projection and stay green.
 
 ## 0R5. Round 5 — Sol Round 4 findings: CLOSED-period correction UI, actionable-vs-historical evidence, exact identity, CLOSED NO_CHARGE, final hygiene
 
@@ -263,7 +295,7 @@ Working tree      : clean at evidence time (frontend/playwright-results.xml rema
 - V23 amendments this round (M15 unmerged): `reconciliation_evidence.evidence_reference VARCHAR(256) NULL`; `chk_reconciliation_adjustment_scope_shape` requires statement-charge lineage for `GATEWAY_REQUEST` and forbids it for `CASE_FULL`; `chk_gateway_financial_resolution_type_shape` requires statement-charge lineage for `STATEMENT_ADJUSTMENT_POSTED` and forbids it for `NO_CHARGE_CONFIRMED`.
 - `M15HybridSchemaIntegrationTest` (9 tests, real MySQL 8.4, Flyway V1→V23) re-proves all previous constraints plus the strengthened structural checks (including new negative inserts for the amended CHECKs).
 
-## 3. Full local verification results (actual totals, round 5)
+## 3. Full local verification results (actual totals, round 6)
 
 ```text
 Backend unit        (mvnw -B -DexcludedGroups=architecture,integration test)
@@ -271,24 +303,25 @@ Backend unit        (mvnw -B -DexcludedGroups=architecture,integration test)
 Backend architecture(mvnw -B -Dgroups=architecture test)
                     : Tests run 36,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
 Backend integration (mvnw -B -Dgroups=integration verify)
-                    : Tests run 1018, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
-                      (includes the Round 5 tests: exact currency-scope and
-                       certified-schema uniqueness, CLOSED NO_CHARGE,
-                       actionable evidence filter and current-state projection)
+                    : Tests run 1030, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
+                      (includes the Round 5 tests plus the Round 6 tests: P0
+                       NO_CHARGE vs exact fence (2), resolution-context +
+                       BUDGET_READ independence (1), true-current-actionable
+                       matrix (9))
 
 Gateway unit        : Tests run 107, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
 Gateway architecture: Tests run 0 (groups=architecture finds no tagged gateway tests, same as before M15)
 Gateway integration : Tests run 79,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0 (M14 failover/safety suites green)
 
-Frontend npm test --run --maxWorkers=1 : 48 files, 449 tests passed
-                      (incl. the Round 5 component tests: CLOSED correction-period
-                       selection, OPEN same-period read-only, NO_CHARGE no correction
-                       period, resolved work leaving the actionable queue,
-                       已处理/final-disposition states without stale action buttons)
+Frontend npm test --run --maxWorkers=1 : 48 files, 453 tests passed
+                      (incl. the Round 5 component tests plus the Round 6
+                       component tests: UNKNOWN/CLOSING fail-closed modal states,
+                       current-vs-snapshot headline counts, STALE_ROUTE state
+                       without action button)
 Frontend npm run lint  : 0 problems
 Frontend npm run build : success (pre-existing bundle-size warning only)
 
-Ownership/concurrency races x10 (Round 5 code)
+Ownership/concurrency races x10 (Round 6 code)
 (M15FinancialOwnershipIntegrationTest + M15FinancialConcurrencyIntegrationTest
 + M15HybridRaceMatrixIntegrationTest, 10 consecutive full runs)
 : 10 x "Tests run 23, Failures 0, Errors 0" + 10 x BUILD SUCCESS,
@@ -323,6 +356,19 @@ Push triggered GitHub workflows because PR #149 is open; no claim about hosted r
    uncertified-schema poisoning (2), CLOSED NO_CHARGE (1), actionable filter +
    disposition projection (2), frontend correction-period/actionable UI (4).
 6. Round 5 final full regression: all totals above green on the fixed code.
+7. Round 6 RED wave: observed failing on b9380a4 — P0 NO_CHARGE vs exact (2,
+   both Expecting code to raise a throwable), resolution-context endpoint
+   (404/403) + FINAL-usage actionable (totalElements 1 instead of 0),
+   frontend UNKNOWN-context modal (no warning state). Two intermediate
+   failures were test-setup bugs, not production bugs: a MyBatis <script>
+   XML break from <> (fixed with !=), a settlement-fixture placeholder
+   miscount, and a SETTLED amount-check constraint (governed PENDING→
+   SETTLED transition instead).
+8. Round 6 full regression: backend 1030 + frontend 453 + gateway 79 +
+   x10 ownership races + 7/7 Playwright on a freshly rebuilt isolated
+   Compose stack, all green on the fixed code. One mid-round full-suite
+   6/7 was traced to running the m15 spec twice against the same stateful
+   E2E books (import-allocation pollution); a clean rebuild re-ran 7/7.
 ```
 
 ## 4. Financial invariants — how each is proven now
@@ -404,6 +450,10 @@ no sibling implicit resolution
 [x] current actionable work is separated from immutable history: actionableOnly filter (GATEWAY_UNRESOLVED only, items+totals share the predicate), resolved requests leave the run queue, Case timeline keeps history with 已处理/final-disposition state and no stale action buttons (0R5-B)
 [x] exact correlation identity = certified (provider, source schema) + binary request id + provider account + currency; uncertified schemas filtered before ambiguity; duplicate certified charges/candidates still fail closed; case-sensitive semantics preserved (0R5-C)
 [x] NO_CHARGE_CONFIRMED on CLOSED original periods allowed (no ledger write, no correction period), CLOSING rejected; period validators split per semantics (0R5-D)
+[x] NO_CHARGE_CONFIRMED never covers a current valid non-zero EXACT Charge (lock-revalidated authoritative amount, 409, idempotency rolls back); exact zero resolves only with EXPLICIT_ZERO_PROVIDER_RECORD (0R6-P0)
+[x] Gateway resolution period context is reconciliation-owned (RECONCILIATION_READ only, no BUDGET_READ) and fail-closed: CLOSING/UNKNOWN disable submission, never default to OPEN (0R6-P1)
+[x] actionableOnly means currently M15-actionable (same current attempt/account/currency, possible-billable, non-terminal settlement, missing/INCOMPLETE/UNKNOWN usage or RECONCILIATION_REQUIRED); FINAL/PENDING/RETRYABLE_FAILED/SETTLED/stale routes excluded from items and totals (0R6-P1)
+[x] Case timeline shows the bounded current gateway state (ACTIONABLE/RESOLVED/M13_FINAL/SETTLEMENT_PENDING/RETRYABLE_FAILED/SETTLED/STALE_ROUTE) with actions only for ACTIONABLE work; run headline counts current actionable work with the generation snapshot labeled separately (0R6-P1/P2)
 [x] linkCorrection bound to correction lineage (provider account/currency)
 [x] exact/request evidence attached to the matching aggregate case
 [x] Case Detail Rules-of-Hooks fixed with a real loading→loaded regression

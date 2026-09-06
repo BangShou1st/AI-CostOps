@@ -337,6 +337,11 @@ public class GatewayFinancialResolutionService {
         }
         requireCurrentRunUnresolvedEvidence(organizationId, run.id(), command, current);
 
+        if (TYPE_NO_CHARGE.equals(command.resolutionType())) {
+            rejectNoChargeAgainstCurrentExactCharge(organizationId, run.id(), command,
+                    current);
+        }
+
         var now = clock.instant();
         Long adjustmentId = null;
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
@@ -619,6 +624,51 @@ public class GatewayFinancialResolutionService {
                     + " vs request(attempt=" + current.routeAttemptId() + ", account="
                     + current.providerAccountId() + ", currency=" + current.currency()
                     + "). Rerun reconciliation before resolving.");
+        }
+    }
+
+    /**
+     * NO_CHARGE vs exact-contradiction fence, evaluated after the Gateway
+     * Request source row is locked and the current lineage plus the current
+     * run evidence are revalidated: a NO_CHARGE_CONFIRMED may never silently
+     * cover a request whose run still holds a current valid
+     * EXACT_PROVIDER_REQUEST (same provider account, currency and current
+     * route attempt). The authoritative charge amount is re-read from
+     * charge_fact; client or aggregate amounts are never trusted. A non-zero
+     * exact Charge always rejects; an exact zero record resolves only with
+     * the EXPLICIT_ZERO_PROVIDER_RECORD proof and every other exact-zero
+     * combination fails closed. Anything thrown here happens before any
+     * financial mutation, so the idempotency reservation rolls back with
+     * the transaction.
+     */
+    private void rejectNoChargeAgainstCurrentExactCharge(long organizationId, long runId,
+            GatewayResolutionCommand command, RequestResolutionLineage current) {
+        var exactRows = hybridMapper.selectExactEvidenceRowsForRequest(organizationId, runId,
+                command.requestId());
+        for (var exact : exactRows) {
+            if (exact.chargeFactId() == null
+                    || exact.providerAccountId() != current.providerAccountId()
+                    || !exact.currency().equals(current.currency())
+                    || !java.util.Objects.equals(exact.gatewayRouteAttemptId(),
+                            current.routeAttemptId())) {
+                continue;
+            }
+            var amount = hybridMapper.selectStatementChargeAmount(organizationId,
+                    exact.chargeFactId());
+            if (amount == null) {
+                throw conflict("The current exact statement charge is no longer readable; "
+                        + "rerun reconciliation before resolving.");
+            }
+            if (amount.signum() > 0) {
+                throw conflict("A current valid non-zero exact statement charge #"
+                        + exact.chargeFactId() + " contradicts a no-charge confirmation; "
+                        + "resolve it through a statement adjustment instead.");
+            }
+            if (!"EXPLICIT_ZERO_PROVIDER_RECORD".equals(command.reasonCode())) {
+                throw conflict("A current exact zero provider record allows "
+                        + "NO_CHARGE_CONFIRMED only with the "
+                        + "EXPLICIT_ZERO_PROVIDER_RECORD proof.");
+            }
         }
     }
 

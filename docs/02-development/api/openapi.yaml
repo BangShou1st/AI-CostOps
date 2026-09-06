@@ -1092,7 +1092,40 @@ components:
           description: >-
             Read-model projection of the final provider_charge_disposition of
             the referenced Charge (null = not yet decided).
+        currentGatewayActionable:
+          oneOf: [{ type: boolean }, { type: 'null' }]
+          description: >-
+            Read-model projection of whether the referenced Gateway request is
+            still currently M15-actionable (same current attempt, account and
+            currency; possible-billable attempt; missing/INCOMPLETE/UNKNOWN
+            usage or RECONCILIATION_REQUIRED Settlement). Null when the row
+            references no Gateway request. The immutable evidence history is
+            never mutated.
+        currentGatewayState:
+          oneOf: [{ type: string, enum: [ACTIONABLE, RESOLVED, M13_FINAL, SETTLEMENT_PENDING, RETRYABLE_FAILED, SETTLED, STALE_ROUTE] }, { type: 'null' }]
+          description: >-
+            Bounded current gateway state of the referenced request: ACTIONABLE
+            (still M15-actionable), RESOLVED (terminal gateway financial
+            resolution exists), M13_FINAL (FINAL usage owned by the normal M13
+            settlement path), SETTLEMENT_PENDING, RETRYABLE_FAILED, SETTLED, or
+            STALE_ROUTE (current attempt/account/currency moved or a
+            non-possible-billable attempt). Null when the row references no
+            Gateway request.
         createdAt: { type: string, format: date-time }
+    FinancialResolutionContextResponse:
+      type: object
+      required: [originalBillingPeriodId, originalBillingPeriodStatus, eligibleCorrectionPeriods]
+      properties:
+        originalBillingPeriodId: { $ref: '#/components/schemas/Id' }
+        originalBillingPeriodStatus: { type: string, enum: [OPEN, CLOSING, CLOSED] }
+        eligibleCorrectionPeriods:
+          type: array
+          items:
+            type: object
+            required: [id, status]
+            properties:
+              id: { $ref: '#/components/schemas/Id' }
+              status: { type: string, enum: [OPEN] }
     PageResponseReconciliationEvidence:
       type: object
       required: [items, page, size, totalElements, totalPages]
@@ -1197,7 +1230,12 @@ components:
             period (or an explicit governed reopen). NO_CHARGE_CONFIRMED
             posts no adjustment and therefore accepts no correctionPeriodId;
             OPEN and CLOSED reviewed runs may record it, while CLOSING is
-            rejected.
+            rejected. A NO_CHARGE_CONFIRMED never covers a request whose run
+            still holds a current valid non-zero EXACT_PROVIDER_REQUEST: the
+            authoritative statement Charge is re-read after locking and any
+            contradiction fails closed with 409. An exact zero provider record
+            resolves NO_CHARGE only with the EXPLICIT_ZERO_PROVIDER_RECORD
+            proof; every other exact-zero combination fails closed.
         reasonCode:
           type: string
           maxLength: 64
@@ -1772,13 +1810,27 @@ paths:
           required: false
           description: >-
             Only meaningful together with matchKind=GATEWAY_UNRESOLVED (any
-            other combination is rejected): when true, requests that already
-            carry a terminal gateway_financial_resolution are excluded from
-            both items and totals, so the queue shows only currently
-            actionable work. Immutable history stays available without this
-            filter.
+            other combination is rejected): when true, only currently
+            M15-actionable work is returned in both items and totals - the
+            same current attempt, account and currency, a possible-billable
+            attempt, no terminal resolution, and missing/INCOMPLETE/UNKNOWN
+            usage or a RECONCILIATION_REQUIRED Settlement. FINAL usage owned
+            by M13, PENDING/RETRYABLE_FAILED/SETTLED Settlements and stale
+            routes are excluded. Immutable history stays available without
+            this filter.
           schema: { type: boolean, default: false }
       responses: { '200': { description: M15 hybrid evidence for a reconciliation run, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseReconciliationEvidence' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /reconciliation-runs/{runId}/financial-resolution-context:
+    get:
+      description: >-
+        Reconciliation-owned period context for the Gateway financial
+        resolution workflow. Requires only RECONCILIATION_READ (never
+        BUDGET_READ) and exposes period identity only - the original billing
+        period of the run plus the eligible OPEN correction periods - never
+        budget-sensitive fields. The server-side resolution remains the period
+        state machine authority; CLOSING and unknown contexts must disable
+        submission in the UI instead of defaulting to OPEN.
+      responses: { '200': { description: Financial resolution period context for a reconciliation run, content: { application/json: { schema: { $ref: '#/components/schemas/FinancialResolutionContextResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
   /reconciliation-cases/{caseId}/evidence:
     get:
       parameters:

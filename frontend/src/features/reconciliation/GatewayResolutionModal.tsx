@@ -22,30 +22,35 @@ const NO_CHARGE_PROOF_LABEL: Record<string, string> = {
  * correlation evidence of the target request is fetched through the
  * request-scoped server filter, so it never depends on the target row
  * happening to sit on the first generic evidence page. The caller supplies
- * the original billing period context: an OPEN original period adjusts into
- * itself (no correctionPeriodId is ever sent), while a CLOSED original period
- * requires the reviewer to explicitly select another OPEN correction period.
- * NO_CHARGE_CONFIRMED never sends a correctionPeriodId.
+ * the reconciliation-owned period context: an OPEN original period adjusts
+ * into itself (no correctionPeriodId is ever sent), while a CLOSED original
+ * period requires the reviewer to explicitly select another OPEN correction
+ * period. CLOSING and unknown (loading/error/missing) contexts disable
+ * submission instead of defaulting to OPEN. NO_CHARGE_CONFIRMED never sends
+ * a correctionPeriodId.
  */
 export function GatewayResolutionModal({
   runId,
   caseId,
   target,
   onClose,
-  originalPeriodId,
-  originalPeriodStatus,
-  openPeriods,
+  periodContext,
 }: {
   runId: string
   /** Null for run-level unresolved work without a fabricated case. */
   caseId: string | null
   target: ReconciliationEvidenceResponse | null
   onClose: () => void
-  /** Original billing period of the reviewed run (context only; server rules). */
-  originalPeriodId: string | null
-  originalPeriodStatus: string
-  /** Currently OPEN billing periods offered as correction-period options. */
-  openPeriods: { id: string }[]
+  /**
+   * Reconciliation-owned period context (RECONCILIATION_READ only, never
+   * BUDGET_READ). Unknown covers loading/error/missing and disables
+   * submission; the server remains the period state machine authority.
+   */
+  periodContext: {
+    originalPeriodId: string | null
+    status: 'OPEN' | 'CLOSING' | 'CLOSED' | 'UNKNOWN'
+    eligibleCorrectionPeriods: { id: string }[]
+  }
 }) {
   const queryClient = useQueryClient()
   const [resolutionType, setResolutionType] = useState<'NO_CHARGE_CONFIRMED' | 'STATEMENT_ADJUSTMENT_POSTED'>('NO_CHARGE_CONFIRMED')
@@ -56,8 +61,13 @@ export function GatewayResolutionModal({
   const [reasonNote, setReasonNote] = useState('')
   const [correctionPeriodId, setCorrectionPeriodId] = useState('')
   const targetRequestId = target?.gatewayRequestId ?? null
-  const originalPeriodClosed = originalPeriodStatus === 'CLOSED'
-  const correctionPeriodOptions = openPeriods
+  const originalPeriodId = periodContext.originalPeriodId
+  const periodStatus = periodContext.status
+  const originalPeriodClosed = periodStatus === 'CLOSED'
+  // Fail closed: CLOSING and unknown (loading/error/missing) contexts never
+  // fall back to the OPEN workflow; submission stays disabled instead.
+  const periodBlocksSubmit = periodStatus === 'CLOSING' || periodStatus === 'UNKNOWN'
+  const correctionPeriodOptions = periodContext.eligibleCorrectionPeriods
     .filter((candidate) => candidate.id !== originalPeriodId)
     .map((candidate) => ({ value: candidate.id, label: `#${candidate.id} · OPEN` }))
   const exactQuery = useQuery({
@@ -115,15 +125,28 @@ export function GatewayResolutionModal({
       okText={mutation.isPending ? '正在提交…' : '确认提交'}
       okButtonProps={{
         disabled: resolutionType === 'STATEMENT_ADJUSTMENT_POSTED'
-          ? (!exactEvidence && !statementChargeId.trim())
+          ? periodBlocksSubmit
+            || (!exactEvidence && !statementChargeId.trim())
             || (originalPeriodClosed && !correctionPeriodId)
             || !reasonCode.trim() || !reasonNote.trim() || mutation.isPending
-          : !evidenceReference.trim() || !reasonNote.trim() || mutation.isPending,
+          : periodBlocksSubmit
+            || !evidenceReference.trim() || !reasonNote.trim() || mutation.isPending,
       }}
       onOk={() => mutation.mutate()}
       onCancel={() => { onClose(); mutation.reset() }}
       width={640}
     >
+      {periodBlocksSubmit && (
+        <Alert
+          type="warning"
+          showIcon
+          className="m6-section-card"
+          title={periodStatus === 'CLOSING' ? '账期正在关闭，禁止处理' : '账期上下文未知，禁止处理'}
+          description={periodStatus === 'CLOSING'
+            ? '原账期处于 CLOSING 状态，网关财务处理被禁止。请等待账期状态明确后重试。'
+            : '未能加载账期上下文（加载中、加载失败或缺失），绝不默认按开启账期处理。请稍后重试。'}
+        />
+      )}
       {resolutionType === 'STATEMENT_ADJUSTMENT_POSTED' ? (
         <Alert
           type="info"

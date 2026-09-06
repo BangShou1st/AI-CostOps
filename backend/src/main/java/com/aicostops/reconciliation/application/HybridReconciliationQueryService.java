@@ -1,5 +1,6 @@
 package com.aicostops.reconciliation.application;
 
+import com.aicostops.budget.application.BillingPeriodReadPort;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper;
@@ -8,6 +9,7 @@ import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageResponse;
 import com.aicostops.shared.web.ProblemCode;
+import java.util.List;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,14 +36,17 @@ public class HybridReconciliationQueryService {
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final HybridReconciliationMapper mapper;
     private final ReconciliationQueryService reconciliationQueries;
+    private final BillingPeriodReadPort periods;
 
     public HybridReconciliationQueryService(
             AuthorizationContextService authorizationContexts,
             HybridReconciliationMapper mapper,
-            ReconciliationQueryService reconciliationQueries) {
+            ReconciliationQueryService reconciliationQueries,
+            BillingPeriodReadPort periods) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.reconciliationQueries = reconciliationQueries;
+        this.periods = periods;
     }
 
     public PageResponse<EvidenceRow> listRunEvidence(AuthenticatedUser user, long runId,
@@ -77,6 +82,46 @@ public class HybridReconciliationQueryService {
                 boundedSize, boundedPage * boundedSize);
         var total = mapper.countEvidenceByCase(context.organizationId(), caseId, boundedKind);
         return toPage(items, total, boundedPage, boundedSize);
+    }
+
+    /**
+     * Bounded reconciliation-owned period context for the Gateway financial
+     * resolution workflow. Requires only RECONCILIATION_READ - deliberately
+     * independent of BUDGET_READ - and exposes period identity only (the
+     * original billing period of the run plus the eligible OPEN correction
+     * periods), never budget-sensitive fields. The server-side resolution
+     * remains the period state machine authority; this projection only tells
+     * the UI which workflow branch (fixed original, correction select, or
+     * disabled CLOSING/unknown) applies.
+     */
+    public FinancialResolutionContext getFinancialResolutionContext(AuthenticatedUser user,
+            long runId) {
+        var context = authorizationContexts.fresh(user);
+        authorization.requireOrg(context, PERMISSION_READ);
+        var run = reconciliationQueries.getRun(user, runId);
+        var original = periods.findById(context.organizationId(), run.billingPeriodId());
+        if (original == null) {
+            throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
+                    "Resource not found",
+                    "Billing period is not available in the current organization.");
+        }
+        var eligible = periods.listByOrganization(context.organizationId()).stream()
+                .filter(candidate -> candidate.status()
+                        == com.aicostops.budget.domain.BillingPeriodStatus.OPEN
+                        && candidate.id() != original.id())
+                .map(candidate -> new EligibleCorrectionPeriod(candidate.id()))
+                .toList();
+        return new FinancialResolutionContext(original.id(), original.status().name(),
+                eligible);
+    }
+
+    public record FinancialResolutionContext(
+            long originalBillingPeriodId,
+            String originalBillingPeriodStatus,
+            List<EligibleCorrectionPeriod> eligibleCorrectionPeriods) {
+    }
+
+    public record EligibleCorrectionPeriod(long id) {
     }
 
     private static String requireBoundedMatchKind(String matchKind) {

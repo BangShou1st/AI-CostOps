@@ -18,6 +18,7 @@ vi.mock('./api/reconciliationApi', () => ({
     listRuns: vi.fn(),
     createRun: vi.fn(),
     getRun: vi.fn(),
+    getFinancialResolutionContext: vi.fn(),
     getCase: vi.fn(),
     listCases: vi.fn(),
     investigateCase: vi.fn(),
@@ -51,12 +52,6 @@ const mockedAllocationApi = vi.mocked(allocationApi)
 const period = {
   id: '10', periodStart: '2026-08-01', periodEnd: '2026-09-01', status: 'OPEN' as const, version: 0,
 }
-const closedPeriod = {
-  id: '10', periodStart: '2026-08-01', periodEnd: '2026-09-01', status: 'CLOSED' as const, version: 1,
-}
-const septemberOpenPeriod = {
-  id: '11', periodStart: '2026-09-01', periodEnd: '2026-10-01', status: 'OPEN' as const, version: 0,
-}
 const run = {
   id: '7', billingPeriodId: '10', status: 'COMPLETED' as const, algorithmVersion: 'M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2',
   toleranceAmount: '0.00000000', basisHash: 'hash',
@@ -72,6 +67,7 @@ const evidenceRows = [
     gatewaySettlementId: null, correctionGroupId: null, reconciliationAdjustmentId: null,
     gatewayFinancialResolutionId: null, ledgerPostingId: null, providerRequestId: null,
     evidenceReference: null, currentGatewayResolutionId: null, currentChargeDisposition: null,
+    currentGatewayActionable: true, currentGatewayState: 'ACTIONABLE' as const,
     externalAmount: null, internalAmount: null, differenceAmount: null, createdAt: '2026-08-21T01:00:01Z',
   },
 ]
@@ -82,6 +78,8 @@ const resolvedEvidenceRows = [
     evidenceKey: 'GATEWAY_UNRESOLVED:REQUEST:44',
     gatewayRequestId: '44',
     currentGatewayResolutionId: '78',
+    currentGatewayActionable: false,
+    currentGatewayState: 'RESOLVED' as const,
   },
 ]
 const disposedChargeEvidenceRows = [
@@ -111,6 +109,7 @@ const aggregateOnlyPageRows = [
     gatewaySettlementId: null, correctionGroupId: null, reconciliationAdjustmentId: null,
     gatewayFinancialResolutionId: null, ledgerPostingId: null, providerRequestId: null,
     evidenceReference: null, currentGatewayResolutionId: null, currentChargeDisposition: null,
+    currentGatewayActionable: null, currentGatewayState: null,
     externalAmount: '10.00000000', internalAmount: '8.00000000', differenceAmount: '-2.00000000',
     createdAt: '2026-08-21T01:00:01Z',
   },
@@ -122,6 +121,7 @@ const exactEvidenceRow = {
   gatewaySettlementId: null, correctionGroupId: null, reconciliationAdjustmentId: null,
   gatewayFinancialResolutionId: null, ledgerPostingId: null, providerRequestId: 'prov-req-1',
   evidenceReference: null, currentGatewayResolutionId: null, currentChargeDisposition: null,
+  currentGatewayActionable: null, currentGatewayState: null,
   externalAmount: null, internalAmount: null, differenceAmount: null, createdAt: '2026-08-21T01:00:01Z',
 }
 const caseRow = {
@@ -149,6 +149,13 @@ function renderPage(page: 'list' | 'detail', permissions: string[] = ['RECONCILI
 beforeEach(() => {
   vi.clearAllMocks()
   mockedPeriodCloseApi.listBillingPeriods.mockResolvedValue([period])
+  // Reconciliation-owned period context (RECONCILIATION_READ only): OPEN by
+  // default; individual tests override CLOSED/CLOSING/UNKNOWN branches.
+  mockedReconciliationApi.getFinancialResolutionContext.mockResolvedValue({
+    originalBillingPeriodId: '10',
+    originalBillingPeriodStatus: 'OPEN',
+    eligibleCorrectionPeriods: [],
+  })
   mockedReconciliationApi.getCase.mockResolvedValue(caseRow)
   mockedAllocationApi.listTargets.mockResolvedValue([{ type: 'PROJECT' as const, id: '4', name: 'Alpha' }])
   mockedReconciliationApi.listRuns.mockResolvedValue({ items: [run], page: 0, size: 30, totalElements: 1, totalPages: 1 })
@@ -208,7 +215,10 @@ describe('ReconciliationRunDetailPage', () => {
     expect(screen.getByText('匹配键总数')).toBeInTheDocument()
     expect(screen.getByText('M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2')).toBeInTheDocument()
     expect(screen.getByText('精确请求证据')).toBeInTheDocument()
-    expect(screen.getByText('未决网关财务工作')).toBeInTheDocument()
+    // The headline counts current actionable work; the run-generation
+    // snapshot is labeled separately and never presented as current.
+    expect(screen.getByText('当前未决网关财务工作')).toBeInTheDocument()
+    expect(screen.getByText('运行生成时未决项')).toBeInTheDocument()
     expect(screen.getAllByText('2').length).toBeGreaterThan(0)
     expect(screen.getAllByText('1').length).toBeGreaterThan(0)
     expect(screen.getAllByText('3').length).toBeGreaterThan(0)
@@ -360,7 +370,11 @@ describe('ReconciliationRunDetailPage', () => {
   })
 
   it('closedPeriodStatementResolutionRequiresCorrectionPeriodSelection', async () => {
-    mockedPeriodCloseApi.listBillingPeriods.mockResolvedValue([closedPeriod, septemberOpenPeriod])
+    mockedReconciliationApi.getFinancialResolutionContext.mockResolvedValue({
+      originalBillingPeriodId: '10',
+      originalBillingPeriodStatus: 'CLOSED',
+      eligibleCorrectionPeriods: [{ id: '11', status: 'OPEN' }],
+    })
     renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
 
     fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
@@ -415,8 +429,69 @@ describe('ReconciliationRunDetailPage', () => {
     expect(body.correctionPeriodId ?? null).toBeNull()
   })
 
+  it('periodContextUnknownDisablesGatewayResolution', async () => {
+    // Loading/error/missing context maps to UNKNOWN: the modal never falls
+    // back to the OPEN workflow and submission stays disabled.
+    mockedReconciliationApi.getFinancialResolutionContext.mockRejectedValue(new Error('boom'))
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
+    await screen.findByText('网关财务处理（请求 #42）')
+    expect(await screen.findByText('账期上下文未知，禁止处理')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认提交' })).toBeDisabled()
+    fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
+    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    expect(screen.queryByLabelText('调整入账账期')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认提交' })).toBeDisabled()
+  })
+
+  it('closingPeriodDisablesGatewayResolution', async () => {
+    mockedReconciliationApi.getFinancialResolutionContext.mockResolvedValue({
+      originalBillingPeriodId: '10',
+      originalBillingPeriodStatus: 'CLOSING',
+      eligibleCorrectionPeriods: [],
+    })
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
+    await screen.findByText('网关财务处理（请求 #42）')
+    expect(await screen.findByText('账期正在关闭，禁止处理')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认提交' })).toBeDisabled()
+  })
+
+  it('runCurrentUnresolvedStatisticUsesActionableTotal', async () => {
+    // Historical snapshot says 1 but the current actionable queue is empty:
+    // the headline statistic must show 0, never the misleading snapshot.
+    mockedReconciliationApi.getRun.mockResolvedValue({
+      ...run,
+      summary: { ...run.summary, unresolvedGatewayCount: 1 },
+    })
+    mockedReconciliationApi.listRunEvidence.mockImplementation(async (_runId, params) => {
+      const p = params ?? {}
+      if (p.matchKind === 'GATEWAY_UNRESOLVED') {
+        return { items: [], page: 0, size: p.size ?? 10, totalElements: 0, totalPages: 0 }
+      }
+      if (p.matchKind === 'EXACT_PROVIDER_REQUEST') {
+        return { items: [], page: 0, size: 5, totalElements: 0, totalPages: 1 }
+      }
+      return { items: aggregateOnlyPageRows, page: p.page ?? 0, size: p.size ?? 50, totalElements: 75, totalPages: 2 }
+    })
+    renderPage('detail')
+
+    // The headline uses the current actionable total (0); the snapshot (1)
+    // is labeled as run-generation history and never presented as current.
+    const currentStat = await screen.findByText('当前未决网关财务工作')
+    expect(currentStat.closest('.ant-card')?.textContent).toContain('0')
+    const snapshotStat = await screen.findByText('运行生成时未决项')
+    expect(snapshotStat.closest('.ant-card')?.textContent).toContain('1')
+  })
+
   it('noChargeNeverSendsCorrectionPeriod', async () => {
-    mockedPeriodCloseApi.listBillingPeriods.mockResolvedValue([closedPeriod, septemberOpenPeriod])
+    mockedReconciliationApi.getFinancialResolutionContext.mockResolvedValue({
+      originalBillingPeriodId: '10',
+      originalBillingPeriodStatus: 'CLOSED',
+      eligibleCorrectionPeriods: [{ id: '11', status: 'OPEN' }],
+    })
     renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
 
     fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
@@ -603,6 +678,31 @@ describe('ReconciliationCaseDetailPage', () => {
     // ...but the request already carries a terminal resolution, so no action
     // button is offered anymore.
     expect(screen.getByText(/已处理（终端财务决定 #78/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '处理网关财务工作' })).not.toBeInTheDocument()
+  })
+
+  it('shows the current state without an action for non-actionable gateway work', async () => {
+    mockedReconciliationApi.listCaseEvidence.mockResolvedValue({
+      items: [{
+        ...evidenceRows[0],
+        id: '16',
+        evidenceKey: 'GATEWAY_UNRESOLVED:REQUEST:45',
+        gatewayRequestId: '45',
+        currentGatewayResolutionId: null,
+        currentGatewayActionable: false,
+        currentGatewayState: 'STALE_ROUTE' as const,
+      }],
+      page: 0,
+      size: 50,
+      totalElements: 1,
+      totalPages: 1,
+    })
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    expect(await screen.findByText('混合证据与单条证据操作')).toBeInTheDocument()
+    // History stays visible, the current STALE_ROUTE state is shown, and no
+    // action button is offered for work that is not currently actionable.
+    expect(await screen.findByText(/路由已变更/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '处理网关财务工作' })).not.toBeInTheDocument()
   })
 

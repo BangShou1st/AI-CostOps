@@ -1045,6 +1045,83 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
     }
 
     @Test
+    void noChargeRejectsCurrentValidNonZeroExactStatementCharge() {
+        // The same run/request carries both a current valid non-zero
+        // EXACT_PROVIDER_REQUEST (authoritative statement Charge > 0, same
+        // account/currency/attempt) and GATEWAY_UNRESOLVED evidence: a
+        // NO_CHARGE_CONFIRMED must fail closed instead of silently succeeding.
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, true);
+        insertUnresolvedEvidence(fixture);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(),
+                "10.00000000");
+        insertExactEvidenceForCase(chargeId, fixture, null);
+
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-portal-r6-fence", null,
+                        NO_CHARGE_PROOF, "Provider confirmed no charge"), "r6-nc-exact-fence"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("exact");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_adjustment WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? AND "
+                        + "source_type='RECONCILIATION_ADJUSTMENT'",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fixture.reservationId())).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_evidence WHERE org_id=? "
+                        + "AND match_kind='RESOLUTION_ACTION'",
+                Long.class, orgId)).isZero();
+        // The idempotency reservation rolls back with the rejected
+        // transaction: retrying the same key fails again instead of replaying.
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-portal-r6-fence", null,
+                        NO_CHARGE_PROOF, "Provider confirmed no charge"), "r6-nc-exact-fence"))
+                .isInstanceOf(DomainException.class);
+    }
+
+    @Test
+    void zeroExactProviderRecordAllowsNoChargeOnlyWithExplicitZeroProof() {
+        // An exact zero provider record may resolve NO_CHARGE only with the
+        // explicit zero proof; a portal/support proof against the same zero
+        // exact record still fails closed.
+        var allowed = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, false);
+        insertUnresolvedEvidence(allowed);
+        var allowedChargeId = insertConfirmedStatementCharge(allowed.providerAccountId(),
+                "0.00000000");
+        insertExactEvidenceForCase(allowedChargeId, allowed, null);
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, allowed.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-zero-record-r6", null,
+                        "EXPLICIT_ZERO_PROVIDER_RECORD", "Provider record is explicitly zero"),
+                "r6-nc-zero-explicit");
+        assertThat(jdbc.queryForObject(
+                "SELECT resolution_type FROM gateway_financial_resolution WHERE id=?",
+                String.class, result.resolutionId())).isEqualTo("NO_CHARGE_CONFIRMED");
+
+        var rejected = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, false);
+        insertUnresolvedEvidence(rejected);
+        var rejectedChargeId = insertConfirmedStatementCharge(rejected.providerAccountId(),
+                "0.00000000");
+        insertExactEvidenceForCase(rejectedChargeId, rejected, null);
+
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, rejected.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-portal-r6-zero", null,
+                        NO_CHARGE_PROOF, "Provider confirmed no charge"), "r6-nc-zero-portal"))
+                .isInstanceOf(DomainException.class);
+    }
+
+    @Test
     void unknownRequestIsNotFound() {
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, 999999L,

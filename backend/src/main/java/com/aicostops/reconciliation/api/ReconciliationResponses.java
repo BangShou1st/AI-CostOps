@@ -104,7 +104,9 @@ public final class ReconciliationResponses {
             String differenceAmount,
             Instant createdAt,
             String currentGatewayResolutionId,
-            String currentChargeDisposition) {
+            String currentChargeDisposition,
+            Boolean currentGatewayActionable,
+            String currentGatewayState) {
 
         public static EvidenceResponse from(EvidenceRow row) {
             return new EvidenceResponse(
@@ -145,8 +147,36 @@ public final class ReconciliationResponses {
                     // evidence row itself is never mutated.
                     row.currentGatewayResolutionId() == null ? null
                             : Long.toString(row.currentGatewayResolutionId()),
-                    row.currentChargeDisposition());
+                    row.currentChargeDisposition(),
+                    // Whether the referenced request is still currently
+                    // M15-actionable and its bounded current gateway state
+                    // (ACTIONABLE/RESOLVED/M13_FINAL/SETTLEMENT_PENDING/
+                    // RETRYABLE_FAILED/SETTLED/STALE_ROUTE; null when the row
+                    // references no Gateway request). History is never mutated.
+                    row.currentGatewayActionable(),
+                    row.currentGatewayState());
         }
+    }
+
+    public record FinancialResolutionContextResponse(
+            String originalBillingPeriodId,
+            String originalBillingPeriodStatus,
+            java.util.List<EligibleCorrectionPeriodResponse> eligibleCorrectionPeriods) {
+
+        public static FinancialResolutionContextResponse from(
+                com.aicostops.reconciliation.application.HybridReconciliationQueryService
+                        .FinancialResolutionContext context) {
+            return new FinancialResolutionContextResponse(
+                    Long.toString(context.originalBillingPeriodId()),
+                    context.originalBillingPeriodStatus(),
+                    context.eligibleCorrectionPeriods().stream()
+                            .map(period -> new EligibleCorrectionPeriodResponse(
+                                    Long.toString(period.id()), "OPEN"))
+                            .toList());
+        }
+    }
+
+    public record EligibleCorrectionPeriodResponse(String id, String status) {
     }
 
     public record ChargeDispositionResponse(

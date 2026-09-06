@@ -19,6 +19,7 @@ import type {
   LinkCorrectionResponse,
   ReconciliationEvidenceListParams,
   ReconciliationEvidencePage,
+  ReconciliationFinancialResolutionContext,
 } from '../types'
 
 /** Reconciliation API values mirror docs/02-development/api/openapi.yaml. */
@@ -35,6 +36,12 @@ export const reconciliationApi = {
 
   async getRun(runId: string): Promise<ReconciliationRunResponse> {
     return (await apiClient.get<ReconciliationRunResponse>(`/reconciliation-runs/${encodeURIComponent(runId)}`)).data
+  },
+
+  async getFinancialResolutionContext(runId: string): Promise<ReconciliationFinancialResolutionContext> {
+    return (await apiClient.get<ReconciliationFinancialResolutionContext>(
+      `/reconciliation-runs/${encodeURIComponent(runId)}/financial-resolution-context`,
+    )).data
   },
 
   async listCases(params: ReconciliationCaseListParams): Promise<ReconciliationCasePage> {

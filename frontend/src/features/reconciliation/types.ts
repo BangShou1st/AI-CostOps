@@ -59,6 +59,27 @@ export interface ReconciliationEvidenceResponse {
    */
   currentGatewayResolutionId: string | null
   currentChargeDisposition: 'DIRECT_PROVIDER_CHARGE' | 'RECONCILIATION_EVIDENCE' | null
+  /**
+   * Whether the referenced Gateway request is still currently M15-actionable
+   * (same current attempt/account/currency, possible-billable attempt,
+   * missing/INCOMPLETE/UNKNOWN usage or RECONCILIATION_REQUIRED Settlement).
+   * Null when the row references no Gateway request.
+   */
+  currentGatewayActionable: boolean | null
+  /**
+   * Bounded current gateway state: ACTIONABLE, RESOLVED, M13_FINAL,
+   * SETTLEMENT_PENDING, RETRYABLE_FAILED, SETTLED or STALE_ROUTE. Null when
+   * the row references no Gateway request.
+   */
+  currentGatewayState:
+    | 'ACTIONABLE'
+    | 'RESOLVED'
+    | 'M13_FINAL'
+    | 'SETTLEMENT_PENDING'
+    | 'RETRYABLE_FAILED'
+    | 'SETTLED'
+    | 'STALE_ROUTE'
+    | null
   externalAmount: string | null
   internalAmount: string | null
   differenceAmount: string | null
@@ -229,5 +250,17 @@ export interface ReconciliationEvidenceListParams {
 }
 
 export type ReconciliationRunPage = PageResponse<ReconciliationRunResponse>
+
+/**
+ * Reconciliation-owned period context for the Gateway financial resolution
+ * workflow. Served with RECONCILIATION_READ only (never requires
+ * BUDGET_READ) and carries period identity only, never budget-sensitive
+ * fields.
+ */
+export interface ReconciliationFinancialResolutionContext {
+  originalBillingPeriodId: string
+  originalBillingPeriodStatus: string
+  eligibleCorrectionPeriods: { id: string; status: string }[]
+}
 export type ReconciliationCasePage = PageResponse<ReconciliationCaseResponse>
 export type ReconciliationEvidencePage = PageResponse<ReconciliationEvidenceResponse>
