@@ -635,8 +635,10 @@ public class GatewayFinancialResolutionService {
      * EXACT_PROVIDER_REQUEST (same provider account, currency and current
      * route attempt). The authoritative charge amount is re-read from
      * charge_fact; client or aggregate amounts are never trusted. A non-zero
-     * exact Charge always rejects; an exact zero record resolves only with
-     * the EXPLICIT_ZERO_PROVIDER_RECORD proof and every other exact-zero
+     * exact Charge always rejects - a negative Provider credit/reduction is
+     * still non-zero and contradicts NO_CHARGE just like a positive amount.
+     * An exact zero record resolves only with the
+     * EXPLICIT_ZERO_PROVIDER_RECORD proof and every other exact-zero
      * combination fails closed. Anything thrown here happens before any
      * financial mutation, so the idempotency reservation rolls back with
      * the transaction.
@@ -659,7 +661,7 @@ public class GatewayFinancialResolutionService {
                 throw conflict("The current exact statement charge is no longer readable; "
                         + "rerun reconciliation before resolving.");
             }
-            if (amount.signum() > 0) {
+            if (amount.signum() != 0) {
                 throw conflict("A current valid non-zero exact statement charge #"
                         + exact.chargeFactId() + " contradicts a no-charge confirmation; "
                         + "resolve it through a statement adjustment instead.");

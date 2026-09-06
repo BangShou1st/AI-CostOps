@@ -16,8 +16,9 @@ All four findings were fixed root-cause-first with RED tests observed failing on
 
 - Root cause: the resolution service bound a statement Charge only on the `STATEMENT_ADJUSTMENT_POSTED` path, so `NO_CHARGE_CONFIRMED` never looked at the run/request's `EXACT_PROVIDER_REQUEST` evidence while the evidence service independently generates both `EXACT_PROVIDER_REQUEST` and `GATEWAY_UNRESOLVED` for the same request — a reviewed non-zero statement Charge could be silently confirmed as no-charge.
 - RED tests (observed failing on `b9380a4`, both `Expecting code to raise a throwable`): `GatewayFinancialResolutionIntegrationTest.noChargeRejectsCurrentValidNonZeroExactStatementCharge` (portal-proof NO_CHARGE against a 10.00 exact Charge succeeded) and `.zeroExactProviderRecordAllowsNoChargeOnlyWithExplicitZeroProof` (portal-proof NO_CHARGE against a 0.00 exact Charge succeeded).
-- Implementation: after the Gateway Request source row is locked and the current lineage plus current run evidence are revalidated — and before any financial mutation — a NO_CHARGE path re-queries the run/request exact evidence and re-reads the authoritative `charge_fact.amount` for every current-valid exact Charge (same provider account, currency and current route attempt; client/aggregate amounts are never trusted). A non-zero exact Charge rejects with 409; an exact zero record resolves only with the `EXPLICIT_ZERO_PROVIDER_RECORD` proof and every other exact-zero combination fails closed. Because the throw happens before any mutation, the idempotency reservation rolls back with the transaction (proven by retrying the same key, which fails again instead of replaying).
-- GREEN: both tests pass — the fence rejects with zero `gateway_financial_resolution`, zero `reconciliation_adjustment`, zero `RECONCILIATION_ADJUSTMENT` Ledger postings, an unchanged ACTIVE reservation and zero `RESOLUTION_ACTION` evidence; the explicit-zero proof commits exactly one `NO_CHARGE_CONFIRMED` resolution.
+- RED tests (observed failing, all `Expecting code to raise a throwable`): `GatewayFinancialResolutionIntegrationTest.noChargeRejectsCurrentValidNonZeroExactStatementCharge` (portal-proof NO_CHARGE against a +10.00 exact Charge succeeded on `b9380a4`), `.zeroExactProviderRecordAllowsNoChargeOnlyWithExplicitZeroProof` (portal-proof NO_CHARGE against a 0.00 exact Charge succeeded on `b9380a4`), and `.negativeExactProviderChargeRejectsNoChargeEvenWithExplicitZeroProof` (explicit-zero-proof NO_CHARGE against a -2.00 exact Provider credit succeeded on `e1a6e8c`).
+- Implementation: after the Gateway Request source row is locked and the current lineage plus current run evidence are revalidated — and before any financial mutation — a NO_CHARGE path re-queries the run/request exact evidence and re-reads the authoritative `charge_fact.amount` for every current-valid exact Charge (same provider account, currency and current route attempt; client/aggregate amounts are never trusted). Positive and negative non-zero exact Charges both reject with 409 (`signum() != 0` — a negative Provider credit/reduction still contradicts NO_CHARGE); zero is the only amount eligible for the `EXPLICIT_ZERO_PROVIDER_RECORD` proof and every other exact-zero combination fails closed. Because the throw happens before any mutation, the idempotency reservation rolls back with the transaction (proven by retrying the same key, which fails again instead of replaying).
+- GREEN: all three tests pass — each fence rejection leaves zero `gateway_financial_resolution`, zero `reconciliation_adjustment`, zero `RECONCILIATION_ADJUSTMENT` Ledger postings, an unchanged ACTIVE reservation and zero `RESOLUTION_ACTION`/`MANUAL_BINDING` evidence; the explicit-zero proof commits exactly one `NO_CHARGE_CONFIRMED` resolution.
 
 ### R6-P1 Period context is fail-closed and independent of BUDGET_READ
 
@@ -303,11 +304,11 @@ Backend unit        (mvnw -B -DexcludedGroups=architecture,integration test)
 Backend architecture(mvnw -B -Dgroups=architecture test)
                     : Tests run 36,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
 Backend integration (mvnw -B -Dgroups=integration verify)
-                    : Tests run 1030, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
+                    : Tests run 1031, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
                       (includes the Round 5 tests plus the Round 6 tests: P0
-                       NO_CHARGE vs exact fence (2), resolution-context +
-                       BUDGET_READ independence (1), true-current-actionable
-                       matrix (9))
+                       NO_CHARGE vs exact fence (2 + 1 negative-credit),
+                       resolution-context + BUDGET_READ independence (1),
+                       true-current-actionable matrix (9))
 
 Gateway unit        : Tests run 107, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
 Gateway architecture: Tests run 0 (groups=architecture finds no tagged gateway tests, same as before M15)
@@ -369,6 +370,10 @@ Push triggered GitHub workflows because PR #149 is open; no claim about hosted r
    Compose stack, all green on the fixed code. One mid-round full-suite
    6/7 was traced to running the m15 spec twice against the same stateful
    E2E books (import-allocation pollution); a clean rebuild re-ran 7/7.
+9. Micro-gap follow-up: explicit-zero-proof NO_CHARGE against a -2.00 exact
+   Provider credit succeeded on e1a6e8c (RED observed, Expecting code to
+   raise a throwable); fixed with signum() != 0. Final full regression:
+   backend 1031 green, ownership/concurrency x10 green.
 ```
 
 ## 4. Financial invariants — how each is proven now
@@ -450,7 +455,7 @@ no sibling implicit resolution
 [x] current actionable work is separated from immutable history: actionableOnly filter (GATEWAY_UNRESOLVED only, items+totals share the predicate), resolved requests leave the run queue, Case timeline keeps history with 已处理/final-disposition state and no stale action buttons (0R5-B)
 [x] exact correlation identity = certified (provider, source schema) + binary request id + provider account + currency; uncertified schemas filtered before ambiguity; duplicate certified charges/candidates still fail closed; case-sensitive semantics preserved (0R5-C)
 [x] NO_CHARGE_CONFIRMED on CLOSED original periods allowed (no ledger write, no correction period), CLOSING rejected; period validators split per semantics (0R5-D)
-[x] NO_CHARGE_CONFIRMED never covers a current valid non-zero EXACT Charge (lock-revalidated authoritative amount, 409, idempotency rolls back); exact zero resolves only with EXPLICIT_ZERO_PROVIDER_RECORD (0R6-P0)
+[x] NO_CHARGE_CONFIRMED never covers a current valid non-zero EXACT Charge, positive or negative (lock-revalidated authoritative amount with signum() != 0, 409, idempotency rolls back); zero is the only amount eligible for EXPLICIT_ZERO_PROVIDER_RECORD (0R6-P0)
 [x] Gateway resolution period context is reconciliation-owned (RECONCILIATION_READ only, no BUDGET_READ) and fail-closed: CLOSING/UNKNOWN disable submission, never default to OPEN (0R6-P1)
 [x] actionableOnly means currently M15-actionable (same current attempt/account/currency, possible-billable, non-terminal settlement, missing/INCOMPLETE/UNKNOWN usage or RECONCILIATION_REQUIRED); FINAL/PENDING/RETRYABLE_FAILED/SETTLED/stale routes excluded from items and totals (0R6-P1)
 [x] Case timeline shows the bounded current gateway state (ACTIONABLE/RESOLVED/M13_FINAL/SETTLEMENT_PENDING/RETRYABLE_FAILED/SETTLED/STALE_ROUTE) with actions only for ACTIONABLE work; run headline counts current actionable work with the generation snapshot labeled separately (0R6-P1/P2)

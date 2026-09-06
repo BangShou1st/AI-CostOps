@@ -1089,6 +1089,56 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
     }
 
     @Test
+    void negativeExactProviderChargeRejectsNoChargeEvenWithExplicitZeroProof() {
+        // A negative Provider credit/reduction is still a non-zero exact
+        // Charge: even the EXPLICIT_ZERO_PROVIDER_RECORD proof must fail
+        // closed against it. Only an exact zero amount is eligible for that
+        // proof.
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, true);
+        insertUnresolvedEvidence(fixture);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(),
+                "-2.00000000");
+        insertExactEvidenceForCase(chargeId, fixture, null);
+
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-zero-record-r6-neg", null,
+                        "EXPLICIT_ZERO_PROVIDER_RECORD", "Provider record is explicitly zero"),
+                "r6-nc-exact-negative"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("exact");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_adjustment WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? AND "
+                        + "source_type='RECONCILIATION_ADJUSTMENT'",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fixture.reservationId())).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_evidence WHERE org_id=? "
+                        + "AND match_kind='RESOLUTION_ACTION'",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_evidence WHERE org_id=? "
+                        + "AND match_kind='MANUAL_BINDING'",
+                Long.class, orgId)).isZero();
+        // The idempotency reservation rolls back with the rejected
+        // transaction: retrying the same key fails again instead of replaying.
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-zero-record-r6-neg", null,
+                        "EXPLICIT_ZERO_PROVIDER_RECORD", "Provider record is explicitly zero"),
+                "r6-nc-exact-negative"))
+                .isInstanceOf(DomainException.class);
+    }
+
+    @Test
     void zeroExactProviderRecordAllowsNoChargeOnlyWithExplicitZeroProof() {
         // An exact zero provider record may resolve NO_CHARGE only with the
         // explicit zero proof; a portal/support proof against the same zero
