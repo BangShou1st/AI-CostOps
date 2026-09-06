@@ -6,6 +6,7 @@ import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.testsupport.GatewayMySqlContainerSupport;
 import com.aicostops.gateway.testsupport.GatewayTestFixture;
 import com.aicostops.gateway.testsupport.GatewayTestFixture.SeededEnv;
+import com.aicostops.gateway.testsupport.MutableClock;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
 import com.sun.net.httpserver.HttpServer;
@@ -13,6 +14,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -22,6 +25,9 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTestClient;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
@@ -57,6 +63,23 @@ class RedisTokenBucketRateLimiterIntegrationTest extends GatewayMySqlContainerSu
 
     private static HttpServer mockUpstream;
     private static final AtomicInteger UPSTREAM_CALLS = new AtomicInteger();
+
+    /**
+     * The limiter refills on real elapsed time, so full HTTP requests on a slow
+     * runner can legitimately refill a token between calls. Freeze the injected
+     * clock and advance it explicitly to keep burst/refill assertions
+     * deterministic.
+     */
+    private static final MutableClock TEST_CLOCK = new MutableClock(Instant.now());
+
+    @TestConfiguration
+    static class DeterministicClockConfiguration {
+        @Bean
+        @Primary
+        MutableClock testClock() {
+            return TEST_CLOCK;
+        }
+    }
 
     @Autowired
     private WebTestClient web;
@@ -99,6 +122,7 @@ class RedisTokenBucketRateLimiterIntegrationTest extends GatewayMySqlContainerSu
     @BeforeEach
     void seed() {
         UPSTREAM_CALLS.set(0);
+        TEST_CLOCK.set(Instant.now());
         var mockUrl = "http://127.0.0.1:" + mockUpstream.getAddress().getPort() + "/v1";
         env = GatewayTestFixture.seed(jdbc, "rl-" + System.nanoTime(), HMAC_KEY, rawKey(),
                 GatewayTestFixture.TEST_KEK, "sk-test-secret", mockUrl);
@@ -121,12 +145,12 @@ class RedisTokenBucketRateLimiterIntegrationTest extends GatewayMySqlContainerSu
     }
 
     @Test
-    void refillRestoresATokenOverTime() throws InterruptedException {
+    void refillRestoresATokenOverTime() {
         assertThat(limiter.tryAcquire(env.credentialId()).block().allowed()).isTrue();
         assertThat(limiter.tryAcquire(env.credentialId()).block().allowed()).isTrue();
         assertThat(limiter.tryAcquire(env.credentialId()).block().allowed()).isFalse();
 
-        Thread.sleep(1100);
+        TEST_CLOCK.advance(Duration.ofMillis(1100));
 
         assertThat(limiter.tryAcquire(env.credentialId()).block().allowed()).isTrue();
     }
