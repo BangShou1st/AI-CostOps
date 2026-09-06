@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
@@ -35,7 +34,6 @@ class GatewayFinancialResolutionRollbackIntegrationTest extends AllocationApiTes
     private static final String SEP_START = "2026-09-01 00:00:00.000000";
     private static final String NO_CHARGE_PROOF = "PROVIDER_PORTAL_CONFIRMED_NO_CHARGE";
 
-    @Autowired JdbcTemplate jdbc;
     @Autowired GatewayFinancialResolutionService resolutions;
     @MockitoBean GatewayResolutionFailureInjector failureInjector;
 
@@ -249,10 +247,6 @@ class GatewayFinancialResolutionRollbackIntegrationTest extends AllocationApiTes
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM api_idempotency WHERE org_id=? AND operation=?",
                 Long.class, orgId, "GATEWAY_FINANCIAL_RESOLUTION")).isZero();
-    }
-
-    private record FixtureBuild(long requestId, long attemptId, long providerAccountId,
-            long pricingVersionId) {
     }
 
     /** UNKNOWN usage request; withBudget adds budget+reservation; withCommitment binds one. */

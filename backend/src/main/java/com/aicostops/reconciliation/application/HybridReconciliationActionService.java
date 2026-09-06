@@ -85,7 +85,7 @@ public class HybridReconciliationActionService {
                     context.organizationMemberId(), DISPOSITION_OPERATION, idempotencyKey,
                     requestHash);
             if (reservation.replay()) {
-                return Long.parseLong(stripQuotes(reservation.responseBody()));
+                return replayDispositionId(reservation.responseBody());
             }
             var currentCase = mapper.selectCaseByIdForUpdate(context.organizationId(), caseId);
             if (currentCase == null) {
@@ -313,6 +313,22 @@ public class HybridReconciliationActionService {
         }
         requireBounded(command.reasonCode(), 64, "reasonCode");
         requireBounded(command.reasonNote(), 2000, "reasonNote");
+    }
+
+    /**
+     * Bounded replay of the committed disposition id: a stored idempotency
+     * response that is no longer parseable is a corrupted-state failure, never
+     * a NumberFormatException leaking to the caller.
+     */
+    private long replayDispositionId(String responseBody) {
+        long dispositionId;
+        try {
+            dispositionId = Long.parseLong(stripQuotes(responseBody));
+        } catch (RuntimeException invalidStoredResponse) {
+            throw new IllegalStateException("Stored disposition idempotency response is "
+                    + "invalid", invalidStoredResponse);
+        }
+        return dispositionId;
     }
 
     private static String stripQuotes(String responseBody) {

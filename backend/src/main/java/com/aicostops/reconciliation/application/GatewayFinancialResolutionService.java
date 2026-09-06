@@ -255,8 +255,11 @@ public class GatewayFinancialResolutionService {
         // Financial lock order: all BillingPeriod rows strictly ascending id in
         // one pass, then Budget(s), the reservation-bound Commitment, the bound
         // Reservation, the reconciliation identity and the request source row.
-        var requestPeriodId = preRead.billingPeriodId();
-        var adjustmentPeriodId = command.correctionPeriodId() == null
+        // Period ids are held as primitives: boxed identity comparison would
+        // treat numerically-equal instances of a high period id (>127) as
+        // different periods and reject a legal resolution.
+        long requestPeriodId = preRead.billingPeriodId();
+        long adjustmentPeriodId = command.correctionPeriodId() == null
                 ? requestPeriodId
                 : command.correctionPeriodId();
         var lockedPeriods = new TreeMap<Long, com.aicostops.budget.domain.BillingPeriod>();
@@ -345,6 +348,14 @@ public class GatewayFinancialResolutionService {
         var now = clock.instant();
         Long adjustmentId = null;
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
+            // The binding was established above the financial locks for this
+            // same immutable resolution type; the explicit guard states that
+            // invariant and fails closed instead of dereferencing an absent
+            // binding.
+            if (binding == null || boundChargeId == null) {
+                throw conflict("The statement binding was not established before the "
+                        + "financial locks.");
+            }
             // Financial ownership: the Charge row is the shared serialization
             // point with normal Provider posting (charge row lock last in the
             // canonical order). Under the lock every ownership fact is

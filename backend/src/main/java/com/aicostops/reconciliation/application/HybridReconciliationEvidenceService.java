@@ -47,8 +47,7 @@ public class HybridReconciliationEvidenceService {
                     organizationId, runId, null,
                     "AGGREGATE:" + row.providerAccountId() + ":" + row.currency(),
                     row.providerAccountId(), row.currency(),
-                    "AGGREGATE_SCOPE", classifyAggregateDifference(organizationId, row,
-                            periodStart, periodEnd),
+                    "AGGREGATE_SCOPE", classifyAggregateDifference(row),
                     null, null, null, null, null, null, null, null, null, null, null,
                     row.externalAmount(), row.internalAmount(), row.difference(),
                     now));
@@ -87,8 +86,7 @@ public class HybridReconciliationEvidenceService {
      * other aggregate difference remains UNCLASSIFIED until reviewed evidence
      * exists. Unsupported timing/pricing proofs are never guessed.
      */
-    private String classifyAggregateDifference(long organizationId, MatchRow row,
-            Instant periodStart, Instant periodEnd) {
+    private String classifyAggregateDifference(MatchRow row) {
         if (row.difference() == null || row.difference().compareTo(BigDecimal.ZERO) == 0) {
             return null;
         }

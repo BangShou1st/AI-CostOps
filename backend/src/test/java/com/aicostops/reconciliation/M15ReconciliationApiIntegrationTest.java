@@ -462,7 +462,7 @@ class M15ReconciliationApiIntegrationTest extends AllocationApiTestSupport {
                         .content(body))
                 .andExpect(status().isBadRequest());
 
-        var first = mvc.perform(
+        mvc.perform(
                         post("/api/v1/reconciliation-cases/%d/charge-dispositions".formatted(caseId))
                                 .header("Authorization", bearer())
                                 .header("Idempotency-Key", "disp-1")

@@ -183,11 +183,13 @@ public final class ReconciliationController {
             @PathVariable long caseId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody ReconciliationRequests.ChargeDispositionRequest request) {
+        // Spring's required @RequestBody guarantees a decoded request object;
+        // only the DTO fields themselves are nullable.
         var command = new ChargeDispositionCommand(
-                parseId(request == null ? null : request.chargeFactId(), "chargeFactId"),
-                request == null ? null : request.disposition(),
-                request == null ? null : request.reasonCode(),
-                request == null ? null : request.reasonNote());
+                parseId(request.chargeFactId(), "chargeFactId"),
+                request.disposition(),
+                request.reasonCode(),
+                request.reasonNote());
         var dispositionId = hybridActions.decideChargeDisposition(user, caseId, command,
                 idempotencyKey);
         return ReconciliationResponses.ChargeDispositionResponse.from(dispositionId, caseId,
@@ -222,21 +224,23 @@ public final class ReconciliationController {
             @PathVariable long runId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody ReconciliationRequests.GatewayResolutionRequest request) {
+        // Spring's required @RequestBody guarantees a decoded request object;
+        // only the DTO fields themselves are nullable.
         var command = new GatewayResolutionCommand(
                 runId,
-                request == null || request.caseId() == null || request.caseId().isBlank()
+                request.caseId() == null || request.caseId().isBlank()
                         ? null : parseId(request.caseId(), "caseId"),
-                parseId(request == null ? null : request.requestId(), "requestId"),
-                request == null ? null : request.resolutionType(),
-                request == null || request.statementChargeFactId() == null
+                parseId(request.requestId(), "requestId"),
+                request.resolutionType(),
+                request.statementChargeFactId() == null
                         || request.statementChargeFactId().isBlank() ? null
                         : parseId(request.statementChargeFactId(), "statementChargeFactId"),
-                request == null ? null : request.positiveEvidenceReference(),
-                request == null || request.correctionPeriodId() == null
+                request.positiveEvidenceReference(),
+                request.correctionPeriodId() == null
                         || request.correctionPeriodId().isBlank() ? null
                         : parseId(request.correctionPeriodId(), "correctionPeriodId"),
-                request == null ? null : request.reasonCode(),
-                request == null ? null : request.reasonNote());
+                request.reasonCode(),
+                request.reasonNote());
         var result = gatewayResolutions.resolveGatewayFinancialWork(user, command,
                 idempotencyKey);
         return ReconciliationResponses.GatewayResolutionResponse.from(result);

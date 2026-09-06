@@ -27,7 +27,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 /**
@@ -49,7 +48,6 @@ class M15FinancialOwnershipIntegrationTest extends AllocationApiTestSupport {
     private static final String AUG_START = "2026-08-01 00:00:00.000000";
     private static final String SEP_START = "2026-09-01 00:00:00.000000";
 
-    @Autowired JdbcTemplate jdbc;
     @Autowired GatewayFinancialResolutionService resolutions;
     @Autowired HybridReconciliationActionService hybridActions;
     @Autowired ProviderChargePostingService postings;

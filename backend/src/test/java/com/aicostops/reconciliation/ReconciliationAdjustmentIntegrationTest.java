@@ -26,7 +26,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * CASE_FULL reconciliation adjustment: the posted amount is exactly the
@@ -41,7 +40,6 @@ class ReconciliationAdjustmentIntegrationTest extends AllocationApiTestSupport {
     private static final String AUG_START = "2026-08-01 00:00:00.000000";
     private static final String SEP_START = "2026-09-01 00:00:00.000000";
 
-    @Autowired JdbcTemplate jdbc;
     @Autowired ReconciliationAdjustmentService adjustments;
     @Autowired ReconciliationExternalTruthPort externalTruth;
     @Autowired ReconciliationInternalTruthPort internalTruth;

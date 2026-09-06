@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * M15 gateway financial resolution: reviewed terminal financial decisions for
@@ -38,7 +37,6 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
     private static final String SEP_START = "2026-09-01 00:00:00.000000";
     private static final String NO_CHARGE_PROOF = "PROVIDER_PORTAL_CONFIRMED_NO_CHARGE";
 
-    @Autowired JdbcTemplate jdbc;
     @Autowired GatewayFinancialResolutionService resolutions;
     @Autowired GatewaySettlementDiscoveryService discovery;
     @Autowired GatewaySettlementService settlementService;
@@ -755,6 +753,59 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
     }
 
     @Test
+    void openRequestAcceptsExplicitCorrectionPeriodEqualToOriginalHighId() {
+        useBillingPeriodIdAboveLongCache();
+        try {
+            var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+            var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(),
+                    "2.00000000", "2026-10-05 00:00:00");
+            insertUnresolvedEvidence(fixture);
+            assertThat(periodId).isGreaterThan(127L);
+
+            // Numerically equal to the OPEN original period but carried as a
+            // distinct boxed instance (the autobox cache ends at 127): the
+            // adjustment must still be recognized as same-period, never
+            // diverted and never rejected.
+            var result = resolutions.resolveGatewayFinancialWork(actor,
+                    new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                            "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, periodId,
+                            "REVIEWED_STATEMENT_LINE", "Reviewed statement line"),
+                    "gwres-highid-same-period");
+
+            assertThat(jdbc.queryForObject(
+                    "SELECT adjustment_period_id FROM reconciliation_adjustment WHERE id=?",
+                    Long.class, result.adjustmentId())).isEqualTo(periodId);
+        } finally {
+            restoreLowBillingPeriodIds();
+        }
+    }
+
+    /**
+     * Re-materializes the reviewed period with a deterministic id above the
+     * Long autobox cache (127) so numerically-equal boxed ids arrive as
+     * distinct instances. Scoped to the calling test: the shared fixtures are
+     * cleaned and the auto-increment counter restored afterwards, so sibling
+     * tests keep their low, pre-existing ids.
+     */
+    private void useBillingPeriodIdAboveLongCache() {
+        jdbc.update("ALTER TABLE billing_period AUTO_INCREMENT = 5000");
+        jdbc.update("""
+                INSERT INTO billing_period(org_id,period_start,period_end,status,
+                  close_generation,version,created_at,updated_at)
+                VALUES (?,?,?,?,0,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, "2026-10-01 00:00:00.000000", "2026-11-01 00:00:00.000000",
+                "OPEN");
+        periodId = jdbc.queryForObject(
+                "SELECT MAX(id) FROM billing_period WHERE org_id=?", Long.class, orgId);
+        runId = insertCompletedRun(periodId);
+    }
+
+    private void restoreLowBillingPeriodIds() {
+        com.aicostops.testsupport.M2DatabaseCleaner.clean(jdbc);
+        jdbc.update("ALTER TABLE billing_period AUTO_INCREMENT = 1");
+    }
+
+    @Test
     void crossPeriodGatewayAdjustmentWithBoundCommitmentSucceedsWithoutConsumption() {
         // Covered in depth by closedRequestCanPostIntoDifferentOpenCorrectionPeriod;
         // this variant proves the same invariant for a RECONCILIATION_REQUIRED
@@ -1320,7 +1371,6 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
      * statement charge exclusivity between requests of one scope.
      */
     private Fixture insertSiblingRequestInSameAccount(Fixture base) {
-        var suffix = UUID.randomUUID().toString().replace("-", "");
         jdbc.update("""
                 INSERT INTO gateway_request(org_id,public_request_id,credential_id,principal_type,
                   organization_member_id,service_identity_id,project_id,financial_scope_type,

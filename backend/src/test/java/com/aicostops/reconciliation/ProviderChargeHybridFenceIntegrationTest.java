@@ -16,7 +16,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * M15 Hybrid Provider Charge posting fence: a statement Charge that overlaps
@@ -31,7 +30,6 @@ class ProviderChargeHybridFenceIntegrationTest extends AllocationApiTestSupport 
 
     private static final String JAN_START = "2026-01-01 00:00:00.000000";
 
-    @Autowired JdbcTemplate jdbc;
     @Autowired ProviderChargePostingService postings;
 
     private long periodId;

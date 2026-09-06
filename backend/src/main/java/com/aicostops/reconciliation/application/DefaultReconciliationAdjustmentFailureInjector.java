@@ -9,6 +9,9 @@ public final class DefaultReconciliationAdjustmentFailureInjector
 
     @Override
     public void after(String financialStage) {
-        // Intentionally empty in production.
+        // Intentionally empty in production. financialStage is a deliberate
+        // test seam: rollback tests stub a specific financial checkpoint, so
+        // the stage must always be named.
+        java.util.Objects.requireNonNull(financialStage, "financialStage");
     }
 }
