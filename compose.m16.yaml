@@ -1,0 +1,75 @@
+# M16 V2 production-acceptance topology overlay (frozen plan Task 2).
+#
+# Usage (isolated project, never the default dev stack):
+#   docker compose -f compose.yaml -f compose.m16.yaml -p m16accept \
+#     --env-file .env.m16 config
+#   docker compose -f compose.yaml -f compose.m16.yaml -p m16accept \
+#     --env-file .env.m16 up -d --build --wait --wait-timeout 360
+#
+# Design notes:
+# - The base compose.yaml is untouched; this overlay only ADDS the Gateway
+#   data plane and the deterministic mock Provider as first-class services.
+# - Gateway runs the default Spring profile (SPRING_PROFILES_ACTIVE empty):
+#   the prod fail-fast validator and the production Provider-endpoint
+#   allowlist stay covered by unit tests; the acceptance runtime uses the
+#   deterministic mock upstream over plain HTTP inside the isolated network.
+# - Gateway uses its own MySQL identity (MYSQL_GATEWAY_USER/PASSWORD),
+#   separate from the Backend migration identity (MYSQL_USER/PASSWORD).
+#   Least-privilege GRANTs are applied by scripts/m16/ after boot (Task 4).
+# - Host ports bind loopback only. Secrets come from .env.m16 (git-ignored,
+#   generated per run); this file commits no secret values.
+services:
+  gateway:
+    build:
+      context: ./gateway
+    restart: "no"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_GATEWAY_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_GATEWAY_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      AICOSTOPS_GATEWAY_PORT: 8081
+      AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1: ${AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1:-}
+      AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1: ${AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1:-}
+      AICOSTOPS_PROVIDER_KEK_V1: ${AICOSTOPS_PROVIDER_KEK_V1:-}
+      AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED: ${AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED:-false}
+      AICOSTOPS_GATEWAY_DEV_RAW_KEY: ${AICOSTOPS_GATEWAY_DEV_RAW_KEY:-}
+      AICOSTOPS_GATEWAY_DB_POOL_MAX: ${AICOSTOPS_GATEWAY_DB_POOL_MAX:-12}
+      AICOSTOPS_GATEWAY_MAX_ACTIVE_STREAMS: ${AICOSTOPS_GATEWAY_MAX_ACTIVE_STREAMS:-128}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8081/actuator/health/liveness"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    networks:
+      - aicostops
+
+  mock-provider:
+    image: python:3.11-alpine
+    restart: "no"
+    command: ["python", "/mock/mock_provider.py"]
+    volumes:
+      - ./scripts/m16/mock-provider:/mock:ro
+    environment:
+      MOCK_PROVIDER_PORT: 8089
+    ports:
+      - "127.0.0.1:${MOCK_PROVIDER_PORT:-8089}:8089"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:8089/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    networks:
+      - aicostops
