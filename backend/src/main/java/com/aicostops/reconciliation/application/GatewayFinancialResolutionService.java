@@ -86,8 +86,12 @@ public class GatewayFinancialResolutionService {
             "PROVIDER_PORTAL_CONFIRMED_NO_CHARGE",
             "PROVIDER_SUPPORT_CONFIRMED_NO_CHARGE",
             "EXPLICIT_ZERO_PROVIDER_RECORD");
-    /** Bounded binding vocabulary for STATEMENT_ADJUSTMENT_POSTED. */
-    static final Set<String> STATEMENT_REASON_CODES = Set.of(
+    /**
+     * Binding classification is server-derived truth (exact correlation
+     * evidence vs reviewed manual binding); a client may never declare it.
+     * The client reason code is only a bounded business explanation.
+     */
+    static final Set<String> FORBIDDEN_CLIENT_CLASSIFICATION_CODES = Set.of(
             "EXACT_PROVIDER_REQUEST", "MANUAL_BINDING");
 
     private final AuthorizationContextService authorizationContexts;
@@ -209,9 +213,10 @@ public class GatewayFinancialResolutionService {
         // Statement binding is decided before financial locks and revalidated
         // after them.
         Long boundChargeId = null;
+        StatementBinding binding = null;
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
-            boundChargeId = bindStatementCharge(organizationId, command, run.id(), preRead)
-                    .chargeFactId();
+            binding = bindStatementCharge(organizationId, command, run.id(), preRead);
+            boundChargeId = binding.chargeFactId();
         }
 
         // Financial lock order: all BillingPeriod rows strictly ascending id in
@@ -303,20 +308,38 @@ public class GatewayFinancialResolutionService {
             throw conflict("A RECONCILIATION_REQUIRED Settlement contradicts a no-charge "
                     + "confirmation; correct the settlement instead.");
         }
-        if (TYPE_NO_CHARGE.equals(command.resolutionType())
-                && hybridMapper.countUnresolvedEvidenceForRequest(organizationId, run.id(),
-                        command.requestId()) == 0) {
-            throw conflict("NO_CHARGE_CONFIRMED requires GATEWAY_UNRESOLVED evidence for the "
-                    + "request in the reviewed run.");
-        }
-        if (boundChargeId != null) {
-            revalidateChargeBinding(organizationId, run.id(), command.requestId(), boundChargeId,
-                    current);
-        }
+        requireCurrentRunUnresolvedEvidence(organizationId, run.id(), command, current);
 
         var now = clock.instant();
         Long adjustmentId = null;
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
+            // Financial ownership: the Charge row is the shared serialization
+            // point with normal Provider posting (charge row lock last in the
+            // canonical order). Under the lock every ownership fact is
+            // revalidated, and the RECONCILIATION_EVIDENCE claim is written
+            // atomically with the adjustment so the Charge can never later be
+            // posted through the normal V1 path.
+            hybridMapper.lockChargeForFinancialOwnership(organizationId, boundChargeId);
+            var claimRequired = revalidateChargeBinding(organizationId, run.id(),
+                    command.requestId(), boundChargeId, current, binding.manual());
+            if (claimRequired) {
+                try {
+                    hybridMapper.insertOwnershipDisposition(
+                            new HybridReconciliationMapper.OwnershipDispositionInsert(
+                                    organizationId, boundChargeId, binding.manual() ? "MANUAL"
+                                            : "SYSTEM_EXACT",
+                                    run.id(), command.caseId(),
+                                    binding.manual() ? actorMemberId : null,
+                                    command.reasonCode(), command.reasonNote(), now));
+                } catch (DuplicateKeyException concurrentClaim) {
+                    // The unique (org, charge) disposition constraint is the
+                    // last line of ownership defense; the loser receives a
+                    // bounded conflict instead of a raw constraint error.
+                    throw conflict("The statement charge ownership was concurrently claimed "
+                            + "by another gateway financial resolution.");
+                }
+                failureInjector.after("CHARGE_DISPOSITION_INSERTED");
+            }
             adjustmentId = postRequestAdjustment(organizationId, actorMemberId, command,
                     run.id(), command.caseId(), current, budget, lockedCommitment, boundChargeId,
                     adjustmentPeriodId, requestPeriodId, reservationId, now);
@@ -387,8 +410,12 @@ public class GatewayFinancialResolutionService {
                 throw conflict("The exact correlation evidence no longer matches the current "
                         + "request lineage.");
             }
+            var profile = hybridMapper.selectChargeImportProfile(organizationId,
+                    exact.chargeFactId());
             if (correlationProfiles.providerRecordKeySemantics(
-                    hybridMapper.selectChargeProviderCode(organizationId, exact.chargeFactId()))
+                    profile == null ? null : profile.providerCode(),
+                    profile == null ? null : profile.sourceType(),
+                    profile == null ? null : profile.parserVersion())
                     != CorrelationField.PROVIDER_REQUEST_ID) {
                 throw conflict("The bound charge import profile does not certify a provider "
                         + "request id.");
@@ -441,9 +468,44 @@ public class GatewayFinancialResolutionService {
         }
     }
 
-    /** Revalidates, under the financial and source locks, that the charge binding is still exclusive. */
-    private void revalidateChargeBinding(long organizationId, long runId, long requestId,
-            long chargeFactId, RequestResolutionLineage current) {
+    /**
+     * Revalidates, under the Charge financial-ownership lock, that the charge
+     * binding is still exclusive and that no financial representation of this
+     * Charge already exists. Returns true when this transaction must write the
+     * RECONCILIATION_EVIDENCE ownership disposition (a compatible claim written
+     * earlier in the same run is reused, never duplicated).
+     */
+    private boolean revalidateChargeBinding(long organizationId, long runId, long requestId,
+            long chargeFactId, RequestResolutionLineage current, boolean manualBinding) {
+        // A charge already posted through the normal V1 provider path owns its
+        // financial representation: reconciling it again would double-count.
+        if (hybridMapper.countPostedProviderChargePostings(organizationId, chargeFactId) > 0) {
+            throw conflict("The statement charge is already posted through the normal "
+                    + "provider charge path and can never be consumed as reconciliation "
+                    + "evidence.");
+        }
+        var disposition = hybridMapper.selectOwnershipDisposition(organizationId, chargeFactId);
+        boolean claimRequired;
+        if (disposition == null) {
+            claimRequired = true;
+        } else if ("DIRECT_PROVIDER_CHARGE".equals(disposition.disposition())) {
+            throw conflict("The statement charge carries a DIRECT_PROVIDER_CHARGE "
+                    + "disposition and can never be consumed as reconciliation evidence.");
+        } else if (disposition.reconciliationRunId() == null
+                || disposition.reconciliationRunId() != runId) {
+            throw conflict("The statement charge is already classified as reconciliation "
+                    + "evidence by a different reconciliation run; rerun reconciliation "
+                    + "before resolving.");
+        } else if ((!"MANUAL".equals(disposition.decisionSource())) == manualBinding) {
+            throw conflict("The statement charge ownership decision source is incompatible "
+                    + "with this binding; rerun reconciliation.");
+        } else {
+            claimRequired = false;
+        }
+        if (hybridMapper.countAdjustmentByStatementCharge(organizationId, chargeFactId) > 0) {
+            throw conflict("The statement charge is already consumed by a gateway request "
+                    + "adjustment.");
+        }
         if (hybridMapper.countResolutionByStatementCharge(organizationId, chargeFactId) > 0) {
             throw conflict("The statement charge is already used by another gateway financial "
                     + "resolution.");
@@ -455,6 +517,7 @@ public class GatewayFinancialResolutionService {
         }
         var charge = hybridMapper.selectChargeScopeContext(organizationId, chargeFactId, runId);
         validateChargeInRunScope(charge, current);
+        return claimRequired;
     }
 
     private void insertManualBindingEvidence(long organizationId, long runId,
@@ -476,6 +539,35 @@ public class GatewayFinancialResolutionService {
                 command.statementChargeFactId(), current.requestId(), current.routeAttemptId(),
                 current.usageFactId(), current.settlementId(), null, null, resolutionId, null,
                 null, null, null, null, null, now));
+    }
+
+    /**
+     * A resolution may only be grounded in reviewed evidence of this run whose
+     * route attempt, provider account and currency still equal the request's
+     * current lineage. Evidence bound to an older attempt (e.g. after a M14
+     * failover) or another scope is stale and requires a reconciliation rerun.
+     */
+    private void requireCurrentRunUnresolvedEvidence(long organizationId, long runId,
+            GatewayResolutionCommand command, RequestResolutionLineage current) {
+        var bindings = hybridMapper.selectUnresolvedEvidenceBindingsForRequest(
+                organizationId, runId, command.requestId());
+        if (bindings.isEmpty()) {
+            throw conflict((TYPE_NO_CHARGE.equals(command.resolutionType())
+                    ? "NO_CHARGE_CONFIRMED" : "STATEMENT_ADJUSTMENT_POSTED")
+                    + " requires GATEWAY_UNRESOLVED evidence for the request in the "
+                    + "reviewed run; a request reviewed by no reconciliation run can "
+                    + "never be resolved here.");
+        }
+        var currentBinding = bindings.stream().anyMatch(binding ->
+                binding.gatewayRouteAttemptId() != null
+                        && binding.gatewayRouteAttemptId() == current.routeAttemptId()
+                        && binding.providerAccountId() == current.providerAccountId()
+                        && binding.currency().equals(current.currency()));
+        if (!currentBinding) {
+            throw conflict("The reviewed run evidence for this request is stale: it is "
+                    + "bound to a different route attempt or financial scope than the "
+                    + "current lineage. Rerun reconciliation before resolving.");
+        }
     }
 
     private void validateEligibility(RequestResolutionLineage lineage) {
@@ -665,17 +757,21 @@ public class GatewayFinancialResolutionService {
                 || command.reasonNote().length() > 2000) {
             throw validation("reasonNote must contain the reviewed evidence summary.");
         }
+        if (FORBIDDEN_CLIENT_CLASSIFICATION_CODES.contains(command.reasonCode())) {
+            throw validation("reasonCode is a business explanation; the binding "
+                    + "classification (EXACT_PROVIDER_REQUEST / MANUAL_BINDING) is derived "
+                    + "by the server from the run evidence and can never be declared by "
+                    + "the client.");
+        }
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
-            if (command.statementChargeFactId() == null || command.statementChargeFactId() <= 0) {
-                throw validation("A statement-backed resolution requires a bound statement "
-                        + "charge id; the server derives the adjustment amount from it.");
+            if (command.statementChargeFactId() != null
+                    && command.statementChargeFactId() <= 0) {
+                throw validation("statementChargeFactId must be a positive integer when "
+                        + "supplied.");
             }
             if (command.positiveEvidenceReference() != null) {
                 throw validation("A statement-backed resolution never carries a positive "
                         + "no-charge evidence reference.");
-            }
-            if (!STATEMENT_REASON_CODES.contains(command.reasonCode())) {
-                throw validation("reasonCode must be one of " + STATEMENT_REASON_CODES + ".");
             }
         } else {
             if (command.statementChargeFactId() != null) {

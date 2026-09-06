@@ -10,12 +10,15 @@ import org.springframework.stereotype.Component;
 /**
  * Bounded Provider/source-schema correlation profile registry.
  *
- * <p>A provider code listed in {@code
- * aicostops.reconciliation.correlation-certified-providers} explicitly
- * certifies that its persisted {@code raw_provider_record.provider_record_key}
- * represents the Provider request id. Every provider that is not certified
- * resolves to {@code NONE}: the matcher then stays aggregate and never infers
- * request-id semantics from a generic key. The matcher consumes persisted
+ * <p>A profile listed in {@code
+ * aicostops.reconciliation.correlation-certified-profiles} as
+ * {@code PROVIDER:SOURCE_TYPE:PARSER_VERSION} explicitly certifies that the
+ * persisted {@code raw_provider_record.provider_record_key} of exactly that
+ * provider and durable source schema represents the Provider request id.
+ * Certification is never provider-wide: the same provider can export multiple
+ * statement schemas whose generic record keys mean different things, so every
+ * provider/source-schema combination that is not explicitly listed resolves to
+ * {@code NONE} and the matcher stays aggregate. The matcher consumes persisted
  * canonical lineage only; it never re-reads raw Provider payloads.
  */
 @Component
@@ -26,25 +29,31 @@ public class ProviderCorrelationProfileRegistry {
         NONE
     }
 
-    private final Set<String> certifiedProviderCodes;
+    private final Set<String> certifiedProfiles;
 
     public ProviderCorrelationProfileRegistry(
-            @Value("${aicostops.reconciliation.correlation-certified-providers:}")
-            List<String> certifiedProviderCodes) {
-        this.certifiedProviderCodes = certifiedProviderCodes == null ? Set.of()
-                : certifiedProviderCodes.stream()
-                        .filter(code -> code != null && !code.isBlank())
-                        .map(code -> code.strip().toUpperCase(Locale.ROOT))
+            @Value("${aicostops.reconciliation.correlation-certified-profiles:}")
+            List<String> certifiedProfiles) {
+        this.certifiedProfiles = certifiedProfiles == null ? Set.of()
+                : certifiedProfiles.stream()
+                        .filter(profile -> profile != null && !profile.isBlank())
+                        .map(ProviderCorrelationProfileRegistry::normalize)
                         .collect(Collectors.toUnmodifiableSet());
     }
 
     /** Certified semantics for one provider's persisted record key. */
-    public CorrelationField providerRecordKeySemantics(String providerCode) {
-        if (providerCode == null) {
+    public CorrelationField providerRecordKeySemantics(String providerCode, String sourceType,
+            String parserVersion) {
+        if (providerCode == null || sourceType == null || parserVersion == null) {
             return CorrelationField.NONE;
         }
-        return certifiedProviderCodes.contains(providerCode.strip().toUpperCase(Locale.ROOT))
+        return certifiedProfiles.contains(normalize(
+                providerCode + ":" + sourceType + ":" + parserVersion))
                 ? CorrelationField.PROVIDER_REQUEST_ID
                 : CorrelationField.NONE;
+    }
+
+    private static String normalize(String raw) {
+        return raw.strip().toUpperCase(Locale.ROOT);
     }
 }

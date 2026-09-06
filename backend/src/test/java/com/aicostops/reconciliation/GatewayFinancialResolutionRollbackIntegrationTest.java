@@ -172,6 +172,20 @@ class GatewayFinancialResolutionRollbackIntegrationTest extends AllocationApiTes
     }
 
     @Test
+    void failureAfterChargeOwnershipDispositionRollsEverythingBack() {
+        var fixture = insertUnknownUsageFixture(false, false);
+        failAt("CHARGE_DISPOSITION_INSERTED");
+
+        assertThatThrownBy(() -> resolveStatement(fixture, "rb-disposition"))
+                .isInstanceOf(RuntimeException.class);
+        assertZeroResidue();
+        // The financial ownership claim on the statement charge must be gone.
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provider_charge_disposition WHERE org_id=?",
+                Long.class, orgId)).isZero();
+    }
+
+    @Test
     void failureDuringNoChargeReleaseRollsEverythingBack() {
         var fixture = insertUnknownUsageFixture(true, false);
         failAt("RESERVATION_TRANSITIONED");
@@ -207,7 +221,7 @@ class GatewayFinancialResolutionRollbackIntegrationTest extends AllocationApiTes
         resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Reviewed statement line"),
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"),
                 key);
     }
 
@@ -228,6 +242,9 @@ class GatewayFinancialResolutionRollbackIntegrationTest extends AllocationApiTes
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM reconciliation_evidence WHERE org_id=? "
                         + "AND match_kind <> 'GATEWAY_UNRESOLVED'",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provider_charge_disposition WHERE org_id=?",
                 Long.class, orgId)).isZero();
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM api_idempotency WHERE org_id=? AND operation=?",

@@ -292,6 +292,31 @@ class M15HybridSchemaIntegrationTest extends MySqlContainerSupport {
     }
 
     @Test
+    void statementChargeOwnershipIsUniqueAcrossGatewayResolutions() {
+        var adjustmentId = insertAdjustment("GATEWAY_REQUEST", caseId, requestId, attemptId);
+        insertResolution("STATEMENT_ADJUSTMENT_POSTED", "FINALIZED", adjustmentId);
+
+        // One statement Charge can be consumed by at most one Gateway
+        // financial resolution per organization (database-level ownership
+        // defense), while NO_CHARGE_CONFIRMED rows keep a NULL statement
+        // charge and never block each other.
+        var secondRequest = insertGatewayChain("chown-a-" + UUID.randomUUID())[0];
+        assertThatThrownBy(() -> insertResolutionForRequest(secondRequest,
+                "STATEMENT_ADJUSTMENT_POSTED", "FINALIZED", adjustmentId))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("uq_gateway_financial_resolution_org_charge");
+
+        var thirdChain = insertGatewayChain("chown-b-" + UUID.randomUUID());
+        insertResolutionForRequest(thirdChain[0], "NO_CHARGE_CONFIRMED", "RELEASED", null);
+        var fourthChain = insertGatewayChain("chown-c-" + UUID.randomUUID());
+        insertResolutionForRequest(fourthChain[0], "NO_CHARGE_CONFIRMED", "RELEASED", null);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM gateway_financial_resolution
+                WHERE org_id=? AND statement_charge_fact_id IS NULL
+                """, Long.class, orgId)).isEqualTo(2L);
+    }
+
+    @Test
     void evidenceIsUniquePerRunKeyAndSupportsRunLevelNullCase() {
         insertEvidence(runId, null, "EXACT_PROVIDER_REQUEST", null,
                 "exact:" + chargeId + ":" + requestId);

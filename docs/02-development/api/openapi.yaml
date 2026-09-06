@@ -1155,10 +1155,12 @@ components:
         statementChargeFactId:
           oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }]
           description: >-
-            Required for STATEMENT_ADJUSTMENT_POSTED: the authoritative
-            statement Charge binding. It must equal the run's exact
-            correlation evidence when one exists; otherwise it creates a
-            reviewed MANUAL_BINDING validated against the request scope.
+            Statement Charge lineage for STATEMENT_ADJUSTMENT_POSTED. When
+            the run already holds certified exact correlation evidence for
+            the request, the server derives the bound Charge and this field
+            may be omitted; a supplied value is only an equality assertion
+            against that binding. Without exact evidence the reviewed Charge
+            id is required and creates a server-validated manual binding.
         positiveEvidenceReference:
           type: string
           maxLength: 256
@@ -1169,7 +1171,14 @@ components:
             EXPLICIT_ZERO_PROVIDER_RECORD). Persisted as the auditable proof
             reference; statement absence alone never proves zero cost.
         correctionPeriodId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
-        reasonCode: { type: string, maxLength: 64 }
+        reasonCode:
+          type: string
+          maxLength: 64
+          description: >-
+            Business reason only. The binding classification
+            (SYSTEM_EXACT vs MANUAL) is server-derived from the run evidence
+            and can never be declared by the client; the values
+            EXACT_PROVIDER_REQUEST and MANUAL_BINDING are rejected.
         reasonNote: { type: string, maxLength: 2000 }
     GatewayResolutionResponse:
       type: object

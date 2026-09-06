@@ -21,17 +21,23 @@ public interface HybridReconciliationMapper {
      * inside one organization, one provider account and one currency: the
      * confirmed-import lineage must own the same provider account as the
      * attempt and the pricing version must belong to the same organization.
-     * Only non-PLANNED, non-SAFE possible-billable current attempts of
-     * confirmed-import CLEAN/SUSPECTED_DUPLICATE charges inside the half-open
-     * period participate. Uniqueness filtering happens in the caller.
+     * Provider request id equality and grouping are BINARY (case-sensitive):
+     * ids that differ only by case are distinct identities and must never be
+     * folded into one ambiguous group or cross-matched. Only non-PLANNED,
+     * non-SAFE possible-billable current attempts of confirmed-import
+     * CLEAN/SUSPECTED_DUPLICATE charges inside the half-open period
+     * participate. Uniqueness filtering happens in the caller.
      */
     @Select("""
-            SELECT rpr.provider_record_key AS provider_request_id,
+            SELECT MIN(rpr.provider_record_key) AS provider_request_id,
                    MIN(cf.id) AS charge_fact_id,
                    MIN(cf.currency) AS currency,
                    MIN(ra.id) AS route_attempt_id,
                    MIN(ra.provider_account_id) AS provider_account_id,
                    MIN(gr.id) AS request_id,
+                   MIN(cf.provider_code) AS provider_code,
+                   MIN(ib.source_type) AS source_type,
+                   MIN(ia.parser_version) AS parser_version,
                    COUNT(DISTINCT cf.id) AS charge_count,
                    COUNT(DISTINCT gr.id) AS request_count
             FROM charge_fact cf
@@ -43,7 +49,7 @@ public interface HybridReconciliationMapper {
             JOIN gateway_route_attempt ra
               ON ra.org_id=cf.org_id
              AND ra.provider_account_id=ib.provider_account_id
-             AND ra.provider_request_id=rpr.provider_record_key
+             AND BINARY ra.provider_request_id = BINARY rpr.provider_record_key
              AND ra.status IN ('DISPATCH_INTENT','BILLABLE_POSSIBLE','COMPLETED')
             JOIN gateway_request gr
               ON gr.id=ra.request_id AND gr.org_id=ra.org_id
@@ -58,8 +64,8 @@ public interface HybridReconciliationMapper {
               AND cf.period_start >= #{periodStart}
               AND cf.period_start < #{periodEnd}
               AND rpr.provider_record_key IS NOT NULL
-            GROUP BY rpr.provider_record_key, ra.provider_account_id
-            ORDER BY rpr.provider_record_key, ra.provider_account_id
+            GROUP BY BINARY rpr.provider_record_key, ra.provider_account_id
+            ORDER BY provider_request_id, provider_account_id
             """)
     List<ExactCorrelationGroup> selectExactCorrelationGroups(
             @Param("organizationId") long organizationId,
@@ -67,13 +73,21 @@ public interface HybridReconciliationMapper {
             @Param("periodEnd") Instant periodEnd);
 
     @Select("""
-            SELECT cf.provider_code
+            SELECT cf.provider_code AS provider_code,
+                   ib.source_type AS source_type,
+                   ia.parser_version AS parser_version
             FROM charge_fact cf
+            JOIN raw_provider_record rpr ON rpr.id=cf.raw_record_id
+            JOIN import_attempt ia ON ia.id=rpr.import_attempt_id
+            JOIN import_batch ib ON ib.id=ia.import_batch_id AND ib.org_id=cf.org_id
             WHERE cf.org_id=#{organizationId} AND cf.id=#{chargeFactId}
             """)
-    String selectChargeProviderCode(
+    ChargeImportProfile selectChargeImportProfile(
             @Param("organizationId") long organizationId,
             @Param("chargeFactId") long chargeFactId);
+
+    record ChargeImportProfile(String providerCode, String sourceType, String parserVersion) {
+    }
 
     /**
      * Run-level unresolved Gateway financial work: possible-billable requests
@@ -229,6 +243,98 @@ public interface HybridReconciliationMapper {
     Long lockGatewayRequest(
             @Param("organizationId") long organizationId,
             @Param("requestId") long requestId);
+
+    /**
+     * Shared financial-ownership serialization point of a statement Charge.
+     * Provider Charge posting (via its charge row lock), Gateway statement
+     * resolution and charge disposition decisions all acquire this same row
+     * lock as the LAST financial lock in the canonical order
+     * (BillingPeriod(s) → Budget(s) → Commitment → Reservation →
+     * reconciliation identity → Gateway Request → Charge ownership row), so
+     * no two flows can decide the financial fate of one Charge concurrently
+     * and no lock-order inversion is possible.
+     */
+    @Select("""
+            SELECT cf.id FROM charge_fact cf
+            WHERE cf.org_id=#{organizationId} AND cf.id=#{chargeFactId}
+            FOR UPDATE
+            """)
+    Long lockChargeForFinancialOwnership(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    @Select("""
+            SELECT disposition FROM provider_charge_disposition
+            WHERE org_id=#{organizationId} AND charge_fact_id=#{chargeFactId}
+            """)
+    String selectChargeDisposition(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    @Select("""
+            SELECT COUNT(*) FROM ledger_posting
+            WHERE org_id=#{organizationId} AND source_type='PROVIDER_CHARGE'
+              AND source_id=#{chargeFactId} AND status='POSTED'
+            FOR UPDATE
+            """)
+    long countPostedProviderChargePostings(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    @Select("""
+            SELECT COUNT(*) FROM reconciliation_adjustment
+            WHERE org_id=#{organizationId} AND statement_charge_fact_id=#{chargeFactId}
+              AND adjustment_scope='GATEWAY_REQUEST'
+            FOR UPDATE
+            """)
+    long countAdjustmentByStatementCharge(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    /**
+     * Atomically claims the Charge as RECONCILIATION_EVIDENCE in the same
+     * transaction that posts the statement adjustment. A SYSTEM_EXACT claim
+     * never impersonates a member; a MANUAL claim carries the reviewer and the
+     * bounded reviewed reason.
+     */
+    @Insert("""
+            INSERT INTO provider_charge_disposition(
+                org_id,charge_fact_id,disposition,decision_source,reconciliation_run_id,
+                reconciliation_case_id,decided_by_member_id,reason_code,resolution_note,
+                created_at)
+            VALUES (#{claim.organizationId},#{claim.chargeFactId},'RECONCILIATION_EVIDENCE',
+                #{claim.decisionSource},#{claim.reconciliationRunId},
+                #{claim.reconciliationCaseId},#{claim.decidedByMemberId},#{claim.reasonCode},
+                #{claim.reasonNote},#{claim.createdAt})
+            """)
+    int insertOwnershipDisposition(@Param("claim") OwnershipDispositionInsert claim);
+
+    record OwnershipDispositionInsert(
+            long organizationId,
+            long chargeFactId,
+            String decisionSource,
+            long reconciliationRunId,
+            Long reconciliationCaseId,
+            Long decidedByMemberId,
+            String reasonCode,
+            String reasonNote,
+            Instant createdAt) {
+    }
+
+    @Select("""
+            SELECT disposition AS disposition, decision_source AS decision_source,
+                   reconciliation_run_id AS reconciliation_run_id
+            FROM provider_charge_disposition
+            WHERE org_id=#{organizationId} AND charge_fact_id=#{chargeFactId}
+            FOR UPDATE
+            """)
+    OwnershipDispositionRow selectOwnershipDisposition(
+            @Param("organizationId") long organizationId,
+            @Param("chargeFactId") long chargeFactId);
+
+    record OwnershipDispositionRow(String disposition, String decisionSource,
+            Long reconciliationRunId) {
+    }
 
     @Insert("""
             INSERT INTO gateway_financial_resolution(
@@ -464,6 +570,9 @@ public interface HybridReconciliationMapper {
             Long routeAttemptId,
             Long providerAccountId,
             Long requestId,
+            String providerCode,
+            String sourceType,
+            String parserVersion,
             long chargeCount,
             long requestCount) {
     }
@@ -566,21 +675,48 @@ public interface HybridReconciliationMapper {
             @Param("runId") long runId,
             @Param("requestId") long requestId);
 
+    /**
+     * Bounded projection of one request's GATEWAY_UNRESOLVED evidence inside a
+     * run. A resolution may only consume evidence whose route attempt,
+     * provider account and currency still equal the request's current lineage:
+     * anything else is stale review evidence and requires a reconciliation
+     * rerun. Exact evidence carries its own lineage and is revalidated
+     * separately.
+     */
     @Select("""
-            SELECT COUNT(*) FROM reconciliation_evidence
-            WHERE org_id=#{organizationId}
-              AND reconciliation_run_id=#{runId}
-              AND gateway_request_id=#{requestId}
-              AND match_kind='GATEWAY_UNRESOLVED'
+            SELECT re.id,
+                   re.match_kind AS match_kind,
+                   re.gateway_request_id AS gateway_request_id,
+                   re.gateway_route_attempt_id AS gateway_route_attempt_id,
+                   re.provider_account_id AS provider_account_id,
+                   re.currency AS currency,
+                   re.charge_fact_id AS charge_fact_id
+            FROM reconciliation_evidence re
+            WHERE re.org_id=#{organizationId}
+              AND re.reconciliation_run_id=#{runId}
+              AND re.gateway_request_id=#{requestId}
+              AND re.match_kind='GATEWAY_UNRESOLVED'
+            ORDER BY re.id ASC
             """)
-    long countUnresolvedEvidenceForRequest(
+    List<RequestEvidenceBinding> selectUnresolvedEvidenceBindingsForRequest(
             @Param("organizationId") long organizationId,
             @Param("runId") long runId,
             @Param("requestId") long requestId);
 
+    record RequestEvidenceBinding(
+            long id,
+            String matchKind,
+            Long gatewayRequestId,
+            Long gatewayRouteAttemptId,
+            long providerAccountId,
+            String currency,
+            Long chargeFactId) {
+    }
+
     @Select("""
             SELECT COUNT(*) FROM gateway_financial_resolution
             WHERE org_id=#{organizationId} AND statement_charge_fact_id=#{chargeFactId}
+            FOR UPDATE
             """)
     long countResolutionByStatementCharge(
             @Param("organizationId") long organizationId,

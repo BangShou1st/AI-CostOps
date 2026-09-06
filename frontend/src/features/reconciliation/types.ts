@@ -64,9 +64,6 @@ export const NO_CHARGE_PROOF_CODES = [
   'EXPLICIT_ZERO_PROVIDER_RECORD',
 ] as const
 
-/** Bounded binding vocabulary for STATEMENT_ADJUSTMENT_POSTED. */
-export const STATEMENT_REASON_CODES = ['EXACT_PROVIDER_REQUEST', 'MANUAL_BINDING'] as const
-
 export interface ChargeDispositionRequest {
   chargeFactId: string
   disposition: 'RECONCILIATION_EVIDENCE' | 'DIRECT_PROVIDER_CHARGE'
@@ -111,11 +108,22 @@ export interface GatewayResolutionRequest {
   caseId?: string | null
   requestId: string
   resolutionType: 'STATEMENT_ADJUSTMENT_POSTED' | 'NO_CHARGE_CONFIRMED'
-  /** Required for STATEMENT_ADJUSTMENT_POSTED; the server derives the amount. */
+  /**
+   * Statement charge lineage for STATEMENT_ADJUSTMENT_POSTED. When the run
+   * already holds exact correlation evidence for the request the server
+   * derives the charge and the field may be omitted; a supplied value is only
+   * an equality assertion against that binding. Without exact evidence the
+   * reviewed charge id is required.
+   */
   statementChargeFactId?: string | null
   /** Required for NO_CHARGE_CONFIRMED; auditable positive-proof reference. */
   positiveEvidenceReference?: string | null
   correctionPeriodId?: string | null
+  /**
+   * Business reason only. The binding classification
+   * (EXACT_PROVIDER_REQUEST / MANUAL_BINDING) is server-derived truth and can
+   * never be declared by the client.
+   */
   reasonCode: string
   reasonNote: string
 }

@@ -176,6 +176,12 @@ CREATE TABLE gateway_financial_resolution (
 
     CONSTRAINT uq_gateway_financial_resolution_id_org UNIQUE (id, org_id),
     CONSTRAINT uq_gateway_financial_resolution_org_request UNIQUE (org_id, request_id),
+    -- Database-level last line of defense for Charge financial ownership:
+    -- one statement Charge can be consumed by at most one Gateway financial
+    -- resolution per organization. NO_CHARGE_CONFIRMED rows keep NULL and are
+    -- never blocked (MySQL UNIQUE allows multiple NULLs).
+    CONSTRAINT uq_gateway_financial_resolution_org_charge
+        UNIQUE (org_id, statement_charge_fact_id),
     CONSTRAINT fk_gateway_financial_resolution_org
         FOREIGN KEY (org_id) REFERENCES organization (id),
     CONSTRAINT fk_gateway_financial_resolution_run_org

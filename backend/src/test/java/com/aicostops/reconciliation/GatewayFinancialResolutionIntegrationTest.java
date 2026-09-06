@@ -83,7 +83,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         var result = resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Provider statement line reviewed"), "gwres-1");
+                        "REVIEWED_STATEMENT_LINE", "Provider statement line reviewed"), "gwres-1");
 
         var adjustment = jdbc.queryForMap(
                 "SELECT * FROM reconciliation_adjustment WHERE id=?", result.adjustmentId());
@@ -148,7 +148,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         var result = resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Reviewed statement difference"), "gwres-int-1");
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement difference"), "gwres-int-1");
 
         assertThat((java.math.BigDecimal) jdbc.queryForObject(
                 "SELECT amount FROM reconciliation_adjustment WHERE id=?",
@@ -237,7 +237,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", null, null, null,
-                        "MANUAL_BINDING", "No charge bound"), "gwres-reqcharge-1"))
+                        "REVIEWED_STATEMENT_LINE", "No charge bound"), "gwres-reqcharge-1"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("statement charge");
         assertThat(jdbc.queryForObject(
@@ -257,7 +257,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", foreignCharge, null, null,
-                        "MANUAL_BINDING", "Wrong account"), "gwres-bind-acc"))
+                        "REVIEWED_STATEMENT_LINE", "Wrong account"), "gwres-bind-acc"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("provider account");
 
@@ -267,7 +267,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", cnyCharge, null, null,
-                        "MANUAL_BINDING", "Wrong currency"), "gwres-bind-cur"))
+                        "REVIEWED_STATEMENT_LINE", "Wrong currency"), "gwres-bind-cur"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("currency");
 
@@ -277,7 +277,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", lateCharge, null, null,
-                        "MANUAL_BINDING", "Outside period"), "gwres-bind-per"))
+                        "REVIEWED_STATEMENT_LINE", "Outside period"), "gwres-bind-per"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("BillingPeriod");
 
@@ -287,7 +287,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", unconfirmedCharge, null, null,
-                        "MANUAL_BINDING", "Unconfirmed batch"), "gwres-bind-batch"))
+                        "REVIEWED_STATEMENT_LINE", "Unconfirmed batch"), "gwres-bind-batch"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("confirmed");
 
@@ -297,7 +297,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", excludedCharge, null, null,
-                        "MANUAL_BINDING", "Excluded duplicate"), "gwres-bind-review"))
+                        "REVIEWED_STATEMENT_LINE", "Excluded duplicate"), "gwres-bind-review"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("review status");
 
@@ -317,11 +317,11 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, first.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "First binding"), "gwres-excl-1");
+                        "REVIEWED_STATEMENT_LINE", "First binding"), "gwres-excl-1");
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, second.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Second binding"), "gwres-excl-2"))
+                        "REVIEWED_STATEMENT_LINE", "Second binding"), "gwres-excl-2"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("already");
         assertThat(jdbc.queryForObject(
@@ -347,7 +347,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(otherRunId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Wrong run"), "gwres-lineage-run"))
+                        "REVIEWED_STATEMENT_LINE", "Wrong run"), "gwres-lineage-run"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("billing period");
 
@@ -356,7 +356,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, foreignRunCaseId, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Foreign case"), "gwres-lineage-case"))
+                        "REVIEWED_STATEMENT_LINE", "Foreign case"), "gwres-lineage-case"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("different run");
 
@@ -366,7 +366,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, wrongAccountCaseId, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Wrong account case"), "gwres-lineage-acc"))
+                        "REVIEWED_STATEMENT_LINE", "Wrong account case"), "gwres-lineage-acc"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("provider account");
 
@@ -376,7 +376,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, wrongCurrencyCaseId, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Wrong currency case"), "gwres-lineage-cur"))
+                        "REVIEWED_STATEMENT_LINE", "Wrong currency case"), "gwres-lineage-cur"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("currency");
 
@@ -394,7 +394,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, finalFixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "N"), "gw-el-1"))
+                        "REVIEWED_STATEMENT_LINE", "N"), "gw-el-1"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("FINAL");
 
@@ -407,7 +407,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, pendingFixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", pendingCharge, null, null,
-                        "MANUAL_BINDING", "N"), "gw-el-2"))
+                        "REVIEWED_STATEMENT_LINE", "N"), "gw-el-2"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("PENDING");
 
@@ -419,7 +419,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, pendingFixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", pendingCharge, null, null,
-                        "MANUAL_BINDING", "N"), "gw-el-3"))
+                        "REVIEWED_STATEMENT_LINE", "N"), "gw-el-3"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("RETRYABLE_FAILED");
 
@@ -441,7 +441,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, pendingFixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", pendingCharge, null, null,
-                        "MANUAL_BINDING", "N"), "gw-el-4"))
+                        "REVIEWED_STATEMENT_LINE", "N"), "gw-el-4"))
                 .isInstanceOf(DomainException.class)
                 .hasMessageContaining("SETTLED");
 
@@ -470,7 +470,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         var result = resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Reviewed statement difference"), "gwres-req-1");
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement difference"), "gwres-req-1");
 
         assertThat(result.adjustmentId()).isNotNull();
         // The historical settlement is not rewritten.
@@ -487,7 +487,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Reviewed statement line"), "gwres-late-1");
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "gwres-late-1");
 
         // Late FINAL usage publication remains immutable operational evidence
         // but can never create a normal M13 Settlement.
@@ -544,7 +544,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, caseId, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Reviewed statement line"), "gwres-sib-1");
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "gwres-sib-1");
 
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM reconciliation_case WHERE id=?", String.class, caseId))
@@ -576,7 +576,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         var result = resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "Reviewed statement line"), "gwres-fin-1");
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "gwres-fin-1");
 
         assertThat(result.reservationOutcome()).isEqualTo("FINALIZED");
         assertThat(jdbc.queryForObject(
@@ -598,7 +598,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
                 """, orgId, periodId, projectId);
         var command = new GatewayResolutionCommand(runId, null, fixture.requestId(),
                 "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                "MANUAL_BINDING", "Reviewed statement line");
+                "REVIEWED_STATEMENT_LINE", "Reviewed statement line");
 
         var first = resolutions.resolveGatewayFinancialWork(actor, command, "gw-replay-key");
         var replay = resolutions.resolveGatewayFinancialWork(actor, command, "gw-replay-key");
@@ -626,7 +626,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
-                        "MANUAL_BINDING", "A different reviewed summary"),
+                        "REVIEWED_STATEMENT_LINE", "A different reviewed summary"),
                 "gw-replay-key"))
                 .isInstanceOf(DomainException.class);
     }

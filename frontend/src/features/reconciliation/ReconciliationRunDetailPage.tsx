@@ -7,10 +7,11 @@ import { formatEventDateTime } from '../../lib/dateTime'
 import { formatMoney } from '../../lib/money'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
+import { GatewayResolutionModal } from './GatewayResolutionModal'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
 import { createIdempotencyKey, formatReconciliationCaseStatus, formatReconciliationCaseType, formatReconciliationRunStatus, reconciliationCaseTagColor, reconciliationRunTagColor } from './presentation'
-import type { ReconciliationCaseResponse, ReconciliationCaseStatus } from './types'
+import type { ReconciliationCaseResponse, ReconciliationCaseStatus, ReconciliationEvidenceResponse } from './types'
 
 const PAGE_SIZE = 50
 
@@ -25,8 +26,11 @@ export function ReconciliationRunDetailPage() {
   const auth = useAuth()
   const queryClient = useQueryClient()
   const canRun = hasPermission(auth.user?.permissions, 'RECONCILIATION_RUN')
+  const canResolveGateway = hasPermission(auth.user?.permissions, 'RECONCILIATION_RESOLVE')
+    && hasPermission(auth.user?.permissions, 'LEDGER_CORRECT')
   const [caseStatus, setCaseStatus] = useState<ReconciliationCaseStatus | undefined>()
   const [casePage, setCasePage] = useState(0)
+  const [gatewayTarget, setGatewayTarget] = useState<ReconciliationEvidenceResponse | null>(null)
 
   const run = useQuery({ queryKey: reconciliationKeys.run(runId), queryFn: () => reconciliationApi.getRun(runId), enabled: runId.length > 0 })
   const caseParams = useMemo(() => ({ runId, page: casePage, size: PAGE_SIZE, status: caseStatus }), [casePage, caseStatus, runId])
@@ -99,14 +103,28 @@ export function ReconciliationRunDetailPage() {
           title="未决网关财务工作（运行级）"
           extra={<Typography.Text type="secondary">无需金额差异即可存在，不会为此虚构零金额案例</Typography.Text>}
         >
-          <Alert
-            type="warning"
-            showIcon
-            title={`${unresolvedGatewayEvidence.length} 个网关请求仍需人工财务决定`}
-            description={unresolvedGatewayEvidence
-              .map((row) => `请求 #${row.gatewayRequestId ?? '?'} · 供应商账号 ${row.providerAccountId} · ${row.currency}`)
-              .join('；')}
+          <Table<ReconciliationEvidenceResponse>
+            rowKey="id"
+            dataSource={unresolvedGatewayEvidence}
+            pagination={false}
+            scroll={{ x: 800 }}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无未决网关财务工作" /> }}
+            columns={[
+              { title: '请求', dataIndex: 'gatewayRequestId', width: 110, render: (value: string | null) => (value ? `#${value}` : '—') },
+              { title: '供应商账号', dataIndex: 'providerAccountId', width: 130 },
+              { title: '币种', dataIndex: 'currency', width: 85 },
+              { title: '关联案例', dataIndex: 'reconciliationCaseId', width: 110, render: (value: string | null) => (value ? `#${value}` : '运行级（无案例）') },
+              { title: '操作', width: 160, render: (_: unknown, row: ReconciliationEvidenceResponse) => {
+                if (!canResolveGateway) {
+                  return <Typography.Text type="secondary">需要 RECONCILIATION_RESOLVE 与 LEDGER_CORRECT</Typography.Text>
+                }
+                return <Button size="small" onClick={() => setGatewayTarget(row)}>处理</Button>
+              } },
+            ]}
           />
+          <Typography.Text type="secondary">
+            {unresolvedGatewayEvidence.length} 个网关请求仍需人工财务决定；处理决定绑定到运行证据，不会自动解决其他请求。
+          </Typography.Text>
         </Card>
       )}
 
@@ -142,6 +160,13 @@ export function ReconciliationRunDetailPage() {
           />
         )}
       </Card>
+      <GatewayResolutionModal
+        runId={data.id}
+        caseId={null}
+        target={gatewayTarget}
+        evidence={evidence.data?.items ?? []}
+        onClose={() => setGatewayTarget(null)}
+      />
     </main>
   )
 }

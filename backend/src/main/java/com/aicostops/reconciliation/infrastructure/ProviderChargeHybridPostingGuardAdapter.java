@@ -27,6 +27,13 @@ public class ProviderChargeHybridPostingGuardAdapter implements ProviderChargeHy
     @Override
     public HybridPostingDecision checkHybridPostingEligibility(
             long organizationId, long chargeFactId, long billingPeriodId, String currency) {
+        // Defense in depth: a Charge already consumed by a committed Gateway
+        // financial resolution is reconciliation evidence even if its
+        // disposition row were missing.
+        if (mapper.countResolutionByStatementCharge(organizationId, chargeFactId) > 0) {
+            return new HybridPostingDecision(
+                    HybridPostingOutcome.BLOCKED_RECONCILIATION_EVIDENCE);
+        }
         var disposition = mapper.selectDisposition(organizationId, chargeFactId);
         if (disposition != null) {
             return switch (disposition) {
@@ -59,6 +66,14 @@ public class ProviderChargeHybridPostingGuardAdapter implements ProviderChargeHy
                 WHERE org_id=#{organizationId} AND charge_fact_id=#{chargeFactId}
                 """)
         String selectDisposition(
+                @Param("organizationId") long organizationId,
+                @Param("chargeFactId") long chargeFactId);
+
+        @Select("""
+                SELECT COUNT(*) FROM gateway_financial_resolution
+                WHERE org_id=#{organizationId} AND statement_charge_fact_id=#{chargeFactId}
+                """)
+        long countResolutionByStatementCharge(
                 @Param("organizationId") long organizationId,
                 @Param("chargeFactId") long chargeFactId);
 

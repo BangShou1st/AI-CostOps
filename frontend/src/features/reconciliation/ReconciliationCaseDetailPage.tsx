@@ -9,10 +9,10 @@ import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
 import { periodCloseApi } from '../period-close/api/periodCloseApi'
 import { allocationApi } from '../allocation/api/allocationApi'
+import { GatewayResolutionModal } from './GatewayResolutionModal'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
 import { createIdempotencyKey, formatReconciliationCaseStatus, formatReconciliationCaseType, reconciliationCaseTagColor } from './presentation'
-import { NO_CHARGE_PROOF_CODES, STATEMENT_REASON_CODES } from './types'
 import type { ReconciliationCaseResponse, ReconciliationEvidenceResponse } from './types'
 
 const MATCH_KIND_LABEL: Record<string, string> = {
@@ -34,12 +34,6 @@ const DIFFERENCE_KIND_LABEL: Record<string, string> = {
   UNKNOWN_PROVIDER_CHARGE: '未知供应商费用',
   DUPLICATE_EXTERNAL_CHARGE: '重复外部费用',
   UNCLASSIFIED: '未分类',
-}
-
-const NO_CHARGE_PROOF_LABEL: Record<string, string> = {
-  PROVIDER_PORTAL_CONFIRMED_NO_CHARGE: '供应商门户确认无费用',
-  PROVIDER_SUPPORT_CONFIRMED_NO_CHARGE: '供应商支持确认无费用',
-  EXPLICIT_ZERO_PROVIDER_RECORD: '供应商明确零记录',
 }
 
 function CaseError({ error }: { error: unknown }) {
@@ -74,11 +68,6 @@ export function ReconciliationCaseDetailPage() {
   const [dispositionReasonCode, setDispositionReasonCode] = useState('')
   const [dispositionReasonNote, setDispositionReasonNote] = useState('')
   const [gatewayTarget, setGatewayTarget] = useState<ReconciliationEvidenceResponse | null>(null)
-  const [gatewayType, setGatewayType] = useState<'NO_CHARGE_CONFIRMED' | 'STATEMENT_ADJUSTMENT_POSTED'>('NO_CHARGE_CONFIRMED')
-  const [gatewayStatementChargeId, setGatewayStatementChargeId] = useState('')
-  const [gatewayProofCode, setGatewayProofCode] = useState<string>(NO_CHARGE_PROOF_CODES[0])
-  const [gatewayEvidenceReference, setGatewayEvidenceReference] = useState('')
-  const [gatewayReasonNote, setGatewayReasonNote] = useState('')
   const [correctionGroupId, setCorrectionGroupId] = useState('')
 
   const detail = useQuery({ queryKey: reconciliationKeys.case(caseId), queryFn: () => reconciliationApi.getCase(caseId), enabled: caseId.length > 0 })
@@ -142,29 +131,6 @@ export function ReconciliationCaseDetailPage() {
       refreshEvidence()
     },
   })
-  const resolveGateway = useMutation({
-    mutationFn: () => {
-      const target = gatewayTarget
-      if (!target?.gatewayRequestId) throw new Error('missing request')
-      return reconciliationApi.postGatewayResolution(reconciliationRunId, {
-        caseId,
-        requestId: target.gatewayRequestId,
-        resolutionType: gatewayType,
-        statementChargeFactId: gatewayType === 'STATEMENT_ADJUSTMENT_POSTED' ? gatewayStatementChargeId.trim() : null,
-        positiveEvidenceReference: gatewayType === 'NO_CHARGE_CONFIRMED' ? gatewayEvidenceReference.trim() : null,
-        reasonCode: gatewayType === 'NO_CHARGE_CONFIRMED' ? gatewayProofCode : 'MANUAL_BINDING',
-        reasonNote: gatewayReasonNote.trim(),
-      }, createIdempotencyKey())
-    },
-    retry: false,
-    onSuccess: () => {
-      setGatewayTarget(null)
-      setGatewayStatementChargeId('')
-      setGatewayEvidenceReference('')
-      setGatewayReasonNote('')
-      refreshEvidence()
-    },
-  })
   const linkCorrectionMutation = useMutation({
     mutationFn: () => reconciliationApi.linkCorrection(caseId, { correctionGroupId: correctionGroupId.trim() }),
     retry: false,
@@ -178,7 +144,7 @@ export function ReconciliationCaseDetailPage() {
   if (detail.error || !detail.data) return <main className="settings-page m6-page"><CaseError error={detail.error ?? new Error('missing case')} /></main>
   const data = detail.data
   const actionError = investigate.error ?? returnOpen.error ?? resolve.error
-    ?? postAdjustment.error ?? decideDisposition.error ?? resolveGateway.error
+    ?? postAdjustment.error ?? decideDisposition.error
     ?? linkCorrectionMutation.error
   const periodClosed = (periods.data ?? []).some(
     (period) => period.id === runDetail.data?.billingPeriodId && period.status === 'CLOSED',
@@ -304,8 +270,7 @@ export function ReconciliationCaseDetailPage() {
                   if (!canResolveGateway) return <Typography.Text type="secondary">需要 RECONCILIATION_RESOLVE 与 LEDGER_CORRECT</Typography.Text>
                   return (
                     <Space>
-                      <Button size="small" onClick={() => { setGatewayTarget(row); setGatewayType('NO_CHARGE_CONFIRMED') }}>确认无费用</Button>
-                      <Button size="small" onClick={() => { setGatewayTarget(row); setGatewayType('STATEMENT_ADJUSTMENT_POSTED') }}>按账单调整</Button>
+                      <Button size="small" onClick={() => setGatewayTarget(row)}>处理网关财务工作</Button>
                     </Space>
                   )
                 }
@@ -456,75 +421,13 @@ export function ReconciliationCaseDetailPage() {
         </Form>
       </Modal>
 
-      <Modal
-        open={gatewayTarget !== null}
-        title={`网关财务处理（请求 #${gatewayTarget?.gatewayRequestId ?? ''}）`}
-        okText={resolveGateway.isPending ? '正在提交…' : '确认提交'}
-        okButtonProps={{
-          disabled: gatewayType === 'STATEMENT_ADJUSTMENT_POSTED'
-            ? !gatewayStatementChargeId.trim() || !gatewayReasonNote.trim() || resolveGateway.isPending
-            : !gatewayEvidenceReference.trim() || !gatewayReasonNote.trim() || resolveGateway.isPending,
-        }}
-        onOk={() => resolveGateway.mutate()}
-        onCancel={() => setGatewayTarget(null)}
-        width={640}
-      >
-        {gatewayType === 'STATEMENT_ADJUSTMENT_POSTED' ? (
-          <Alert
-            type="info"
-            showIcon
-            className="m6-section-card"
-            title="调整金额由服务端推导"
-            description="金额 = 绑定的账单费用金额 − 该请求已入账的内部金额，客户端不能输入金额。若运行中已有精确关联证据，账单费用必须与之一致。"
-          />
-        ) : (
-          <Alert
-            type="info"
-            showIcon
-            className="m6-section-card"
-            title="仅账单缺失不能证明无费用"
-            description="必须选择受限的积极证明类型并留下可审计的证明出处；该决定不产生任何账务变动。"
-          />
-        )}
-        <Form layout="vertical">
-          <Form.Item label="处理类型" required>
-            <Select
-              value={gatewayType}
-              options={[
-                { value: 'NO_CHARGE_CONFIRMED', label: 'NO_CHARGE_CONFIRMED（确认无费用）' },
-                { value: 'STATEMENT_ADJUSTMENT_POSTED', label: 'STATEMENT_ADJUSTMENT_POSTED（按账单调整）' },
-              ]}
-              onChange={(value) => setGatewayType(value)}
-              aria-label="网关处理类型"
-            />
-          </Form.Item>
-          {gatewayType === 'STATEMENT_ADJUSTMENT_POSTED' ? (
-            <Form.Item label="绑定的账单费用编号（statementChargeFactId）" required>
-              <Input value={gatewayStatementChargeId} maxLength={24} onChange={(event) => setGatewayStatementChargeId(event.target.value)} aria-label="账单费用编号" />
-            </Form.Item>
-          ) : (
-            <>
-              <Form.Item label="积极证明类型" required>
-                <Select
-                  value={gatewayProofCode}
-                  options={NO_CHARGE_PROOF_CODES.map((code) => ({ value: code, label: NO_CHARGE_PROOF_LABEL[code] ?? code }))}
-                  onChange={(value) => setGatewayProofCode(value)}
-                  aria-label="积极证明类型"
-                />
-              </Form.Item>
-              <Form.Item label="证明出处（如门户截图编号 / 工单号，6-256 字符）" required>
-                <Input value={gatewayEvidenceReference} maxLength={256} onChange={(event) => setGatewayEvidenceReference(event.target.value)} aria-label="证明出处" />
-              </Form.Item>
-            </>
-          )}
-          <Form.Item label="说明" required>
-            <Input.TextArea value={gatewayReasonNote} maxLength={2000} rows={3} onChange={(event) => setGatewayReasonNote(event.target.value)} aria-label="网关处理说明" />
-          </Form.Item>
-          <Typography.Text type="secondary">
-            可选受限原因代码：{[...STATEMENT_REASON_CODES].join(' / ')}（精确关联由服务端校验）
-          </Typography.Text>
-        </Form>
-      </Modal>
+      <GatewayResolutionModal
+        runId={reconciliationRunId}
+        caseId={caseId}
+        target={gatewayTarget}
+        evidence={evidenceItems}
+        onClose={() => setGatewayTarget(null)}
+      />
     </main>
   )
 }

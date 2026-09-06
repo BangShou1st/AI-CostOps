@@ -69,6 +69,15 @@ const evidenceRows = [
     externalAmount: null, internalAmount: null, differenceAmount: null, createdAt: '2026-08-21T01:00:01Z',
   },
 ]
+const exactEvidenceRow = {
+  id: '12', reconciliationRunId: '7', reconciliationCaseId: null, evidenceKey: 'EXACT:CHARGE:33:REQUEST:42',
+  providerAccountId: '5', currency: 'USD', matchKind: 'EXACT_PROVIDER_REQUEST' as const, differenceKind: null,
+  chargeFactId: '33', gatewayRequestId: '42', gatewayRouteAttemptId: '43', gatewayUsageFactId: null,
+  gatewaySettlementId: null, correctionGroupId: null, reconciliationAdjustmentId: null,
+  gatewayFinancialResolutionId: null, ledgerPostingId: null, providerRequestId: 'prov-req-1',
+  evidenceReference: null,
+  externalAmount: null, internalAmount: null, differenceAmount: null, createdAt: '2026-08-21T01:00:01Z',
+}
 const caseRow = {
   id: '9', reconciliationRunId: '7', providerAccountId: '5', currency: 'USD', caseType: 'AMOUNT_MISMATCH',
   externalAmount: '0.00000001', internalAmount: '0.00000000', differenceAmount: '0.00000001',
@@ -137,12 +146,41 @@ describe('ReconciliationRunDetailPage', () => {
     expect(screen.queryByText(/新鲜度|基准数据已变化|基准数据新鲜/)).not.toBeInTheDocument()
 
     expect(await screen.findByText('未决网关财务工作（运行级）')).toBeInTheDocument()
-    expect(screen.getByText(/请求 #42/)).toBeInTheDocument()
+    expect(screen.getByText('#42')).toBeInTheDocument()
+    expect(screen.getByText('运行级（无案例）')).toBeInTheDocument()
 
     fireEvent.click(screen.getByTitle('2'))
     await waitFor(() => {
       expect(mockedReconciliationApi.listCases).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, size: 50 }))
     })
+  })
+
+  it('resolves run-level case_id=null gateway work without a fabricated case or client amount', async () => {
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    // The case-null GATEWAY_UNRESOLVED item exposes a resolve action.
+    expect(await screen.findByText('未决网关财务工作（运行级）')).toBeInTheDocument()
+    expect(await screen.findByText('运行级（无案例）')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /处\s*理/ }))
+    expect(await screen.findByText('网关财务处理（请求 #42）')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('证明出处'), { target: { value: 'portal-case-4711' } })
+    fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Provider confirmed no charge' } })
+    mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
+      id: '78', runId: '7', caseId: null, requestId: '42',
+      resolutionType: 'NO_CHARGE_CONFIRMED', reservationOutcome: 'NONE', adjustmentId: null,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认提交' }))
+    await waitFor(() => expect(mockedReconciliationApi.postGatewayResolution).toHaveBeenCalled())
+    expect(mockedReconciliationApi.postGatewayResolution.mock.calls[0][0]).toBe('7')
+    const body = mockedReconciliationApi.postGatewayResolution.mock.calls[0][1]
+    expect(body.caseId ?? null).toBeNull()
+    expect(body.requestId).toBe('42')
+    expect(body.resolutionType).toBe('NO_CHARGE_CONFIRMED')
+    expect(body.positiveEvidenceReference).toBe('portal-case-4711')
+    // No client financial truth is ever submitted.
+    expect(body).not.toHaveProperty('adjustmentAmount')
+    expect(body).not.toHaveProperty('commitmentId')
+    expect(body.statementChargeFactId ?? null).toBeNull()
   })
 })
 
@@ -187,7 +225,7 @@ describe('ReconciliationCaseDetailPage', () => {
     expect(screen.getByText(/服务端要求的调整金额/)).toBeInTheDocument()
 
     // Evidence-item action for the unresolved gateway request.
-    fireEvent.click(await screen.findByRole('button', { name: '确认无费用' }))
+    fireEvent.click(await screen.findByRole('button', { name: '处理网关财务工作' }))
     const modalTitle = await screen.findByText('网关财务处理（请求 #42）')
     expect(modalTitle).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('证明出处'), { target: { value: 'portal-case-4711' } })
@@ -208,12 +246,69 @@ describe('ReconciliationCaseDetailPage', () => {
     expect(mockedReconciliationApi.resolveCase).not.toHaveBeenCalled()
   })
 
+  it('derives the exact statement binding on the server and never declares a classification', async () => {
+    mockedReconciliationApi.listCaseEvidence.mockResolvedValue({
+      items: [...evidenceRows, exactEvidenceRow], page: 0, size: 50, totalElements: 2, totalPages: 1,
+    })
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    fireEvent.click(await screen.findByRole('button', { name: '处理网关财务工作' }))
+    await screen.findByText('网关财务处理（请求 #42）')
+    // The exact correlation is displayed; the reviewer never re-enters the
+    // charge or a binding classification.
+    expect(screen.getAllByText(/精确请求关联（费用 #33/).length).toBeGreaterThan(0)
+    // Switch the select to the statement type.
+    fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
+    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    fireEvent.change(screen.getByLabelText('业务原因代码'), { target: { value: 'REVIEWED_EXACT_LINE' } })
+    fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Exact correlation reviewed' } })
+    mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
+      id: '79', runId: '7', caseId: '9', requestId: '42',
+      resolutionType: 'STATEMENT_ADJUSTMENT_POSTED', reservationOutcome: 'FINALIZED',
+      adjustmentId: '55',
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认提交' }))
+    await waitFor(() => expect(mockedReconciliationApi.postGatewayResolution).toHaveBeenCalled())
+    const body = mockedReconciliationApi.postGatewayResolution.mock.calls[0][1]
+    expect(body.resolutionType).toBe('STATEMENT_ADJUSTMENT_POSTED')
+    // Server-derived exact binding: the client does not re-declare the charge.
+    expect(body.statementChargeFactId ?? null).toBeNull()
+    expect(body.reasonCode).toBe('REVIEWED_EXACT_LINE')
+    expect(body.reasonCode).not.toBe('MANUAL_BINDING')
+    expect(body.reasonCode).not.toBe('EXACT_PROVIDER_REQUEST')
+  })
+
+  it('requires a reviewed statement charge id when no exact evidence exists', async () => {
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    fireEvent.click(await screen.findByRole('button', { name: '处理网关财务工作' }))
+    await screen.findByText('网关财务处理（请求 #42）')
+    fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
+    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    fireEvent.change(screen.getByLabelText('业务原因代码'), { target: { value: 'REVIEWED_STATEMENT_LINE' } })
+    fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Reviewed statement line' } })
+    // Without exact evidence the submit stays disabled until the reviewer
+    // binds a statement charge id.
+    const submit = screen.getByRole('button', { name: '确认提交' }) as HTMLButtonElement
+    expect(submit).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('账单费用编号'), { target: { value: '33' } })
+    expect(submit).not.toBeDisabled()
+    mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
+      id: '80', runId: '7', caseId: '9', requestId: '42',
+      resolutionType: 'STATEMENT_ADJUSTMENT_POSTED', reservationOutcome: 'FINALIZED',
+      adjustmentId: '56',
+    })
+    fireEvent.click(submit)
+    await waitFor(() => expect(mockedReconciliationApi.postGatewayResolution).toHaveBeenCalled())
+    expect(mockedReconciliationApi.postGatewayResolution.mock.calls[0][1].statementChargeFactId).toBe('33')
+  })
+
   it('hides financial actions without permissions while keeping read-only evidence', async () => {
     renderCasePage(['RECONCILIATION_READ'])
 
     expect(await screen.findByText('混合证据与单条证据操作')).toBeInTheDocument()
     expect(screen.queryByText('整体案例操作')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '确认无费用' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '处理网关财务工作' })).not.toBeInTheDocument()
     expect(screen.getByText(/无处理权限|需要 RECONCILIATION_RESOLVE/)).toBeInTheDocument()
   })
 })

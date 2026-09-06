@@ -93,6 +93,12 @@ public class HybridReconciliationActionService {
             }
             validateChargeInCaseScope(context.organizationId(), command.chargeFactId(),
                     currentCase);
+            // The Charge row is the shared financial-ownership serialization
+            // point (always the last financial lock in the canonical order).
+            hybridMapper.lockChargeForFinancialOwnership(context.organizationId(),
+                    command.chargeFactId());
+            assertChargeNotGatewayOwned(context.organizationId(), command.chargeFactId(),
+                    currentCase.reconciliationRunId());
             if (hybridMapper.countDisposition(context.organizationId(),
                     command.chargeFactId()) > 0) {
                 throw conflict("The charge already has a final posting disposition.");
@@ -118,6 +124,30 @@ public class HybridReconciliationActionService {
             return createdDispositionId;
         });
         return dispositionId;
+    }
+
+    /**
+     * Under the Charge ownership lock: a Charge already consumed as Gateway
+     * financial evidence (a committed gateway_financial_resolution, its
+     * GATEWAY_REQUEST adjustment, or an incompatible binding in the run) can
+     * only ever keep RECONCILIATION_EVIDENCE as its final state — it can never
+     * be reclassified as DIRECT_PROVIDER_CHARGE.
+     */
+    private void assertChargeNotGatewayOwned(long organizationId, long chargeFactId,
+            long runId) {
+        var gatewayOwned = hybridMapper.countResolutionByStatementCharge(organizationId,
+                chargeFactId) > 0
+                || hybridMapper.countAdjustmentByStatementCharge(organizationId,
+                        chargeFactId) > 0;
+        if (gatewayOwned) {
+            throw conflict("The charge is already consumed by a gateway financial "
+                    + "resolution and can never become DIRECT_PROVIDER_CHARGE.");
+        }
+        if (hybridMapper.countConflictingManualBinding(organizationId, runId, chargeFactId,
+                -1L) > 0) {
+            throw conflict("The charge is already bound to another gateway request in this "
+                    + "run and can never become DIRECT_PROVIDER_CHARGE.");
+        }
     }
 
     /**

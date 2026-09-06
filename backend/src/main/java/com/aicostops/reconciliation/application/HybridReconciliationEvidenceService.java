@@ -59,10 +59,11 @@ public class HybridReconciliationEvidenceService {
                 // Ambiguous duplicate Provider request ids never auto-bind.
                 continue;
             }
-            if (correlationProfiles.providerRecordKeySemantics(
-                    mapper.selectChargeProviderCode(organizationId, group.chargeFactId()))
+            if (correlationProfiles.providerRecordKeySemantics(group.providerCode(),
+                    group.sourceType(), group.parserVersion())
                     != CorrelationField.PROVIDER_REQUEST_ID) {
-                // The import profile does not certify the key as a request id.
+                // The import profile does not certify the key as a request id
+                // for this provider + durable source schema.
                 continue;
             }
             evidence.add(new ReconciliationEvidenceRow(

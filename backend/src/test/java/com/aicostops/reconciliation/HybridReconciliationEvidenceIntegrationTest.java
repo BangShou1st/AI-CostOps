@@ -19,13 +19,16 @@ import org.springframework.test.context.TestPropertySource;
 
 /**
  * M15 hybrid evidence generation and OPEN/CLOSED/CLOSING run admission.
- * GLM is the only provider whose import profile certifies
- * provider_record_key as PROVIDER_REQUEST_ID (see the test property).
+ * GLM + FILE_EXPORT + test-parser-v1 is the only certified correlation
+ * profile: provider_record_key means PROVIDER_REQUEST_ID only for that
+ * Provider/source-schema combination (see the test property). Every other
+ * profile resolves to NONE, and exact id equality is case-sensitive.
  */
 @SpringBootTest
 @Tag("integration")
 @TestPropertySource(properties = {
-        "aicostops.reconciliation.correlation-certified-providers=GLM"})
+        "aicostops.reconciliation.correlation-certified-profiles"
+                + "=GLM:FILE_EXPORT:TEST-PARSER-V1"})
 class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSupport {
 
     private static final String AUG_START = "2026-08-01 00:00:00.000000";
@@ -166,6 +169,95 @@ class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSuppo
                 SELECT COUNT(*) FROM reconciliation_evidence
                 WHERE org_id=? AND match_kind='EXACT_PROVIDER_REQUEST'
                 """, Long.class, orgId)).isZero();
+    }
+
+    @Test
+    void exactRequestIdComparisonIsCaseSensitive() {
+        var account = insertGatewayAccount("m15ev-case");
+        // The charge key differs from the provider request id only by case;
+        // exact bounded equality is case-sensitive, so this never matches.
+        insertPeriodChargeOn(account, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "Prov-Req-Case-1", "GLM");
+        insertGatewayRequestOn(account, "COMPLETED", "prov-req-case-1", "FINAL", "USD");
+
+        runs.run(actor, periodId);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM reconciliation_evidence
+                WHERE org_id=? AND match_kind='EXACT_PROVIDER_REQUEST'
+                """, Long.class, orgId)).isZero();
+    }
+
+    @Test
+    void caseDistinctProviderRequestIdsAreNeverFoldedByGrouping() {
+        var account = insertGatewayAccount("m15ev-fold");
+        insertPeriodChargeOn(account, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "ReqAbc-77", "GLM");
+        insertPeriodChargeOn(account, "12.00000000", "USD", "CLEAN",
+                "2026-08-11 00:00:00", "reqabc-77", "GLM");
+        var first = insertGatewayRequestOn(account, "COMPLETED", "ReqAbc-77", "FINAL", "USD");
+        var second = insertGatewayRequestOn(account, "COMPLETED", "reqabc-77", "FINAL", "USD");
+
+        runs.run(actor, periodId);
+
+        // Binary identity keeps the two case-distinct ids separate: each pair
+        // correlates exactly once instead of being folded into one ambiguous
+        // case-insensitive group.
+        var rows = jdbc.queryForList("""
+                SELECT charge_fact_id,gateway_request_id FROM reconciliation_evidence
+                WHERE org_id=? AND match_kind='EXACT_PROVIDER_REQUEST'
+                ORDER BY charge_fact_id
+                """, orgId);
+        assertThat(rows).hasSize(2);
+        assertThat(rows.getFirst().get("charge_fact_id")).isEqualTo(
+                jdbc.queryForObject("""
+                        SELECT cf.id FROM charge_fact cf JOIN raw_provider_record rpr
+                        ON rpr.id=cf.raw_record_id
+                        WHERE cf.org_id=? AND BINARY rpr.provider_record_key='ReqAbc-77'
+                        """, Long.class, orgId));
+        assertThat(rows.getFirst().get("gateway_request_id")).isEqualTo(first[0]);
+        assertThat(rows.getLast().get("charge_fact_id")).isEqualTo(
+                jdbc.queryForObject("""
+                        SELECT cf.id FROM charge_fact cf JOIN raw_provider_record rpr
+                        ON rpr.id=cf.raw_record_id
+                        WHERE cf.org_id=? AND BINARY rpr.provider_record_key='reqabc-77'
+                        """, Long.class, orgId));
+        assertThat(rows.getLast().get("gateway_request_id")).isEqualTo(second[0]);
+    }
+
+    @Test
+    void uncertifiedSourceSchemaNeverMatchesExactlyEvenForCertifiedProvider() {
+        var account = insertGatewayAccount("m15ev-schema");
+        // Certified profile GLM/FILE_EXPORT/test-parser-v1 → exact is legal.
+        insertPeriodChargeOn(account, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "prov-req-schema-a", "GLM");
+        insertGatewayRequestOn(account, "COMPLETED", "prov-req-schema-a", "FINAL", "USD");
+        // Same provider, but an uncertified source schema (different parser
+        // version): the same-looking key never certifies a request id.
+        var schemaBRawRecord = insertConfirmedRawRecord(orgId, actorMemberId, account,
+                "ev-schema-b-" + UUID.randomUUID().toString().replace("-", ""));
+        jdbc.update("UPDATE import_attempt SET parser_version='schema-b-parser-v9' "
+                + "WHERE id=(SELECT import_attempt_id FROM raw_provider_record WHERE id=?)",
+                schemaBRawRecord);
+        jdbc.update("UPDATE raw_provider_record SET provider_record_key='prov-req-schema-b' "
+                + "WHERE id=?", schemaBRawRecord);
+        jdbc.update("""
+                INSERT INTO charge_fact(
+                    org_id,raw_record_id,fact_index,provider_code,charge_category,amount,currency,
+                    period_start,period_end,review_status,created_at)
+                VALUES (?,?,0,'GLM','USAGE','11.00000000','USD','2026-08-12 00:00:00',
+                  '2026-08-13 00:00:00','CLEAN',UTC_TIMESTAMP(6))
+                """, orgId, schemaBRawRecord);
+        insertGatewayRequestOn(account, "COMPLETED", "prov-req-schema-b", "FINAL", "USD");
+
+        runs.run(actor, periodId);
+
+        var rows = jdbc.queryForList("""
+                SELECT provider_request_id FROM reconciliation_evidence
+                WHERE org_id=? AND match_kind='EXACT_PROVIDER_REQUEST'
+                """, orgId);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.getFirst().get("provider_request_id")).isEqualTo("prov-req-schema-a");
     }
 
     @Test
