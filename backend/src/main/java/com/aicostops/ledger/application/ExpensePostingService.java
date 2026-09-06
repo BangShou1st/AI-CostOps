@@ -168,7 +168,7 @@ public class ExpensePostingService {
             ledger.insertEntry(organizationId, postingId, line.lineIndex(),
                     entryType(line.allocatedAmount()).name(), line.allocatedAmount(), line.currency(),
                     line.projectId(), line.costCenterId(), line.teamId(), budgetId,
-                    null, expenseId, line.id(), null, null, now);
+                    null, expenseId, null, null, line.id(), null, null, now);
             var entryId = ledger.lastEntryId();
             var entry = ledger.selectEntryByIdForUpdate(organizationId, entryId);
             insertedEntries.add(entry);

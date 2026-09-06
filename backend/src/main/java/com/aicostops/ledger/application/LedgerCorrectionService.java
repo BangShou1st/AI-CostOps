@@ -160,8 +160,9 @@ public class LedgerCorrectionService {
         ledger.insertEntry(organizationId, postingId, 0, LedgerEntryType.REVERSAL.name(),
                 reversalAmount, target.currency(), target.projectId(), target.costCenterId(),
                 target.teamId(), budgetId(budgetByIndex.get(0)), target.sourceChargeFactId(),
-                target.sourceExpenseClaimId(), target.allocationLineId(), correctionGroupId,
-                target.id(), now);
+                target.sourceExpenseClaimId(), target.sourceGatewaySettlementId(),
+                target.sourceReconciliationAdjustmentId(), target.allocationLineId(),
+                correctionGroupId, target.id(), now);
         incrementActual(organizationId, budgetByIndex.get(0), reversalAmount, now);
 
         var entryCount = 1;
@@ -171,8 +172,9 @@ public class LedgerCorrectionService {
             ledger.insertEntry(organizationId, postingId, 1, LedgerEntryType.ADJUSTMENT.name(),
                     replacementAmount, replacement.currency(), replacement.projectId(),
                     replacement.costCenterId(), replacement.teamId(), budgetId(budgetByIndex.get(1)),
-                    target.sourceChargeFactId(), target.sourceExpenseClaimId(), null,
-                    correctionGroupId, null, now);
+                    target.sourceChargeFactId(), target.sourceExpenseClaimId(),
+                    target.sourceGatewaySettlementId(), target.sourceReconciliationAdjustmentId(),
+                    null, correctionGroupId, null, now);
             incrementActual(organizationId, budgetByIndex.get(1), replacementAmount, now);
             entryCount++;
         }

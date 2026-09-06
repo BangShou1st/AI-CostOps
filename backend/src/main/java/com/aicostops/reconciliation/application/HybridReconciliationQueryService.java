@@ -1,0 +1,145 @@
+package com.aicostops.reconciliation.application;
+
+import com.aicostops.budget.application.BillingPeriodReadPort;
+import com.aicostops.iam.application.AuthorizationContextService;
+import com.aicostops.iam.application.M1AuthorizationService;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.EvidenceRow;
+import com.aicostops.shared.security.AuthenticatedUser;
+import com.aicostops.shared.web.DomainException;
+import com.aicostops.shared.web.PageResponse;
+import com.aicostops.shared.web.ProblemCode;
+import java.util.List;
+import java.util.Set;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+
+/** Read projections over M15 hybrid reconciliation evidence. */
+@Service
+public class HybridReconciliationQueryService {
+
+    private static final String PERMISSION_READ = "RECONCILIATION_READ";
+    private static final int MAX_PAGE_SIZE = 200;
+
+    /**
+     * Bounded evidence vocabulary for the optional matchKind filter. The
+     * filter is an enum check, never an arbitrary SQL-like predicate.
+     */
+    static final Set<String> MATCH_KIND_VOCABULARY = Set.of(
+            "EXACT_PROVIDER_REQUEST",
+            "AGGREGATE_SCOPE",
+            "GATEWAY_UNRESOLVED",
+            "MANUAL_BINDING",
+            "RESOLUTION_ACTION");
+
+    private final AuthorizationContextService authorizationContexts;
+    private final M1AuthorizationService authorization = new M1AuthorizationService();
+    private final HybridReconciliationMapper mapper;
+    private final ReconciliationQueryService reconciliationQueries;
+    private final BillingPeriodReadPort periods;
+
+    public HybridReconciliationQueryService(
+            AuthorizationContextService authorizationContexts,
+            HybridReconciliationMapper mapper,
+            ReconciliationQueryService reconciliationQueries,
+            BillingPeriodReadPort periods) {
+        this.authorizationContexts = authorizationContexts;
+        this.mapper = mapper;
+        this.reconciliationQueries = reconciliationQueries;
+        this.periods = periods;
+    }
+
+    public PageResponse<EvidenceRow> listRunEvidence(AuthenticatedUser user, long runId,
+            int page, int size, String matchKind, Long gatewayRequestId, boolean actionableOnly) {
+        var context = authorizationContexts.fresh(user);
+        authorization.requireOrg(context, PERMISSION_READ);
+        reconciliationQueries.getRun(user, runId);
+        var boundedKind = requireBoundedMatchKind(matchKind);
+        if (actionableOnly && !"GATEWAY_UNRESOLVED".equals(boundedKind)) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Invalid evidence filter",
+                    "actionableOnly is only meaningful together with "
+                            + "matchKind=GATEWAY_UNRESOLVED.");
+        }
+        var boundedSize = Math.max(1, Math.min(MAX_PAGE_SIZE, size));
+        var boundedPage = Math.max(0, page);
+        var items = mapper.selectEvidenceByRun(context.organizationId(), runId, boundedKind,
+                gatewayRequestId, actionableOnly, boundedSize, boundedPage * boundedSize);
+        var total = mapper.countEvidenceByRun(context.organizationId(), runId, boundedKind,
+                gatewayRequestId, actionableOnly);
+        return toPage(items, total, boundedPage, boundedSize);
+    }
+
+    public PageResponse<EvidenceRow> listCaseEvidence(AuthenticatedUser user, long caseId,
+            int page, int size, String matchKind) {
+        var context = authorizationContexts.fresh(user);
+        authorization.requireOrg(context, PERMISSION_READ);
+        reconciliationQueries.getCase(user, caseId);
+        var boundedKind = requireBoundedMatchKind(matchKind);
+        var boundedSize = Math.max(1, Math.min(MAX_PAGE_SIZE, size));
+        var boundedPage = Math.max(0, page);
+        var items = mapper.selectEvidenceByCase(context.organizationId(), caseId, boundedKind,
+                boundedSize, boundedPage * boundedSize);
+        var total = mapper.countEvidenceByCase(context.organizationId(), caseId, boundedKind);
+        return toPage(items, total, boundedPage, boundedSize);
+    }
+
+    /**
+     * Bounded reconciliation-owned period context for the Gateway financial
+     * resolution workflow. Requires only RECONCILIATION_READ - deliberately
+     * independent of BUDGET_READ - and exposes period identity only (the
+     * original billing period of the run plus the eligible OPEN correction
+     * periods), never budget-sensitive fields. The server-side resolution
+     * remains the period state machine authority; this projection only tells
+     * the UI which workflow branch (fixed original, correction select, or
+     * disabled CLOSING/unknown) applies.
+     */
+    public FinancialResolutionContext getFinancialResolutionContext(AuthenticatedUser user,
+            long runId) {
+        var context = authorizationContexts.fresh(user);
+        authorization.requireOrg(context, PERMISSION_READ);
+        var run = reconciliationQueries.getRun(user, runId);
+        var original = periods.findById(context.organizationId(), run.billingPeriodId());
+        if (original == null) {
+            throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
+                    "Resource not found",
+                    "Billing period is not available in the current organization.");
+        }
+        var eligible = periods.listByOrganization(context.organizationId()).stream()
+                .filter(candidate -> candidate.status()
+                        == com.aicostops.budget.domain.BillingPeriodStatus.OPEN
+                        && candidate.id() != original.id())
+                .map(candidate -> new EligibleCorrectionPeriod(candidate.id()))
+                .toList();
+        return new FinancialResolutionContext(original.id(), original.status().name(),
+                eligible);
+    }
+
+    public record FinancialResolutionContext(
+            long originalBillingPeriodId,
+            String originalBillingPeriodStatus,
+            List<EligibleCorrectionPeriod> eligibleCorrectionPeriods) {
+    }
+
+    public record EligibleCorrectionPeriod(long id) {
+    }
+
+    private static String requireBoundedMatchKind(String matchKind) {
+        if (matchKind == null) {
+            return null;
+        }
+        if (!MATCH_KIND_VOCABULARY.contains(matchKind)) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Invalid evidence filter",
+                    "matchKind must be one of the bounded evidence kinds: "
+                            + MATCH_KIND_VOCABULARY + ".");
+        }
+        return matchKind;
+    }
+
+    private static PageResponse<EvidenceRow> toPage(java.util.List<EvidenceRow> items,
+            long total, int page, int size) {
+        var totalPages = size == 0 ? 0 : (int) ((total + size - 1) / size);
+        return new PageResponse<>(items, page, size, total, totalPages);
+    }
+}

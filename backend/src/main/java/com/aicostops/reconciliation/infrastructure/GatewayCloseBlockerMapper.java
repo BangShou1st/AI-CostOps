@@ -45,6 +45,21 @@ public interface GatewayCloseBlockerMapper {
                      )
                  )
                )
+              -- M15: a valid immutable gateway_financial_resolution is reviewed
+              -- terminal financial truth for exactly this request. It is valid
+              -- only when no still-effective reservation contradicts the
+              -- recorded reservation outcome.
+              AND NOT EXISTS (
+                SELECT 1
+                FROM gateway_financial_resolution gfr
+                LEFT JOIN budget_reservation br_res
+                  ON br_res.id=gfr.reservation_id AND br_res.org_id=gfr.org_id
+                WHERE gfr.org_id=gr.org_id AND gfr.request_id=gr.id
+                  AND (
+                    gfr.reservation_id IS NULL
+                    OR (gfr.reservation_outcome='FINALIZED' AND br_res.status='FINALIZED')
+                    OR (gfr.reservation_outcome='RELEASED' AND br_res.status='RELEASED')
+                  ))
             """)
     long countUnresolvedFinancialWork(
             @Param("orgId") long orgId, @Param("billingPeriodId") long billingPeriodId);

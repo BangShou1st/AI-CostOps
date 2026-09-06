@@ -42,6 +42,9 @@ public interface GatewaySettlementMapper {
             WHERE gr.org_id=#{organizationId}
               AND uf.status='FINAL'
               AND gs.id IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM gateway_financial_resolution gfr
+                WHERE gfr.org_id=gr.org_id AND gfr.request_id=gr.id)
             ORDER BY gr.id ASC,uf.id ASC
             LIMIT #{limit}
             """)
@@ -78,6 +81,9 @@ public interface GatewaySettlementMapper {
                 LEFT JOIN gateway_settlement gs
                   ON gs.request_id=gr.id AND gs.org_id=gr.org_id
                 WHERE uf.status='FINAL' AND gs.id IS NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM gateway_financial_resolution gfr
+                    WHERE gfr.org_id=gr.org_id AND gfr.request_id=gr.id)
                 UNION
                 SELECT gs.org_id
                 FROM gateway_settlement gs

@@ -18,6 +18,7 @@ public record LedgerEntry(
         Long sourceChargeFactId,
         Long sourceExpenseClaimId,
         Long sourceGatewaySettlementId,
+        Long sourceReconciliationAdjustmentId,
         Long allocationLineId,
         Long correctionGroupId,
         Long reversesEntryId,

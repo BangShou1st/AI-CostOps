@@ -20,6 +20,7 @@ const mockedLedgerApi = vi.mocked(ledgerApi)
 const ENTRY = {
   id: '901', postingId: '900', entryIndex: 0, entryType: 'COST' as const, amount: '10.00000000', currency: 'CNY',
   targetType: 'PROJECT' as const, targetId: '77', budgetId: null, sourceChargeFactId: '31', sourceExpenseClaimId: null,
+  sourceGatewaySettlementId: null, sourceReconciliationAdjustmentId: null,
   allocationLineId: '701', correctionGroupId: null, reversesEntryId: null, createdAt: '2026-08-19T10:00:00Z',
 }
 const POSTING = {

@@ -9,6 +9,17 @@ import type {
   ReconciliationRunRequest,
   ReconciliationRunResponse,
   ResolveCaseRequest,
+  CaseAdjustmentRequest,
+  CaseAdjustmentResponse,
+  ChargeDispositionRequest,
+  ChargeDispositionResponse,
+  GatewayResolutionRequest,
+  GatewayResolutionResponse,
+  LinkCorrectionRequest,
+  LinkCorrectionResponse,
+  ReconciliationEvidenceListParams,
+  ReconciliationEvidencePage,
+  ReconciliationFinancialResolutionContext,
 } from '../types'
 
 /** Reconciliation API values mirror docs/02-development/api/openapi.yaml. */
@@ -25,6 +36,12 @@ export const reconciliationApi = {
 
   async getRun(runId: string): Promise<ReconciliationRunResponse> {
     return (await apiClient.get<ReconciliationRunResponse>(`/reconciliation-runs/${encodeURIComponent(runId)}`)).data
+  },
+
+  async getFinancialResolutionContext(runId: string): Promise<ReconciliationFinancialResolutionContext> {
+    return (await apiClient.get<ReconciliationFinancialResolutionContext>(
+      `/reconciliation-runs/${encodeURIComponent(runId)}/financial-resolution-context`,
+    )).data
   },
 
   async listCases(params: ReconciliationCaseListParams): Promise<ReconciliationCasePage> {
@@ -56,6 +73,51 @@ export const reconciliationApi = {
       `/reconciliation-cases/${encodeURIComponent(caseId)}/resolve`,
       body,
       { headers: { 'Idempotency-Key': idempotencyKey } },
+    )).data
+  },
+
+  async listRunEvidence(runId: string, params: ReconciliationEvidenceListParams = {}): Promise<ReconciliationEvidencePage> {
+    return (await apiClient.get<ReconciliationEvidencePage>(
+      `/reconciliation-runs/${encodeURIComponent(runId)}/evidence`,
+      { params },
+    )).data
+  },
+
+  async listCaseEvidence(caseId: string, params: ReconciliationEvidenceListParams = {}): Promise<ReconciliationEvidencePage> {
+    return (await apiClient.get<ReconciliationEvidencePage>(
+      `/reconciliation-cases/${encodeURIComponent(caseId)}/evidence`,
+      { params },
+    )).data
+  },
+
+  async decideChargeDisposition(caseId: string, body: ChargeDispositionRequest, idempotencyKey: string): Promise<ChargeDispositionResponse> {
+    return (await apiClient.post<ChargeDispositionResponse>(
+      `/reconciliation-cases/${encodeURIComponent(caseId)}/charge-dispositions`,
+      body,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    )).data
+  },
+
+  async postCaseAdjustment(caseId: string, body: CaseAdjustmentRequest, idempotencyKey: string): Promise<CaseAdjustmentResponse> {
+    return (await apiClient.post<CaseAdjustmentResponse>(
+      `/reconciliation-cases/${encodeURIComponent(caseId)}/adjustments`,
+      body,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    )).data
+  },
+
+  async postGatewayResolution(runId: string, body: GatewayResolutionRequest, idempotencyKey: string): Promise<GatewayResolutionResponse> {
+    return (await apiClient.post<GatewayResolutionResponse>(
+      `/reconciliation-runs/${encodeURIComponent(runId)}/gateway-resolutions`,
+      body,
+      { headers: { 'Idempotency-Key': idempotencyKey } },
+    )).data
+  },
+
+  async linkCorrection(caseId: string, body: LinkCorrectionRequest): Promise<LinkCorrectionResponse> {
+    return (await apiClient.post<LinkCorrectionResponse>(
+      `/reconciliation-cases/${encodeURIComponent(caseId)}/link-correction`,
+      body,
     )).data
   },
 }

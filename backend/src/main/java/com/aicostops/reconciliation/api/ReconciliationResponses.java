@@ -3,6 +3,7 @@ package com.aicostops.reconciliation.api;
 import com.aicostops.reconciliation.application.ReconciliationMoney;
 import com.aicostops.reconciliation.domain.ReconciliationCase;
 import com.aicostops.reconciliation.domain.ReconciliationRun;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.EvidenceRow;
 import java.time.Instant;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -75,6 +76,174 @@ public final class ReconciliationResponses {
                     value.reasonCode(), value.resolutionNote(),
                     value.resolvedByMemberId() == null ? null : Long.toString(value.resolvedByMemberId()),
                     value.resolvedAt(), value.createdAt(), value.updatedAt());
+        }
+    }
+
+    public record EvidenceResponse(
+            String id,
+            String reconciliationRunId,
+            String reconciliationCaseId,
+            String evidenceKey,
+            String providerAccountId,
+            String currency,
+            String matchKind,
+            String differenceKind,
+            String chargeFactId,
+            String gatewayRequestId,
+            String gatewayRouteAttemptId,
+            String gatewayUsageFactId,
+            String gatewaySettlementId,
+            String correctionGroupId,
+            String reconciliationAdjustmentId,
+            String gatewayFinancialResolutionId,
+            String ledgerPostingId,
+            String providerRequestId,
+            String evidenceReference,
+            String externalAmount,
+            String internalAmount,
+            String differenceAmount,
+            Instant createdAt,
+            String currentGatewayResolutionId,
+            String currentChargeDisposition,
+            Boolean currentGatewayActionable,
+            String currentGatewayState) {
+
+        public static EvidenceResponse from(EvidenceRow row) {
+            return new EvidenceResponse(
+                    Long.toString(row.id()),
+                    Long.toString(row.reconciliationRunId()),
+                    row.reconciliationCaseId() == null ? null
+                            : Long.toString(row.reconciliationCaseId()),
+                    row.evidenceKey(),
+                    Long.toString(row.providerAccountId()),
+                    row.currency(),
+                    row.matchKind(),
+                    row.differenceKind(),
+                    row.chargeFactId() == null ? null : Long.toString(row.chargeFactId()),
+                    row.gatewayRequestId() == null ? null : Long.toString(row.gatewayRequestId()),
+                    row.gatewayRouteAttemptId() == null ? null
+                            : Long.toString(row.gatewayRouteAttemptId()),
+                    row.gatewayUsageFactId() == null ? null
+                            : Long.toString(row.gatewayUsageFactId()),
+                    row.gatewaySettlementId() == null ? null
+                            : Long.toString(row.gatewaySettlementId()),
+                    row.correctionGroupId() == null ? null
+                            : Long.toString(row.correctionGroupId()),
+                    row.reconciliationAdjustmentId() == null ? null
+                            : Long.toString(row.reconciliationAdjustmentId()),
+                    row.gatewayFinancialResolutionId() == null ? null
+                            : Long.toString(row.gatewayFinancialResolutionId()),
+                    row.ledgerPostingId() == null ? null : Long.toString(row.ledgerPostingId()),
+                    row.providerRequestId(),
+                    row.evidenceReference(),
+                    row.externalAmount() == null ? null : ReconciliationMoney.format(row.externalAmount()),
+                    row.internalAmount() == null ? null : ReconciliationMoney.format(row.internalAmount()),
+                    row.differenceAmount() == null ? null : ReconciliationMoney.format(row.differenceAmount()),
+                    row.createdAt(),
+                    // Read-model current state (LEFT JOIN projections): whether
+                    // the referenced request already carries a terminal gateway
+                    // financial resolution and whether the referenced Charge
+                    // carries its final posting disposition. The historical
+                    // evidence row itself is never mutated.
+                    row.currentGatewayResolutionId() == null ? null
+                            : Long.toString(row.currentGatewayResolutionId()),
+                    row.currentChargeDisposition(),
+                    // Whether the referenced request is still currently
+                    // M15-actionable and its bounded current gateway state
+                    // (ACTIONABLE/RESOLVED/M13_FINAL/SETTLEMENT_PENDING/
+                    // RETRYABLE_FAILED/SETTLED/STALE_ROUTE; null when the row
+                    // references no Gateway request). History is never mutated.
+                    row.currentGatewayActionable(),
+                    row.currentGatewayState());
+        }
+    }
+
+    public record FinancialResolutionContextResponse(
+            String originalBillingPeriodId,
+            String originalBillingPeriodStatus,
+            java.util.List<EligibleCorrectionPeriodResponse> eligibleCorrectionPeriods) {
+
+        public static FinancialResolutionContextResponse from(
+                com.aicostops.reconciliation.application.HybridReconciliationQueryService
+                        .FinancialResolutionContext context) {
+            return new FinancialResolutionContextResponse(
+                    Long.toString(context.originalBillingPeriodId()),
+                    context.originalBillingPeriodStatus(),
+                    context.eligibleCorrectionPeriods().stream()
+                            .map(period -> new EligibleCorrectionPeriodResponse(
+                                    Long.toString(period.id()), "OPEN"))
+                            .toList());
+        }
+    }
+
+    public record EligibleCorrectionPeriodResponse(String id, String status) {
+    }
+
+    public record ChargeDispositionResponse(
+            String id,
+            String caseId,
+            String chargeFactId,
+            String disposition,
+            String decisionSource) {
+
+        public static ChargeDispositionResponse from(long dispositionId, long caseId,
+                long chargeFactId, String disposition) {
+            return new ChargeDispositionResponse(
+                    Long.toString(dispositionId),
+                    Long.toString(caseId),
+                    Long.toString(chargeFactId),
+                    disposition,
+                    "MANUAL");
+        }
+    }
+
+    public record AdjustmentResponse(
+            String id,
+            String caseId,
+            String runId,
+            String adjustmentScope,
+            String amount,
+            String currency,
+            String adjustmentPeriodId) {
+
+        public static AdjustmentResponse from(long caseId,
+                com.aicostops.reconciliation.application.ReconciliationAdjustmentService
+                        .CaseFullAdjustmentResult result) {
+            return new AdjustmentResponse(
+                    Long.toString(result.adjustmentId()),
+                    result.caseId() == null ? Long.toString(caseId)
+                            : Long.toString(result.caseId()),
+                    Long.toString(result.runId()),
+                    "CASE_FULL",
+                    ReconciliationMoney.format(result.amount()),
+                    result.currency(),
+                    Long.toString(result.adjustmentPeriodId()));
+        }
+    }
+
+    public record CorrectionLinkResponse(String caseId, String correctionGroupId) {
+    }
+
+    public record GatewayResolutionResponse(
+            String id,
+            String runId,
+            String caseId,
+            String requestId,
+            String resolutionType,
+            String reservationOutcome,
+            String adjustmentId) {
+
+        public static GatewayResolutionResponse from(
+                com.aicostops.reconciliation.application.GatewayFinancialResolutionService
+                        .GatewayResolutionResult result) {
+            return new GatewayResolutionResponse(
+                    Long.toString(result.resolutionId()),
+                    Long.toString(result.runId()),
+                    result.caseId() == null ? null : Long.toString(result.caseId()),
+                    Long.toString(result.requestId()),
+                    result.resolutionType(),
+                    result.reservationOutcome(),
+                    result.adjustmentId() == null ? null : Long.toString(result.adjustmentId()));
         }
     }
 }

@@ -134,7 +134,9 @@ services:
 
 networks:
   aicostops:
-    name: ai-costops-network
+    # Default keeps the historical shared dev network name; isolated local
+    # E2E stacks override AICOSTOPS_NETWORK_NAME in their env file.
+    name: ${AICOSTOPS_NETWORK_NAME:-ai-costops-network}
 
 volumes:
   mysql-data:

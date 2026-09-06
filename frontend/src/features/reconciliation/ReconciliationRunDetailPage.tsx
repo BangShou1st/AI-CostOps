@@ -7,12 +7,14 @@ import { formatEventDateTime } from '../../lib/dateTime'
 import { formatMoney } from '../../lib/money'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../settings/permissions'
+import { GatewayResolutionModal } from './GatewayResolutionModal'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
 import { createIdempotencyKey, formatReconciliationCaseStatus, formatReconciliationCaseType, formatReconciliationRunStatus, reconciliationCaseTagColor, reconciliationRunTagColor } from './presentation'
-import type { ReconciliationCaseResponse, ReconciliationCaseStatus } from './types'
+import type { ReconciliationCaseResponse, ReconciliationCaseStatus, ReconciliationEvidenceResponse } from './types'
 
 const PAGE_SIZE = 50
+const UNRESOLVED_PAGE_SIZE = 10
 
 function DetailError({ error }: { error: unknown }) {
   const problem = toProblemDetail(error)
@@ -25,12 +27,43 @@ export function ReconciliationRunDetailPage() {
   const auth = useAuth()
   const queryClient = useQueryClient()
   const canRun = hasPermission(auth.user?.permissions, 'RECONCILIATION_RUN')
+  const canResolveGateway = hasPermission(auth.user?.permissions, 'RECONCILIATION_RESOLVE')
+    && hasPermission(auth.user?.permissions, 'LEDGER_CORRECT')
   const [caseStatus, setCaseStatus] = useState<ReconciliationCaseStatus | undefined>()
   const [casePage, setCasePage] = useState(0)
+  const [unresolvedPage, setUnresolvedPage] = useState(0)
+  const [gatewayTarget, setGatewayTarget] = useState<ReconciliationEvidenceResponse | null>(null)
 
   const run = useQuery({ queryKey: reconciliationKeys.run(runId), queryFn: () => reconciliationApi.getRun(runId), enabled: runId.length > 0 })
+  // Reconciliation-owned period context for the shared resolution modal
+  // (RECONCILIATION_READ only, never BUDGET_READ); the server remains the
+  // period authority. Loading/error/missing maps to UNKNOWN and disables
+  // submission in the modal instead of defaulting to OPEN.
+  const resolutionContext = useQuery({
+    queryKey: [...reconciliationKeys.run(runId), 'financial-resolution-context'],
+    queryFn: () => reconciliationApi.getFinancialResolutionContext(runId),
+    enabled: runId.length > 0,
+    retry: false,
+  })
+  const periodContext = resolutionContext.data
+    ? {
+      originalPeriodId: resolutionContext.data.originalBillingPeriodId,
+      status: resolutionContext.data.originalBillingPeriodStatus as 'OPEN' | 'CLOSING' | 'CLOSED',
+      eligibleCorrectionPeriods: resolutionContext.data.eligibleCorrectionPeriods,
+    }
+    : { originalPeriodId: null, status: 'UNKNOWN' as const, eligibleCorrectionPeriods: [] as { id: string }[] }
   const caseParams = useMemo(() => ({ runId, page: casePage, size: PAGE_SIZE, status: caseStatus }), [casePage, caseStatus, runId])
   const cases = useQuery({ queryKey: reconciliationKeys.cases(caseParams), queryFn: () => reconciliationApi.listCases(caseParams), enabled: runId.length > 0 && Boolean(run.data) })
+  // The unresolved Gateway panel is the actionable queue: served by the
+  // bounded server-side filter with true server pagination and restricted to
+  // requests without a terminal gateway financial resolution.
+  const unresolvedParams = useMemo(() => ({ matchKind: 'GATEWAY_UNRESOLVED' as const, actionableOnly: true, page: unresolvedPage, size: UNRESOLVED_PAGE_SIZE }), [unresolvedPage])
+  const unresolvedEvidence = useQuery({
+    queryKey: [...reconciliationKeys.runEvidence(runId), unresolvedParams],
+    queryFn: () => reconciliationApi.listRunEvidence(runId, unresolvedParams),
+    enabled: runId.length > 0,
+    retry: false,
+  })
   const rerun = useMutation({
     mutationFn: () => reconciliationApi.createRun({ billingPeriodId: run.data!.billingPeriodId }, createIdempotencyKey()),
     retry: false,
@@ -45,6 +78,8 @@ export function ReconciliationRunDetailPage() {
   const data = run.data
   const matchedCount = data.summary.matchedCount
   const differenceCount = data.summary.discrepancyCount
+  const unresolvedGatewayEvidence = unresolvedEvidence.data?.items ?? []
+  const unresolvedTotal = unresolvedEvidence.data?.totalElements ?? 0
 
   return (
     <main className="settings-page m6-page">
@@ -63,6 +98,9 @@ export function ReconciliationRunDetailPage() {
         <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="运行状态" value={formatReconciliationRunStatus(data.status)} /></Card></Col>
         <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="已匹配记录" value={matchedCount ?? '—'} suffix={matchedCount === null ? undefined : '条'} /></Card></Col>
         <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="差异案例" value={differenceCount ?? '—'} suffix={differenceCount === null ? undefined : '个'} /></Card></Col>
+        <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="精确请求证据" value={data.summary.exactEvidenceCount ?? '—'} suffix={data.summary.exactEvidenceCount === undefined ? undefined : '条'} /></Card></Col>
+        <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="当前未决网关财务工作" value={unresolvedEvidence.data?.totalElements ?? '—'} suffix={unresolvedEvidence.data === undefined ? undefined : '项'} /></Card></Col>
+        <Col xs={24} sm={8}><Card className="m6-stat-card"><Statistic title="运行生成时未决项" value={data.summary.unresolvedGatewayCount ?? '—'} suffix={data.summary.unresolvedGatewayCount === undefined ? undefined : '项'} /></Card></Col>
       </Row>
 
       <Card className="m6-section-card" title="运行摘要">
@@ -85,6 +123,49 @@ export function ReconciliationRunDetailPage() {
           title="存在需要处理的对账阻塞项"
           description={`当前运行产生 ${differenceCount} 个差异案例。未解决的案例可能影响账期关闭准备度。`}
         />
+      )}
+
+      {unresolvedEvidence.isLoading ? <Skeleton active paragraph={{ rows: 3 }} /> : unresolvedTotal > 0 && (
+        <Card
+          className="m6-section-card"
+          title="未决网关财务工作（运行级）"
+          extra={<Typography.Text type="secondary">当前可操作 {unresolvedTotal} 项 · 运行生成时 {data.summary.unresolvedGatewayCount ?? '—'} 项 · 无需金额差异即可存在</Typography.Text>}
+        >
+          <Table<ReconciliationEvidenceResponse>
+            rowKey="id"
+            dataSource={unresolvedGatewayEvidence}
+            pagination={{
+              current: unresolvedPage + 1,
+              pageSize: UNRESOLVED_PAGE_SIZE,
+              total: unresolvedTotal,
+              showSizeChanger: false,
+              onChange: (nextPage) => setUnresolvedPage(nextPage - 1),
+            }}
+            scroll={{ x: 800 }}
+            locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无未决网关财务工作" /> }}
+            columns={[
+              { title: '请求', dataIndex: 'gatewayRequestId', width: 110, render: (value: string | null) => (value ? `#${value}` : '—') },
+              { title: '供应商账号', dataIndex: 'providerAccountId', width: 130 },
+              { title: '币种', dataIndex: 'currency', width: 85 },
+              { title: '关联案例', dataIndex: 'reconciliationCaseId', width: 110, render: (value: string | null) => (value ? `#${value}` : '运行级（无案例）') },
+              { title: '操作', width: 160, render: (_: unknown, row: ReconciliationEvidenceResponse) => {
+                if (!canResolveGateway) {
+                  return <Typography.Text type="secondary">需要 RECONCILIATION_RESOLVE 与 LEDGER_CORRECT</Typography.Text>
+                }
+                // The panel is the actionable queue, but the row-level state
+                // stays authoritative: never offer an action for a row the
+                // read model reports as not currently actionable.
+                if (row.currentGatewayActionable === false) {
+                  return <Typography.Text type="secondary">非当前可操作</Typography.Text>
+                }
+                return <Button size="small" onClick={() => setGatewayTarget(row)}>处理</Button>
+              } },
+            ]}
+          />
+          <Typography.Text type="secondary">
+            {unresolvedTotal} 个网关请求仍需人工财务决定；处理决定绑定到运行证据，不会自动解决其他请求。
+          </Typography.Text>
+        </Card>
       )}
 
       <Card className="m6-section-card" title="差异案例" extra={<Typography.Text type="secondary">金额以服务端结果为准</Typography.Text>}>
@@ -119,6 +200,15 @@ export function ReconciliationRunDetailPage() {
           />
         )}
       </Card>
+      <GatewayResolutionModal
+        runId={data.id}
+        // The evidence row carries the reviewed case lineage; the server
+        // remains the final authority over the effective case.
+        caseId={gatewayTarget?.reconciliationCaseId ?? null}
+        target={gatewayTarget}
+        onClose={() => setGatewayTarget(null)}
+        periodContext={periodContext}
+      />
     </main>
   )
 }

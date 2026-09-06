@@ -465,6 +465,201 @@ class GatewayFinancialWorkCloseIntegrationTest extends MySqlContainerSupport {
         return bytes;
     }
 
+    @Test
+    void validResolutionClearsOnlyItsOwnRequestBlocker() {
+        var fixture = insertFullFixture();
+        var requestA = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(31), digest(32));
+        var requestB = insertGatewayRequest(fixture, "TRANSPORT_COMPLETED", digest(33), digest(34));
+        var attemptA = insertRouteAttempt(fixture, requestA, 1, "grd_a1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptA, requestA);
+        var attemptB = insertRouteAttempt(fixture, requestB, 1, "grd_b1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptB, requestB);
+        var runId = insertRun(fixture);
+        insertResolution(fixture, runId, requestA, "NO_CHARGE_CONFIRMED", "NONE", null, null);
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    @Test
+    void noChargeResolutionWithReleasedReservationPasses() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(35), digest(36));
+        jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH' WHERE id=?", requestId);
+        var attemptId = insertRouteAttempt(fixture, requestId, 1, "grd_c1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptId, requestId);
+        var reservationId = insertReservation(fixture, requestId, attemptId, "RELEASED");
+        var runId = insertRun(fixture);
+        insertResolution(fixture, runId, requestId, "NO_CHARGE_CONFIRMED", "RELEASED",
+                reservationId, null);
+
+        assertThat(provider.evaluate(context(fixture)).passed()).isTrue();
+    }
+
+    @Test
+    void statementResolutionWithFinalizedReservationPasses() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(37), digest(38));
+        jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH' WHERE id=?", requestId);
+        var attemptId = insertRouteAttempt(fixture, requestId, 1, "grd_d1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptId, requestId);
+        var reservationId = insertReservation(fixture, requestId, attemptId, "FINALIZED");
+        var runId = insertRun(fixture);
+        jdbc.update("""
+                INSERT INTO reconciliation_adjustment(
+                  org_id,reconciliation_run_id,reconciliation_case_id,adjustment_key,
+                  adjustment_scope,provider_account_id,currency,amount,adjustment_period_id,
+                  gateway_request_id,gateway_route_attempt_id,statement_charge_fact_id,
+                  created_by_member_id,reason_code,reason_note,created_at)
+                SELECT ?,?,NULL,?,'GATEWAY_REQUEST',?,?, '2.00000000',?,?,?,?,m.id,
+                  'STATEMENT_EVIDENCE','Reviewed',UTC_TIMESTAMP(6)
+                FROM provider_account pa
+                JOIN organization_member m ON m.org_id=pa.org_id
+                WHERE pa.id=? LIMIT 1
+                """, fixture.orgId(), runId, "adj-close-" + System.nanoTime(),
+                fixture.providerAccountId(), "USD", fixture.periodId(), requestId, attemptId,
+                insertStatementCharge(fixture), fixture.providerAccountId());
+        var adjustmentId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        insertResolution(fixture, runId, requestId, "STATEMENT_ADJUSTMENT_POSTED", "FINALIZED",
+                reservationId, adjustmentId);
+
+        assertThat(provider.evaluate(context(fixture)).passed()).isTrue();
+    }
+
+    @Test
+    void resolutionWithContradictingEffectiveReservationStillBlocks() {
+        var fixture = insertFullFixture();
+        var requestId = insertGatewayRequest(fixture, "FAILED_AFTER_DISPATCH", digest(39), digest(40));
+        jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH' WHERE id=?", requestId);
+        var attemptId = insertRouteAttempt(fixture, requestId, 1, "grd_e1");
+        jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
+                attemptId, requestId);
+        var reservationId = insertReservation(fixture, requestId, attemptId, "ACTIVE");
+        var runId = insertRun(fixture);
+        insertResolution(fixture, runId, requestId, "NO_CHARGE_CONFIRMED", "RELEASED",
+                reservationId, null);
+
+        var result = provider.evaluate(context(fixture));
+
+        assertThat(result.passed()).isFalse();
+        assertThat(result.itemCount()).isEqualTo(1);
+    }
+
+    private long insertRun(Fixture fixture) {
+        jdbc.update("""
+                INSERT INTO reconciliation_run(org_id,billing_period_id,status,algorithm_version,
+                  tolerance_amount,basis_hash,summary_json,created_by_member_id,started_at,
+                  finished_at,created_at,updated_at)
+                VALUES (?,?,'COMPLETED','M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2','0.00000000',
+                  ?,JSON_OBJECT(),?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),
+                  UTC_TIMESTAMP(6))
+                """.replace("?,JSON_OBJECT()", "?,JSON_OBJECT()"), fixture.orgId(),
+                fixture.periodId(), "9".repeat(64), orgMemberId(fixture));
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private long orgMemberId(Fixture fixture) {
+        jdbc.update("""
+                INSERT INTO app_user(email_normalized,display_name,status,security_version,
+                  created_at,updated_at)
+                VALUES (?,?, 'ACTIVE',0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """.replace("?, ?, 'ACTIVE'", "?,?,'ACTIVE'"), "close-m15-" + System.nanoTime()
+                + "@example.test", "close-m15");
+        var userId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO organization_member(org_id,user_id,status,joined_at)
+                VALUES (?,?,'ACTIVE',UTC_TIMESTAMP(6))
+                """, fixture.orgId(), userId);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private void insertResolution(Fixture fixture, long runId, long requestId,
+            String resolutionType, String reservationOutcome, Long reservationId,
+            Long adjustmentId) {
+        Long statementChargeId =
+                "STATEMENT_ADJUSTMENT_POSTED".equals(resolutionType)
+                        ? insertStatementCharge(fixture)
+                        : null;
+        jdbc.update("""
+                INSERT INTO gateway_financial_resolution(
+                  org_id,reconciliation_run_id,reconciliation_case_id,request_id,route_attempt_id,
+                  usage_fact_id,gateway_settlement_id,statement_charge_fact_id,
+                  reconciliation_adjustment_id,reservation_id,resolution_type,reservation_outcome,
+                  resolved_by_member_id,reason_code,reason_note,resolved_at,created_at)
+                SELECT ?,?,NULL,?,gr.current_route_attempt_id,NULL,NULL,?,?,?,
+                  ?,?,m.id,'POSITIVE_EVIDENCE','Reviewed',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)
+                FROM gateway_request gr
+                JOIN organization_member m ON m.org_id=gr.org_id
+                WHERE gr.id=? LIMIT 1
+                """, fixture.orgId(), runId, requestId, statementChargeId, adjustmentId,
+                reservationId, resolutionType, reservationOutcome, requestId);
+    }
+
+    /**
+     * A minimal same-org confirmed-import statement charge satisfying the
+     * terminal-lineage CHECKs and FKs introduced for statement-backed
+     * resolutions.
+     */
+    private long insertStatementCharge(Fixture fixture) {
+        var suffix = "chg-" + System.nanoTime();
+        var memberId = orgMemberId(fixture);
+        jdbc.update("""
+                INSERT INTO evidence(org_id,sha256,object_key,original_filename,media_type,
+                  size_bytes,uploaded_by_member_id,storage_status,storage_error_code,created_at,
+                  updated_at)
+                VALUES (?, ?, ?, 'usage.csv', 'text/csv', 1, ?, 'AVAILABLE', NULL,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, fixture.orgId(), suffix, "org/" + fixture.orgId() + "/" + suffix, memberId);
+        var evidenceId = jdbc.queryForObject(
+                "SELECT id FROM evidence WHERE org_id=? AND sha256=?",
+                Long.class, fixture.orgId(), suffix);
+        jdbc.update("""
+                INSERT INTO import_batch(org_id,evidence_id,provider_account_id,
+                  expected_provider_code,source_type,parser_version,status,created_by_member_id,
+                  created_at,updated_at)
+                VALUES (?,?,?, 'DEEPSEEK', 'FILE_EXPORT', 'test-parser-v1', 'CONFIRMED', ?,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, fixture.orgId(), evidenceId, fixture.providerAccountId(), memberId);
+        var batchId = jdbc.queryForObject(
+                "SELECT id FROM import_batch WHERE evidence_id=?", Long.class, evidenceId);
+        jdbc.update("""
+                INSERT INTO import_attempt(import_batch_id,attempt_no,status,trigger_type,
+                  available_at,lease_owner,lease_until,lease_version,parser_version,
+                  detected_provider_code,schema_fingerprint,started_at,finished_at,error_code,
+                  error_summary,records_seen,records_valid,warning_count,error_count,created_at)
+                VALUES (?,1,'SUCCEEDED','INITIAL',UTC_TIMESTAMP(6),NULL,NULL,0,
+                  'test-parser-v1','DEEPSEEK',
+                  'fp',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL,NULL,1,1,0,0,UTC_TIMESTAMP(6))
+                """, batchId);
+        var attemptId = jdbc.queryForObject(
+                "SELECT id FROM import_attempt WHERE import_batch_id=?", Long.class, batchId);
+        jdbc.update(
+                "UPDATE import_batch SET confirmed_attempt_id=? WHERE id=?", attemptId, batchId);
+        jdbc.update("""
+                INSERT INTO raw_provider_record(import_attempt_id,record_index,
+                  record_locator,provider_record_key,raw_payload,normalize_status,created_at)
+                VALUES (?,0,?,?,?, 'NORMALIZED',UTC_TIMESTAMP(6))
+                """, attemptId, "row-0", suffix, "{}");
+        var rawRecordId = jdbc.queryForObject(
+                "SELECT id FROM raw_provider_record WHERE import_attempt_id=? AND record_index=0",
+                Long.class, attemptId);
+        jdbc.update("""
+                INSERT INTO charge_fact(org_id,raw_record_id,fact_index,provider_code,
+                  charge_category,amount,currency,period_start,period_end,review_status,
+                  created_at)
+                VALUES (?,?,0,'DEEPSEEK','USAGE','2.00000000','USD',
+                  '2026-08-05 00:00:00','2026-08-06 00:00:00','CLEAN',UTC_TIMESTAMP(6))
+                """, fixture.orgId(), rawRecordId);
+        return jdbc.queryForObject(
+                "SELECT MAX(id) FROM charge_fact WHERE org_id=?", Long.class, fixture.orgId());
+    }
+
     private record Fixture(long orgId, long periodId, long serviceIdentityId, long modelId,
             long credentialId, long providerAccountId, long providerModelId,
             long pricingVersionId, long budgetId) {

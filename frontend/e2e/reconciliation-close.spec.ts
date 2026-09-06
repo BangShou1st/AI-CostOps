@@ -58,17 +58,17 @@ test.describe('reconciliation and period close', () => {
         }
         await unresolvedRow.getByRole('button', { name: /详\s*情/ }).click()
         await page.waitForURL(/\/reconciliation\/cases\/\d+$/, { timeout: 20_000 })
-        // Detail page can be OPEN (show 开始调查) or already INVESTIGATING (show 标记已解决).
+        // Detail page can be OPEN (show 开始调查) or already INVESTIGATING (show 接受差异并解决).
         // Wait for the hydrating detail to expose either action, then follow the right path.
         await expect(
-          page.getByRole('button', { name: '开始调查' }).or(page.getByRole('button', { name: '标记已解决' })),
+          page.getByRole('button', { name: '开始调查' }).or(page.getByRole('button', { name: '接受差异并解决' })),
         ).toBeVisible({ timeout: 20_000 })
         const startButton = page.getByRole('button', { name: '开始调查' })
         if ((await startButton.count()) > 0) {
           await startButton.click()
-          await expect(page.getByRole('button', { name: '标记已解决' })).toBeVisible({ timeout: 20_000 })
+          await expect(page.getByRole('button', { name: '接受差异并解决' })).toBeVisible({ timeout: 20_000 })
         }
-        await page.getByRole('button', { name: '标记已解决' }).click()
+        await page.getByRole('button', { name: '接受差异并解决' }).click()
         const modal = page.locator('.ant-modal:visible').last()
         await modal.getByPlaceholder('请输入处理原因').fill('OPERATIONAL_DECISION')
         await modal.getByPlaceholder('请说明本次案例的处理结论').fill('E2E reconciliation close drill')

@@ -48,6 +48,20 @@ public class BillingPeriodFinancialWriteFenceService implements BillingPeriodFin
     }
 
     @Override
+    public BillingPeriod lockForReconciliationAdmission(long organizationId,
+            long billingPeriodId) {
+        var period = lockById(organizationId, billingPeriodId);
+        // Reconciliation is evidence work: OPEN and CLOSED periods may be
+        // reconciled, but a CLOSING period may not race with Close identity.
+        if (period.status() == BillingPeriodStatus.CLOSING) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.PERIOD_NOT_OPEN,
+                    "Billing period is closing",
+                    "Reconciliation runs are not admitted while a billing period is CLOSING.");
+        }
+        return period;
+    }
+
+    @Override
     public void lockIfCoveredAndRequireOpenAt(long organizationId, Instant effectiveAt) {
         var candidates = mapper.selectCoveringCandidatesForUpdate(organizationId, effectiveAt);
         if (candidates.isEmpty()) {

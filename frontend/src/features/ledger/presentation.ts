@@ -4,6 +4,8 @@ export const LEDGER_SOURCE_LABEL: Record<LedgerSourceType, string> = {
   PROVIDER_CHARGE: '供应商成本',
   EXPENSE_CLAIM: '报销',
   CORRECTION: '纠正',
+  GATEWAY_SETTLEMENT: '网关结算',
+  RECONCILIATION_ADJUSTMENT: '对账调整',
 }
 
 export const LEDGER_ENTRY_LABEL: Record<LedgerEntryType, string> = {

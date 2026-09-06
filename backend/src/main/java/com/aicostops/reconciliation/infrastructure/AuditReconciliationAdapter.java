@@ -43,6 +43,54 @@ public final class AuditReconciliationAdapter implements ReconciliationAuditPort
     }
 
     @Override
+    public void adjustmentPosted(long organizationId, long actorUserId, long adjustmentId,
+            long caseId, long runId, String scope, java.math.BigDecimal amount,
+            String currency, long adjustmentPeriodId) {
+        audit.append("RECONCILIATION_ADJUSTMENT_POSTED", organizationId, actorUserId,
+                "RECONCILIATION_ADJUSTMENT", adjustmentId,
+                Map.of("caseId", caseId,
+                        "runId", runId,
+                        "scope", scope,
+                        "amount", amount.toPlainString(),
+                        "currency", currency,
+                        "adjustmentPeriodId", adjustmentPeriodId));
+    }
+
+    @Override
+    public void chargeDispositionDecided(long organizationId, long actorUserId,
+            long dispositionId, long caseId, long chargeFactId, String disposition) {
+        audit.append("RECONCILIATION_CHARGE_DISPOSITION_DECIDED", organizationId, actorUserId,
+                "PROVIDER_CHARGE_DISPOSITION", dispositionId,
+                Map.of("caseId", caseId,
+                        "chargeFactId", chargeFactId,
+                        "disposition", disposition));
+    }
+
+    @Override
+    public void correctionLinked(long organizationId, long actorUserId, long caseId,
+            long correctionGroupId) {
+        audit.append("RECONCILIATION_CORRECTION_LINKED", organizationId, actorUserId,
+                "RECONCILIATION_CASE", caseId, Map.of("correctionGroupId", correctionGroupId));
+    }
+
+    @Override
+    public void gatewayFinancialResolved(long organizationId, long actorUserId, long runId,
+            Long caseId, long requestId, String resolutionType, String reservationOutcome,
+            String currency) {
+        var metadata = new java.util.HashMap<String, Object>();
+        metadata.put("runId", runId);
+        metadata.put("requestId", requestId);
+        metadata.put("resolutionType", resolutionType);
+        metadata.put("reservationOutcome", reservationOutcome);
+        metadata.put("currency", currency);
+        if (caseId != null) {
+            metadata.put("caseId", caseId);
+        }
+        audit.append("GATEWAY_FINANCIAL_RESOLVED", organizationId, actorUserId,
+                "GATEWAY_FINANCIAL_RESOLUTION", requestId, metadata);
+    }
+
+    @Override
     public void closeStarted(long organizationId, long actorUserId, long closeRunId,
             long billingPeriodId, long closeGeneration, int attemptNo) {
         audit.append("PERIOD_CLOSE_STARTED", organizationId, actorUserId,

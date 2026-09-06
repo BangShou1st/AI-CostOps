@@ -32,6 +32,8 @@ public final class LedgerResponses {
             ApiId budgetId,
             ApiId sourceChargeFactId,
             ApiId sourceExpenseClaimId,
+            ApiId sourceGatewaySettlementId,
+            ApiId sourceReconciliationAdjustmentId,
             ApiId allocationLineId,
             ApiId correctionGroupId,
             ApiId reversesEntryId,
@@ -44,6 +46,10 @@ public final class LedgerResponses {
                     entry.budgetId() == null ? null : ApiId.of(entry.budgetId()),
                     entry.sourceChargeFactId() == null ? null : ApiId.of(entry.sourceChargeFactId()),
                     entry.sourceExpenseClaimId() == null ? null : ApiId.of(entry.sourceExpenseClaimId()),
+                    entry.sourceGatewaySettlementId() == null ? null
+                            : ApiId.of(entry.sourceGatewaySettlementId()),
+                    entry.sourceReconciliationAdjustmentId() == null ? null
+                            : ApiId.of(entry.sourceReconciliationAdjustmentId()),
                     entry.allocationLineId() == null ? null : ApiId.of(entry.allocationLineId()),
                     entry.correctionGroupId() == null ? null : ApiId.of(entry.correctionGroupId()),
                     entry.reversesEntryId() == null ? null : ApiId.of(entry.reversesEntryId()),
