@@ -16,30 +16,31 @@ import org.apache.ibatis.annotations.Select;
 public interface HybridReconciliationMapper {
 
     /**
-     * Exact Provider request correlation candidates grouped by the persisted
-     * external key and provider account. Exact correlation is only legal
-     * inside one organization, one provider account and one currency: the
-     * confirmed-import lineage must own the same provider account as the
-     * attempt and the pricing version must belong to the same organization.
-     * Provider request id equality and grouping are BINARY (case-sensitive):
-     * ids that differ only by case are distinct identities and must never be
-     * folded into one ambiguous group or cross-matched. Only non-PLANNED,
-     * non-SAFE possible-billable current attempts of confirmed-import
-     * CLEAN/SUSPECTED_DUPLICATE charges inside the half-open period
-     * participate. Uniqueness filtering happens in the caller.
+     * Exact Provider request correlation candidates. The SQL returns one row
+     * per eligible (Charge, Gateway attempt) pair and deliberately performs no
+     * uniqueness grouping: correlation certification is a Java-side decision
+     * (Provider + durable source schema), and the correlation identity is
+     * (binary-exact Provider request id, provider account, currency), so
+     * grouping must happen only after uncertified schemas are filtered out —
+     * otherwise an uncertified charge with a coincidentally equal key would
+     * poison a certified pairing, and two currency scopes of the same id
+     * would be folded into one ambiguous group. Provider request id equality
+     * stays BINARY (case-sensitive): ids differing only by case are distinct
+     * identities. Only non-PLANNED, non-SAFE possible-billable current
+     * attempts of confirmed-import CLEAN/SUSPECTED_DUPLICATE charges inside
+     * the half-open period participate; the join already enforces same
+     * organization, same provider account and same currency pairing.
      */
     @Select("""
-            SELECT MIN(rpr.provider_record_key) AS provider_request_id,
-                   MIN(cf.id) AS charge_fact_id,
-                   MIN(cf.currency) AS currency,
-                   MIN(ra.id) AS route_attempt_id,
-                   MIN(ra.provider_account_id) AS provider_account_id,
-                   MIN(gr.id) AS request_id,
-                   MIN(cf.provider_code) AS provider_code,
-                   MIN(ib.source_type) AS source_type,
-                   MIN(ia.parser_version) AS parser_version,
-                   COUNT(DISTINCT cf.id) AS charge_count,
-                   COUNT(DISTINCT gr.id) AS request_count
+            SELECT BINARY rpr.provider_record_key AS provider_request_id,
+                   cf.id AS charge_fact_id,
+                   cf.currency AS currency,
+                   ra.id AS route_attempt_id,
+                   ra.provider_account_id AS provider_account_id,
+                   gr.id AS request_id,
+                   cf.provider_code AS provider_code,
+                   ib.source_type AS source_type,
+                   ia.parser_version AS parser_version
             FROM charge_fact cf
             JOIN raw_provider_record rpr
               ON rpr.id=cf.raw_record_id
@@ -64,10 +65,9 @@ public interface HybridReconciliationMapper {
               AND cf.period_start >= #{periodStart}
               AND cf.period_start < #{periodEnd}
               AND rpr.provider_record_key IS NOT NULL
-            GROUP BY BINARY rpr.provider_record_key, ra.provider_account_id
-            ORDER BY provider_request_id, provider_account_id
+            ORDER BY rpr.provider_record_key, cf.id, gr.id
             """)
-    List<ExactCorrelationGroup> selectExactCorrelationGroups(
+    List<ExactCorrelationCandidate> selectExactCorrelationCandidates(
             @Param("organizationId") long organizationId,
             @Param("periodStart") Instant periodStart,
             @Param("periodEnd") Instant periodEnd);
@@ -490,7 +490,37 @@ public interface HybridReconciliationMapper {
             re.gateway_usage_fact_id,re.gateway_settlement_id,re.correction_group_id,
             re.reconciliation_adjustment_id,re.gateway_financial_resolution_id,
             re.ledger_posting_id,re.provider_request_id,re.evidence_reference,re.external_amount,
-            re.internal_amount,re.difference_amount,re.created_at
+            re.internal_amount,re.difference_amount,re.created_at,
+            gfr.id AS current_gateway_resolution_id,
+            pcd.disposition AS current_charge_disposition
+            """;
+
+    /**
+     * Read-model joins only: the historical evidence rows are never mutated.
+     * The current-state columns project whether the referenced Gateway request
+     * already carries a terminal gateway_financial_resolution and whether the
+     * referenced Charge already carries its final posting disposition, so the
+     * UI can separate immutable history from currently actionable work.
+     */
+    String EVIDENCE_CURRENT_STATE_JOINS = """
+            LEFT JOIN gateway_financial_resolution gfr
+              ON gfr.org_id=re.org_id AND gfr.request_id=re.gateway_request_id
+            LEFT JOIN provider_charge_disposition pcd
+              ON pcd.org_id=re.org_id AND pcd.charge_fact_id=re.charge_fact_id
+            """;
+
+    /**
+     * The actionable filter is only meaningful for GATEWAY_UNRESOLVED rows: it
+     * excludes requests that already carry a terminal gateway financial
+     * resolution. The same predicate must be applied by the COUNT query so
+     * items and totals always agree.
+     */
+    String ACTIONABLE_FILTER = """
+            <if test="actionableOnly">
+              AND re.gateway_request_id IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM gateway_financial_resolution gfr2
+                WHERE gfr2.org_id=re.org_id AND gfr2.request_id=re.gateway_request_id)
+            </if>
             """;
 
     @Select("""
@@ -498,9 +528,11 @@ public interface HybridReconciliationMapper {
             SELECT
             """ + EVIDENCE_COLUMNS + """
             FROM reconciliation_evidence re
+            """ + EVIDENCE_CURRENT_STATE_JOINS + """
             WHERE re.org_id=#{organizationId} AND re.reconciliation_run_id=#{runId}
             <if test="matchKind != null">AND re.match_kind=#{matchKind}</if>
             <if test="gatewayRequestId != null">AND re.gateway_request_id=#{gatewayRequestId}</if>
+            """ + ACTIONABLE_FILTER + """
             ORDER BY re.id ASC
             LIMIT #{size} OFFSET #{offset}
             </script>
@@ -510,6 +542,7 @@ public interface HybridReconciliationMapper {
             @Param("runId") long runId,
             @Param("matchKind") String matchKind,
             @Param("gatewayRequestId") Long gatewayRequestId,
+            @Param("actionableOnly") boolean actionableOnly,
             @Param("size") int size,
             @Param("offset") int offset);
 
@@ -519,19 +552,22 @@ public interface HybridReconciliationMapper {
             WHERE re.org_id=#{organizationId} AND re.reconciliation_run_id=#{runId}
             <if test="matchKind != null">AND re.match_kind=#{matchKind}</if>
             <if test="gatewayRequestId != null">AND re.gateway_request_id=#{gatewayRequestId}</if>
+            """ + ACTIONABLE_FILTER + """
             </script>
             """)
     long countEvidenceByRun(
             @Param("organizationId") long organizationId,
             @Param("runId") long runId,
             @Param("matchKind") String matchKind,
-            @Param("gatewayRequestId") Long gatewayRequestId);
+            @Param("gatewayRequestId") Long gatewayRequestId,
+            @Param("actionableOnly") boolean actionableOnly);
 
     @Select("""
             <script>
             SELECT
             """ + EVIDENCE_COLUMNS + """
             FROM reconciliation_evidence re
+            """ + EVIDENCE_CURRENT_STATE_JOINS + """
             WHERE re.org_id=#{organizationId} AND re.reconciliation_case_id=#{caseId}
             <if test="matchKind != null">AND re.match_kind=#{matchKind}</if>
             ORDER BY re.id ASC
@@ -581,21 +617,21 @@ public interface HybridReconciliationMapper {
             BigDecimal externalAmount,
             BigDecimal internalAmount,
             BigDecimal differenceAmount,
-            Instant createdAt) {
+            Instant createdAt,
+            Long currentGatewayResolutionId,
+            String currentChargeDisposition) {
     }
 
-    record ExactCorrelationGroup(
+    record ExactCorrelationCandidate(
             String providerRequestId,
-            Long chargeFactId,
+            long chargeFactId,
             String currency,
-            Long routeAttemptId,
-            Long providerAccountId,
-            Long requestId,
+            long routeAttemptId,
+            long providerAccountId,
+            long requestId,
             String providerCode,
             String sourceType,
-            String parserVersion,
-            long chargeCount,
-            long requestCount) {
+            String parserVersion) {
     }
 
     record UnresolvedGatewayRequest(
@@ -685,6 +721,7 @@ public interface HybridReconciliationMapper {
             SELECT
             """ + EVIDENCE_COLUMNS + """
             FROM reconciliation_evidence re
+            """ + EVIDENCE_CURRENT_STATE_JOINS + """
             WHERE re.org_id=#{organizationId}
               AND re.reconciliation_run_id=#{runId}
               AND re.gateway_request_id=#{requestId}

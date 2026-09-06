@@ -51,6 +51,14 @@ export interface ReconciliationEvidenceResponse {
   ledgerPostingId: string | null
   providerRequestId: string | null
   evidenceReference: string | null
+  /**
+   * Read-model current state, never part of the immutable evidence row: the
+   * terminal gateway financial resolution of the referenced request (null =
+   * still actionable) and the final posting disposition of the referenced
+   * Charge (null = not yet decided).
+   */
+  currentGatewayResolutionId: string | null
+  currentChargeDisposition: 'DIRECT_PROVIDER_CHARGE' | 'RECONCILIATION_EVIDENCE' | null
   externalAmount: string | null
   internalAmount: string | null
   differenceAmount: string | null
@@ -212,6 +220,12 @@ export interface ReconciliationEvidenceListParams {
   size?: number
   matchKind?: ReconciliationMatchKind
   gatewayRequestId?: string
+  /**
+   * Only meaningful with matchKind=GATEWAY_UNRESOLVED: excludes requests that
+   * already carry a terminal gateway_financial_resolution. Items and totals
+   * always share the same predicate.
+   */
+  actionableOnly?: boolean
 }
 
 export type ReconciliationRunPage = PageResponse<ReconciliationRunResponse>

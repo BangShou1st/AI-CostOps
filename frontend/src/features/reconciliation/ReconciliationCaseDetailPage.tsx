@@ -270,6 +270,17 @@ export function ReconciliationCaseDetailPage() {
               { title: '供应商请求号', dataIndex: 'providerRequestId', width: 150, render: (value: string | null) => value ?? '—' },
               { title: '单条证据操作', width: 260, render: (_: unknown, row: ReconciliationEvidenceResponse) => {
                 if (!canResolve) return <Typography.Text type="secondary">无处理权限</Typography.Text>
+                // Historical evidence rows carry read-model current state: a
+                // resolved request or a decided Charge keeps its immutable
+                // history but offers no further action.
+                if (row.currentChargeDisposition) {
+                  return <Tag color={row.currentChargeDisposition === 'DIRECT_PROVIDER_CHARGE' ? 'green' : 'blue'}>
+                    {row.currentChargeDisposition === 'DIRECT_PROVIDER_CHARGE' ? '已定：直接供应商费用（DIRECT_PROVIDER_CHARGE）' : '已定：对账证据（RECONCILIATION_EVIDENCE）'}
+                  </Tag>
+                }
+                if (row.currentGatewayResolutionId) {
+                  return <Tag color="blue">已处理（终端财务决定 #{row.currentGatewayResolutionId}）</Tag>
+                }
                 if (row.chargeFactId) {
                   return (
                     <Button
@@ -440,6 +451,9 @@ export function ReconciliationCaseDetailPage() {
         caseId={caseId}
         target={gatewayTarget}
         onClose={() => setGatewayTarget(null)}
+        originalPeriodId={runDetail.data?.billingPeriodId ?? null}
+        originalPeriodStatus={(periods.data ?? []).find((candidate) => candidate.id === runDetail.data?.billingPeriodId)?.status ?? 'OPEN'}
+        openPeriods={(periods.data ?? []).filter((candidate) => candidate.status === 'OPEN')}
       />
     </main>
   )

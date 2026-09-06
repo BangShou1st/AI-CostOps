@@ -269,9 +269,12 @@ public class GatewayFinancialResolutionService {
         }
         var requestPeriod = lockedPeriods.get(requestPeriodId);
         var adjustmentPeriod = lockedPeriods.get(adjustmentPeriodId);
-        validateGatewayAdjustmentPeriodRulesLocked(requestPeriod, adjustmentPeriod,
-                adjustmentPeriodId == requestPeriodId,
-                TYPE_STATEMENT.equals(command.resolutionType()));
+        if (TYPE_STATEMENT.equals(command.resolutionType())) {
+            validateStatementAdjustmentPeriodRulesLocked(requestPeriod, adjustmentPeriod,
+                    adjustmentPeriodId == requestPeriodId);
+        } else {
+            validateNoChargePeriodRulesLocked(requestPeriod);
+        }
 
         Budget budget = null;
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
@@ -687,22 +690,22 @@ public class GatewayFinancialResolutionService {
     }
 
     /**
-     * Frozen adjustment period state machine, evaluated after both
-     * BillingPeriod rows are locked in ascending id order: an OPEN original
-     * period always adjusts into itself; a CLOSED original period never
-     * receives the adjustment and requires an explicit OPEN correction period
-     * (or an explicit governed reopen); CLOSING is always rejected. An
-     * adjustment into a reopened historical period is legal because the
-     * locked period state is OPEN again.
+     * Frozen adjustment period state machine for STATEMENT_ADJUSTMENT_POSTED,
+     * evaluated after both BillingPeriod rows are locked in ascending id
+     * order: an OPEN original period always adjusts into itself; a CLOSED
+     * original period never receives the adjustment and requires an explicit
+     * OPEN correction period (or an explicit governed reopen); CLOSING is
+     * always rejected. An adjustment into a reopened historical period is
+     * legal because the locked period state is OPEN again.
      */
-    private static void validateGatewayAdjustmentPeriodRulesLocked(
+    private static void validateStatementAdjustmentPeriodRulesLocked(
             com.aicostops.budget.domain.BillingPeriod requestPeriod,
             com.aicostops.budget.domain.BillingPeriod adjustmentPeriod,
-            boolean samePeriod, boolean statement) {
+            boolean samePeriod) {
         if (requestPeriod.status() == BillingPeriodStatus.CLOSING) {
             throw conflict("A CLOSING period cannot receive gateway financial resolution.");
         }
-        if (requestPeriod.status() == BillingPeriodStatus.OPEN && statement && !samePeriod) {
+        if (requestPeriod.status() == BillingPeriodStatus.OPEN && !samePeriod) {
             throw conflict("The gateway request's billing period is OPEN; the adjustment "
                     + "must post into that same OPEN period and cannot be diverted into "
                     + "another period.");
@@ -714,6 +717,20 @@ public class GatewayFinancialResolutionService {
         if (adjustmentPeriod.status() != BillingPeriodStatus.OPEN) {
             throw conflict("The correction period must be OPEN; current status is "
                     + adjustmentPeriod.status() + ".");
+        }
+    }
+
+    /**
+     * NO_CHARGE_CONFIRMED posts no Ledger adjustment, selects no correction
+     * period and rewrites no historical financial truth: it only records the
+     * reviewed terminal decision and releases an effective reservation under
+     * the period fence. Therefore an OPEN or a CLOSED original period may both
+     * be resolved; only CLOSING is rejected.
+     */
+    private static void validateNoChargePeriodRulesLocked(
+            com.aicostops.budget.domain.BillingPeriod requestPeriod) {
+        if (requestPeriod.status() == BillingPeriodStatus.CLOSING) {
+            throw conflict("A CLOSING period cannot receive gateway financial resolution.");
         }
     }
 

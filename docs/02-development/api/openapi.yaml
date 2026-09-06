@@ -1081,6 +1081,17 @@ components:
         externalAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
         internalAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
         differenceAmount: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        currentGatewayResolutionId:
+          oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }]
+          description: >-
+            Read-model projection of the terminal gateway_financial_resolution
+            of the referenced request (null = still actionable). The immutable
+            evidence history is never mutated.
+        currentChargeDisposition:
+          oneOf: [{ type: string, enum: [DIRECT_PROVIDER_CHARGE, RECONCILIATION_EVIDENCE] }, { type: 'null' }]
+          description: >-
+            Read-model projection of the final provider_charge_disposition of
+            the referenced Charge (null = not yet decided).
         createdAt: { type: string, format: date-time }
     PageResponseReconciliationEvidence:
       type: object
@@ -1183,8 +1194,10 @@ components:
             STATEMENT_ADJUSTMENT_POSTED only. The target period of the
             adjustment: an OPEN original period always adjusts into itself;
             a CLOSED original period requires an explicit OPEN correction
-            period (or an explicit governed reopen). Never accepted for
-            NO_CHARGE_CONFIRMED, which posts no adjustment.
+            period (or an explicit governed reopen). NO_CHARGE_CONFIRMED
+            posts no adjustment and therefore accepts no correctionPeriodId;
+            OPEN and CLOSED reviewed runs may record it, while CLOSING is
+            rejected.
         reasonCode:
           type: string
           maxLength: 64
@@ -1754,6 +1767,17 @@ paths:
           required: false
           description: Optional request-scoped filter (e.g. to reliably fetch the exact correlation evidence of one request regardless of pagination position).
           schema: { $ref: '#/components/schemas/Id' }
+        - name: actionableOnly
+          in: query
+          required: false
+          description: >-
+            Only meaningful together with matchKind=GATEWAY_UNRESOLVED (any
+            other combination is rejected): when true, requests that already
+            carry a terminal gateway_financial_resolution are excluded from
+            both items and totals, so the queue shows only currently
+            actionable work. Immutable history stays available without this
+            filter.
+          schema: { type: boolean, default: false }
       responses: { '200': { description: M15 hybrid evidence for a reconciliation run, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseReconciliationEvidence' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
   /reconciliation-cases/{caseId}/evidence:
     get:

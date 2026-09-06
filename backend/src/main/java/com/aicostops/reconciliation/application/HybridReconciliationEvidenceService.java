@@ -4,12 +4,13 @@ import com.aicostops.reconciliation.application.ProviderCorrelationProfileRegist
 import com.aicostops.reconciliation.application.ReconciliationReadModels.MatchRow;
 import com.aicostops.reconciliation.domain.ReconciliationDifferenceKind;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper;
-import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.ExactCorrelationGroup;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.ExactCorrelationCandidate;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.ReconciliationEvidenceRow;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.UnresolvedGatewayRequest;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
@@ -53,25 +54,15 @@ public class HybridReconciliationEvidenceService {
                     now));
         }
 
-        for (var group : mapper.selectExactCorrelationGroups(organizationId,
-                periodStart, periodEnd)) {
-            if (group.chargeCount() != 1 || group.requestCount() != 1) {
-                // Ambiguous duplicate Provider request ids never auto-bind.
-                continue;
-            }
-            if (correlationProfiles.providerRecordKeySemantics(group.providerCode(),
-                    group.sourceType(), group.parserVersion())
-                    != CorrelationField.PROVIDER_REQUEST_ID) {
-                // The import profile does not certify the key as a request id
-                // for this provider + durable source schema.
-                continue;
-            }
+        for (var group : exactCorrelationGroups(organizationId, periodStart, periodEnd)) {
+            var candidate = group.getFirst();
             evidence.add(new ReconciliationEvidenceRow(
                     organizationId, runId, null,
-                    "EXACT:CHARGE:" + group.chargeFactId() + ":REQUEST:" + group.requestId(),
-                    group.providerAccountId(), group.currency(), "EXACT_PROVIDER_REQUEST", null,
-                    group.chargeFactId(), group.requestId(), group.routeAttemptId(),
-                    null, null, null, null, null, null, group.providerRequestId(),
+                    "EXACT:CHARGE:" + candidate.chargeFactId() + ":REQUEST:" + candidate.requestId(),
+                    candidate.providerAccountId(), candidate.currency(), "EXACT_PROVIDER_REQUEST",
+                    null, candidate.chargeFactId(), candidate.requestId(),
+                    candidate.routeAttemptId(),
+                    null, null, null, null, null, null, candidate.providerRequestId(),
                     null, null, null, null, now));
         }
 
@@ -102,5 +93,44 @@ public class HybridReconciliationEvidenceService {
             return null;
         }
         return ReconciliationDifferenceKind.UNCLASSIFIED.name();
+    }
+
+    /**
+     * Builds the exact correlation groups from the eligible candidate pairs:
+     * first only charges whose Provider + durable source schema certifies the
+     * key as a provider request id (an uncertified schema with a coincidentally
+     * equal key has no standing and must not poison the uniqueness count),
+     * then grouping by the frozen correlation identity — binary-exact provider
+     * request id + provider account + currency. A group is an exact
+     * correlation only when it holds exactly one distinct Charge and exactly
+     * one distinct request/current attempt; duplicate certified Charges or
+     * duplicate Gateway candidates stay ambiguous and fail closed.
+     */
+    private List<List<ExactCorrelationCandidate>> exactCorrelationGroups(long organizationId,
+            Instant periodStart, Instant periodEnd) {
+        var groups = new LinkedHashMap<String, List<ExactCorrelationCandidate>>();
+        for (var candidate : mapper.selectExactCorrelationCandidates(organizationId,
+                periodStart, periodEnd)) {
+            if (correlationProfiles.providerRecordKeySemantics(candidate.providerCode(),
+                    candidate.sourceType(), candidate.parserVersion())
+                    != CorrelationField.PROVIDER_REQUEST_ID) {
+                continue;
+            }
+            groups.computeIfAbsent(candidate.providerRequestId() + "\u0000"
+                            + candidate.providerAccountId() + "\u0000" + candidate.currency(),
+                    key -> new ArrayList<>()).add(candidate);
+        }
+        var exact = new ArrayList<List<ExactCorrelationCandidate>>();
+        for (var group : groups.values()) {
+            var distinctCharges = group.stream().map(ExactCorrelationCandidate::chargeFactId)
+                    .distinct().count();
+            var distinctRequests = group.stream()
+                    .map(candidate -> candidate.requestId() + ":" + candidate.routeAttemptId())
+                    .distinct().count();
+            if (distinctCharges == 1 && distinctRequests == 1) {
+                exact.add(group);
+            }
+        }
+        return exact;
     }
 }

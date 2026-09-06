@@ -142,9 +142,10 @@ public final class ReconciliationController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             @RequestParam(required = false) String matchKind,
-            @RequestParam(required = false) Long gatewayRequestId) {
+            @RequestParam(required = false) Long gatewayRequestId,
+            @RequestParam(defaultValue = "false") boolean actionableOnly) {
         var result = hybridQueries.listRunEvidence(user, runId, page, size, matchKind,
-                gatewayRequestId);
+                gatewayRequestId, actionableOnly);
         return new PageResponse<>(
                 result.items().stream()
                         .map(ReconciliationResponses.EvidenceResponse::from)

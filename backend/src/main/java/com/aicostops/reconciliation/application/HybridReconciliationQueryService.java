@@ -45,17 +45,23 @@ public class HybridReconciliationQueryService {
     }
 
     public PageResponse<EvidenceRow> listRunEvidence(AuthenticatedUser user, long runId,
-            int page, int size, String matchKind, Long gatewayRequestId) {
+            int page, int size, String matchKind, Long gatewayRequestId, boolean actionableOnly) {
         var context = authorizationContexts.fresh(user);
         authorization.requireOrg(context, PERMISSION_READ);
         reconciliationQueries.getRun(user, runId);
         var boundedKind = requireBoundedMatchKind(matchKind);
+        if (actionableOnly && !"GATEWAY_UNRESOLVED".equals(boundedKind)) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Invalid evidence filter",
+                    "actionableOnly is only meaningful together with "
+                            + "matchKind=GATEWAY_UNRESOLVED.");
+        }
         var boundedSize = Math.max(1, Math.min(MAX_PAGE_SIZE, size));
         var boundedPage = Math.max(0, page);
         var items = mapper.selectEvidenceByRun(context.organizationId(), runId, boundedKind,
-                gatewayRequestId, boundedSize, boundedPage * boundedSize);
+                gatewayRequestId, actionableOnly, boundedSize, boundedPage * boundedSize);
         var total = mapper.countEvidenceByRun(context.organizationId(), runId, boundedKind,
-                gatewayRequestId);
+                gatewayRequestId, actionableOnly);
         return toPage(items, total, boundedPage, boundedSize);
     }
 

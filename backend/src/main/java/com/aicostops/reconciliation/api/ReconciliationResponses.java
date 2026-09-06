@@ -102,7 +102,9 @@ public final class ReconciliationResponses {
             String externalAmount,
             String internalAmount,
             String differenceAmount,
-            Instant createdAt) {
+            Instant createdAt,
+            String currentGatewayResolutionId,
+            String currentChargeDisposition) {
 
         public static EvidenceResponse from(EvidenceRow row) {
             return new EvidenceResponse(
@@ -135,7 +137,15 @@ public final class ReconciliationResponses {
                     row.externalAmount() == null ? null : ReconciliationMoney.format(row.externalAmount()),
                     row.internalAmount() == null ? null : ReconciliationMoney.format(row.internalAmount()),
                     row.differenceAmount() == null ? null : ReconciliationMoney.format(row.differenceAmount()),
-                    row.createdAt());
+                    row.createdAt(),
+                    // Read-model current state (LEFT JOIN projections): whether
+                    // the referenced request already carries a terminal gateway
+                    // financial resolution and whether the referenced Charge
+                    // carries its final posting disposition. The historical
+                    // evidence row itself is never mutated.
+                    row.currentGatewayResolutionId() == null ? null
+                            : Long.toString(row.currentGatewayResolutionId()),
+                    row.currentChargeDisposition());
         }
     }
 

@@ -21,19 +21,31 @@ const NO_CHARGE_PROOF_LABEL: Record<string, string> = {
  * evidence, so the reviewer only supplies the business reason. The exact
  * correlation evidence of the target request is fetched through the
  * request-scoped server filter, so it never depends on the target row
- * happening to sit on the first generic evidence page.
+ * happening to sit on the first generic evidence page. The caller supplies
+ * the original billing period context: an OPEN original period adjusts into
+ * itself (no correctionPeriodId is ever sent), while a CLOSED original period
+ * requires the reviewer to explicitly select another OPEN correction period.
+ * NO_CHARGE_CONFIRMED never sends a correctionPeriodId.
  */
 export function GatewayResolutionModal({
   runId,
   caseId,
   target,
   onClose,
+  originalPeriodId,
+  originalPeriodStatus,
+  openPeriods,
 }: {
   runId: string
   /** Null for run-level unresolved work without a fabricated case. */
   caseId: string | null
   target: ReconciliationEvidenceResponse | null
   onClose: () => void
+  /** Original billing period of the reviewed run (context only; server rules). */
+  originalPeriodId: string | null
+  originalPeriodStatus: string
+  /** Currently OPEN billing periods offered as correction-period options. */
+  openPeriods: { id: string }[]
 }) {
   const queryClient = useQueryClient()
   const [resolutionType, setResolutionType] = useState<'NO_CHARGE_CONFIRMED' | 'STATEMENT_ADJUSTMENT_POSTED'>('NO_CHARGE_CONFIRMED')
@@ -42,7 +54,12 @@ export function GatewayResolutionModal({
   const [evidenceReference, setEvidenceReference] = useState('')
   const [reasonCode, setReasonCode] = useState('')
   const [reasonNote, setReasonNote] = useState('')
+  const [correctionPeriodId, setCorrectionPeriodId] = useState('')
   const targetRequestId = target?.gatewayRequestId ?? null
+  const originalPeriodClosed = originalPeriodStatus === 'CLOSED'
+  const correctionPeriodOptions = openPeriods
+    .filter((candidate) => candidate.id !== originalPeriodId)
+    .map((candidate) => ({ value: candidate.id, label: `#${candidate.id} · OPEN` }))
   const exactQuery = useQuery({
     queryKey: ['reconciliation', 'run', runId, 'evidence', 'exact', targetRequestId],
     queryFn: () => reconciliationApi.listRunEvidence(runId, {
@@ -70,6 +87,11 @@ export function GatewayResolutionModal({
         positiveEvidenceReference: resolutionType === 'NO_CHARGE_CONFIRMED'
           ? evidenceReference.trim()
           : null,
+        // Only a CLOSED original period carries an explicit OPEN correction
+        // period; the server remains the period state machine authority.
+        correctionPeriodId: resolutionType === 'STATEMENT_ADJUSTMENT_POSTED' && originalPeriodClosed
+          ? correctionPeriodId
+          : null,
         reasonCode: resolutionType === 'NO_CHARGE_CONFIRMED' ? proofCode : reasonCode.trim(),
         reasonNote: reasonNote.trim(),
       }, createIdempotencyKey())
@@ -82,6 +104,7 @@ export function GatewayResolutionModal({
       setEvidenceReference('')
       setReasonCode('')
       setReasonNote('')
+      setCorrectionPeriodId('')
     },
   })
 
@@ -93,6 +116,7 @@ export function GatewayResolutionModal({
       okButtonProps={{
         disabled: resolutionType === 'STATEMENT_ADJUSTMENT_POSTED'
           ? (!exactEvidence && !statementChargeId.trim())
+            || (originalPeriodClosed && !correctionPeriodId)
             || !reasonCode.trim() || !reasonNote.trim() || mutation.isPending
           : !evidenceReference.trim() || !reasonNote.trim() || mutation.isPending,
       }}
@@ -138,6 +162,25 @@ export function GatewayResolutionModal({
             aria-label="网关处理类型"
           />
         </Form.Item>
+        {resolutionType === 'STATEMENT_ADJUSTMENT_POSTED' && (
+          originalPeriodClosed ? (
+            <Form.Item label="调整入账账期（原账期已关闭，必须选择其他开启账期）" required>
+              <Select
+                value={correctionPeriodId || undefined}
+                placeholder="选择 OPEN 的调整入账账期"
+                options={correctionPeriodOptions}
+                onChange={(value) => setCorrectionPeriodId(value)}
+                aria-label="调整入账账期"
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item label="入账账期">
+              <Typography.Text type="secondary">
+                {originalPeriodId ? `原账期 #${originalPeriodId}（开启账期，调整固定入原账期）` : '由服务端按原账期入账'}
+              </Typography.Text>
+            </Form.Item>
+          )
+        )}
         {resolutionType === 'STATEMENT_ADJUSTMENT_POSTED' ? (
           <Form.Item
             label={exactEvidence

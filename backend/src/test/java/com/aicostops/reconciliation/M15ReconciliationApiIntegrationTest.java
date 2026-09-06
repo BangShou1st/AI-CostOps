@@ -126,6 +126,82 @@ class M15ReconciliationApiIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
+    void actionableEvidenceFilterExcludesTerminalResolvedRequests() throws Exception {
+        var unresolvedId = insertCaseEvidence("GATEWAY_UNRESOLVED", requestId);
+        // A second request whose historical GATEWAY_UNRESOLVED evidence already
+        // has a committed terminal gateway_financial_resolution.
+        var resolvedRequestId = insertGatewayRequest();
+        var resolvedEvidenceId = insertCaseEvidence("GATEWAY_UNRESOLVED", resolvedRequestId);
+        var attemptId = jdbc.queryForObject(
+                "SELECT id FROM gateway_route_attempt WHERE org_id=? AND request_id=?",
+                Long.class, orgId, resolvedRequestId);
+        jdbc.update("""
+                INSERT INTO gateway_financial_resolution(
+                  org_id,reconciliation_run_id,request_id,route_attempt_id,
+                  resolution_type,reservation_outcome,resolved_by_member_id,reason_code,
+                  reason_note,resolved_at,created_at)
+                VALUES (?,?,?,?,'NO_CHARGE_CONFIRMED','NONE',?,'PROVIDER_PORTAL_CONFIRMED_NO_CHARGE',
+                  'Reviewed positive proof',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, runId, resolvedRequestId, attemptId, actorMemberId);
+        var resolutionId = jdbc.queryForObject(
+                "SELECT id FROM gateway_financial_resolution WHERE org_id=? AND request_id=?",
+                Long.class, orgId, resolvedRequestId);
+
+        // The actionable queue contains only the request without a terminal
+        // resolution, and the total matches the same predicate.
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "GATEWAY_UNRESOLVED")
+                        .param("actionableOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(Long.toString(unresolvedId)))
+                .andExpect(jsonPath("$.items[0].currentGatewayResolutionId")
+                        .value(org.hamcrest.Matchers.nullValue()));
+
+        // History is preserved: the unfiltered list still serves both rows and
+        // projects the committed resolution id on the resolved one.
+        var response = mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence"
+                        .formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "GATEWAY_UNRESOLVED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andReturn().getResponse().getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(response)
+                .contains(Long.toString(resolvedEvidenceId))
+                .contains(Long.toString(resolutionId));
+
+        // The bounded filter is only meaningful for GATEWAY_UNRESOLVED.
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("actionableOnly", "true"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void evidenceResponseProjectsCurrentChargeDisposition() throws Exception {
+        jdbc.update("""
+                INSERT INTO provider_charge_disposition(
+                  org_id,charge_fact_id,disposition,decision_source,decided_by_member_id,
+                  reason_code,resolution_note,created_at)
+                VALUES (?,?, 'DIRECT_PROVIDER_CHARGE','MANUAL',?,'MANUAL_DIRECT',
+                  'Reviewed direct provider cost',UTC_TIMESTAMP(6))
+                """, orgId, chargeId, actorMemberId);
+        var chargeEvidenceId = insertCaseEvidenceWithCharge("RESOLUTION_ACTION", chargeId);
+
+        mvc.perform(get("/api/v1/reconciliation-cases/%d/evidence".formatted(caseId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "RESOLUTION_ACTION"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(Long.toString(chargeEvidenceId)))
+                .andExpect(jsonPath("$.items[0].currentChargeDisposition")
+                        .value("DIRECT_PROVIDER_CHARGE"));
+    }
+
+    @Test
     void runEvidenceEndpointSupportsBoundedMatchKindFilterAndTruePagination() throws Exception {
         // Three aggregate rows first, then two unresolved Gateway rows: with a
         // small generic page the unresolved work sits beyond page 0.
@@ -308,13 +384,24 @@ class M15ReconciliationApiIntegrationTest extends AllocationApiTestSupport {
     }
 
     private long insertCaseEvidence(String matchKind, Long gatewayRequestId) {
+        return insertCaseEvidenceWithCharge(matchKind, null, gatewayRequestId);
+    }
+
+    private long insertCaseEvidenceWithCharge(String matchKind, Long chargeFactId) {
+        return insertCaseEvidenceWithCharge(matchKind, chargeFactId, null);
+    }
+
+    private long insertCaseEvidenceWithCharge(String matchKind, Long chargeFactId,
+            Long gatewayRequestId) {
         var evidenceKey = matchKind + ":" + UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO reconciliation_evidence(
                   org_id,reconciliation_run_id,reconciliation_case_id,evidence_key,
-                  provider_account_id,currency,match_kind,gateway_request_id,created_at)
-                VALUES (?,?,?,?,?,'USD',?,?,UTC_TIMESTAMP(6))
-                """, orgId, runId, caseId, evidenceKey, accountId, matchKind, gatewayRequestId);
+                  provider_account_id,currency,match_kind,charge_fact_id,gateway_request_id,
+                  created_at)
+                VALUES (?,?,?,?,?,'USD',?,?,?,UTC_TIMESTAMP(6))
+                """, orgId, runId, caseId, evidenceKey, accountId, matchKind, chargeFactId,
+                gatewayRequestId);
         return jdbc.queryForObject(
                 "SELECT id FROM reconciliation_evidence WHERE org_id=? AND evidence_key=?",
                 Long.class, orgId, evidenceKey);

@@ -1,12 +1,55 @@
 # M15 Hybrid Reconciliation — Acceptance Evidence
 
-> Status: **Sol Round 3 remediation (round 4 local fixes) complete on `feat/m15-hybrid-reconciliation`**, awaiting GPT-5.6 Sol Round 4 independent review and user merge instruction. Pushing the branch triggers hosted CI automatically; no claim is made about hosted results here.
+> Status: **Sol Round 4 remediation (round 5 local fixes) complete on `feat/m15-hybrid-reconciliation`**, awaiting GPT-5.6 Sol final independent review and user merge instruction. Pushing the branch triggers hosted CI automatically; no claim is made about hosted results here beyond the observed run states reported below.
 > Issue: #148 — `feat(m15): deliver hybrid reconciliation` (PR #149)
 > Spec: `docs/superpowers/specs/2026-09-05-m15-hybrid-reconciliation-design.md`
 > Plan: `docs/superpowers/plans/2026-09-05-m15-hybrid-reconciliation-plan.md`
 > Base: `main@502b8aa38a70a0afc4751097365ec6543592280f`
-> Round 3 anchor reviewed by Sol: `7a61f9e8b072b9fd1fc56bfde87b4c66752805c1`
+> Round 4 anchor reviewed by Sol: `47bfaa250a9771cca6794ec56e32fb9251047b00`
 > This document records only results actually executed and observed on this machine.
+
+## 0R5. Round 5 — Sol Round 4 findings: CLOSED-period correction UI, actionable-vs-historical evidence, exact identity, CLOSED NO_CHARGE, final hygiene
+
+All Round 5 findings were fixed root-cause-first with RED tests observed failing on `47bfaa2` before the production change. Hosted CI #291 and Hosted Security #118 for the Round 4 push both passed; the Round 5 review found no new P0 financial-ownership defect.
+
+### R5-A CLOSED historical Gateway statement resolution now has a correction-period workflow (product blocker)
+
+- Root cause: the backend and OpenAPI correctly required an explicit OPEN correction period for a CLOSED original period, but the shared `GatewayResolutionModal` had no correction-period form and never sent `correctionPeriodId`, so every CLOSED-period statement adjustment from the UI failed with the backend 409.
+- RED frontend tests (observed failing): `ReconciliationPages.test.tsx > closedPeriodStatementResolutionRequiresCorrectionPeriodSelection` (no selector, submit never satisfied, no correctionPeriodId). `openPeriodStatementResolutionDoesNotAllowCrossPeriodSelection` and `noChargeNeverSendsCorrectionPeriod` are the matching regression guards (they were already satisfied by the absent-field behavior and stay green).
+- Implementation: the callers supply the period context (Run Detail gained the `periodCloseApi.listBillingPeriods()` query; Case Detail already had it) as `originalPeriodId` / `originalPeriodStatus` / `openPeriods`. For `STATEMENT_ADJUSTMENT_POSTED` the modal shows a read-only 原账期 note when the original period is OPEN (submits `correctionPeriodId=null`, letting the server bind the original period — the client can never pick another period), and a required 调整入账账期 select restricted to OPEN periods other than the original when the original period is CLOSED (submit stays disabled until selected; the selected id is sent as `correctionPeriodId`). A reopened historical period reads as OPEN and therefore follows the OPEN rule — the UI never guesses history. `NO_CHARGE_CONFIRMED` never shows the selector and never sends `correctionPeriodId`. The server period state machine remains the sole authority.
+- GREEN: all three frontend tests pass; the backend period-state-machine tests are unchanged and green.
+
+### R5-B Current actionable work is separated from immutable history (read model)
+
+- Root cause: the read model treated historical `GATEWAY_UNRESOLVED` evidence as the current unresolved queue, so after a successful resolution the request kept showing 未决/处理 until a second action hit the backend 409; Case Detail likewise kept offering action buttons for already-decided Charges and already-resolved requests.
+- RED backend tests (observed failing): `M15ReconciliationApiIntegrationTest.actionableEvidenceFilterExcludesTerminalResolvedRequests` (the filtered list still returned the resolved request and counted it in `totalElements`), `.evidenceResponseProjectsCurrentChargeDisposition` (no disposition projection).
+- Implementation (read projection only — no evidence row is ever updated or deleted):
+  - The evidence read queries LEFT JOIN `gateway_financial_resolution` (by request) and `provider_charge_disposition` (by charge) and project `currentGatewayResolutionId` and `currentChargeDisposition` on every evidence row.
+  - The run evidence endpoint accepts a bounded `actionableOnly` flag that is only legal together with `matchKind=GATEWAY_UNRESOLVED` (other combinations are rejected with 400); it excludes requests that already carry a terminal resolution via `NOT EXISTS`, and the same predicate is applied to the COUNT query so items, `totalElements` and `totalPages` always agree.
+  - Run Detail's 未决网关财务工作 panel now queries `actionableOnly=true`: resolved requests disappear from the queue immediately after the resolution triggers the reconciliation refetch, while the unfiltered evidence API keeps serving the historical rows.
+  - Case Detail keeps the full historical timeline; a historical unresolved row with `currentGatewayResolutionId` shows 已处理（终端财务决定 #id）instead of the action button, and a Charge row with `currentChargeDisposition` shows its final DIRECT_PROVIDER_CHARGE / RECONCILIATION_EVIDENCE state instead of the decide button.
+- RED frontend tests (observed failing): `resolvedGatewayRequestDisappearsFromRunActionableQueue` (no `actionableOnly` request, resolved request still listed), `shows the committed resolution instead of an action for resolved gateway work` (no 已处理 state), `shows the final disposition instead of a decide button for disposed charges` (decide button still offered).
+- GREEN: all three frontend tests and both backend API tests pass. The `UNIQUE(org_id, request_id)` index already serves the `NOT EXISTS` probe; no migration was needed (no V24; V1–V23 unchanged).
+
+### R5-C Exact correlation identity is now computed on certified identity + account + currency
+
+- Root cause: the exact SQL grouped by `(BINARY provider_record_key, provider_account_id)` before certification and without currency, so (1) the same provider request id in two legitimate currency scopes of one account folded into a false-ambiguous group, and (2) an uncertified source schema whose raw key coincidentally equaled a certified charge's key pushed the certified pairing into an ambiguous group (a wrong fail-closed).
+- RED tests (observed failing): `HybridReconciliationEvidenceIntegrationTest.sameRequestIdAcrossTwoCurrenciesProducesTwoExactCorrelations` (0 exact rows instead of 2), `.uncertifiedSchemaDoesNotPoisonCertifiedExactUniqueness` (0 exact rows instead of exactly the certified pairing).
+- Implementation: the SQL now returns the eligible candidate pairs (one row per Charge×attempt pairing, still enforcing same org/account/currency pairing, binary key equality, eligible current attempt, confirmed external truth, review status and period window) without grouping; the Java service first filters candidates through `ProviderCorrelationProfileRegistry` (only certified `PROVIDER:SOURCE_TYPE:PARSER_VERSION` profiles survive), then groups by `(binary-exact provider request id, provider account, currency)` and emits EXACT evidence only when the group holds exactly one distinct Charge and exactly one distinct request/current attempt. Duplicate certified Charges and duplicate Gateway candidates therefore still fail closed, and case-sensitive binary semantics are unchanged (the SQL join keeps `BINARY … = BINARY …`; Java String equality is case-sensitive).
+- GREEN: the two new tests pass together with the pre-existing matrix — ambiguous duplicate certified charges → zero exact, duplicate Gateway candidates → zero exact, `ReqAbc`/`reqabc` distinct pairings, cross-account never matches, uncertified provider/schema never matches.
+
+### R5-D CLOSED-period NO_CHARGE semantics defined and implemented
+
+- Root cause: the shared period validator rejected a same-period NO_CHARGE on a CLOSED original period. The frozen adjustment-period rules only govern adjustments (CASE_FULL / GATEWAY_REQUEST); NO_CHARGE posts no Ledger amount, selects no correction period and rewrites no historical truth, so the freeze does not require rejecting CLOSED originals.
+- Rule implemented (frozen design carries no contrary statement): NO_CHARGE_CONFIRMED — original OPEN allowed, original CLOSED allowed, original CLOSING rejected; `correctionPeriodId` stays forbidden; effective reservations are still finalized/released under the existing lock discipline.
+- RED test (observed failing): `GatewayFinancialResolutionIntegrationTest.closedPeriodNoChargeConfirmationSucceedsWithoutCorrectionPeriod` (backend rejected the resolution on the CLOSED period). `closingPeriodNoChargeConfirmationRejects` is the explicit CLOSING guard.
+- Implementation: the single period validator was split into `validateStatementAdjustmentPeriodRulesLocked(...)` (OPEN same-only / CLOSED other-OPEN-correction / CLOSING reject / adjustment period OPEN) and `validateNoChargePeriodRulesLocked(...)` (CLOSING reject only), so the two semantics can no longer regress into each other.
+- GREEN: CLOSED NO_CHARGE commits exactly one `NO_CHARGE_CONFIRMED` resolution with zero adjustments, zero RECONCILIATION_ADJUSTMENT postings and a RELEASED effective reservation; CLOSING still rejects.
+
+### R5-E Final PR / acceptance hygiene
+
+- This document gained this Round 5 section (Round 1–4 records are preserved unchanged); the Round 4 totals in section 3 were refreshed with the Round 5 runs, and PR #149's body was refreshed with the latest real totals and invariants after the push (body edit only — no state change).
+- The PR body keeps the honest E2E statement: scenarios A/D (browser-driven run-level GATEWAY_UNRESOLVED and statement-backed resolution) still cannot manufacture durable Gateway request facts through the production public UI and remain covered by real-MySQL backend suites plus frontend component tests.
 
 ## 0R4. Round 4 — Sol Round 3 findings: adjustment period rules, commitment consumption semantics, case lineage, evidence pagination, posted-charge disposition, race evidence
 
@@ -220,7 +263,7 @@ Working tree      : clean at evidence time (frontend/playwright-results.xml rema
 - V23 amendments this round (M15 unmerged): `reconciliation_evidence.evidence_reference VARCHAR(256) NULL`; `chk_reconciliation_adjustment_scope_shape` requires statement-charge lineage for `GATEWAY_REQUEST` and forbids it for `CASE_FULL`; `chk_gateway_financial_resolution_type_shape` requires statement-charge lineage for `STATEMENT_ADJUSTMENT_POSTED` and forbids it for `NO_CHARGE_CONFIRMED`.
 - `M15HybridSchemaIntegrationTest` (9 tests, real MySQL 8.4, Flyway V1→V23) re-proves all previous constraints plus the strengthened structural checks (including new negative inserts for the amended CHECKs).
 
-## 3. Full local verification results (actual totals, round 4)
+## 3. Full local verification results (actual totals, round 5)
 
 ```text
 Backend unit        (mvnw -B -DexcludedGroups=architecture,integration test)
@@ -228,30 +271,30 @@ Backend unit        (mvnw -B -DexcludedGroups=architecture,integration test)
 Backend architecture(mvnw -B -Dgroups=architecture test)
                     : Tests run 36,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
 Backend integration (mvnw -B -Dgroups=integration verify)
-                    : Tests run 1012, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
-                      (includes the new Round 4 tests: adjustment period rules,
-                       conditional commitment, server-derived case lineage,
-                       evidence filter/pagination, posted-charge disposition,
-                       corrected race semantics, Long-autobox regression)
+                    : Tests run 1018, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
+                      (includes the Round 5 tests: exact currency-scope and
+                       certified-schema uniqueness, CLOSED NO_CHARGE,
+                       actionable evidence filter and current-state projection)
 
 Gateway unit        : Tests run 107, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
 Gateway architecture: Tests run 0 (groups=architecture finds no tagged gateway tests, same as before M15)
 Gateway integration : Tests run 79,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0 (M14 failover/safety suites green)
 
-Frontend npm test --run --maxWorkers=1 : 48 files, 443 tests passed
-                      (incl. the Round 4 reconciliation component tests: server-filtered
-                       unresolved pagination, case evidence server pagination,
-                       request-scoped exact lookup, evidence-derived case lineage)
+Frontend npm test --run --maxWorkers=1 : 48 files, 449 tests passed
+                      (incl. the Round 5 component tests: CLOSED correction-period
+                       selection, OPEN same-period read-only, NO_CHARGE no correction
+                       period, resolved work leaving the actionable queue,
+                       已处理/final-disposition states without stale action buttons)
 Frontend npm run lint  : 0 problems
 Frontend npm run build : success (pre-existing bundle-size warning only)
 
-Ownership/concurrency races x10 after the Round 4 fixes
+Ownership/concurrency races x10 (Round 5 code)
 (M15FinancialOwnershipIntegrationTest + M15FinancialConcurrencyIntegrationTest
 + M15HybridRaceMatrixIntegrationTest, 10 consecutive full runs)
 : 10 x "Tests run 23, Failures 0, Errors 0" + 10 x BUILD SUCCESS,
   no flakes, no sleeps, no deadlocks
 
-Playwright E2E (freshly rebuilt isolated Compose stack, serial) : 7 passed / 0 failed, 29.9s
+Playwright E2E (freshly rebuilt isolated Compose stack, serial) : 7 passed / 0 failed
   includes frontend/e2e/m15-hybrid-reconciliation.spec.ts
 
 Docker builds (CI definition) : ai-costops-backend:ci / ai-costops-frontend:ci /
@@ -260,22 +303,26 @@ ai-costops-gateway:ci all built successfully, EXIT=0 each
 Push triggered GitHub workflows because PR #149 is open; no claim about hosted results.
 ```
 
-### Round 4 verification narrative (observed, not summarized)
+### Round 4/5 verification narrative (observed, not summarized)
 
 ```text
-1. RED wave: the Round 4 tests were observed failing on 7a61f9e
+1. Round 4 RED wave: the Round 4 tests were observed failing on 7a61f9e
    (GatewayFinancialResolutionIntegrationTest 10 RED, M15FinancialOwnership 1 RED,
    M15ReconciliationApi 2 RED, frontend component tests 6 RED).
-2. First full integration verify after the Round 4 production fixes exposed a
-   further deterministic defect: boxed Long id reference equality broke the
-   exact-correlation/freshness checks once accumulated ids crossed 127
-   (2 failures, reproduced twice). Root-caused, RED-reproduced by
+2. Round 4 full integration verify exposed a further deterministic defect:
+   boxed Long id reference equality broke the exact-correlation/freshness
+   checks once accumulated ids crossed 127 (2 failures, reproduced twice).
+   Root-caused, RED-reproduced by
    exactCorrelationSurvivesIdsBeyondTheLongAutoboxCache (reverted-fix run:
    evidence(attempt=152) vs request(attempt=152) rejected), fixed numerically.
-3. Final full integration verify with the fix: 1012 tests green.
+3. Round 4 final full integration verify with the fix: 1012 tests green.
 4. A full-verify bisect run before the boxed fix also reproduced the failure
    with only the pre-ownership classes (927 tests), isolating the trigger to
    accumulated auto-increment ids rather than any single test class.
+5. Round 5 RED wave: observed failing on 47bfaa2 — exact currency scope and
+   uncertified-schema poisoning (2), CLOSED NO_CHARGE (1), actionable filter +
+   disposition projection (2), frontend correction-period/actionable UI (4).
+6. Round 5 final full regression: all totals above green on the fixed code.
 ```
 
 ## 4. Financial invariants — how each is proven now
@@ -353,6 +400,10 @@ no sibling implicit resolution
 [x] case lineage server-derived from reviewed evidence; client caseId is an equality assertion only; invented/replacing case rejected; exact-vs-unresolved case inconsistency fails closed (0R4-C)
 [x] evidence endpoints serve bounded matchKind filters and true server pagination; Run Detail unresolved panel, Case Detail evidence and the modal exact lookup use them (0R4-D)
 [x] posted Provider Charge can never be classified RECONCILIATION_EVIDENCE; posting-vs-disposition race cannot create contradictory ownership; guard ownership probes are locking current reads (0R4-E/F)
+[x] CLOSED statement Gateway resolution has a correction-period UI; OPEN statement resolution cannot pick another period; NO_CHARGE never sends correctionPeriodId (0R5-A)
+[x] current actionable work is separated from immutable history: actionableOnly filter (GATEWAY_UNRESOLVED only, items+totals share the predicate), resolved requests leave the run queue, Case timeline keeps history with 已处理/final-disposition state and no stale action buttons (0R5-B)
+[x] exact correlation identity = certified (provider, source schema) + binary request id + provider account + currency; uncertified schemas filtered before ambiguity; duplicate certified charges/candidates still fail closed; case-sensitive semantics preserved (0R5-C)
+[x] NO_CHARGE_CONFIRMED on CLOSED original periods allowed (no ledger write, no correction period), CLOSING rejected; period validators split per semantics (0R5-D)
 [x] linkCorrection bound to correction lineage (provider account/currency)
 [x] exact/request evidence attached to the matching aggregate case
 [x] Case Detail Rules-of-Hooks fixed with a real loading→loaded regression

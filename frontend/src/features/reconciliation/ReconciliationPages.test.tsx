@@ -51,6 +51,12 @@ const mockedAllocationApi = vi.mocked(allocationApi)
 const period = {
   id: '10', periodStart: '2026-08-01', periodEnd: '2026-09-01', status: 'OPEN' as const, version: 0,
 }
+const closedPeriod = {
+  id: '10', periodStart: '2026-08-01', periodEnd: '2026-09-01', status: 'CLOSED' as const, version: 1,
+}
+const septemberOpenPeriod = {
+  id: '11', periodStart: '2026-09-01', periodEnd: '2026-10-01', status: 'OPEN' as const, version: 0,
+}
 const run = {
   id: '7', billingPeriodId: '10', status: 'COMPLETED' as const, algorithmVersion: 'M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2',
   toleranceAmount: '0.00000000', basisHash: 'hash',
@@ -65,8 +71,29 @@ const evidenceRows = [
     chargeFactId: null, gatewayRequestId: '42', gatewayRouteAttemptId: '43', gatewayUsageFactId: null,
     gatewaySettlementId: null, correctionGroupId: null, reconciliationAdjustmentId: null,
     gatewayFinancialResolutionId: null, ledgerPostingId: null, providerRequestId: null,
-    evidenceReference: null,
+    evidenceReference: null, currentGatewayResolutionId: null, currentChargeDisposition: null,
     externalAmount: null, internalAmount: null, differenceAmount: null, createdAt: '2026-08-21T01:00:01Z',
+  },
+]
+const resolvedEvidenceRows = [
+  {
+    ...evidenceRows[0],
+    id: '14',
+    evidenceKey: 'GATEWAY_UNRESOLVED:REQUEST:44',
+    gatewayRequestId: '44',
+    currentGatewayResolutionId: '78',
+  },
+]
+const disposedChargeEvidenceRows = [
+  {
+    ...evidenceRows[0],
+    id: '15',
+    evidenceKey: 'DISPOSITION:CHARGE:33',
+    matchKind: 'RESOLUTION_ACTION' as const,
+    gatewayRequestId: null,
+    gatewayRouteAttemptId: null,
+    chargeFactId: '33',
+    currentChargeDisposition: 'DIRECT_PROVIDER_CHARGE' as const,
   },
 ]
 const caseBoundEvidenceRows = [
@@ -83,7 +110,7 @@ const aggregateOnlyPageRows = [
     chargeFactId: null, gatewayRequestId: null, gatewayRouteAttemptId: null, gatewayUsageFactId: null,
     gatewaySettlementId: null, correctionGroupId: null, reconciliationAdjustmentId: null,
     gatewayFinancialResolutionId: null, ledgerPostingId: null, providerRequestId: null,
-    evidenceReference: null,
+    evidenceReference: null, currentGatewayResolutionId: null, currentChargeDisposition: null,
     externalAmount: '10.00000000', internalAmount: '8.00000000', differenceAmount: '-2.00000000',
     createdAt: '2026-08-21T01:00:01Z',
   },
@@ -94,7 +121,7 @@ const exactEvidenceRow = {
   chargeFactId: '33', gatewayRequestId: '42', gatewayRouteAttemptId: '43', gatewayUsageFactId: null,
   gatewaySettlementId: null, correctionGroupId: null, reconciliationAdjustmentId: null,
   gatewayFinancialResolutionId: null, ledgerPostingId: null, providerRequestId: 'prov-req-1',
-  evidenceReference: null,
+  evidenceReference: null, currentGatewayResolutionId: null, currentChargeDisposition: null,
   externalAmount: null, internalAmount: null, differenceAmount: null, createdAt: '2026-08-21T01:00:01Z',
 }
 const caseRow = {
@@ -294,6 +321,120 @@ describe('ReconciliationRunDetailPage', () => {
     // hardcoded null that would erase the lineage.
     expect(body.caseId).toBe('9')
   })
+
+  it('resolvedGatewayRequestDisappearsFromRunActionableQueue', async () => {
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    // The actionable queue is a server-filtered view: only GATEWAY_UNRESOLVED
+    // evidence without a terminal gateway financial resolution.
+    expect(await screen.findByText('#42')).toBeInTheDocument()
+    expect(mockedReconciliationApi.listRunEvidence).toHaveBeenCalledWith('7',
+      expect.objectContaining({ matchKind: 'GATEWAY_UNRESOLVED', actionableOnly: true }))
+
+    // Simulate the committed resolution: the next actionable fetch no longer
+    // returns the request.
+    mockedReconciliationApi.listRunEvidence.mockImplementation(async (_runId, params) => {
+      const p = params ?? {}
+      if (p.matchKind === 'GATEWAY_UNRESOLVED') {
+        return { items: [], page: 0, size: p.size ?? 10, totalElements: 0, totalPages: 0 }
+      }
+      if (p.matchKind === 'EXACT_PROVIDER_REQUEST') {
+        return {
+          items: p.gatewayRequestId === '42' ? [exactEvidenceRow] : [],
+          page: 0, size: 5, totalElements: p.gatewayRequestId === '42' ? 1 : 0, totalPages: 1,
+        }
+      }
+      return { items: aggregateOnlyPageRows, page: p.page ?? 0, size: p.size ?? 50, totalElements: 75, totalPages: 2 }
+    })
+    fireEvent.click(screen.getByRole('button', { name: /处\s*理/ }))
+    await screen.findByText('网关财务处理（请求 #42）')
+    fireEvent.change(screen.getByLabelText('证明出处'), { target: { value: 'portal-case-4711' } })
+    fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Provider confirmed no charge' } })
+    mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
+      id: '78', runId: '7', caseId: null, requestId: '42',
+      resolutionType: 'NO_CHARGE_CONFIRMED', reservationOutcome: 'RELEASED', adjustmentId: null,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认提交' }))
+
+    await waitFor(() => expect(screen.queryByText('#42')).not.toBeInTheDocument())
+  })
+
+  it('closedPeriodStatementResolutionRequiresCorrectionPeriodSelection', async () => {
+    mockedPeriodCloseApi.listBillingPeriods.mockResolvedValue([closedPeriod, septemberOpenPeriod])
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
+    await screen.findByText('网关财务处理（请求 #42）')
+    fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
+    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+
+    // The original billing period is CLOSED: the reviewer must explicitly
+    // choose another OPEN correction period before submitting.
+    expect(screen.getByLabelText('调整入账账期')).toBeInTheDocument()
+    const submit = screen.getByRole('button', { name: '确认提交' }) as HTMLButtonElement
+    fireEvent.change(screen.getByLabelText('业务原因代码'), { target: { value: 'REVIEWED_STATEMENT_LINE' } })
+    fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Reviewed statement line' } })
+    fireEvent.change(screen.getByLabelText('账单费用编号'), { target: { value: '33' } })
+    expect(submit).toBeDisabled()
+    fireEvent.mouseDown(screen.getByLabelText('调整入账账期'))
+    fireEvent.click(await screen.findByText('#11 · OPEN'))
+    expect(submit).not.toBeDisabled()
+
+    mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
+      id: '82', runId: '7', caseId: null, requestId: '42',
+      resolutionType: 'STATEMENT_ADJUSTMENT_POSTED', reservationOutcome: 'FINALIZED',
+      adjustmentId: '57',
+    })
+    fireEvent.click(submit)
+    await waitFor(() => expect(mockedReconciliationApi.postGatewayResolution).toHaveBeenCalled())
+    const body = mockedReconciliationApi.postGatewayResolution.mock.calls[0][1]
+    expect(body.correctionPeriodId).toBe('11')
+  })
+
+  it('openPeriodStatementResolutionDoesNotAllowCrossPeriodSelection', async () => {
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
+    await screen.findByText('网关财务处理（请求 #42）')
+    fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
+    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    fireEvent.change(screen.getByLabelText('业务原因代码'), { target: { value: 'REVIEWED_EXACT_LINE' } })
+    fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Exact correlation reviewed' } })
+
+    // The original period is OPEN: no correction period selector exists and
+    // the request never carries a correctionPeriodId.
+    expect(screen.queryByLabelText('调整入账账期')).not.toBeInTheDocument()
+    mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
+      id: '83', runId: '7', caseId: null, requestId: '42',
+      resolutionType: 'STATEMENT_ADJUSTMENT_POSTED', reservationOutcome: 'FINALIZED',
+      adjustmentId: '58',
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认提交' }))
+    await waitFor(() => expect(mockedReconciliationApi.postGatewayResolution).toHaveBeenCalled())
+    const body = mockedReconciliationApi.postGatewayResolution.mock.calls[0][1]
+    expect(body.correctionPeriodId ?? null).toBeNull()
+  })
+
+  it('noChargeNeverSendsCorrectionPeriod', async () => {
+    mockedPeriodCloseApi.listBillingPeriods.mockResolvedValue([closedPeriod, septemberOpenPeriod])
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
+    await screen.findByText('网关财务处理（请求 #42）')
+    // Even for a CLOSED original period the no-charge decision shows no
+    // correction period selector: it posts no adjustment.
+    expect(screen.queryByLabelText('调整入账账期')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('证明出处'), { target: { value: 'portal-case-4711' } })
+    fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Provider confirmed no charge' } })
+    mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
+      id: '84', runId: '7', caseId: null, requestId: '42',
+      resolutionType: 'NO_CHARGE_CONFIRMED', reservationOutcome: 'RELEASED', adjustmentId: null,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认提交' }))
+    await waitFor(() => expect(mockedReconciliationApi.postGatewayResolution).toHaveBeenCalled())
+    const body = mockedReconciliationApi.postGatewayResolution.mock.calls[0][1]
+    expect(body.correctionPeriodId ?? null).toBeNull()
+  })
 })
 
 
@@ -447,5 +588,33 @@ describe('ReconciliationCaseDetailPage', () => {
       expect(mockedReconciliationApi.listCaseEvidence).toHaveBeenLastCalledWith('9',
         expect.objectContaining({ page: 1, size: 50 }))
     })
+  })
+
+  it('shows the committed resolution instead of an action for resolved gateway work', async () => {
+    mockedReconciliationApi.listCaseEvidence.mockResolvedValue({
+      items: resolvedEvidenceRows, page: 0, size: 50, totalElements: 1, totalPages: 1,
+    })
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    expect(await screen.findByText('混合证据与单条证据操作')).toBeInTheDocument()
+    // The historical unresolved evidence remains visible as history (the row
+    // keeps its 网关未决 match kind)...
+    expect(await screen.findByText('网关未决')).toBeInTheDocument()
+    // ...but the request already carries a terminal resolution, so no action
+    // button is offered anymore.
+    expect(screen.getByText(/已处理（终端财务决定 #78/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '处理网关财务工作' })).not.toBeInTheDocument()
+  })
+
+  it('shows the final disposition instead of a decide button for disposed charges', async () => {
+    mockedReconciliationApi.listCaseEvidence.mockResolvedValue({
+      items: disposedChargeEvidenceRows, page: 0, size: 50, totalElements: 1, totalPages: 1,
+    })
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE'])
+
+    expect(await screen.findByText('混合证据与单条证据操作')).toBeInTheDocument()
+    // The Charge already carries its final disposition.
+    expect(await screen.findByText(/DIRECT_PROVIDER_CHARGE/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '决定费用处理方式' })).not.toBeInTheDocument()
   })
 })

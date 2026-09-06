@@ -994,6 +994,57 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
     }
 
     @Test
+    void closedPeriodNoChargeConfirmationSucceedsWithoutCorrectionPeriod() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, true);
+        insertUnresolvedEvidence(fixture);
+
+        // NO_CHARGE_CONFIRMED posts no Ledger adjustment and selects no
+        // correction period: a CLOSED historical run may still record the
+        // reviewed terminal decision and release the effective reservation.
+        jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", periodId);
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-portal-r5-closed", null,
+                        NO_CHARGE_PROOF, "Provider confirmed no charge"), "r5-nc-closed");
+
+        assertThat(result.reservationOutcome()).isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT resolution_type FROM gateway_financial_resolution WHERE id=?",
+                String.class, result.resolutionId())).isEqualTo("NO_CHARGE_CONFIRMED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_adjustment WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? AND "
+                        + "source_type='RECONCILIATION_ADJUSTMENT'",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fixture.reservationId())).isEqualTo("RELEASED");
+    }
+
+    @Test
+    void closingPeriodNoChargeConfirmationRejects() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, false);
+        insertUnresolvedEvidence(fixture);
+        jdbc.update("UPDATE billing_period SET status='CLOSING' WHERE id=?", periodId);
+
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-portal-r5-closing", null,
+                        NO_CHARGE_PROOF, "Provider confirmed no charge"), "r5-nc-closing"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("CLOSING");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isZero();
+    }
+
+    @Test
     void unknownRequestIsNotFound() {
         assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, null, 999999L,

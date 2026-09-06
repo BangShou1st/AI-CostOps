@@ -261,6 +261,73 @@ class HybridReconciliationEvidenceIntegrationTest extends AllocationApiTestSuppo
     }
 
     @Test
+    void sameRequestIdAcrossTwoCurrenciesProducesTwoExactCorrelations() {
+        // Exact correlation identity is (certified provider request id, provider
+        // account, currency): the same id text in two financial currency scopes
+        // is two independent, unambiguous correlations.
+        var account = insertGatewayAccount("m15ev-ccy");
+        insertPeriodChargeOn(account, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "prov-req-ccy-77", "GLM");
+        insertGatewayRequestOn(account, "COMPLETED", "prov-req-ccy-77", "FINAL", "USD");
+        insertPeriodChargeOn(account, "8.00000000", "CNY", "CLEAN",
+                "2026-08-11 00:00:00", "prov-req-ccy-77", "GLM");
+        insertGatewayRequestOn(account, "COMPLETED", "prov-req-ccy-77", "FINAL", "CNY");
+
+        runs.run(actor, periodId);
+
+        var rows = jdbc.queryForList("""
+                SELECT provider_request_id, currency, charge_fact_id
+                FROM reconciliation_evidence
+                WHERE org_id=? AND match_kind='EXACT_PROVIDER_REQUEST'
+                ORDER BY currency
+                """, orgId);
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).get("currency")).isEqualTo("CNY");
+        assertThat(rows.get(0).get("provider_request_id")).isEqualTo("prov-req-ccy-77");
+        assertThat(rows.get(1).get("currency")).isEqualTo("USD");
+        assertThat(rows.get(1).get("provider_request_id")).isEqualTo("prov-req-ccy-77");
+        assertThat(rows.get(0).get("charge_fact_id"))
+                .isNotEqualTo(rows.get(1).get("charge_fact_id"));
+    }
+
+    @Test
+    void uncertifiedSchemaDoesNotPoisonCertifiedExactUniqueness() {
+        // An uncertified source schema whose raw key coincides with a certified
+        // charge's key has no standing in exact correlation: it must not push
+        // the certified pairing into an ambiguous group.
+        var account = insertGatewayAccount("m15ev-poison");
+        var certifiedChargeId = insertPeriodChargeOn(account, "10.00000000", "USD", "CLEAN",
+                "2026-08-10 00:00:00", "prov-req-poison-88", "GLM");
+        insertGatewayRequestOn(account, "COMPLETED", "prov-req-poison-88", "FINAL", "USD");
+        // Uncertified schema (different parser version), coincidentally the
+        // same-looking key.
+        var poisonRawRecord = insertConfirmedRawRecord(orgId, actorMemberId, account,
+                "ev-poison-" + UUID.randomUUID().toString().replace("-", ""));
+        jdbc.update("UPDATE import_attempt SET parser_version='poison-parser-v9' "
+                        + "WHERE id=(SELECT import_attempt_id FROM raw_provider_record WHERE id=?)",
+                poisonRawRecord);
+        jdbc.update("UPDATE raw_provider_record SET provider_record_key='prov-req-poison-88' "
+                + "WHERE id=?", poisonRawRecord);
+        jdbc.update("""
+                INSERT INTO charge_fact(
+                    org_id,raw_record_id,fact_index,provider_code,charge_category,amount,currency,
+                    period_start,period_end,review_status,created_at)
+                VALUES (?,?,0,'GLM','USAGE','12.00000000','USD','2026-08-12 00:00:00',
+                  '2026-08-13 00:00:00','CLEAN',UTC_TIMESTAMP(6))
+                """, orgId, poisonRawRecord);
+
+        runs.run(actor, periodId);
+
+        var rows = jdbc.queryForList("""
+                SELECT charge_fact_id FROM reconciliation_evidence
+                WHERE org_id=? AND match_kind='EXACT_PROVIDER_REQUEST'
+                """, orgId);
+        assertThat(rows).hasSize(1);
+        assertThat(((Number) rows.getFirst().get("charge_fact_id")).longValue())
+                .isEqualTo(certifiedChargeId);
+    }
+
+    @Test
     void aggregateCaseCarriesBoundedScopeEvidence() {
         insertPeriodCharge("10.00000000", "USD", "CLEAN", "2026-08-10 00:00:00", null, "GLM");
 

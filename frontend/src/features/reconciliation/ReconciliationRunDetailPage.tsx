@@ -6,6 +6,7 @@ import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 import { formatEventDateTime } from '../../lib/dateTime'
 import { formatMoney } from '../../lib/money'
 import { useAuth } from '../auth/AuthSessionProvider'
+import { periodCloseApi } from '../period-close/api/periodCloseApi'
 import { hasPermission } from '../settings/permissions'
 import { GatewayResolutionModal } from './GatewayResolutionModal'
 import { reconciliationApi } from './api/reconciliationApi'
@@ -35,12 +36,15 @@ export function ReconciliationRunDetailPage() {
   const [gatewayTarget, setGatewayTarget] = useState<ReconciliationEvidenceResponse | null>(null)
 
   const run = useQuery({ queryKey: reconciliationKeys.run(runId), queryFn: () => reconciliationApi.getRun(runId), enabled: runId.length > 0 })
+  // Period context for the shared resolution modal (original period status +
+  // OPEN correction-period options); the server remains the period authority.
+  const periods = useQuery({ queryKey: ['period-close', 'periods'], queryFn: () => periodCloseApi.listBillingPeriods(), retry: false })
   const caseParams = useMemo(() => ({ runId, page: casePage, size: PAGE_SIZE, status: caseStatus }), [casePage, caseStatus, runId])
   const cases = useQuery({ queryKey: reconciliationKeys.cases(caseParams), queryFn: () => reconciliationApi.listCases(caseParams), enabled: runId.length > 0 && Boolean(run.data) })
-  // The unresolved Gateway panel is served by the bounded server-side filter
-  // with true server pagination: evidence volume can never hide the financial
-  // blocker behind a client-side first-page filter.
-  const unresolvedParams = useMemo(() => ({ matchKind: 'GATEWAY_UNRESOLVED' as const, page: unresolvedPage, size: UNRESOLVED_PAGE_SIZE }), [unresolvedPage])
+  // The unresolved Gateway panel is the actionable queue: served by the
+  // bounded server-side filter with true server pagination and restricted to
+  // requests without a terminal gateway financial resolution.
+  const unresolvedParams = useMemo(() => ({ matchKind: 'GATEWAY_UNRESOLVED' as const, actionableOnly: true, page: unresolvedPage, size: UNRESOLVED_PAGE_SIZE }), [unresolvedPage])
   const unresolvedEvidence = useQuery({
     queryKey: [...reconciliationKeys.runEvidence(runId), unresolvedParams],
     queryFn: () => reconciliationApi.listRunEvidence(runId, unresolvedParams),
@@ -183,6 +187,9 @@ export function ReconciliationRunDetailPage() {
         caseId={gatewayTarget?.reconciliationCaseId ?? null}
         target={gatewayTarget}
         onClose={() => setGatewayTarget(null)}
+        originalPeriodId={data.billingPeriodId}
+        originalPeriodStatus={(periods.data ?? []).find((candidate) => candidate.id === data.billingPeriodId)?.status ?? 'OPEN'}
+        openPeriods={(periods.data ?? []).filter((candidate) => candidate.status === 'OPEN')}
       />
     </main>
   )
