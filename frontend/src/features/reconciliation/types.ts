@@ -206,6 +206,14 @@ export interface ReconciliationCaseListParams {
   status?: ReconciliationCaseStatus
 }
 
+/** Bounded, server-validated evidence list filters (never free-form). */
+export interface ReconciliationEvidenceListParams {
+  page?: number
+  size?: number
+  matchKind?: ReconciliationMatchKind
+  gatewayRequestId?: string
+}
+
 export type ReconciliationRunPage = PageResponse<ReconciliationRunResponse>
 export type ReconciliationCasePage = PageResponse<ReconciliationCaseResponse>
 export type ReconciliationEvidencePage = PageResponse<ReconciliationEvidenceResponse>

@@ -140,8 +140,11 @@ public final class ReconciliationController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long runId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
-        var result = hybridQueries.listRunEvidence(user, runId, page, size);
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String matchKind,
+            @RequestParam(required = false) Long gatewayRequestId) {
+        var result = hybridQueries.listRunEvidence(user, runId, page, size, matchKind,
+                gatewayRequestId);
         return new PageResponse<>(
                 result.items().stream()
                         .map(ReconciliationResponses.EvidenceResponse::from)
@@ -154,8 +157,9 @@ public final class ReconciliationController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long caseId,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
-        var result = hybridQueries.listCaseEvidence(user, caseId, page, size);
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String matchKind) {
+        var result = hybridQueries.listCaseEvidence(user, caseId, page, size, matchKind);
         return new PageResponse<>(
                 result.items().stream()
                         .map(ReconciliationResponses.EvidenceResponse::from)

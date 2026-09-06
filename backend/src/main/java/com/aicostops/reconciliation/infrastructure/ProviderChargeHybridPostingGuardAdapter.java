@@ -61,9 +61,14 @@ public class ProviderChargeHybridPostingGuardAdapter implements ProviderChargeHy
     @Mapper
     public interface ProviderChargeHybridGuardMapper {
 
+        // Both ownership probes are locking current reads: they run inside the
+        // posting transaction after the charge row lock, and must observe the
+        // ownership rows committed by a transaction that serialized on the
+        // same charge lock — a consistent snapshot read could miss them.
         @Select("""
                 SELECT disposition FROM provider_charge_disposition
                 WHERE org_id=#{organizationId} AND charge_fact_id=#{chargeFactId}
+                FOR UPDATE
                 """)
         String selectDisposition(
                 @Param("organizationId") long organizationId,
@@ -72,6 +77,7 @@ public class ProviderChargeHybridPostingGuardAdapter implements ProviderChargeHy
         @Select("""
                 SELECT COUNT(*) FROM gateway_financial_resolution
                 WHERE org_id=#{organizationId} AND statement_charge_fact_id=#{chargeFactId}
+                FOR UPDATE
                 """)
         long countResolutionByStatementCharge(
                 @Param("organizationId") long organizationId,

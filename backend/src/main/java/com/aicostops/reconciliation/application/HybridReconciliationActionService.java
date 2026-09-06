@@ -99,6 +99,17 @@ public class HybridReconciliationActionService {
                     command.chargeFactId());
             assertChargeNotGatewayOwned(context.organizationId(), command.chargeFactId(),
                     currentCase.reconciliationRunId());
+            // A Charge already posted through the normal V1 provider path is
+            // the direct financial owner; it can never be reclassified as
+            // RECONCILIATION_EVIDENCE afterwards. Recording the
+            // legacy-compatible DIRECT claim on a posted Charge is still
+            // allowed exactly once (V23 LEGACY_POSTED semantics).
+            if ("RECONCILIATION_EVIDENCE".equals(command.disposition())
+                    && hybridMapper.countPostedProviderChargePostings(context.organizationId(),
+                            command.chargeFactId()) > 0) {
+                throw conflict("The charge is already posted through the normal provider "
+                        + "charge path and can never become RECONCILIATION_EVIDENCE.");
+            }
             if (hybridMapper.countDisposition(context.organizationId(),
                     command.chargeFactId()) > 0) {
                 throw conflict("The charge already has a final posting disposition.");

@@ -69,6 +69,25 @@ const evidenceRows = [
     externalAmount: null, internalAmount: null, differenceAmount: null, createdAt: '2026-08-21T01:00:01Z',
   },
 ]
+const caseBoundEvidenceRows = [
+  {
+    ...evidenceRows[0],
+    id: '13',
+    reconciliationCaseId: '9',
+  },
+]
+const aggregateOnlyPageRows = [
+  {
+    id: '20', reconciliationRunId: '7', reconciliationCaseId: '9', evidenceKey: 'AGGREGATE:5:USD',
+    providerAccountId: '5', currency: 'USD', matchKind: 'AGGREGATE_SCOPE' as const, differenceKind: 'UNCLASSIFIED' as const,
+    chargeFactId: null, gatewayRequestId: null, gatewayRouteAttemptId: null, gatewayUsageFactId: null,
+    gatewaySettlementId: null, correctionGroupId: null, reconciliationAdjustmentId: null,
+    gatewayFinancialResolutionId: null, ledgerPostingId: null, providerRequestId: null,
+    evidenceReference: null,
+    externalAmount: '10.00000000', internalAmount: '8.00000000', differenceAmount: '-2.00000000',
+    createdAt: '2026-08-21T01:00:01Z',
+  },
+]
 const exactEvidenceRow = {
   id: '12', reconciliationRunId: '7', reconciliationCaseId: null, evidenceKey: 'EXACT:CHARGE:33:REQUEST:42',
   providerAccountId: '5', currency: 'USD', matchKind: 'EXACT_PROVIDER_REQUEST' as const, differenceKind: null,
@@ -110,11 +129,34 @@ beforeEach(() => {
   mockedReconciliationApi.listCases.mockImplementation(async (params) => ({
     items: [caseRow], page: params.page, size: params.size, totalElements: 120, totalPages: 3,
   }))
-  mockedReconciliationApi.listRunEvidence.mockResolvedValue({
-    items: evidenceRows, page: 0, size: 50, totalElements: 1, totalPages: 1,
+  // Evidence is served by the bounded server-side vocabulary: the generic
+  // mixed list is paginated (75 rows, first page holds no unresolved Gateway
+  // work), while the filtered queries serve their own pages.
+  mockedReconciliationApi.listRunEvidence.mockImplementation(async (_runId, params) => {
+    const p = params ?? {}
+    if (p.matchKind === 'GATEWAY_UNRESOLVED') {
+      return { items: evidenceRows, page: p.page ?? 0, size: p.size ?? 10, totalElements: 1, totalPages: 1 }
+    }
+    if (p.matchKind === 'EXACT_PROVIDER_REQUEST') {
+      return {
+        items: p.gatewayRequestId === '42' ? [exactEvidenceRow] : [],
+        page: 0, size: 5, totalElements: p.gatewayRequestId === '42' ? 1 : 0, totalPages: 1,
+      }
+    }
+    return { items: aggregateOnlyPageRows, page: p.page ?? 0, size: p.size ?? 50, totalElements: 75, totalPages: 2 }
   })
-  mockedReconciliationApi.listCaseEvidence.mockResolvedValue({
-    items: evidenceRows, page: 0, size: 50, totalElements: 1, totalPages: 1,
+  mockedReconciliationApi.listCaseEvidence.mockImplementation(async (_caseId, params) => {
+    const p = params ?? {}
+    if (p.matchKind === 'GATEWAY_UNRESOLVED') {
+      return { items: evidenceRows, page: p.page ?? 0, size: p.size ?? 10, totalElements: 1, totalPages: 1 }
+    }
+    if (p.matchKind === 'EXACT_PROVIDER_REQUEST') {
+      return {
+        items: p.gatewayRequestId === '42' ? [exactEvidenceRow] : [],
+        page: 0, size: 5, totalElements: p.gatewayRequestId === '42' ? 1 : 0, totalPages: 1,
+      }
+    }
+    return { items: [...aggregateOnlyPageRows, ...evidenceRows], page: p.page ?? 0, size: p.size ?? 50, totalElements: 75, totalPages: 2 }
   })
 })
 
@@ -145,7 +187,11 @@ describe('ReconciliationRunDetailPage', () => {
     expect(screen.getAllByText('3').length).toBeGreaterThan(0)
     expect(screen.queryByText(/新鲜度|基准数据已变化|基准数据新鲜/)).not.toBeInTheDocument()
 
+    // The unresolved Gateway panel is served by the bounded server-side
+    // filter, not by client-filtering the first generic page.
     expect(await screen.findByText('未决网关财务工作（运行级）')).toBeInTheDocument()
+    expect(mockedReconciliationApi.listRunEvidence).toHaveBeenCalledWith('7',
+      expect.objectContaining({ matchKind: 'GATEWAY_UNRESOLVED', page: 0 }))
     expect(screen.getByText('#42')).toBeInTheDocument()
     expect(screen.getByText('运行级（无案例）')).toBeInTheDocument()
 
@@ -153,6 +199,38 @@ describe('ReconciliationRunDetailPage', () => {
     await waitFor(() => {
       expect(mockedReconciliationApi.listCases).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, size: 50 }))
     })
+  })
+
+  it('pages the unresolved gateway panel from the server', async () => {
+    mockedReconciliationApi.listCases.mockResolvedValue({ items: [caseRow], page: 0, size: 50, totalElements: 1, totalPages: 1 })
+    mockedReconciliationApi.listRunEvidence.mockImplementation(async (_runId, params) => {
+      const p = params ?? {}
+      if (p.matchKind === 'GATEWAY_UNRESOLVED') {
+        const page = p.page ?? 0
+        return {
+          items: page === 0
+            ? evidenceRows
+            : [{ ...evidenceRows[0], id: '21', gatewayRequestId: '43', evidenceKey: 'GATEWAY_UNRESOLVED:REQUEST:43' }],
+          page, size: p.size ?? 10, totalElements: 11, totalPages: 2,
+        }
+      }
+      if (p.matchKind === 'EXACT_PROVIDER_REQUEST') {
+        return {
+          items: p.gatewayRequestId === '42' ? [exactEvidenceRow] : [],
+          page: 0, size: 5, totalElements: p.gatewayRequestId === '42' ? 1 : 0, totalPages: 1,
+        }
+      }
+      return { items: aggregateOnlyPageRows, page: p.page ?? 0, size: p.size ?? 50, totalElements: 75, totalPages: 2 }
+    })
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    expect(await screen.findByText('#42')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('2'))
+    await waitFor(() => {
+      expect(mockedReconciliationApi.listRunEvidence).toHaveBeenCalledWith('7',
+        expect.objectContaining({ matchKind: 'GATEWAY_UNRESOLVED', page: 1 }))
+    })
+    expect(await screen.findByText('#43')).toBeInTheDocument()
   })
 
   it('resolves run-level case_id=null gateway work without a fabricated case or client amount', async () => {
@@ -181,6 +259,40 @@ describe('ReconciliationRunDetailPage', () => {
     expect(body).not.toHaveProperty('adjustmentAmount')
     expect(body).not.toHaveProperty('commitmentId')
     expect(body.statementChargeFactId ?? null).toBeNull()
+  })
+
+  it('submits the evidence-derived case lineage instead of a hardcoded null', async () => {
+    mockedReconciliationApi.listRunEvidence.mockImplementation(async (_runId, params) => {
+      const p = params ?? {}
+      if (p.matchKind === 'GATEWAY_UNRESOLVED') {
+        return { items: caseBoundEvidenceRows, page: 0, size: 10, totalElements: 1, totalPages: 1 }
+      }
+      if (p.matchKind === 'EXACT_PROVIDER_REQUEST') {
+        return {
+          items: p.gatewayRequestId === '42' ? [exactEvidenceRow] : [],
+          page: 0, size: 5, totalElements: p.gatewayRequestId === '42' ? 1 : 0, totalPages: 1,
+        }
+      }
+      return { items: aggregateOnlyPageRows, page: p.page ?? 0, size: p.size ?? 50, totalElements: 75, totalPages: 2 }
+    })
+    renderPage('detail', ['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+
+    // The evidence row itself carries the reviewed case lineage.
+    expect(await screen.findByText('#9')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /处\s*理/ }))
+    expect(await screen.findByText('网关财务处理（请求 #42）')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('证明出处'), { target: { value: 'portal-case-4711' } })
+    fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Provider confirmed no charge' } })
+    mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
+      id: '81', runId: '7', caseId: '9', requestId: '42',
+      resolutionType: 'NO_CHARGE_CONFIRMED', reservationOutcome: 'RELEASED', adjustmentId: null,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认提交' }))
+    await waitFor(() => expect(mockedReconciliationApi.postGatewayResolution).toHaveBeenCalled())
+    const body = mockedReconciliationApi.postGatewayResolution.mock.calls[0][1]
+    // The equality assertion follows the reviewed evidence case, never a
+    // hardcoded null that would erase the lineage.
+    expect(body.caseId).toBe('9')
   })
 })
 
@@ -254,9 +366,10 @@ describe('ReconciliationCaseDetailPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '处理网关财务工作' }))
     await screen.findByText('网关财务处理（请求 #42）')
-    // The exact correlation is displayed; the reviewer never re-enters the
-    // charge or a binding classification.
-    expect(screen.getAllByText(/精确请求关联（费用 #33/).length).toBeGreaterThan(0)
+    // The exact correlation is fetched through the request-scoped server
+    // filter and displayed; the reviewer never re-enters the charge or a
+    // binding classification.
+    expect((await screen.findAllByText(/精确请求关联（费用 #33/)).length).toBeGreaterThan(0)
     // Switch the select to the statement type.
     fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
     fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
@@ -279,6 +392,13 @@ describe('ReconciliationCaseDetailPage', () => {
   })
 
   it('requires a reviewed statement charge id when no exact evidence exists', async () => {
+    mockedReconciliationApi.listRunEvidence.mockImplementation(async (_runId, params) => {
+      const p = params ?? {}
+      if (p.matchKind === 'EXACT_PROVIDER_REQUEST') {
+        return { items: [], page: 0, size: 5, totalElements: 0, totalPages: 0 }
+      }
+      return { items: [], page: p.page ?? 0, size: p.size ?? 50, totalElements: 0, totalPages: 0 }
+    })
     renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
 
     fireEvent.click(await screen.findByRole('button', { name: '处理网关财务工作' }))
@@ -309,6 +429,23 @@ describe('ReconciliationCaseDetailPage', () => {
     expect(await screen.findByText('混合证据与单条证据操作')).toBeInTheDocument()
     expect(screen.queryByText('整体案例操作')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '处理网关财务工作' })).not.toBeInTheDocument()
-    expect(screen.getByText(/无处理权限|需要 RECONCILIATION_RESOLVE/)).toBeInTheDocument()
+    expect(screen.getAllByText(/无处理权限|需要 RECONCILIATION_RESOLVE/).length).toBeGreaterThan(0)
+  })
+
+  it('pages case evidence from the server instead of slicing the first page', async () => {
+    renderCasePage(['RECONCILIATION_READ'])
+
+    expect(await screen.findByText('混合证据与单条证据操作')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockedReconciliationApi.listCaseEvidence).toHaveBeenCalledWith('9',
+        expect.objectContaining({ page: 0, size: 50 }))
+    })
+    // The server reports 75 rows; the pager must request the next server page
+    // even though the first page response itself holds only a few items.
+    fireEvent.click(screen.getByTitle('2'))
+    await waitFor(() => {
+      expect(mockedReconciliationApi.listCaseEvidence).toHaveBeenLastCalledWith('9',
+        expect.objectContaining({ page: 1, size: 50 }))
+    })
   })
 })

@@ -168,6 +168,7 @@ public interface HybridReconciliationMapper {
     @Select("""
             SELECT COUNT(*) FROM provider_charge_disposition
             WHERE org_id=#{organizationId} AND charge_fact_id=#{chargeFactId}
+            FOR UPDATE
             """)
     long countDisposition(
             @Param("organizationId") long organizationId,
@@ -493,48 +494,68 @@ public interface HybridReconciliationMapper {
             """;
 
     @Select("""
+            <script>
             SELECT
             """ + EVIDENCE_COLUMNS + """
             FROM reconciliation_evidence re
             WHERE re.org_id=#{organizationId} AND re.reconciliation_run_id=#{runId}
+            <if test="matchKind != null">AND re.match_kind=#{matchKind}</if>
+            <if test="gatewayRequestId != null">AND re.gateway_request_id=#{gatewayRequestId}</if>
             ORDER BY re.id ASC
             LIMIT #{size} OFFSET #{offset}
+            </script>
             """)
     List<EvidenceRow> selectEvidenceByRun(
             @Param("organizationId") long organizationId,
             @Param("runId") long runId,
+            @Param("matchKind") String matchKind,
+            @Param("gatewayRequestId") Long gatewayRequestId,
             @Param("size") int size,
             @Param("offset") int offset);
 
     @Select("""
-            SELECT COUNT(*) FROM reconciliation_evidence
-            WHERE org_id=#{organizationId} AND reconciliation_run_id=#{runId}
+            <script>
+            SELECT COUNT(*) FROM reconciliation_evidence re
+            WHERE re.org_id=#{organizationId} AND re.reconciliation_run_id=#{runId}
+            <if test="matchKind != null">AND re.match_kind=#{matchKind}</if>
+            <if test="gatewayRequestId != null">AND re.gateway_request_id=#{gatewayRequestId}</if>
+            </script>
             """)
     long countEvidenceByRun(
             @Param("organizationId") long organizationId,
-            @Param("runId") long runId);
+            @Param("runId") long runId,
+            @Param("matchKind") String matchKind,
+            @Param("gatewayRequestId") Long gatewayRequestId);
 
     @Select("""
+            <script>
             SELECT
             """ + EVIDENCE_COLUMNS + """
             FROM reconciliation_evidence re
             WHERE re.org_id=#{organizationId} AND re.reconciliation_case_id=#{caseId}
+            <if test="matchKind != null">AND re.match_kind=#{matchKind}</if>
             ORDER BY re.id ASC
             LIMIT #{size} OFFSET #{offset}
+            </script>
             """)
     List<EvidenceRow> selectEvidenceByCase(
             @Param("organizationId") long organizationId,
             @Param("caseId") long caseId,
+            @Param("matchKind") String matchKind,
             @Param("size") int size,
             @Param("offset") int offset);
 
     @Select("""
-            SELECT COUNT(*) FROM reconciliation_evidence
-            WHERE org_id=#{organizationId} AND reconciliation_case_id=#{caseId}
+            <script>
+            SELECT COUNT(*) FROM reconciliation_evidence re
+            WHERE re.org_id=#{organizationId} AND re.reconciliation_case_id=#{caseId}
+            <if test="matchKind != null">AND re.match_kind=#{matchKind}</if>
+            </script>
             """)
     long countEvidenceByCase(
             @Param("organizationId") long organizationId,
-            @Param("caseId") long caseId);
+            @Param("caseId") long caseId,
+            @Param("matchKind") String matchKind);
 
     record EvidenceRow(
             long id,
@@ -686,6 +707,7 @@ public interface HybridReconciliationMapper {
     @Select("""
             SELECT re.id,
                    re.match_kind AS match_kind,
+                   re.reconciliation_case_id AS reconciliation_case_id,
                    re.gateway_request_id AS gateway_request_id,
                    re.gateway_route_attempt_id AS gateway_route_attempt_id,
                    re.provider_account_id AS provider_account_id,
@@ -706,6 +728,7 @@ public interface HybridReconciliationMapper {
     record RequestEvidenceBinding(
             long id,
             String matchKind,
+            Long reconciliationCaseId,
             Long gatewayRequestId,
             Long gatewayRouteAttemptId,
             long providerAccountId,

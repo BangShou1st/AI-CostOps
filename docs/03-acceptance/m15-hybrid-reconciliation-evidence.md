@@ -1,12 +1,60 @@
 # M15 Hybrid Reconciliation — Acceptance Evidence
 
-> Status: **Sol Round 2 remediation (round 3 local fixes) complete on `feat/m15-hybrid-reconciliation`**, awaiting GPT-5.6 Sol Round 3 independent review and user merge instruction. Hosted CI will be rerun only after that review passes and the user publishes the branch.
+> Status: **Sol Round 3 remediation (round 4 local fixes) complete on `feat/m15-hybrid-reconciliation`**, awaiting GPT-5.6 Sol Round 4 independent review and user merge instruction. Pushing the branch triggers hosted CI automatically; no claim is made about hosted results here.
 > Issue: #148 — `feat(m15): deliver hybrid reconciliation` (PR #149)
 > Spec: `docs/superpowers/specs/2026-09-05-m15-hybrid-reconciliation-design.md`
 > Plan: `docs/superpowers/plans/2026-09-05-m15-hybrid-reconciliation-plan.md`
 > Base: `main@502b8aa38a70a0afc4751097365ec6543592280f`
-> Review anchor reviewed by Sol: `6296e6ec74d111b6bf3d96ad13be162b1f7f56cf` (round 2 remediation HEAD)
-> This document records only results actually executed and observed on this machine. Nothing below claims hosted CI results for the current round (no push was performed).
+> Round 3 anchor reviewed by Sol: `7a61f9e8b072b9fd1fc56bfde87b4c66752805c1`
+> This document records only results actually executed and observed on this machine.
+
+## 0R4. Round 4 — Sol Round 3 findings: adjustment period rules, commitment consumption semantics, case lineage, evidence pagination, posted-charge disposition, race evidence
+
+All Round 3 findings were fixed root-cause-first with RED tests observed failing on `7a61f9e` before the production change. Characterization/regression tests that were already green before the fix (the positive same-period commitment consumption, the reopened-period same-period adjustment, and the corrected overlap race test) are marked as such.
+
+### R4-A OPEN Gateway request cannot be adjusted into another OPEN period (BLOCKER)
+
+- Root cause: `GatewayFinancialResolutionService` validated only that the *correction period itself* was OPEN; it never enforced that an OPEN original period adjusts into itself, so an August request's cost could be posted into September.
+- RED tests (observed failing): `GatewayFinancialResolutionIntegrationTest.openRequestCannotPostGatewayAdjustmentIntoAnotherOpenPeriod` (resolution succeeded into the other OPEN period), `.noChargeConfirmationRejectsMeaninglessCorrectionPeriod` (NO_CHARGE accepted a meaningless correctionPeriodId).
+- Implementation: explicit frozen period state machine `validateGatewayAdjustmentPeriodRulesLocked`, evaluated after both BillingPeriod rows are locked ascending id: original OPEN → adjustment period MUST be the original period and OPEN; original CLOSED → adjustment period MUST differ and be OPEN; original CLOSING → reject. A reopened historical period is OPEN again, so a same-period adjustment is legal (proven by `reopenedHistoricalPeriodCanPostBackIntoSamePeriod`, characterization). `NO_CHARGE_CONFIRMED` rejects `correctionPeriodId` at command validation because it posts no adjustment.
+- GREEN: `closedRequestCanPostIntoDifferentOpenCorrectionPeriod` (closed original + OPEN correction period succeeds, adjustment lands in the correction period) and the OPEN-rejection test both pass; no adjustment/ledger/budget/resolution/disposition residue remains after the OPEN rejection.
+
+### R4-B Commitment is a conditional consumption, not an admission gate (BLOCKER)
+
+- Root cause: `postRequestAdjustment` rejected the whole adjustment when a reservation-bound commitment existed but the resolution was cross-period or the amount was non-positive. The frozen design makes commitment consumption a conditional effect of the adjustment, never its gate.
+- RED tests (observed failing): `.closedRequestCanPostIntoDifferentOpenCorrectionPeriod`, `.crossPeriodGatewayAdjustmentWithBoundCommitmentSucceedsWithoutConsumption` (both failed with "A cross-period resolution never consumes the historical commitment"), `.negativeGatewayAdjustmentWithBoundCommitmentSucceedsWithoutConsumption` (failed with "Only a positive incurred adjustment may consume a commitment").
+- Implementation: the commitment is consumed only when the adjustment period is the original period, the original period is OPEN, the amount is positive, the commitment is consumable and its budget matches the selected budget. Every other combination simply does not consume — the adjustment, Ledger entry, Budget Actual mutation, reservation terminal transition and resolution still commit.
+- GREEN (real DB final values asserted): cross-period → adjustment in the OPEN correction period, correction-period Budget Actual +2.00, historical commitment `remaining_amount` unchanged (5.00), `budget_commitment_usage` zero rows, reservation FINALIZED; negative (external 2 − internal 3) → adjustment −1.00, Budget Actual −1.00, commitment untouched; positive same-period (characterization) → adjustment +2.00, commitment `remaining_amount` 3.00, exactly one usage row of 2.00.
+
+### R4-C Case lineage is server-derived from reviewed evidence (BLOCKER)
+
+- Root cause: the resolution trusted the client `caseId` for every downstream write (resolution, adjustment, disposition, evidence, audit, response), and Run Detail hardcoded `caseId={null}`, so a client could erase the reviewed case lineage of a request whose evidence was attached to a case.
+- RED tests (observed failing): `.resolutionAutomaticallyUsesCaseFromReviewedRunEvidence` (client null produced case NULL everywhere instead of adopting the reviewed case), `.caseNullEvidenceRejectsInventedClientCase` (an invented client case was accepted), `.inconsistentExactEvidenceCaseFailsClosed` (exact evidence with a different/absent case than the unresolved evidence was accepted).
+- Implementation: the effective case id is derived from the run's `GATEWAY_UNRESOLVED` evidence rows for the request (all rows must agree, else fail closed); the client caseId is a pure equality assertion (null adopts the reviewed case, equal is accepted, different or invented is rejected); exact evidence case must equal the unresolved evidence case, else a bounded stale-evidence conflict demands a rerun. Every downstream write — `provider_charge_disposition`, `reconciliation_adjustment`, `gateway_financial_resolution`, `MANUAL_BINDING` and `RESOLUTION_ACTION` evidence, audit, response and idempotent replay — uses the server-derived effectiveCaseId. The client-supplied case scope validation (same run/provider account/currency) is preserved and runs before the assertion rules so out-of-scope cases keep their bounded rejections.
+- GREEN: `resolutionAutomaticallyUsesCaseFromReviewedRunEvidence` (case X adopted on resolution row, adjustment row, both evidence rows and the response), `.resolutionAcceptsClientCaseEqualToReviewedEvidenceCase` (equality assertion accepted), `.caseNullEvidenceRejectsInventedClientCase` and `.inconsistentExactEvidenceCaseFailsClosed` reject.
+
+### R4-D Evidence retrieval uses bounded server filters and true server pagination (P1)
+
+- Root cause: both evidence endpoints served unfiltered page 0/50 and Run Detail client-filtered `GATEWAY_UNRESOLVED` out of that first page; with more than 50 mixed evidence rows the unresolved Gateway blocker disappeared from the UI, and the resolution modal's exact-binding display depended on the exact row sitting on the same first page. Case Detail paginated the fetched 50 rows client-side instead of the server total.
+- RED tests (observed failing): `M15ReconciliationApiIntegrationTest.runEvidenceEndpointSupportsBoundedMatchKindFilterAndTruePagination`, `.runEvidenceEndpointSupportsRequestScopedExactLookup` (unknown matchKind/filter parameters were ignored instead of served/rejected); frontend `ReconciliationPages.test.tsx` — 6 RED failures covering the server-filtered unresolved panel (`matchKind=GATEWAY_UNRESOLVED` requested from the page component), server pagination of the unresolved panel and of case evidence, the request-scoped exact lookup, and the evidence-derived case lineage payload.
+- Implementation: `GET /reconciliation-runs/{runId}/evidence` and `GET /reconciliation-cases/{caseId}/evidence` accept an optional `matchKind` bounded to the five-kind evidence vocabulary (anything else is a 400) and, on the run endpoint, an optional request-scoped `gatewayRequestId`; filtering and counting happen in SQL with LIMIT/OFFSET and server `totalElements`. Run Detail renders the unresolved panel from the filtered paginated endpoint (page/size state, server total); the shared `GatewayResolutionModal` fetches the exact correlation evidence of the target request through the request-scoped filter instead of a caller-supplied mixed list; Case Detail drives real server pages with `totalElements`. OpenAPI documents the optional enum filter, the request-scoped filter and the pagination semantics.
+- Backend coverage: >50-row mixed fixtures prove the filtered and unfiltered lists are independently paginated, page 2 of a case evidence list is genuinely fetched, the exact row is retrievable regardless of its unfiltered position, and an arbitrary filter value is rejected. The Close blocker itself reads the database directly and never depended on frontend pagination (unchanged).
+- GREEN: all backend API tests and all 11 frontend component tests pass (the previous RED set turned green); frontend `npm test` 48 files / 443 tests, lint clean, build success.
+
+### R4-E A POSTED Provider Charge can never be classified RECONCILIATION_EVIDENCE (BLOCKER)
+
+- Root cause: `decideChargeDisposition` checked gateway-resolution ownership of the Charge but never checked whether the Charge already had a posted `PROVIDER_CHARGE` Ledger posting, so the contradictory terminal state (posted + RECONCILIATION_EVIDENCE ownership) was reachable.
+- RED test (observed failing): `M15FinancialOwnershipIntegrationTest.postedProviderChargeCannotBeManuallyClassifiedReconciliationEvidence` (the reclassification succeeded).
+- Implementation: under the Charge financial-ownership lock, a `RECONCILIATION_EVIDENCE` decision is rejected when `countPostedProviderChargePostings` (locking current read) is positive. A `DIRECT_PROVIDER_CHARGE` decision on an already-posted Charge remains allowed exactly once as the legacy-compatible direct ownership claim (V23 `LEGACY_POSTED` semantics), proven by `.postedProviderChargeKeepsLegacyCompatibleDirectClaimExactlyOnce`.
+- GREEN: the posted charge keeps `DIRECT`/un-dispositioned ownership; `RECONCILIATION_EVIDENCE` reclassification is rejected with zero disposition rows.
+
+### R4-F Ownership race tests now prove the real state machine (P1) — plus a snapshot-read defense gap found and fixed
+
+- Record correction: the former `providerPostingAndStatementResolutionRaceNeverDoubleCounts` claimed two reachable terminal orderings, but its fixture holds a durable possible-billable Gateway overlap before the race, so "the normal provider posting wins" was unreachable — the Hybrid fence blocks it regardless. The test is rewritten as `hybridOverlapBlocksNormalProviderPostingWhileStatementResolutionClaimsCharge`: both threads still start concurrently, and the asserted final invariant is the only reachable one — zero `PROVIDER_CHARGE` postings, the posting fails with a bounded conflict, the statement resolution claims the Charge exactly once (1 adjustment posting, 1 resolution, 1 RECONCILIATION_EVIDENCE disposition, exactly one Ledger entry). No unreachable acceptance branch remains.
+- New race: `providerPostingVsDispositionRaceNeverCreatesContradictoryOwnership` (no overlap fixture; posting vs `decideChargeDisposition(RECONCILIATION_EVIDENCE)` started from a latch) proves that `posted PROVIDER_CHARGE + RECONCILIATION_EVIDENCE ownership` is never the terminal state whichever thread wins the Charge lock.
+- Defense gap found by the new race and fixed: the posting fence's ownership probes (`selectDisposition`, `countResolutionByStatementCharge` in the guard adapter) were consistent-snapshot reads; a posting transaction whose snapshot predated the disposition commit could miss the winner's `RECONCILIATION_EVIDENCE` row and post on top of it. They are now locking current reads (`FOR UPDATE`), consistent with the charge-row serialization point; `countDisposition` in the disposition command is a current read as well. The full ownership suite passed 10 consecutive times after the fix (no sleeps, latches/row locks only).
+- Latent boxed-id comparison bug found by the full-suite verification and fixed: the exact-correlation lineage check, the run-evidence freshness check, the exact-binding equality assertion and the client-case equality assertion compared boxed `Long` id fields with reference equality (`==`/`!=`). That silently works only while ids stay inside the Long autobox cache (-128..127); a full integration run (one JVM, one MySQL container, thousands of accumulated rows) deterministically pushed `gateway_route_attempt` ids past 127 and rejected evidence that numerically matched (observed twice on the full `verify` run: `evidence(attempt=128...) vs request(attempt=128...)` judged mismatched). RED observed on the pre-fix code both in the full-suite run and by the deterministic regression test `M15FinancialOwnershipIntegrationTest.exactCorrelationSurvivesIdsBeyondTheLongAutoboxCache` (fills the auto-increment past 127, asserts the resolution succeeds; pre-fix it fails with `evidence(attempt=152...) vs request(attempt=152...)`). All boxed id comparisons in the resolution service were converted to numeric equality; the remaining id comparisons were audited and compare against primitive `long` fields (safe by unboxing).
+- The complete ownership proof is now: pre-overlap posting-vs-dispatch race (existing), post-overlap normal posting blocked (rewritten race), explicit DIRECT owns the provider path, RECONCILIATION_EVIDENCE owns the Gateway resolution path, same-Charge/two-Requests exactly one owner (existing), posting-vs-disposition cannot create a contradictory terminal state (new race).
 
 ## 0R. Round 3 — Sol Round 2 findings: charge financial ownership, exact identity, evidence freshness, run-level workflow
 
@@ -110,7 +158,7 @@ Every P0/P1 finding from the independent review of PR #149 was fixed with a RED 
 ### P1-5 Reservation-bound commitment only (§12)
 
 - Root cause: `GatewayResolutionRequest.commitmentId` let the client pick any commitment of the budget.
-- RED tests: commitment lineage assertions in `GatewayFinancialResolutionRollbackIntegrationTest.failureAfterCommitmentConsumeRollsEverythingBack` and eligibility rejections; cross-period consumption is still rejected (`A cross-period resolution never consumes the historical commitment`).
+- RED tests: commitment lineage assertions in `GatewayFinancialResolutionRollbackIntegrationTest.failureAfterCommitmentConsumeRollsEverythingBack` and eligibility rejections; cross-period behavior was corrected in Round 4 (see 0R4-B): the cross-period adjustment itself now succeeds while the historical commitment stays untouched — "cross-period never consumes" is a non-consumption rule, not an adjustment rejection (`closedRequestCanPostIntoDifferentOpenCorrectionPeriod`, `.crossPeriodGatewayAdjustmentWithBoundCommitmentSucceedsWithoutConsumption`).
 - Implementation: `commitmentId` was removed from the public API. The commitment is locked only from `budget_reservation.commitment_id` of the bound reservation and revalidated (`lockedCommitment.id == lockedReservation.commitmentId`, `commitment.budgetId == selected budget`, `canConsume`, same-period positive amount) before consumption.
 
 ### P1-6 Canonical financial lock order (§13)
@@ -160,10 +208,10 @@ Every P0/P1 finding from the independent review of PR #149 was fixed with a RED 
 ```text
 Repository        : BangShou1st/AI-CostOps
 Branch            : feat/m15-hybrid-reconciliation
-Review anchor SHA : cc8ebe12a2d0c42b28bf4aa293543e3c7088b01b (Sol's reviewed HEAD; no rebase/reset performed)
+Review anchor SHA : 7a61f9e8b072b9fd1fc56bfde87b4c66752805c1 (Sol Round 3 reviewed HEAD; no rebase/reset performed)
 Base SHA          : 502b8aa38a70a0afc4751097365ec6543592280f (origin/main at freeze)
-Remediation       : one local commit on top of cc8ebe1 (see git log; not pushed)
-Working tree      : clean at evidence time
+Remediation       : one local commit on top of 7a61f9e (see git log; pushed to the feature branch)
+Working tree      : clean at evidence time (frontend/playwright-results.xml remains untracked)
 ```
 
 ## 2. Schema / migration proof
@@ -172,7 +220,7 @@ Working tree      : clean at evidence time
 - V23 amendments this round (M15 unmerged): `reconciliation_evidence.evidence_reference VARCHAR(256) NULL`; `chk_reconciliation_adjustment_scope_shape` requires statement-charge lineage for `GATEWAY_REQUEST` and forbids it for `CASE_FULL`; `chk_gateway_financial_resolution_type_shape` requires statement-charge lineage for `STATEMENT_ADJUSTMENT_POSTED` and forbids it for `NO_CHARGE_CONFIRMED`.
 - `M15HybridSchemaIntegrationTest` (9 tests, real MySQL 8.4, Flyway V1→V23) re-proves all previous constraints plus the strengthened structural checks (including new negative inserts for the amended CHECKs).
 
-## 3. Full local verification results (actual totals, round 3)
+## 3. Full local verification results (actual totals, round 4)
 
 ```text
 Backend unit        (mvnw -B -DexcludedGroups=architecture,integration test)
@@ -180,32 +228,54 @@ Backend unit        (mvnw -B -DexcludedGroups=architecture,integration test)
 Backend architecture(mvnw -B -Dgroups=architecture test)
                     : Tests run 36,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
 Backend integration (mvnw -B -Dgroups=integration verify)
-                    : Tests run 992, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
-                      (includes M15FinancialOwnershipIntegrationTest 10 tests,
-                       M15HybridSchemaIntegrationTest 10 tests incl. the new
-                       unique statement-charge ownership proof)
+                    : Tests run 1012, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0
+                      (includes the new Round 4 tests: adjustment period rules,
+                       conditional commitment, server-derived case lineage,
+                       evidence filter/pagination, posted-charge disposition,
+                       corrected race semantics, Long-autobox regression)
 
 Gateway unit        : Tests run 107, Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS
 Gateway architecture: Tests run 0 (groups=architecture finds no tagged gateway tests, same as before M15)
 Gateway integration : Tests run 79,  Failures 0, Errors 0, Skipped 0 — BUILD SUCCESS, EXIT=0 (M14 failover/safety suites green)
 
-Frontend npm test --run --maxWorkers=1 : 48 files, 440 tests passed
-                      (incl. 10 reconciliation tests: run-level case-null resolution,
-                       exact/manual statement semantics, no-amount submission,
-                       permission gating, hooks regression)
+Frontend npm test --run --maxWorkers=1 : 48 files, 443 tests passed
+                      (incl. the Round 4 reconciliation component tests: server-filtered
+                       unresolved pagination, case evidence server pagination,
+                       request-scoped exact lookup, evidence-derived case lineage)
 Frontend npm run lint  : 0 problems
 Frontend npm run build : success (pre-existing bundle-size warning only)
 
-Playwright E2E (freshly rebuilt isolated Compose stack, serial) : 7 passed / 0 failed, 36.6s
-  includes frontend/e2e/m15-hybrid-reconciliation.spec.ts
+Ownership/concurrency races x10 after the Round 4 fixes
+(M15FinancialOwnershipIntegrationTest + M15FinancialConcurrencyIntegrationTest
++ M15HybridRaceMatrixIntegrationTest, 10 consecutive full runs)
+: 10 x "Tests run 23, Failures 0, Errors 0" + 10 x BUILD SUCCESS,
+  no flakes, no sleeps, no deadlocks
 
-Ownership/concurrency races x10 (M15FinancialOwnershipIntegrationTest +
-M15FinancialConcurrencyIntegrationTest + M15HybridRaceMatrixIntegrationTest,
-10 consecutive full runs) : 10 x "Tests run 19, Failures 0, Errors 0" +
-10 x BUILD SUCCESS, no flakes, no sleeps, no deadlocks
+Playwright E2E (freshly rebuilt isolated Compose stack, serial) : 7 passed / 0 failed, 29.9s
+  includes frontend/e2e/m15-hybrid-reconciliation.spec.ts
 
 Docker builds (CI definition) : ai-costops-backend:ci / ai-costops-frontend:ci /
 ai-costops-gateway:ci all built successfully, EXIT=0 each
+
+Push triggered GitHub workflows because PR #149 is open; no claim about hosted results.
+```
+
+### Round 4 verification narrative (observed, not summarized)
+
+```text
+1. RED wave: the Round 4 tests were observed failing on 7a61f9e
+   (GatewayFinancialResolutionIntegrationTest 10 RED, M15FinancialOwnership 1 RED,
+   M15ReconciliationApi 2 RED, frontend component tests 6 RED).
+2. First full integration verify after the Round 4 production fixes exposed a
+   further deterministic defect: boxed Long id reference equality broke the
+   exact-correlation/freshness checks once accumulated ids crossed 127
+   (2 failures, reproduced twice). Root-caused, RED-reproduced by
+   exactCorrelationSurvivesIdsBeyondTheLongAutoboxCache (reverted-fix run:
+   evidence(attempt=152) vs request(attempt=152) rejected), fixed numerically.
+3. Final full integration verify with the fix: 1012 tests green.
+4. A full-verify bisect run before the boxed fix also reproduced the failure
+   with only the pre-ownership classes (927 tests), isolating the trigger to
+   accumulated auto-increment ids rather than any single test class.
 ```
 
 ## 4. Financial invariants — how each is proven now
@@ -240,7 +310,7 @@ no sibling implicit resolution
 2. No production adapter ships a certified correlation profile: the registry defaults every provider/source-schema to `NONE` until an operator explicitly certifies `PROVIDER:SOURCE_TYPE:PARSER_VERSION` entries.
 3. `compose.yaml` network name is parameterized (`AICOSTOPS_NETWORK_NAME`, default unchanged) so a local isolated E2E stack does not share the dev stack's DNS aliases. CI behavior is unchanged.
 4. The E2E local stack runs on port 18080 because the developer's dev backend occupies 8080; CI keeps 8080.
-5. Hosted CI / Security were **not** rerun this round (no push allowed). They will be rerun only after Sol Round 3 review passes and the user publishes the branch.
+5. Hosted CI / Security: pushing the branch while PR #149 is open automatically triggers the hosted workflows; this document makes no claim about their results. They are reported by GitHub and will be reviewed independently by Sol.
 6. `GatewayFinancialResolutionRollbackIntegrationTest` asserts the new `CHARGE_DISPOSITION_INSERTED` failpoint on the manual path only; the exact path reuses the same atomic transaction and failpoint site (verified by shared code path, not by a separate test).
 
 ## 6. Definition-of-Done checklist (updated)
@@ -275,10 +345,14 @@ no sibling implicit resolution
 [x] OPEN and CLOSED periods reconcilable; CLOSING rejected; CLOSED never auto-reopened
 [x] financial mutations force reconciliation rerun through basis staleness
 [x] existing Close blockers reused; no ninth blocker
-[x] reservation-bound commitment only; cross-period never consumes
+[x] reservation-bound commitment only; consumed only for a same-period positive adjustment on an OPEN original period — cross-period and non-positive adjustments succeed without consumption (0R4-B)
 [x] canonical financial lock order (periods ascending, budgets sorted, commitment/reservation, identity, source row, charge ownership last)
-[x] idempotent replay returns the committed business response field-by-field
+[x] idempotent replay returns the committed business response field-by-field (including the committed effectiveCaseId)
 [x] adjustmentPeriodId returned as the real decimal-string id on post and replay
+[x] OPEN original period adjusts only into itself; CLOSED original requires an explicit OPEN correction period or a governed reopen; CLOSING rejected; NO_CHARGE rejects correctionPeriodId (0R4-A)
+[x] case lineage server-derived from reviewed evidence; client caseId is an equality assertion only; invented/replacing case rejected; exact-vs-unresolved case inconsistency fails closed (0R4-C)
+[x] evidence endpoints serve bounded matchKind filters and true server pagination; Run Detail unresolved panel, Case Detail evidence and the modal exact lookup use them (0R4-D)
+[x] posted Provider Charge can never be classified RECONCILIATION_EVIDENCE; posting-vs-disposition race cannot create contradictory ownership; guard ownership probes are locking current reads (0R4-E/F)
 [x] linkCorrection bound to correction lineage (provider account/currency)
 [x] exact/request evidence attached to the matching aggregate case
 [x] Case Detail Rules-of-Hooks fixed with a real loading→loaded regression
@@ -289,6 +363,6 @@ no sibling implicit resolution
 [x] backend/gateway/frontend full local verification green (real totals above)
 [x] local browser E2E green (7 passed, freshly rebuilt stack)
 [x] local Docker builds green (backend/gateway/frontend)
-[x] V23 is the only M15 migration from the approved baseline (amended in place twice while unmerged; V1–V22 untouched)
-[ ] hosted CI / Security — intentionally not rerun (no push this round; rerun after Sol Round 3 review and user publish)
+[x] V23 is the only M15 migration from the approved baseline (amended in place twice while unmerged; V1–V22 untouched; no V24)
+[ ] hosted CI / Security — the Round 4 push to the open PR #149 triggers the hosted workflows automatically; their results belong to GitHub and to Sol's independent review, and no claim about them is made here
 ```

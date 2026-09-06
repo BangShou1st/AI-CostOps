@@ -531,7 +531,6 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
     void requestResolutionNeverResolvesSiblingCaseEvidence() {
         var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
         var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
-        insertUnresolvedEvidence(fixture);
         jdbc.update("""
                 INSERT INTO reconciliation_case(org_id,reconciliation_run_id,provider_account_id,
                   currency,case_type,external_amount,internal_amount,difference_amount,
@@ -540,12 +539,17 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
                   1,1,'OPEN',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, orgId, runId, fixture.providerAccountId());
         var caseId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        // Run finalization attaches the request's unresolved evidence to the
+        // matching aggregate case; the client caseId is an equality assertion
+        // against that reviewed lineage.
+        insertUnresolvedEvidenceForCase(fixture, caseId);
 
-        resolutions.resolveGatewayFinancialWork(actor,
+        var result = resolutions.resolveGatewayFinancialWork(actor,
                 new GatewayResolutionCommand(runId, caseId, fixture.requestId(),
                         "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
                         "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "gwres-sib-1");
 
+        assertThat(result.caseId()).isEqualTo(caseId);
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM reconciliation_case WHERE id=?", String.class, caseId))
                 .isEqualTo("OPEN");
@@ -629,6 +633,364 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
                         "REVIEWED_STATEMENT_LINE", "A different reviewed summary"),
                 "gw-replay-key"))
                 .isInstanceOf(DomainException.class);
+    }
+
+    // ------------------------------------------------------------------
+    // Sol Round 4: adjustment period rules, conditional commitment, server-
+    // derived case lineage
+    // ------------------------------------------------------------------
+
+    @Test
+    void openRequestCannotPostGatewayAdjustmentIntoAnotherOpenPeriod() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        insertUnresolvedEvidence(fixture);
+        var septemberPeriodId = insertOpenBillingPeriod();
+
+        // The original period is still OPEN: the adjustment can never be
+        // diverted into another OPEN period.
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, septemberPeriodId,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-per-1"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("OPEN");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_adjustment WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? AND "
+                        + "source_type='RECONCILIATION_ADJUSTMENT'",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget WHERE org_id=?", Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provider_charge_disposition WHERE org_id=?",
+                Long.class, orgId)).isZero();
+    }
+
+    @Test
+    void closingOriginalPeriodRejectsGatewayResolution() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        insertUnresolvedEvidence(fixture);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        jdbc.update("UPDATE billing_period SET status='CLOSING' WHERE id=?", periodId);
+
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-per-closing"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("CLOSING");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isZero();
+    }
+
+    @Test
+    void closedRequestCanPostIntoDifferentOpenCorrectionPeriod() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        var fin = insertCommitmentBackedReservation(fixture, periodId);
+        insertUnresolvedEvidence(fixture);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", periodId);
+        var septemberPeriodId = insertOpenBillingPeriod();
+        var septemberBudgetId = insertBudgetForPeriod(septemberPeriodId);
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, septemberPeriodId,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-per-2");
+
+        // The adjustment posts into the explicit OPEN correction period.
+        assertThat(jdbc.queryForObject(
+                "SELECT adjustment_period_id FROM reconciliation_adjustment WHERE id=?",
+                Long.class, result.adjustmentId())).isEqualTo(septemberPeriodId);
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT actual_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                septemberBudgetId)).isEqualByComparingTo("2.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT actual_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("0.00000000");
+        // The historical commitment is never consumed by a cross-period
+        // adjustment, and the reservation still reaches its terminal state.
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                java.math.BigDecimal.class, fin.commitmentId()))
+                .isEqualByComparingTo("5.00000000");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_commitment_usage WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fin.reservationId())).isEqualTo("FINALIZED");
+    }
+
+    @Test
+    void reopenedHistoricalPeriodCanPostBackIntoSamePeriod() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        var fin = insertCommitmentBackedReservation(fixture, periodId);
+        insertUnresolvedEvidence(fixture);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        // Simulate an explicit governed PERIOD_REOPEN: the historical period is
+        // OPEN again, so a same-period adjustment is legal.
+        jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", periodId);
+        jdbc.update("UPDATE billing_period SET status='OPEN' WHERE id=?", periodId);
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-per-3");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT adjustment_period_id FROM reconciliation_adjustment WHERE id=?",
+                Long.class, result.adjustmentId())).isEqualTo(periodId);
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT actual_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("2.00000000");
+    }
+
+    @Test
+    void crossPeriodGatewayAdjustmentWithBoundCommitmentSucceedsWithoutConsumption() {
+        // Covered in depth by closedRequestCanPostIntoDifferentOpenCorrectionPeriod;
+        // this variant proves the same invariant for a RECONCILIATION_REQUIRED
+        // settlement internal truth so both cross-period paths keep the
+        // commitment untouched.
+        var fixture = insertGatewayFixture("COMPLETED", "FINAL", true, false);
+        jdbc.update("UPDATE gateway_settlement SET status='RECONCILIATION_REQUIRED' WHERE id=?",
+                fixture.settlementId());
+        var fin = insertCommitmentBackedReservation(fixture, periodId);
+        insertUnresolvedEvidence(fixture);
+        seedSettlementPosting(fixture.settlementId(), "1.00000000");
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "3.00000000");
+        jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", periodId);
+        var septemberPeriodId = insertOpenBillingPeriod();
+        var septemberBudgetId = insertBudgetForPeriod(septemberPeriodId);
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, septemberPeriodId,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-cmt-cross");
+
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT amount FROM reconciliation_adjustment WHERE id=?",
+                java.math.BigDecimal.class, result.adjustmentId()))
+                .isEqualByComparingTo("2.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT actual_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                septemberBudgetId)).isEqualByComparingTo("2.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                java.math.BigDecimal.class, fin.commitmentId()))
+                .isEqualByComparingTo("5.00000000");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_commitment_usage WHERE org_id=?",
+                Long.class, orgId)).isZero();
+    }
+
+    @Test
+    void negativeGatewayAdjustmentWithBoundCommitmentSucceedsWithoutConsumption() {
+        var fixture = insertGatewayFixture("COMPLETED", "FINAL", true, false);
+        jdbc.update("UPDATE gateway_settlement SET status='RECONCILIATION_REQUIRED' WHERE id=?",
+                fixture.settlementId());
+        var fin = insertCommitmentBackedReservation(fixture, periodId);
+        insertUnresolvedEvidence(fixture);
+        seedSettlementPosting(fixture.settlementId(), "3.00000000");
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-cmt-neg");
+
+        // external 2 - internal 3 = -1: the adjustment stays legal and the
+        // commitment is simply not consumed.
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT amount FROM reconciliation_adjustment WHERE id=?",
+                java.math.BigDecimal.class, result.adjustmentId()))
+                .isEqualByComparingTo("-1.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT actual_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("-1.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                java.math.BigDecimal.class, fin.commitmentId()))
+                .isEqualByComparingTo("5.00000000");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_commitment_usage WHERE org_id=?",
+                Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fin.reservationId())).isEqualTo("FINALIZED");
+    }
+
+    @Test
+    void positiveSamePeriodGatewayAdjustmentConsumesBoundCommitmentExactlyOnce() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        var fin = insertCommitmentBackedReservation(fixture, periodId);
+        insertUnresolvedEvidence(fixture);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-cmt-pos");
+
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT amount FROM reconciliation_adjustment WHERE id=?",
+                java.math.BigDecimal.class, result.adjustmentId()))
+                .isEqualByComparingTo("2.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT actual_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("2.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                java.math.BigDecimal.class, fin.commitmentId()))
+                .isEqualByComparingTo("3.00000000");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_commitment_usage WHERE org_id=? "
+                        + "AND budget_commitment_id=?",
+                Long.class, orgId, fin.commitmentId())).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COALESCE(SUM(consumed_amount),0) FROM budget_commitment_usage "
+                        + "WHERE org_id=? AND budget_commitment_id=?",
+                java.math.BigDecimal.class, orgId, fin.commitmentId()))
+                .isEqualByComparingTo("2.00000000");
+    }
+
+    @Test
+    void noChargeConfirmationRejectsMeaninglessCorrectionPeriod() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, false);
+        insertUnresolvedEvidence(fixture);
+        var septemberPeriodId = insertOpenBillingPeriod();
+
+        // NO_CHARGE_CONFIRMED posts no adjustment, so a correction period is
+        // meaningless and must be rejected instead of silently ignored.
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-portal-r4-1",
+                        septemberPeriodId, NO_CHARGE_PROOF,
+                        "Provider confirmed no charge"), "r4-nc-period"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("correction period");
+    }
+
+    @Test
+    void resolutionAutomaticallyUsesCaseFromReviewedRunEvidence() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        var caseId = insertCase(runId, fixture.providerAccountId());
+        insertUnresolvedEvidenceForCase(fixture, caseId);
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-case-1");
+
+        // The client omitted the case: the server adopts the reviewed evidence
+        // case lineage and every downstream row carries it.
+        assertThat(result.caseId()).isEqualTo(caseId);
+        assertThat(jdbc.queryForObject(
+                "SELECT reconciliation_case_id FROM gateway_financial_resolution WHERE id=?",
+                Long.class, result.resolutionId())).isEqualTo(caseId);
+        assertThat(jdbc.queryForObject(
+                "SELECT reconciliation_case_id FROM reconciliation_adjustment WHERE id=?",
+                Long.class, result.adjustmentId())).isEqualTo(caseId);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_evidence WHERE org_id=? "
+                        + "AND match_kind='RESOLUTION_ACTION' AND reconciliation_case_id=?",
+                Long.class, orgId, caseId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM reconciliation_evidence WHERE org_id=? "
+                        + "AND match_kind='MANUAL_BINDING' AND reconciliation_case_id=?",
+                Long.class, orgId, caseId)).isEqualTo(1L);
+    }
+
+    @Test
+    void resolutionRejectsClientCaseDifferentFromReviewedEvidence() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        var evidenceCaseId = insertCase(runId, fixture.providerAccountId());
+        insertUnresolvedEvidenceForCase(fixture, evidenceCaseId);
+        // The scope unique key (run, provider account, currency) forbids a
+        // second same-scope case inside the reviewed run, so a client case
+        // different from the reviewed evidence case can only be a case of
+        // another run — which must be rejected whatever guard fires first.
+        var otherRunId = insertCompletedRun(periodId);
+        var clientCaseId = insertCase(otherRunId, fixture.providerAccountId());
+
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, clientCaseId, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-case-2"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("case");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isZero();
+    }
+
+    @Test
+    void caseNullEvidenceRejectsInventedClientCase() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, false);
+        var inventedCaseId = insertCase(runId, fixture.providerAccountId());
+        insertUnresolvedEvidence(fixture);
+
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, inventedCaseId, fixture.requestId(),
+                        "NO_CHARGE_CONFIRMED", null, "provider-portal-r4-2", null,
+                        NO_CHARGE_PROOF, "Provider confirmed no charge"), "r4-case-3"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("case");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isZero();
+    }
+
+    @Test
+    void inconsistentExactEvidenceCaseFailsClosed() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        var unresolvedCaseId = insertCase(runId, fixture.providerAccountId());
+        insertUnresolvedEvidenceForCase(fixture, unresolvedCaseId);
+        // Run finalization attaches exact and unresolved evidence of one scope
+        // to the same aggregate case; a case-less exact row next to a
+        // case-bound unresolved row is inconsistent generation state.
+        insertExactEvidenceForCase(chargeId, fixture, null);
+
+        assertThatThrownBy(() -> resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, unresolvedCaseId, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
+                        "REVIEWED_EXACT_LINE", "Exact correlation reviewed"), "r4-case-4"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("inconsistent");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=?",
+                Long.class, orgId)).isZero();
+    }
+
+    @Test
+    void resolutionAcceptsClientCaseEqualToReviewedEvidenceCase() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", "UNKNOWN", false, false);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        var caseId = insertCase(runId, fixture.providerAccountId());
+        insertUnresolvedEvidenceForCase(fixture, caseId);
+
+        // A client caseId equal to the reviewed evidence case is accepted as a
+        // pure equality assertion.
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, caseId, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", chargeId, null, null,
+                        "REVIEWED_STATEMENT_LINE", "Reviewed statement line"), "r4-case-5");
+
+        assertThat(result.caseId()).isEqualTo(caseId);
+        assertThat(jdbc.queryForObject(
+                "SELECT reconciliation_case_id FROM gateway_financial_resolution WHERE id=?",
+                Long.class, result.resolutionId())).isEqualTo(caseId);
     }
 
     @Test
@@ -834,15 +1196,95 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
     }
 
     private void insertUnresolvedEvidence(Fixture fixture) {
+        insertUnresolvedEvidenceForCase(fixture, null);
+    }
+
+    private void insertUnresolvedEvidenceForCase(Fixture fixture, Long caseId) {
         jdbc.update("""
-                INSERT INTO reconciliation_evidence(org_id,reconciliation_run_id,evidence_key,
+                INSERT INTO reconciliation_evidence(org_id,reconciliation_run_id,
+                  reconciliation_case_id,evidence_key,
                   provider_account_id,currency,match_kind,gateway_request_id,
                   gateway_route_attempt_id,gateway_usage_fact_id,gateway_settlement_id,created_at)
-                VALUES (?,?,CONCAT('GATEWAY_UNRESOLVED:REQUEST:',?),?,?,'GATEWAY_UNRESOLVED',
+                VALUES (?,?,?,CONCAT('GATEWAY_UNRESOLVED:REQUEST:',?),?,?,'GATEWAY_UNRESOLVED',
                   ?,?,?,?,UTC_TIMESTAMP(6))
-                """, orgId, runId, fixture.requestId(), fixture.providerAccountId(), "USD",
+                """, orgId, runId, caseId, fixture.requestId(), fixture.providerAccountId(), "USD",
                 fixture.requestId(), fixture.attemptId(), fixture.usageFactId(),
                 fixture.settlementId());
+    }
+
+    private void insertExactEvidenceForCase(long chargeId, Fixture fixture, Long caseId) {
+        jdbc.update("""
+                INSERT INTO reconciliation_evidence(org_id,reconciliation_run_id,
+                  reconciliation_case_id,evidence_key,
+                  provider_account_id,currency,match_kind,charge_fact_id,gateway_request_id,
+                  gateway_route_attempt_id,provider_request_id,created_at)
+                VALUES (?,?,?,?,?,'USD','EXACT_PROVIDER_REQUEST',?,?,?,?,UTC_TIMESTAMP(6))
+                """, orgId, runId, caseId, "EXACT:CHARGE:" + chargeId + ":REQUEST:"
+                        + fixture.requestId(), fixture.providerAccountId(), chargeId,
+                fixture.requestId(), fixture.attemptId(), "r4-req-" + fixture.requestId());
+    }
+
+    private long insertOpenBillingPeriod() {
+        jdbc.update("""
+                INSERT INTO billing_period(org_id,period_start,period_end,status,
+                  close_generation,version,created_at,updated_at)
+                VALUES (?,?,?,?,0,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, SEP_START, "2026-10-01 00:00:00.000000", "OPEN");
+        return jdbc.queryForObject(
+                "SELECT MAX(id) FROM billing_period WHERE org_id=?", Long.class, orgId);
+    }
+
+    private long insertBudgetForPeriod(long budgetPeriodId) {
+        jdbc.update("""
+                INSERT INTO budget(org_id,billing_period_id,scope_type,scope_id,currency,
+                  total_amount,actual_amount,committed_amount,status,version,created_at,
+                  updated_at)
+                VALUES (?,?,'PROJECT',?,'USD','20.00000000',0,'5.00000000','ACTIVE',0,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, budgetPeriodId, projectId);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    private record CommitmentFixture(long budgetId, long commitmentId, long reservationId) {
+    }
+
+    private CommitmentFixture insertCommitmentBackedReservation(Fixture fixture,
+            long budgetPeriodId) {
+        var budgetId = insertBudgetForPeriod(budgetPeriodId);
+        jdbc.update("""
+                INSERT INTO budget_commitment(org_id,budget_id,status,requested_amount,
+                  approved_amount,remaining_amount,version,created_at,updated_at)
+                VALUES (?,?,'ACTIVE','5.00000000','5.00000000','5.00000000',0,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, budgetId);
+        var commitmentId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO budget_reservation(org_id,request_id,route_attempt_id,
+                  billing_period_id,budget_id,financial_scope_type,financial_scope_id,currency,
+                  reserved_amount,commitment_id,commitment_backed_amount,status,version,
+                  expires_at,created_at,updated_at)
+                VALUES (?,?,?,?,?,'PROJECT',?,'USD','5.00000000',?,?,'ACTIVE',0,
+                  UTC_TIMESTAMP(6) + INTERVAL 7 DAY,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, fixture.requestId(), fixture.attemptId(), budgetPeriodId, budgetId,
+                projectId, commitmentId, new java.math.BigDecimal("2.00000000"));
+        var reservationId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        return new CommitmentFixture(budgetId, commitmentId, reservationId);
+    }
+
+    private void seedSettlementPosting(Long settlementId, String amount) {
+        jdbc.update("""
+                INSERT INTO ledger_posting(org_id,posting_key,source_type,source_id,
+                  allocation_decision_id,billing_period_id,status,posting_actor_type,
+                  posted_by_member_id,posted_at,created_at)
+                VALUES (?,?,'GATEWAY_SETTLEMENT',?,NULL,?,'POSTED','SYSTEM',NULL,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, orgId, "GATEWAY_SETTLEMENT:" + settlementId, settlementId, periodId);
+        var postingId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO ledger_entry(org_id,posting_id,entry_index,entry_type,amount,
+                  currency,project_id,source_gateway_settlement_id,created_at)
+                VALUES (?,?,0,'COST',?,'USD',?,?,UTC_TIMESTAMP(6))
+                """, orgId, postingId, amount, projectId, settlementId);
     }
 
     private long insertCase(long runId, long providerAccountId) {

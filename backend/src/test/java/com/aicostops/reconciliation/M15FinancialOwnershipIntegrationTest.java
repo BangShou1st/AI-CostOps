@@ -203,6 +203,49 @@ class M15FinancialOwnershipIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
+    void exactCorrelationSurvivesIdsBeyondTheLongAutoboxCache() {
+        // Boxed id reference equality (`==`/`!=`) silently breaks for values
+        // outside the Long autobox cache (>127): a full integration suite run
+        // pushed gateway_route_attempt ids past 127 and made the exact
+        // correlation reject evidence that numerically matches. The regression
+        // is reproduced deterministically by pushing the auto-increment past
+        // the cache boundary before resolving.
+        var base = insertGatewayFixture("UNKNOWN", false);
+        var filler = new java.util.ArrayList<Object[]>(150);
+        for (int attemptNo = 2; attemptNo <= 151; attemptNo++) {
+            filler.add(new Object[]{orgId, base.requestId(), attemptNo, fixedRequestId(),
+                    base.providerAccountId(), base.providerModelId(),
+                    base.pricingVersionId()});
+        }
+        jdbc.batchUpdate("""
+                INSERT INTO gateway_route_attempt(org_id,request_id,attempt_no,
+                  route_decision_id,provider_account_id,provider_model_id,pricing_version_id,
+                  status,created_at)
+                VALUES (?,?,?,?,?,?,?,'PLANNED',UTC_TIMESTAMP(6))
+                """, filler);
+
+        // A sibling fixture created after the filler receives a route attempt
+        // id above the Long autobox cache.
+        var fixture = insertSiblingGatewayFixture(base);
+        assertThat(fixture.attemptId()).isGreaterThan(127L);
+        insertUnresolvedEvidence(fixture.requestId(), fixture.attemptId(),
+                fixture.usageFactId(), null);
+        var chargeId = insertConfirmedStatementCharge(fixture.providerAccountId(), "2.00000000");
+        insertExactEvidence(chargeId, fixture.requestId(), fixture.attemptId(),
+                fixture.providerAccountId());
+
+        var result = resolutions.resolveGatewayFinancialWork(actor,
+                new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                        "STATEMENT_ADJUSTMENT_POSTED", null, null, null,
+                        "REVIEWED_EXACT_LINE", "Exact correlation reviewed"),
+                "own-exact-128");
+
+        assertThat(((Number) jdbc.queryForObject(
+                "SELECT statement_charge_fact_id FROM gateway_financial_resolution WHERE id=?",
+                Long.class, result.resolutionId())).longValue()).isEqualTo(chargeId);
+    }
+
+    @Test
     void postingGuardRejectsChargeConsumedByGatewayFinancialResolution() {
         var fixture = insertGatewayFixture("UNKNOWN", false);
         insertUnresolvedEvidence(fixture.requestId(), fixture.attemptId(),
@@ -313,7 +356,7 @@ class M15FinancialOwnershipIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
-    void providerPostingAndStatementResolutionRaceNeverDoubleCounts() throws Exception {
+    void hybridOverlapBlocksNormalProviderPostingWhileStatementResolutionClaimsCharge() throws Exception {
         var fixture = insertGatewayFixture("UNKNOWN", false);
         insertUnresolvedEvidence(fixture.requestId(), fixture.attemptId(),
                 fixture.usageFactId(), null);
@@ -349,44 +392,141 @@ class M15FinancialOwnershipIntegrationTest extends AllocationApiTestSupport {
         postingFuture.get(60, TimeUnit.SECONDS);
         resolutionFuture.get(60, TimeUnit.SECONDS);
 
+        // The fixture holds a durable possible-billable Gateway overlap in the
+        // same scope/period, so "the normal provider posting wins" is not a
+        // reachable terminal state: the Hybrid fence blocks the posting and the
+        // reviewed statement resolution claims the Charge exactly once.
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? AND "
+                        + "source_type='PROVIDER_CHARGE' AND status='POSTED'",
+                Long.class, orgId)).isZero();
+        assertThat(postingFailure.get()).isInstanceOf(DomainException.class);
+        assertThat(resolutionFailure.get()).isNull();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? AND "
+                        + "source_type='RECONCILIATION_ADJUSTMENT'",
+                Long.class, orgId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=? "
+                        + "AND statement_charge_fact_id=?",
+                Long.class, orgId, chargeId)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provider_charge_disposition WHERE org_id=? "
+                        + "AND charge_fact_id=? AND disposition='RECONCILIATION_EVIDENCE'",
+                Long.class, orgId, chargeId)).isEqualTo(1L);
+        // The charge is represented financially exactly once.
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM ledger_entry WHERE org_id=?", Long.class, orgId))
+                .isEqualTo(1L);
+    }
+
+    @Test
+    void postedProviderChargeCannotBeManuallyClassifiedReconciliationEvidence() {
+        var chargeId = insertConfirmedStatementCharge(accountId, "2.00000000");
+        seedPostedProviderCharge(chargeId, "2.00000000");
+        var caseId = insertCaseFor(accountId);
+
+        assertThatThrownBy(() -> hybridActions.decideChargeDisposition(actor, caseId,
+                new ChargeDispositionCommand(chargeId, "RECONCILIATION_EVIDENCE",
+                        "MANUAL_REVIEW", "Trying to reclassify a posted charge"),
+                "own-posted-disp-1"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("posted");
+
+        // The contradictory terminal state (POSTED provider charge +
+        // RECONCILIATION_EVIDENCE ownership) never exists.
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provider_charge_disposition WHERE org_id=? "
+                        + "AND charge_fact_id=?",
+                Long.class, orgId, chargeId)).isZero();
+    }
+
+    @Test
+    void postedProviderChargeKeepsLegacyCompatibleDirectClaimExactlyOnce() {
+        var chargeId = insertConfirmedStatementCharge(accountId, "2.00000000");
+        seedPostedProviderCharge(chargeId, "2.00000000");
+        var caseId = insertCaseFor(accountId);
+
+        // Recording the direct ownership of an already-posted charge is the
+        // legacy-compatible claim (V23 LEGACY_POSTED semantics) and is allowed
+        // exactly once.
+        hybridActions.decideChargeDisposition(actor, caseId,
+                new ChargeDispositionCommand(chargeId, "DIRECT_PROVIDER_CHARGE",
+                        "MANUAL_DIRECT", "Legacy posted charge"), "own-posted-direct-1");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT disposition FROM provider_charge_disposition WHERE org_id=? "
+                        + "AND charge_fact_id=?",
+                String.class, orgId, chargeId)).isEqualTo("DIRECT_PROVIDER_CHARGE");
+        assertThatThrownBy(() -> hybridActions.decideChargeDisposition(actor, caseId,
+                new ChargeDispositionCommand(chargeId, "DIRECT_PROVIDER_CHARGE",
+                        "MANUAL_DIRECT", "Second claim"), "own-posted-direct-2"))
+                .isInstanceOf(DomainException.class);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM provider_charge_disposition WHERE org_id=? "
+                        + "AND charge_fact_id=?",
+                Long.class, orgId, chargeId)).isEqualTo(1L);
+    }
+
+    @Test
+    void providerPostingVsDispositionRaceNeverCreatesContradictoryOwnership() throws Exception {
+        var chargeId = insertConfirmedStatementCharge(accountId, "2.00000000");
+        makeChargePostable(chargeId, "2.00000000");
+        var caseId = insertCaseFor(accountId);
+
+        var ready = new CountDownLatch(2);
+        var release = new CountDownLatch(1);
+        var postingFailure = new AtomicReference<Throwable>();
+        var dispositionFailure = new AtomicReference<Throwable>();
+        var postingFuture = raceExecutor.submit(() -> {
+            ready.countDown();
+            release.await();
+            try {
+                return postings.post(actor, chargeId, new PostSourceCommand(List.of()));
+            } catch (Throwable failure) {
+                postingFailure.set(failure);
+                return null;
+            }
+        });
+        var dispositionFuture = raceExecutor.submit(() -> {
+            ready.countDown();
+            release.await();
+            try {
+                return hybridActions.decideChargeDisposition(actor, caseId,
+                        new ChargeDispositionCommand(chargeId, "RECONCILIATION_EVIDENCE",
+                                "MANUAL_REVIEW", "Racing reclassification"),
+                        "own-race-disp");
+            } catch (Throwable failure) {
+                dispositionFailure.set(failure);
+                return null;
+            }
+        });
+        assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+        release.countDown();
+        postingFuture.get(60, TimeUnit.SECONDS);
+        dispositionFuture.get(60, TimeUnit.SECONDS);
+
         var providerPostings = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? AND "
                         + "source_type='PROVIDER_CHARGE' AND status='POSTED'",
                 Long.class, orgId);
-        var adjustmentPostings = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM ledger_posting WHERE org_id=? AND "
-                        + "source_type='RECONCILIATION_ADJUSTMENT'",
-                Long.class, orgId);
-        var resolutionCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM gateway_financial_resolution WHERE org_id=? "
-                        + "AND statement_charge_fact_id=?",
-                Long.class, orgId, chargeId);
-        var disposition = jdbc.queryForObject(
+        var reconciliationDispositions = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM provider_charge_disposition WHERE org_id=? "
                         + "AND charge_fact_id=? AND disposition='RECONCILIATION_EVIDENCE'",
                 Long.class, orgId, chargeId);
 
-        // Terminal state PROVIDER_DIRECT: the normal posting won and the
-        // gateway statement resolution was refused.
+        // posted PROVIDER_CHARGE + RECONCILIATION_EVIDENCE ownership is never
+        // the terminal state, whichever thread wins the charge lock.
         if (providerPostings == 1) {
             assertThat(postingFailure.get()).isNull();
-            assertThat(adjustmentPostings).isZero();
-            assertThat(resolutionCount).isZero();
-            assertThat(resolutionFailure.get()).isInstanceOf(DomainException.class);
+            assertThat(dispositionFailure.get()).isInstanceOf(DomainException.class);
+            assertThat(reconciliationDispositions).isZero();
         } else {
-            // Terminal state RECONCILIATION: the gateway resolution won and the
-            // normal posting was blocked by the RECONCILIATION_EVIDENCE fence.
             assertThat(providerPostings).isZero();
-            assertThat(adjustmentPostings).isEqualTo(1L);
-            assertThat(resolutionCount).isEqualTo(1L);
-            assertThat(disposition).isEqualTo(1L);
-            assertThat(resolutionFailure.get()).isNull();
+            assertThat(reconciliationDispositions).isEqualTo(1L);
+            assertThat(dispositionFailure.get()).isNull();
             assertThat(postingFailure.get()).isInstanceOf(DomainException.class);
         }
-        // Either ordering: the charge is represented financially exactly once.
-        assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM ledger_entry WHERE org_id=?", Long.class, orgId))
-                .isEqualTo(1L);
     }
 
     // ------------------------------------------------------------------

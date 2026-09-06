@@ -24,6 +24,7 @@ import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.Ad
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.ChargeScopeContext;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.EvidenceRow;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.RequestResolutionLineage;
+import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.RequestEvidenceBinding;
 import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper.ResolutionInsert;
 import com.aicostops.reconciliation.infrastructure.ReconciliationMapper;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -63,6 +64,17 @@ import org.springframework.transaction.support.TransactionTemplate;
  * <li>NO_CHARGE_CONFIRMED requires positive reviewed proof: a bounded
  *     positive-proof reason code plus a persisted auditable evidence
  *     reference; statement absence alone never proves zero cost;</li>
+ * <li>the case lineage is server-derived from the run's reviewed
+ *     GATEWAY_UNRESOLVED evidence; a client caseId is only an optional
+ *     equality assertion and can never invent or replace it;</li>
+ * <li>Commitment consumption is a conditional effect, never an admission
+ *     gate: a reservation-bound Commitment is consumed only for a
+ *     same-period positive adjustment whose original period is OPEN, and
+ *     every other combination simply does not consume;</li>
+ * <li>the adjustment period state machine is evaluated under both locked
+ *     BillingPeriod rows: an OPEN original period always adjusts into
+ *     itself, a CLOSED original period requires an explicit OPEN correction
+ *     period, CLOSING is always rejected;</li>
  * <li>a Commitment is only ever consumed through the locked reservation's own
  *     commitment lineage, never by client selection;</li>
  * <li>the financial lock order is BillingPeriod(s) ascending id, Budget(s)
@@ -188,6 +200,9 @@ public class GatewayFinancialResolutionService {
                     + preRead.billingPeriodId() + " while the run reviews billing period "
                     + run.billingPeriodId() + "; a resolution can never cross runs/periods.");
         }
+        // The client caseId is only an equality assertion; its scope is
+        // validated first so an out-of-run or out-of-scope case keeps its
+        // bounded rejection.
         if (command.caseId() != null) {
             var caseRow = mapper.selectCaseByIdAndOrganization(organizationId, command.caseId());
             if (caseRow == null) {
@@ -206,6 +221,9 @@ public class GatewayFinancialResolutionService {
                         + "request financial currency.");
             }
         }
+        // Case lineage is server-derived from this run's reviewed
+        // GATEWAY_UNRESOLVED evidence; a client can never invent or replace it.
+        var evidenceCaseId = deriveEvidenceCaseId(organizationId, run.id(), command.requestId());
         if (financialTerminal.hasTerminalResolution(organizationId, command.requestId())) {
             throw conflict("The gateway request already has a terminal financial resolution.");
         }
@@ -215,8 +233,23 @@ public class GatewayFinancialResolutionService {
         Long boundChargeId = null;
         StatementBinding binding = null;
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
-            binding = bindStatementCharge(organizationId, command, run.id(), preRead);
+            binding = bindStatementCharge(organizationId, command, run.id(), preRead,
+                    evidenceCaseId);
             boundChargeId = binding.chargeFactId();
+        }
+        var effectiveCaseId = applyCaseAssertion(evidenceCaseId, command);
+        if (effectiveCaseId != null && command.caseId() == null) {
+            // The adopted reviewed case must belong to this run and to the
+            // request's provider account/currency scope.
+            var adoptedCase = mapper.selectCaseByIdAndOrganization(organizationId,
+                    effectiveCaseId);
+            if (adoptedCase == null
+                    || adoptedCase.reconciliationRunId() != command.runId()
+                    || adoptedCase.providerAccountId() != preRead.providerAccountId()
+                    || !adoptedCase.currency().equals(preRead.currency())) {
+                throw conflict("The reviewed evidence case lineage does not match the "
+                        + "request scope; rerun reconciliation.");
+            }
         }
 
         // Financial lock order: all BillingPeriod rows strictly ascending id in
@@ -236,18 +269,9 @@ public class GatewayFinancialResolutionService {
         }
         var requestPeriod = lockedPeriods.get(requestPeriodId);
         var adjustmentPeriod = lockedPeriods.get(adjustmentPeriodId);
-        if (requestPeriod.status() == BillingPeriodStatus.CLOSING) {
-            throw conflict("A CLOSING period cannot receive gateway financial resolution.");
-        }
-        if (requestPeriod.status() == BillingPeriodStatus.CLOSED
-                && adjustmentPeriodId == requestPeriodId) {
-            throw conflict("A CLOSED historical period never receives the adjustment; select "
-                    + "an OPEN correction period or reopen explicitly.");
-        }
-        if (adjustmentPeriod.status() != BillingPeriodStatus.OPEN) {
-            throw conflict("The correction period must be OPEN; current status is "
-                    + adjustmentPeriod.status() + ".");
-        }
+        validateGatewayAdjustmentPeriodRulesLocked(requestPeriod, adjustmentPeriod,
+                adjustmentPeriodId == requestPeriodId,
+                TYPE_STATEMENT.equals(command.resolutionType()));
 
         Budget budget = null;
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
@@ -284,8 +308,8 @@ public class GatewayFinancialResolutionService {
         if (lockedRun == null || lockedRun.status() != ReconciliationRunStatus.COMPLETED) {
             throw conflict("The reconciliation run changed while resolving.");
         }
-        if (command.caseId() != null
-                && mapper.selectCaseByIdForUpdate(organizationId, command.caseId()) == null) {
+        if (effectiveCaseId != null
+                && mapper.selectCaseByIdForUpdate(organizationId, effectiveCaseId) == null) {
             throw conflict("The reconciliation case changed while resolving.");
         }
 
@@ -328,7 +352,7 @@ public class GatewayFinancialResolutionService {
                             new HybridReconciliationMapper.OwnershipDispositionInsert(
                                     organizationId, boundChargeId, binding.manual() ? "MANUAL"
                                             : "SYSTEM_EXACT",
-                                    run.id(), command.caseId(),
+                                    run.id(), effectiveCaseId,
                                     binding.manual() ? actorMemberId : null,
                                     command.reasonCode(), command.reasonNote(), now));
                 } catch (DuplicateKeyException concurrentClaim) {
@@ -341,8 +365,9 @@ public class GatewayFinancialResolutionService {
                 failureInjector.after("CHARGE_DISPOSITION_INSERTED");
             }
             adjustmentId = postRequestAdjustment(organizationId, actorMemberId, command,
-                    run.id(), command.caseId(), current, budget, lockedCommitment, boundChargeId,
-                    adjustmentPeriodId, requestPeriodId, reservationId, now);
+                    run.id(), effectiveCaseId, current, budget, lockedCommitment, boundChargeId,
+                    adjustmentPeriodId, requestPeriodId, requestPeriod.status()
+                            == BillingPeriodStatus.OPEN, reservationId, now);
         }
 
         var reservationOutcome = "NONE";
@@ -362,23 +387,23 @@ public class GatewayFinancialResolutionService {
         }
         failureInjector.after("RESERVATION_TRANSITIONED");
 
-        audit.gatewayFinancialResolved(organizationId, actorUserId, run.id(), command.caseId(),
+        audit.gatewayFinancialResolved(organizationId, actorUserId, run.id(), effectiveCaseId,
                 command.requestId(), command.resolutionType(), reservationOutcome,
                 current.currency());
         failureInjector.after("AUDIT_WRITTEN");
 
-        var resolutionId = insertResolution(organizationId, run.id(), command, current,
-                boundChargeId, adjustmentId,
+        var resolutionId = insertResolution(organizationId, run.id(), command, effectiveCaseId,
+                current, boundChargeId, adjustmentId,
                 lockedReservation == null ? null : lockedReservation.id(),
                 reservationOutcome, actorMemberId, now);
         failureInjector.after("RESOLUTION_INSERTED");
-        insertManualBindingEvidence(organizationId, run.id(), command, current, resolutionId,
-                now);
-        insertResolutionEvidence(organizationId, run.id(), command, current, resolutionId,
-                adjustmentId, now);
+        insertManualBindingEvidence(organizationId, run.id(), command, effectiveCaseId, current,
+                resolutionId, now);
+        insertResolutionEvidence(organizationId, run.id(), command, effectiveCaseId, current,
+                resolutionId, adjustmentId, now);
         failureInjector.after("RESOLUTION_EVIDENCE_INSERTED");
         idempotency.finalize(reservationId, 200, Long.toString(resolutionId));
-        return new GatewayResolutionResult(resolutionId, run.id(), command.caseId(),
+        return new GatewayResolutionResult(resolutionId, run.id(), effectiveCaseId,
                 command.requestId(), command.resolutionType(), reservationOutcome, adjustmentId);
     }
 
@@ -393,7 +418,8 @@ public class GatewayFinancialResolutionService {
      * BillingPeriod window, unused by another resolution).
      */
     private StatementBinding bindStatementCharge(long organizationId,
-            GatewayResolutionCommand command, long runId, RequestResolutionLineage lineage) {
+            GatewayResolutionCommand command, long runId, RequestResolutionLineage lineage,
+            Long effectiveCaseId) {
         var exactRows = hybridMapper.selectExactEvidenceRowsForRequest(organizationId, runId,
                 command.requestId());
         if (exactRows.size() > 1) {
@@ -402,13 +428,28 @@ public class GatewayFinancialResolutionService {
         }
         if (exactRows.size() == 1) {
             var exact = exactRows.getFirst();
+            // Boxed id fields must be compared numerically: reference equality
+            // (`!=`) silently breaks for values outside the Long autobox cache
+            // (>127) and would reject evidence that actually matches.
             if (exact.chargeFactId() == null
                     || exact.providerAccountId() != lineage.providerAccountId()
                     || !exact.currency().equals(lineage.currency())
-                    || exact.gatewayRouteAttemptId() == null
-                    || exact.gatewayRouteAttemptId() != lineage.routeAttemptId()) {
+                    || !java.util.Objects.equals(exact.gatewayRouteAttemptId(),
+                            lineage.routeAttemptId())) {
                 throw conflict("The exact correlation evidence no longer matches the current "
-                        + "request lineage.");
+                        + "request lineage: evidence(attempt=" + exact.gatewayRouteAttemptId()
+                        + ", account=" + exact.providerAccountId() + ", currency="
+                        + exact.currency() + ") vs request(attempt=" + lineage.routeAttemptId()
+                        + ", account=" + lineage.providerAccountId() + ", currency="
+                        + lineage.currency() + ").");
+            }
+            // Exact evidence of one scope is attached to the same aggregate
+            // case as the unresolved evidence at finalization; a disagreement
+            // is inconsistent review state, never a client choice.
+            if (!java.util.Objects.equals(exact.reconciliationCaseId(), effectiveCaseId)) {
+                throw conflict("The exact correlation evidence case lineage is inconsistent "
+                        + "with the reviewed unresolved evidence of this request; rerun "
+                        + "reconciliation.");
             }
             var profile = hybridMapper.selectChargeImportProfile(organizationId,
                     exact.chargeFactId());
@@ -421,7 +462,7 @@ public class GatewayFinancialResolutionService {
                         + "request id.");
             }
             if (command.statementChargeFactId() != null
-                    && command.statementChargeFactId() != exact.chargeFactId()) {
+                    && command.statementChargeFactId().longValue() != exact.chargeFactId()) {
                 throw conflict("The reviewed statement charge does not match the existing "
                         + "exact correlation binding of the request.");
             }
@@ -521,7 +562,8 @@ public class GatewayFinancialResolutionService {
     }
 
     private void insertManualBindingEvidence(long organizationId, long runId,
-            GatewayResolutionCommand command, RequestResolutionLineage current, Long resolutionId,
+            GatewayResolutionCommand command, Long effectiveCaseId,
+            RequestResolutionLineage current, Long resolutionId,
             Instant now) {
         if (!TYPE_STATEMENT.equals(command.resolutionType())) {
             return;
@@ -532,7 +574,7 @@ public class GatewayFinancialResolutionService {
             return;
         }
         hybridMapper.insertEvidence(new HybridReconciliationMapper.ReconciliationEvidenceRow(
-                organizationId, runId, command.caseId(),
+                organizationId, runId, effectiveCaseId,
                 "MANUAL_BINDING:CHARGE:" + command.statementChargeFactId()
                         + ":REQUEST:" + command.requestId(),
                 current.providerAccountId(), current.currency(), "MANUAL_BINDING", null,
@@ -560,13 +602,20 @@ public class GatewayFinancialResolutionService {
         }
         var currentBinding = bindings.stream().anyMatch(binding ->
                 binding.gatewayRouteAttemptId() != null
-                        && binding.gatewayRouteAttemptId() == current.routeAttemptId()
+                        && binding.gatewayRouteAttemptId().longValue() == current.routeAttemptId()
                         && binding.providerAccountId() == current.providerAccountId()
                         && binding.currency().equals(current.currency()));
         if (!currentBinding) {
             throw conflict("The reviewed run evidence for this request is stale: it is "
                     + "bound to a different route attempt or financial scope than the "
-                    + "current lineage. Rerun reconciliation before resolving.");
+                    + "current lineage (evidence attempts="
+                    + bindings.stream().map(RequestEvidenceBinding::gatewayRouteAttemptId)
+                            .toList()
+                    + " accounts="
+                    + bindings.stream().map(RequestEvidenceBinding::providerAccountId).toList()
+                    + " vs request(attempt=" + current.routeAttemptId() + ", account="
+                    + current.providerAccountId() + ", currency=" + current.currency()
+                    + "). Rerun reconciliation before resolving.");
         }
     }
 
@@ -594,11 +643,85 @@ public class GatewayFinancialResolutionService {
         }
     }
 
+    /**
+     * Derives the reviewed case lineage from the run's GATEWAY_UNRESOLVED
+     * evidence rows for this request. All evidence of one request must agree
+     * on its case (they are attached by scope at finalization); a
+     * disagreement is inconsistent review state and fails closed. An absent
+     * evidence set stays silent here — the post-lock evidence requirement
+     * keeps its bounded rejection after eligibility validation.
+     */
+    private Long deriveEvidenceCaseId(long organizationId, long runId, long requestId) {
+        var bindings = hybridMapper.selectUnresolvedEvidenceBindingsForRequest(
+                organizationId, runId, requestId);
+        if (bindings.isEmpty()) {
+            return null;
+        }
+        var caseIds = bindings.stream().map(RequestEvidenceBinding::reconciliationCaseId)
+                .distinct().toList();
+        if (caseIds.size() > 1) {
+            throw conflict("The reviewed run evidence for this request carries inconsistent "
+                    + "case lineage; rerun reconciliation.");
+        }
+        return caseIds.getFirst();
+    }
+
+    /**
+     * Applies the client caseId as a pure equality assertion against the
+     * reviewed evidence case: null adopts the reviewed case (including its
+     * deliberate absence), an equal value is accepted, and any other value —
+     * including inventing a case when the reviewed evidence has none — is
+     * rejected.
+     */
+    private Long applyCaseAssertion(Long evidenceCaseId, GatewayResolutionCommand command) {
+        if (evidenceCaseId == null && command.caseId() != null) {
+            throw conflict("The reviewed run evidence carries no reconciliation case for this "
+                    + "request; a client-supplied caseId cannot invent case lineage.");
+        }
+        if (evidenceCaseId != null && command.caseId() != null
+                && command.caseId().longValue() != evidenceCaseId) {
+            throw conflict("The client caseId does not match the reviewed evidence case "
+                    + "lineage of this request; the reviewed case cannot be replaced.");
+        }
+        return evidenceCaseId;
+    }
+
+    /**
+     * Frozen adjustment period state machine, evaluated after both
+     * BillingPeriod rows are locked in ascending id order: an OPEN original
+     * period always adjusts into itself; a CLOSED original period never
+     * receives the adjustment and requires an explicit OPEN correction period
+     * (or an explicit governed reopen); CLOSING is always rejected. An
+     * adjustment into a reopened historical period is legal because the
+     * locked period state is OPEN again.
+     */
+    private static void validateGatewayAdjustmentPeriodRulesLocked(
+            com.aicostops.budget.domain.BillingPeriod requestPeriod,
+            com.aicostops.budget.domain.BillingPeriod adjustmentPeriod,
+            boolean samePeriod, boolean statement) {
+        if (requestPeriod.status() == BillingPeriodStatus.CLOSING) {
+            throw conflict("A CLOSING period cannot receive gateway financial resolution.");
+        }
+        if (requestPeriod.status() == BillingPeriodStatus.OPEN && statement && !samePeriod) {
+            throw conflict("The gateway request's billing period is OPEN; the adjustment "
+                    + "must post into that same OPEN period and cannot be diverted into "
+                    + "another period.");
+        }
+        if (requestPeriod.status() == BillingPeriodStatus.CLOSED && samePeriod) {
+            throw conflict("A CLOSED historical period never receives the adjustment; select "
+                    + "an OPEN correction period or reopen explicitly.");
+        }
+        if (adjustmentPeriod.status() != BillingPeriodStatus.OPEN) {
+            throw conflict("The correction period must be OPEN; current status is "
+                    + adjustmentPeriod.status() + ".");
+        }
+    }
+
     private long postRequestAdjustment(long organizationId, long actorMemberId,
             GatewayResolutionCommand command, long runId, Long caseId,
             RequestResolutionLineage current, Budget budget, BudgetCommitment lockedCommitment,
             long statementChargeFactId, long adjustmentPeriodId, long requestPeriodId,
-            long reservationId, Instant now) {
+            boolean requestPeriodOpen, long reservationId, Instant now) {
         // Server-derived amount: authoritative external statement charge minus
         // the immutable Ledger amount attributable to the same request. The
         // client never supplies a Ledger amount and the aggregate case
@@ -635,33 +758,36 @@ public class GatewayFinancialResolutionService {
         }
         failureInjector.after("BUDGET_ACTUAL_MUTATED");
         if (lockedCommitment != null) {
-            if (adjustmentPeriodId != requestPeriodId) {
-                throw conflict("A cross-period resolution never consumes the historical "
-                        + "commitment.");
+            // Commitment consumption is a conditional effect of the
+            // adjustment, never its admission gate: it happens only for a
+            // same-period positive adjustment whose original period is OPEN,
+            // through the reservation-bound commitment matching the selected
+            // budget. Any other combination simply does not consume — the
+            // adjustment itself remains legal.
+            var commitmentMatchesBudget = lockedCommitment.budgetId() == (budget == null
+                    ? -1L : budget.id());
+            if (commitmentMatchesBudget
+                    && lockedCommitment.status().canConsume()
+                    && requestPeriodOpen
+                    && adjustmentPeriodId == requestPeriodId
+                    && amount.signum() > 0) {
+                commitmentConsume.consume(new CommitmentConsumeService.ConsumeCommand(
+                        organizationId, lockedCommitment.id(), amount,
+                        posted.entryIds().getFirst()));
+                failureInjector.after("COMMITMENT_CONSUMED");
             }
-            if (amount.signum() <= 0) {
-                throw conflict("Only a positive incurred adjustment may consume a commitment.");
-            }
-            if (lockedCommitment.budgetId() != (budget == null ? -1 : budget.id())
-                    || !lockedCommitment.status().canConsume()) {
-                throw conflict("The reservation-bound commitment is not consumable for the "
-                        + "selected budget.");
-            }
-            commitmentConsume.consume(new CommitmentConsumeService.ConsumeCommand(
-                    organizationId, lockedCommitment.id(), amount,
-                    posted.entryIds().getFirst()));
-            failureInjector.after("COMMITMENT_CONSUMED");
         }
         return adjustmentId;
     }
 
     private long insertResolution(long organizationId, long runId,
-            GatewayResolutionCommand command, RequestResolutionLineage current,
+            GatewayResolutionCommand command, Long effectiveCaseId,
+            RequestResolutionLineage current,
             Long statementChargeFactId, Long adjustmentId, Long reservationId,
             String reservationOutcome, long actorMemberId, Instant now) {
         try {
             hybridMapper.insertResolution(new ResolutionInsert(
-                    organizationId, runId, command.caseId(), current.requestId(),
+                    organizationId, runId, effectiveCaseId, current.requestId(),
                     current.routeAttemptId(), current.usageFactId(), current.settlementId(),
                     statementChargeFactId, adjustmentId, reservationId, command.resolutionType(),
                     reservationOutcome, actorMemberId, command.reasonCode(),
@@ -673,11 +799,12 @@ public class GatewayFinancialResolutionService {
     }
 
     private void insertResolutionEvidence(long organizationId, long runId,
-            GatewayResolutionCommand command, RequestResolutionLineage current,
+            GatewayResolutionCommand command, Long effectiveCaseId,
+            RequestResolutionLineage current,
             long resolutionId, Long adjustmentId, Instant now) {
         hybridMapper.insertEvidence(
                 new HybridReconciliationMapper.ReconciliationEvidenceRow(
-                        organizationId, runId, command.caseId(),
+                        organizationId, runId, effectiveCaseId,
                         "RESOLUTION:REQUEST:" + current.requestId(),
                         current.providerAccountId(), current.currency(), "RESOLUTION_ACTION",
                         null, null, current.requestId(), current.routeAttemptId(),
@@ -776,6 +903,10 @@ public class GatewayFinancialResolutionService {
         } else {
             if (command.statementChargeFactId() != null) {
                 throw validation("A no-charge confirmation never binds a statement charge.");
+            }
+            if (command.correctionPeriodId() != null) {
+                throw validation("A NO_CHARGE_CONFIRMED resolution posts no adjustment; a "
+                        + "correction period is meaningless and must not be supplied.");
             }
             if (!NO_CHARGE_PROOF_CODES.contains(command.reasonCode())) {
                 throw validation("reasonCode must be one of " + NO_CHARGE_PROOF_CODES

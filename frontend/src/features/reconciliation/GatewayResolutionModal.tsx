@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Form, Input, Modal, Select, Typography } from 'antd'
 import { useState } from 'react'
 import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
@@ -18,20 +18,21 @@ const NO_CHARGE_PROOF_LABEL: Record<string, string> = {
  * evidence item, used by the run-level (case_id=NULL) list and the case
  * detail page. The adjustment amount is always server-derived; the binding
  * classification (exact vs manual) is derived by the server from the run
- * evidence, so the reviewer only supplies the business reason.
+ * evidence, so the reviewer only supplies the business reason. The exact
+ * correlation evidence of the target request is fetched through the
+ * request-scoped server filter, so it never depends on the target row
+ * happening to sit on the first generic evidence page.
  */
 export function GatewayResolutionModal({
   runId,
   caseId,
   target,
-  evidence,
   onClose,
 }: {
   runId: string
   /** Null for run-level unresolved work without a fabricated case. */
   caseId: string | null
   target: ReconciliationEvidenceResponse | null
-  evidence: ReconciliationEvidenceResponse[]
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -41,10 +42,21 @@ export function GatewayResolutionModal({
   const [evidenceReference, setEvidenceReference] = useState('')
   const [reasonCode, setReasonCode] = useState('')
   const [reasonNote, setReasonNote] = useState('')
-  const exactEvidence = target
-    ? evidence.find((row) => row.matchKind === 'EXACT_PROVIDER_REQUEST'
-        && row.gatewayRequestId === target.gatewayRequestId)
-    : undefined
+  const targetRequestId = target?.gatewayRequestId ?? null
+  const exactQuery = useQuery({
+    queryKey: ['reconciliation', 'run', runId, 'evidence', 'exact', targetRequestId],
+    queryFn: () => reconciliationApi.listRunEvidence(runId, {
+      matchKind: 'EXACT_PROVIDER_REQUEST',
+      gatewayRequestId: targetRequestId!,
+      page: 0,
+      size: 5,
+    }),
+    enabled: targetRequestId !== null,
+    retry: false,
+  })
+  const exactEvidence = targetRequestId === null
+    ? undefined
+    : (exactQuery.data?.items ?? []).find((row) => row.gatewayRequestId === targetRequestId)
   const mutation = useMutation({
     mutationFn: () => {
       if (!target?.gatewayRequestId) throw new Error('missing request')

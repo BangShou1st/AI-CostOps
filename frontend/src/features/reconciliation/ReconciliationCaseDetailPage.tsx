@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Col, Descriptions, Divider, Empty, Form, Input, Modal, Row, Select, Skeleton, Space, Statistic, Table, Tag, Typography } from 'antd'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 import { formatEventDateTime } from '../../lib/dateTime'
@@ -69,9 +69,17 @@ export function ReconciliationCaseDetailPage() {
   const [dispositionReasonNote, setDispositionReasonNote] = useState('')
   const [gatewayTarget, setGatewayTarget] = useState<ReconciliationEvidenceResponse | null>(null)
   const [correctionGroupId, setCorrectionGroupId] = useState('')
+  // Case evidence is paginated by the server; the pager drives real requests.
+  const [evidencePage, setEvidencePage] = useState(0)
 
   const detail = useQuery({ queryKey: reconciliationKeys.case(caseId), queryFn: () => reconciliationApi.getCase(caseId), enabled: caseId.length > 0 })
-  const evidence = useQuery({ queryKey: reconciliationKeys.caseEvidence(caseId), queryFn: () => reconciliationApi.listCaseEvidence(caseId), enabled: caseId.length > 0, retry: false })
+  const evidenceParams = useMemo(() => ({ page: evidencePage, size: 50 }), [evidencePage])
+  const evidence = useQuery({
+    queryKey: [...reconciliationKeys.caseEvidence(caseId), evidenceParams],
+    queryFn: () => reconciliationApi.listCaseEvidence(caseId, evidenceParams),
+    enabled: caseId.length > 0,
+    retry: false,
+  })
   const periods = useQuery({ queryKey: ['period-close', 'periods'], queryFn: () => periodCloseApi.listBillingPeriods(), retry: false })
   // Hooks order rule: every hook runs before any early return; the run query
   // simply waits for the case identity instead of being called conditionally.
@@ -244,7 +252,13 @@ export function ReconciliationCaseDetailPage() {
           <Table<ReconciliationEvidenceResponse>
             rowKey="id"
             dataSource={evidenceItems}
-            pagination={{ hideOnSinglePage: true, showSizeChanger: false }}
+            pagination={{
+              current: evidencePage + 1,
+              pageSize: 50,
+              total: evidence.data?.totalElements ?? 0,
+              showSizeChanger: false,
+              onChange: (nextPage) => setEvidencePage(nextPage - 1),
+            }}
             scroll={{ x: 1100 }}
             columns={[
               { title: '证据', dataIndex: 'id', width: 90, render: (value: string) => `#${value}` },
@@ -425,7 +439,6 @@ export function ReconciliationCaseDetailPage() {
         runId={reconciliationRunId}
         caseId={caseId}
         target={gatewayTarget}
-        evidence={evidenceItems}
         onClose={() => setGatewayTarget(null)}
       />
     </main>

@@ -17,6 +17,7 @@ import type {
   GatewayResolutionResponse,
   LinkCorrectionRequest,
   LinkCorrectionResponse,
+  ReconciliationEvidenceListParams,
   ReconciliationEvidencePage,
 } from '../types'
 
@@ -68,17 +69,17 @@ export const reconciliationApi = {
     )).data
   },
 
-  async listRunEvidence(runId: string, page = 0, size = 50): Promise<ReconciliationEvidencePage> {
+  async listRunEvidence(runId: string, params: ReconciliationEvidenceListParams = {}): Promise<ReconciliationEvidencePage> {
     return (await apiClient.get<ReconciliationEvidencePage>(
       `/reconciliation-runs/${encodeURIComponent(runId)}/evidence`,
-      { params: { page, size } },
+      { params },
     )).data
   },
 
-  async listCaseEvidence(caseId: string, page = 0, size = 50): Promise<ReconciliationEvidencePage> {
+  async listCaseEvidence(caseId: string, params: ReconciliationEvidenceListParams = {}): Promise<ReconciliationEvidencePage> {
     return (await apiClient.get<ReconciliationEvidencePage>(
       `/reconciliation-cases/${encodeURIComponent(caseId)}/evidence`,
-      { params: { page, size } },
+      { params },
     )).data
   },
 

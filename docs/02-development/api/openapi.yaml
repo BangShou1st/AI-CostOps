@@ -1149,7 +1149,14 @@ components:
         only ever consumed through the locked reservation's own commitment
         lineage.
       properties:
-        caseId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        caseId:
+          oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }]
+          description: >-
+            Optional equality assertion only. The effective case lineage is
+            always server-derived from the reviewed GATEWAY_UNRESOLVED
+            evidence of the run: a null client value adopts the reviewed
+            case, an equal value is accepted, and a different (or invented)
+            value is rejected.
         requestId: { $ref: '#/components/schemas/Id' }
         resolutionType: { type: string, enum: [STATEMENT_ADJUSTMENT_POSTED, NO_CHARGE_CONFIRMED] }
         statementChargeFactId:
@@ -1170,7 +1177,14 @@ components:
             PROVIDER_SUPPORT_CONFIRMED_NO_CHARGE,
             EXPLICIT_ZERO_PROVIDER_RECORD). Persisted as the auditable proof
             reference; statement absence alone never proves zero cost.
-        correctionPeriodId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        correctionPeriodId:
+          oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }]
+          description: >-
+            STATEMENT_ADJUSTMENT_POSTED only. The target period of the
+            adjustment: an OPEN original period always adjusts into itself;
+            a CLOSED original period requires an explicit OPEN correction
+            period (or an explicit governed reopen). Never accepted for
+            NO_CHARGE_CONFIRMED, which posts no adjustment.
         reasonCode:
           type: string
           maxLength: 64
@@ -1730,12 +1744,27 @@ paths:
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
+        - name: matchKind
+          in: query
+          required: false
+          description: Optional bounded evidence-kind filter; the filtered list is paginated server-side.
+          schema: { $ref: '#/components/schemas/ReconciliationMatchKind' }
+        - name: gatewayRequestId
+          in: query
+          required: false
+          description: Optional request-scoped filter (e.g. to reliably fetch the exact correlation evidence of one request regardless of pagination position).
+          schema: { $ref: '#/components/schemas/Id' }
       responses: { '200': { description: M15 hybrid evidence for a reconciliation run, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseReconciliationEvidence' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
   /reconciliation-cases/{caseId}/evidence:
     get:
       parameters:
         - { $ref: '#/components/parameters/Page' }
         - { $ref: '#/components/parameters/Size' }
+        - name: matchKind
+          in: query
+          required: false
+          description: Optional bounded evidence-kind filter; the filtered list is paginated server-side.
+          schema: { $ref: '#/components/schemas/ReconciliationMatchKind' }
       responses: { '200': { description: M15 hybrid evidence linked to one reconciliation case, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseReconciliationEvidence' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
   /reconciliation-cases/{caseId}/charge-dispositions:
     post:

@@ -126,6 +126,108 @@ class M15ReconciliationApiIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
+    void runEvidenceEndpointSupportsBoundedMatchKindFilterAndTruePagination() throws Exception {
+        // Three aggregate rows first, then two unresolved Gateway rows: with a
+        // small generic page the unresolved work sits beyond page 0.
+        for (int i = 0; i < 3; i++) {
+            insertCaseEvidence("AGGREGATE_SCOPE", null);
+        }
+        long unresolvedA = insertCaseEvidence("GATEWAY_UNRESOLVED", requestId);
+        long unresolvedB = insertCaseEvidence("GATEWAY_UNRESOLVED", requestId);
+
+        // Generic page 0 (size 2) contains only the first two aggregate rows.
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("page", "0").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].matchKind").value("AGGREGATE_SCOPE"))
+                .andExpect(jsonPath("$.items[1].matchKind").value("AGGREGATE_SCOPE"));
+
+        // The bounded server-side filter returns the unresolved rows no matter
+        // where they sit in the unfiltered order.
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "GATEWAY_UNRESOLVED"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[0].id").value(Long.toString(unresolvedA)))
+                .andExpect(jsonPath("$.items[1].id").value(Long.toString(unresolvedB)));
+
+        // The filtered list is paginated server-side as well.
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "GATEWAY_UNRESOLVED")
+                        .param("page", "1").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(Long.toString(unresolvedB)));
+
+        // Arbitrary filter values outside the bounded vocabulary are rejected.
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "MATCH_KIND'; DROP TABLE x"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void caseEvidenceEndpointServesTrueServerPages() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            insertCaseEvidence("AGGREGATE_SCOPE", null);
+        }
+
+        var page0 = mvc.perform(get("/api/v1/reconciliation-cases/%d/evidence".formatted(caseId))
+                        .header("Authorization", bearer())
+                        .param("page", "0").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.totalPages").value(3))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andReturn().getResponse().getContentAsString();
+        var page1 = mvc.perform(get("/api/v1/reconciliation-cases/%d/evidence".formatted(caseId))
+                        .header("Authorization", bearer())
+                        .param("page", "1").param("size", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(5))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andReturn().getResponse().getContentAsString();
+
+        // Page 2 is genuinely fetched from the server, not a re-slice of the
+        // first page.
+        org.assertj.core.api.Assertions.assertThat(page0).isNotEqualTo(page1);
+    }
+
+    @Test
+    void runEvidenceEndpointSupportsRequestScopedExactLookup() throws Exception {
+        var genericA = insertCaseEvidence("AGGREGATE_SCOPE", null);
+        insertCaseEvidence("AGGREGATE_SCOPE", null);
+        var exactId = insertCaseEvidence("EXACT_PROVIDER_REQUEST", requestId);
+
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "EXACT_PROVIDER_REQUEST")
+                        .param("gatewayRequestId", Long.toString(requestId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(Long.toString(exactId)))
+                .andExpect(jsonPath("$.items[0].gatewayRequestId")
+                        .value(Long.toString(requestId)));
+
+        // No exact evidence for an unrelated request id.
+        mvc.perform(get("/api/v1/reconciliation-runs/%d/evidence".formatted(runId))
+                        .header("Authorization", bearer())
+                        .param("matchKind", "EXACT_PROVIDER_REQUEST")
+                        .param("gatewayRequestId", "999999999"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        org.assertj.core.api.Assertions.assertThat(genericA).isPositive();
+    }
+
+    @Test
     void chargeDispositionEndpointRequiresIdempotencyKeyAndReplays() throws Exception {
         var body = """
                 {"chargeFactId":"%d","disposition":"DIRECT_PROVIDER_CHARGE",
@@ -203,6 +305,19 @@ class M15ReconciliationApiIntegrationTest extends AllocationApiTestSupport {
                                  "reasonCode":"POSITIVE_NO_CHARGE","reasonNote":"Reviewed"}
                                 """.formatted(requestId)))
                 .andExpect(status().isForbidden());
+    }
+
+    private long insertCaseEvidence(String matchKind, Long gatewayRequestId) {
+        var evidenceKey = matchKind + ":" + UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO reconciliation_evidence(
+                  org_id,reconciliation_run_id,reconciliation_case_id,evidence_key,
+                  provider_account_id,currency,match_kind,gateway_request_id,created_at)
+                VALUES (?,?,?,?,?,'USD',?,?,UTC_TIMESTAMP(6))
+                """, orgId, runId, caseId, evidenceKey, accountId, matchKind, gatewayRequestId);
+        return jdbc.queryForObject(
+                "SELECT id FROM reconciliation_evidence WHERE org_id=? AND evidence_key=?",
+                Long.class, orgId, evidenceKey);
     }
 
     private String currentBasisHash() {
