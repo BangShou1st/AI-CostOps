@@ -12,9 +12,11 @@ import org.springframework.stereotype.Component;
 public class GatewayResourceLimiter {
 
     private final Semaphore streamPermits;
+    private final int maxActiveStreams;
 
     public GatewayResourceLimiter(GatewayProperties properties) {
-        this.streamPermits = new Semaphore(properties.getMaxActiveStreams(), true);
+        this.maxActiveStreams = properties.getMaxActiveStreams();
+        this.streamPermits = new Semaphore(this.maxActiveStreams, true);
     }
 
     /** Non-blocking acquire; false means the configured concurrent-stream bound is exhausted. */
@@ -28,5 +30,14 @@ public class GatewayResourceLimiter {
 
     public int availableStreamPermits() {
         return streamPermits.availablePermits();
+    }
+
+    /** Currently held stream permits (process-local active streams). */
+    public int activeStreams() {
+        return maxActiveStreams - streamPermits.availablePermits();
+    }
+
+    public int maxActiveStreams() {
+        return maxActiveStreams;
     }
 }

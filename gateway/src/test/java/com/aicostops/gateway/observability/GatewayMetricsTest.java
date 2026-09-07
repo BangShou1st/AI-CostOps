@@ -29,4 +29,23 @@ class GatewayMetricsTest {
         assertThat(registry.get("gateway_provider_usage_parse_error_total")
                 .tag("provider_code", "UNKNOWN").counter().count()).isEqualTo(1);
     }
+
+    @Test
+    void activeStreamsGaugeReflectsLimiterState() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new GatewayMetrics(registry);
+        var permits = new java.util.concurrent.Semaphore(4, true);
+
+        metrics.bindActiveStreams(permits, 4);
+
+        assertThat(registry.get("gateway_active_streams").gauge().value()).isEqualTo(0);
+
+        permits.acquireUninterruptibly();
+        permits.acquireUninterruptibly();
+
+        assertThat(registry.get("gateway_active_streams").gauge().value()).isEqualTo(2);
+
+        permits.release();
+        assertThat(registry.get("gateway_active_streams").gauge().value()).isEqualTo(1);
+    }
 }

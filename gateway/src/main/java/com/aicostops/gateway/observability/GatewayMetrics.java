@@ -52,6 +52,26 @@ public class GatewayMetrics {
         this.registry = registry;
     }
 
+    /**
+     * Active-stream gauge derived from the stream-permit semaphore: active =
+     * maxPermits - availablePermits. Weak-reference gauge, so no lifecycle
+     * management is needed; labels are intentionally absent (process-local).
+     */
+    public void bindActiveStreams(java.util.concurrent.Semaphore streamPermits, int maxPermits) {
+        registry.gauge("gateway_active_streams", streamPermits,
+                permits -> (double) (maxPermits - permits.availablePermits()));
+    }
+
+    /**
+     * Production binding: active streams held by the resource limiter.
+     * Weak-reference gauge on the limiter bean; no lifecycle management needed.
+     */
+    public void bindActiveStreams(
+            com.aicostops.gateway.config.GatewayResourceLimiter limiter) {
+        registry.gauge("gateway_active_streams", limiter,
+                com.aicostops.gateway.config.GatewayResourceLimiter::activeStreams);
+    }
+
     /** Outcome is a small fixed enum: COMPLETED, FAILED, TIMED_OUT, CANCELED, RATE_LIMITED, REJECTED, DEPENDENCY_UNAVAILABLE. */
     public void recordRequestOutcome(String outcome) {
         registry.counter("gateway_request_total", "outcome", bounded(outcome, REQUEST_OUTCOMES))

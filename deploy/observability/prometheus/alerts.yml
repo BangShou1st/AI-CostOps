@@ -40,3 +40,86 @@ groups:
         annotations:
           summary: "AI-CostOps invalid-credential login spike"
           description: "{{ $value }} invalid-credential logins in the last 1m."
+
+  # M16 V2 production-acceptance signals. Every metric below is a REAL export
+  # verified against live /actuator/prometheus output (Gateway: gateway_*;
+  # Backend: aicostops_gateway_* / aicostops_reconciliation_*). Thresholds are
+  # linked to M16 acceptance measurements, not invented production SLOs.
+  # Measured M16 behavior (2026-09-07, mock Provider http500 x3, non-stream):
+  # each injected http500 deterministically produces exactly one
+  # gateway_provider_safety_total{outcome="BILLABLE_POSSIBLE"} plus one
+  # gateway_usage_total{status="UNKNOWN"} plus one
+  # gateway_metering_unknown_total (D02 billable-possible semantics: no blind
+  # redispatch, conservative UNKNOWN usage). gateway_provider_error_total and
+  # gateway_failover_total{outcome="STOPPED"} are emitted only on the
+  # streaming-failure and no-candidate paths respectively, so they are NOT
+  # used as http500-injection signals here. Short windows/for exist ONLY to
+  # prove the pipeline end-to-end in acceptance.
+  - name: aicostops-m16
+    rules:
+      - alert: M16GatewayProviderSafetyBillablePossible
+        expr: sum(increase(gateway_provider_safety_total{outcome="BILLABLE_POSSIBLE"}[2m])) >= 3
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "M16 Gateway billable-possible Provider outcome spike"
+          description: "{{ $value }} BILLABLE_POSSIBLE safety outcomes in the last 2m."
+
+      - alert: M16GatewayUnknownUsageSpike
+        expr: sum(increase(gateway_usage_total{status="UNKNOWN"}[2m])) >= 1
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "M16 Gateway UNKNOWN usage spike"
+          description: "{{ $value }} UNKNOWN usage observations in the last 2m."
+
+      - alert: M16GatewayMeteringUnknownSpike
+        expr: sum(increase(gateway_metering_unknown_total[2m])) >= 1
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "M16 Gateway metering-unknown spike"
+          description: "{{ $value }} metering-unknown observations in the last 2m."
+
+      - alert: M16GatewayRedisDependencyError
+        expr: sum(increase(gateway_redis_dependency_error_total[2m])) >= 1
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "M16 Gateway Redis dependency error"
+          description: "{{ $value }} Redis dependency errors in the last 2m."
+
+      # Backlog rules: no injection produces these in acceptance (zero backlog
+      # is the healthy state); they are wired, syntax-checked and reported
+      # inactive with zero data. A settlement retry storm (e.g. DB outage per
+      # C01-C03) or a RECONCILIATION_REQUIRED outcome would raise them.
+      - alert: M16SettlementRetryBacklog
+        expr: sum(increase(aicostops_gateway_settlement_retry_total[10m])) >= 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "M16 settlement retry backlog"
+          description: "{{ $value }} settlement retries in the last 10m."
+
+      - alert: M16ReconciliationRequiredBacklog
+        expr: sum(increase(aicostops_gateway_settlement_reconciliation_required_total[15m])) >= 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "M16 reconciliation-required backlog"
+          description: "{{ $value }} RECONCILIATION_REQUIRED outcomes in the last 15m."
+
+      - alert: M16GatewayReservationPendingHold
+        expr: sum(increase(gateway_reservation_recovery_total{outcome="PENDING_HOLD"}[15m])) >= 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "M16 PENDING_HOLD reservation recovery wave"
+          description: "{{ $value }} PENDING_HOLD recoveries in the last 15m (M16 restart recovery measured 5)."
