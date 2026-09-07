@@ -15,9 +15,9 @@
 | Branch | `feat/m16-v2-production-acceptance` |
 | Starting baseline | `d287be1217430d415fe02c80110c79e136d8772c` |
 | Code-under-test commit (Sol-reviewed) | `ab46e8600156d0f4f926cd1e9401beff85f7e1a4` |
-| Machine execution | full `scripts/m16-production-acceptance.ps1` GREEN on `ab46e86` + working-tree B05 rate-limiter proof below (final SHA after commit) |
-| Evidence sealing commit | final SHA after commit (this document sealed in the same commit) |
-| Exact final PR head | sealed by PR #152 metadata + hosted runs on the final SHA (see §15) |
+| Machine execution | full `scripts/m16-production-acceptance.ps1` GREEN on `ab46e86` + B05 rate-limiter working tree (sealed as `69ac724` below) |
+| Evidence sealing commit | `69ac724594f3428f1698211e4b67ffb445eb32ba` (this document sealed here) |
+| Exact final PR head | `69ac724594f3428f1698211e4b67ffb445eb32ba`, sealed by PR #152 metadata + hosted runs below |
 | Final Sol-reviewed SHA | sealed by Sol review of the final SHA (external) |
 
 Three distinct revisions (no self-reference loop):
@@ -60,34 +60,34 @@ Working-tree M16 changes sealed by this commit (all covered by the GREEN run):
 
 | ID | Scenario | Required result | Status | Exact SHA | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| A01 | Production topology boot | All required runtime services healthy | PASS | ab46e86+wt (sealed here) | §4 |
-| A02 | Gateway readiness | Correct dependency/correctness readiness | PASS | ab46e86+wt (sealed here) | §4 |
-| A03 | Gateway DB least privilege | Allowed runtime succeeds; forbidden financial mutation denied by MySQL | PASS | ab46e86+wt (sealed here) | §5 |
-| A04 | Unsafe production config | Startup rejected | PASS | ab46e86+wt (sealed here) | §4 |
-| B01 | 100-way identical replay | One Provider operation; one durable request identity | PASS | ab46e86+wt (sealed here) | §6 |
-| B02 | Budget concurrent exhaustion | No race overspend | PASS | ab46e86+wt (sealed here) | §6 |
-| B03 | Stepped non-stream load | Bounded stable operation through measured envelope | PASS | ab46e86+wt (sealed here) | §6 |
-| B04 | Concurrent SSE | Configured stream bound enforced | PASS | ab46e86+wt (sealed here) | §6 |
-| B05 | Overload | Bounded safe rejection | PASS | ab46e86+wt (sealed here) | §6 |
-| C01 | MySQL down before dispatch | Zero Provider calls | PASS | ab46e86+wt (sealed here) | §7 |
-| C02 | MySQL failure after dispatch | Uncertainty preserved; zero blind redispatch | PASS | ab46e86+wt (sealed here) | §7 |
-| C03 | MySQL restart | Runtime reconnects; financial facts intact | PASS | ab46e86+wt (sealed here) | §7 |
-| C04 | Redis outage | Mandatory dependency behavior fails closed | PASS | ab46e86+wt (sealed here) | §7 |
-| C05 | Redis state loss | No fabricated monetary availability | PASS | ab46e86+wt (sealed here) | §7 |
-| C06 | Gateway restart | Durable request recovery | PASS | ab46e86+wt (sealed here) | §7 |
-| C07 | Backend restart | Settlement recovery | PASS | ab46e86+wt (sealed here) | §7 |
-| C08 | Settlement retry | Exactly one final Ledger outcome or explicit reconciliation requirement | PASS | ab46e86+wt (sealed here) | §7 |
-| C09 | Expired Reservation | RELEASED or PENDING_HOLD according to evidence | PASS | ab46e86+wt (sealed here) | §7 |
-| D01 | Certified safe Provider failure | Eligible safe failover only | PASS | ab46e86+wt (sealed here) | §8 |
-| D02 | Billable-possible Provider failure | Automatic failover stops | PASS | ab46e86+wt (sealed here) | §8 |
-| D03 | Credential revoke | Future work blocked; incurred work preserved | PASS | ab46e86+wt (sealed here) | §8 |
-| D04 | Settlement vs Close | Deterministic convergence | PASS | ab46e86+wt (sealed here) | §8 |
-| D05 | Reconciliation vs Close | Deterministic convergence | PASS | ab46e86+wt (sealed here) | §8 |
-| D06 | Statement difference | Governed append-only correction | PASS | ab46e86+wt (sealed here) | §8 |
-| E01 | Prometheus | Backend + Gateway scraped | PASS | ab46e86+wt (sealed here) | §9 |
-| E02 | Alerts | Injected failures produce intended signals | PASS | ab46e86+wt (sealed here) | §9 |
-| E03 | Leak scan | Zero forbidden sentinel leakage | PASS | ab46e86+wt (sealed here) | §10 |
-| E04 | V2 restore | Full durable financial lineage recoverable without Redis | PASS | ab46e86+wt (sealed here) | §11 |
+| A01 | Production topology boot | All required runtime services healthy | PASS | 69ac724 (§1) | §4 |
+| A02 | Gateway readiness | Correct dependency/correctness readiness | PASS | 69ac724 (§1) | §4 |
+| A03 | Gateway DB least privilege | Allowed runtime succeeds; forbidden financial mutation denied by MySQL | PASS | 69ac724 (§1) | §5 |
+| A04 | Unsafe production config | Startup rejected | PASS | 69ac724 (§1) | §4 |
+| B01 | 100-way identical replay | One Provider operation; one durable request identity | PASS | 69ac724 (§1) | §6 |
+| B02 | Budget concurrent exhaustion | No race overspend | PASS | 69ac724 (§1) | §6 |
+| B03 | Stepped non-stream load | Bounded stable operation through measured envelope | PASS | 69ac724 (§1) | §6 |
+| B04 | Concurrent SSE | Configured stream bound enforced | PASS | 69ac724 (§1) | §6 |
+| B05 | Overload | Bounded safe rejection | PASS | 69ac724 (§1) | §6 |
+| C01 | MySQL down before dispatch | Zero Provider calls | PASS | 69ac724 (§1) | §7 |
+| C02 | MySQL failure after dispatch | Uncertainty preserved; zero blind redispatch | PASS | 69ac724 (§1) | §7 |
+| C03 | MySQL restart | Runtime reconnects; financial facts intact | PASS | 69ac724 (§1) | §7 |
+| C04 | Redis outage | Mandatory dependency behavior fails closed | PASS | 69ac724 (§1) | §7 |
+| C05 | Redis state loss | No fabricated monetary availability | PASS | 69ac724 (§1) | §7 |
+| C06 | Gateway restart | Durable request recovery | PASS | 69ac724 (§1) | §7 |
+| C07 | Backend restart | Settlement recovery | PASS | 69ac724 (§1) | §7 |
+| C08 | Settlement retry | Exactly one final Ledger outcome or explicit reconciliation requirement | PASS | 69ac724 (§1) | §7 |
+| C09 | Expired Reservation | RELEASED or PENDING_HOLD according to evidence | PASS | 69ac724 (§1) | §7 |
+| D01 | Certified safe Provider failure | Eligible safe failover only | PASS | 69ac724 (§1) | §8 |
+| D02 | Billable-possible Provider failure | Automatic failover stops | PASS | 69ac724 (§1) | §8 |
+| D03 | Credential revoke | Future work blocked; incurred work preserved | PASS | 69ac724 (§1) | §8 |
+| D04 | Settlement vs Close | Deterministic convergence | PASS | 69ac724 (§1) | §8 |
+| D05 | Reconciliation vs Close | Deterministic convergence | PASS | 69ac724 (§1) | §8 |
+| D06 | Statement difference | Governed append-only correction | PASS | 69ac724 (§1) | §8 |
+| E01 | Prometheus | Backend + Gateway scraped | PASS | 69ac724 (§1) | §9 |
+| E02 | Alerts | Injected failures produce intended signals | PASS | 69ac724 (§1) | §9 |
+| E03 | Leak scan | Zero forbidden sentinel leakage | PASS | 69ac724 (§1) | §10 |
+| E04 | V2 restore | Full durable financial lineage recoverable without Redis | PASS | 69ac724 (§1) | §11 |
 | F01 | Browser UAT — administrative setup | BLOCKED BY BROWSER EXECUTION | BLOCKED | — | §12 |
 | F02 | Browser UAT — Gateway lifecycle | BLOCKED BY BROWSER EXECUTION | BLOCKED | — | §12 |
 | F03 | Browser UAT — Budget exhaustion | BLOCKED BY BROWSER EXECUTION | BLOCKED | — | §12 |
@@ -95,19 +95,18 @@ Working-tree M16 changes sealed by this commit (all covered by the GREEN run):
 | F05 | Browser UAT — Reconciliation | BLOCKED BY BROWSER EXECUTION | BLOCKED | — | §12 |
 | F06 | Browser UAT — Permissions | BLOCKED BY BROWSER EXECUTION | BLOCKED | — | §12 |
 | F07 | Browser UAT — usability/visual | BLOCKED BY BROWSER EXECUTION | BLOCKED | — | §12 |
-| G01 | Full local regression | PASS | PASS | sealing commit (§14) | §14 |
-| G02 | Docker images | PASS | PASS | sealing commit (§14) | §14 |
-| G03 | Hosted CI | GREEN on final SHA | PENDING (§15) | final SHA (§15) | §15 |
-| G04 | Hosted Security | GREEN on final SHA | PENDING (§15) | final SHA (§15) | §15 |
-| G05 | CodeQL | GREEN on final SHA | PENDING (§15) | final SHA (§15) | §15 |
-| G06 | Trivy | GREEN on final SHA | PENDING (§15) | final SHA (§15) | §15 |
-| G07 | P0/P1 blockers | 0 | PASS (P0=0/P1=0, §16) | sealing commit | §16 |
+| G01 | Full local regression | PASS | PASS | 69ac724 (§14) | §14 |
+| G02 | Docker images | PASS | PASS | 69ac724 (§14) | §14 |
+| G03 | Hosted CI | GREEN on final SHA | PASS (run 34130589391) | 69ac724 (§15) | §15 |
+| G04 | Hosted Security | GREEN on final SHA | PASS (run 34130589387) | 69ac724 (§15) | §15 |
+| G05 | CodeQL | GREEN on final SHA | PASS (jobs 101769487448/101769487132) | 69ac724 (§15) | §15 |
+| G06 | Trivy | GREEN on final SHA | PASS (job 101769487545) | 69ac724 (§15) | §15 |
+| G07 | P0/P1 blockers | 0 | PASS (P0=0/P1=0, §16) | 69ac724 | §16 |
 
 Machine rows (A01–E04) were executed GREEN on code-under-test `ab46e86`
-plus the working-tree B05 proof sealed by this commit; the sealing commit
-SHA is the machine-execution SHA of record. `ab46e86` hosted runs
-(CI 34118229012 / Security 34118229025) are historical evidence only — fresh
-hosted runs are required on the final SHA (G03–G06 PENDING until green).
+plus the B05 working tree sealed as `69ac724`; §15 records the hosted runs
+landed on that exact final SHA. `ab46e86` hosted runs (CI 34118229012 /
+Security 34118229025) remain historical evidence only.
 
 ## 4. Production topology evidence
 
@@ -513,13 +512,16 @@ Historical runs (superseded by the new final SHA after this push):
 | Security on Sol-reviewed ab46e86 | 34118229025 | ab46e86 | SUCCESS (historical after this push) |
 | M16 hosted acceptance, if added | — | — | NOT RUN (no dedicated M16 workflow added) |
 
-Final SHA (this push; sealed externally after push):
+Final SHA `69ac724594f3428f1698211e4b67ffb445eb32ba` (PR #152):
 
-- CI run: PENDING on the final SHA (record run id + SUCCESS after green).
-- Security run: PENDING on the final SHA (record run id + SUCCESS after green).
-- CodeQL java-kotlin / javascript-typescript / Trivy / docker-build /
-  browser-e2e (automated suite — NOT a substitute for F01–F07): PENDING on
-  the final SHA; update each row from the landed runs.
+- CI run 34130589391: SUCCESS — backend-unit, backend-architecture,
+  backend-integration, gateway-unit, gateway-architecture, gateway-integration,
+  frontend-lint, frontend-test, frontend-build, docker-build (job 101769485847),
+  browser-e2e (job 101769485923, automated suite — NOT a substitute for
+  F01–F07 black-box UAT).
+- Security run 34130589387: SUCCESS — CodeQL java-kotlin (job 101769487448),
+  CodeQL javascript-typescript (job 101769487132), Trivy filesystem+images
+  (job 101769487545).
 
 ## 16. Findings
 
