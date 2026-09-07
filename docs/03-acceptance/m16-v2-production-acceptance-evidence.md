@@ -374,34 +374,43 @@ Record only sanitized metadata. If a production Provider/source-schema exact-cor
 
 ### Backend
 
-NOT RUN.
+Hosted `backend-unit` PASS (41s), `backend-architecture` PASS (53s),
+`backend-integration` PASS (5m55s) on exact PR head `b2ef312`
+(run 34084145157). Local unit run not repeated (hosted is authoritative).
 
 ### Gateway
 
-NOT RUN.
+Local: unit 113/113 GREEN (incl. new `GatewayMetricsTest` 2/2 and
+`GatewayResourceLimiterTest` 4/4). Hosted `gateway-unit` PASS (34s),
+`gateway-architecture` PASS (13s), `gateway-integration` PASS (1m48s) on
+`b2ef312` (run 34084145157).
 
 ### Frontend
 
-NOT RUN.
+Hosted `frontend-lint` PASS (20s), `frontend-test` PASS (1m43s),
+`frontend-build` PASS (25s) on `b2ef312` (run 34084145157).
 
 ### High-risk repeated race suites
 
-NOT RUN.
+Hosted `backend-integration` + `gateway-integration` PASS on `b2ef312`.
+Dedicated repeated M13–M15 race-matrix reruns remain TODO before final
+M16 COMPLETE claim.
 
 ## 15. Hosted gates
 
+Exact PR head: `b2ef3129ffb24d33413c5247d4f8ea53226c8175`
+(PR #152, https://github.com/BangShou1st/AI-CostOps/pull/152).
+
 | Gate | Run / job | Exact SHA | Result |
 | --- | --- | --- | --- |
-| CI | — | — | NOT RUN |
-| Security | — | — | NOT RUN |
-| CodeQL Java/Kotlin | — | — | NOT RUN |
-| CodeQL JS/TS | — | — | NOT RUN |
-| Trivy filesystem | — | — | NOT RUN |
-| Trivy backend image | — | — | NOT RUN |
-| Trivy frontend image | — | — | NOT RUN |
-| Trivy gateway image | — | — | NOT RUN |
-| Browser E2E | — | — | NOT RUN |
-| M16 hosted acceptance, if added | — | — | NOT RUN |
+| CI (backend-unit/arch/integration, gateway-unit/arch/integration, frontend lint/test/build, docker-build, browser-e2e) | 34084145157 | b2ef312 | PASS (all green) |
+| Security | 34084145192 (CodeQL+Trivy workflow) | b2ef312 | PASS (see CodeQL/Trivy rows) |
+| CodeQL Java/Kotlin | 34084145192 / job 101624864364 | b2ef312 | PASS (4m0s) |
+| CodeQL JS/TS | 34084145192 / job 101624864545 | b2ef312 | PASS (1m33s) |
+| Trivy (filesystem+images) | 34084145192 / job 101624864578 | b2ef312 | PASS (3m19s) |
+| Docker backend/frontend/gateway builds | 34084145157 docker-build | b2ef312 | PASS (1m52s) |
+| Browser E2E (hosted job) | 34084145157 / job 101624864509 | b2ef312 | PASS (3m18s, automated suite — NOT a substitute for F01-F07 black-box UAT) |
+| M16 hosted acceptance, if added | — | — | NOT RUN (no dedicated M16 workflow added) |
 
 ## 16. Findings
 
