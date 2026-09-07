@@ -29,12 +29,27 @@ param(
     [string]$MysqlBin = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
     [string]$MysqldumpBin = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe",
     [string]$GatewayBase = "http://127.0.0.1:18081",
+    [string]$MockBase = "http://127.0.0.1:18089",
     [Parameter(Mandatory)][string]$Suffix,
     [Parameter(Mandatory)][string]$RawKey,
     [Parameter(Mandatory)][long]$OrgId,
     [Parameter(Mandatory)][string]$GatewayEnvKeys,
-    [string]$ModelKey = "m16-accept-chat"
+    [string]$ModelKey = "m16-accept-chat",
+    # Acceptance-harness hygiene: runtime credentials travel via environment,
+    # never hard-coded. Defaults preserve the historical local values so
+    # existing runs keep working.
+    [string]$GatewayUser = "gw_m16",
+    [string]$RestoreGatewayPort = "18082",
+    [string]$RedisDb = "1"
 )
+
+$gatewayPassword = [Environment]::GetEnvironmentVariable("MYSQL_M16_GATEWAY_PASSWORD")
+if ([string]::IsNullOrWhiteSpace($gatewayPassword)) { throw "MYSQL_M16_GATEWAY_PASSWORD is not set." }
+$redisPassword = [Environment]::GetEnvironmentVariable("M16_REDIS_PASSWORD")
+if ([string]::IsNullOrWhiteSpace($redisPassword)) {
+    # Historical local default for the isolated acceptance stack.
+    $redisPassword = "m16-redis-accept-pass"
+}
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -64,11 +79,6 @@ $lineageTables = @("gateway_request", "gateway_route_attempt", "gateway_usage_fa
     "ledger_posting", "ledger_entry", "gateway_settlement",
     "provider_charge_disposition", "reconciliation_adjustment",
     "gateway_financial_resolution", "reconciliation_evidence")
-$sourceCounts = @{}
-foreach ($t in $lineageTables) {
-    $sourceCounts[$t] = [long](Invoke-Root -Sql ("SELECT COUNT(*) FROM " + $t + ";"))
-}
-Write-Output ("[M16-E04] source lineage tables captured (" + $lineageTables.Count + " tables)")
 
 # Backup via mysqldump (single transaction, routines/triggers included).
 # NOTE: dump WITHOUT --databases on purpose. With --databases the dump
@@ -78,19 +88,59 @@ Write-Output ("[M16-E04] source lineage tables captured (" + $lineageTables.Coun
 # Without --databases the dump is plain table DDL+DML applied to the
 # connection-selected database (--database=$restoreDb).
 $stamp = [DateTime]::UtcNow.ToString("yyyyMMddHHmmss")
+
+# The seed creates governed data but no request. Drive ONE request through the
+# live Gateway first so this run's org owns a full lineage
+# (request/route/usage/reservation/settlement) BEFORE the dump; otherwise the
+# org-scoped status read below would resolve to another org's request (or
+# nothing) and the status API would privacy-404 by design.
+Invoke-RestMethod -Method Post -Uri ($MockBase + "/admin/mode") -Body '{"mode":"ok"}' -ContentType "application/json" | Out-Null
+$seedKey = "m16-restore-seed-" + $stamp
+$seedHeaders = @{ Authorization = "Bearer $RawKey"; "Idempotency-Key" = $seedKey; "Content-Type" = "application/json" }
+$seedBody = '{"model":"' + $ModelKey + '","messages":[{"role":"user","content":"m16 restore lineage"}]}'
+try {
+    $seedReq = Invoke-WebRequest -Uri ($GatewayBase + "/v1/chat/completions") -Method Post -Headers $seedHeaders -Body $seedBody -SkipHttpErrorCheck -TimeoutSec 90
+    Write-Output ("[M16-E04] seed lineage request: HTTP " + $seedReq.StatusCode)
+    if ($seedReq.StatusCode -ne 200) { Add-Failure ("E04 setup: seed request got " + $seedReq.StatusCode + " (want 200).") }
+} catch {
+    Add-Failure ("E04 setup: seed request failed: " + $_.Exception.Message)
+}
+# The backend settlement worker settles asynchronously (5s poll). Wait for
+# THIS run's request to reach SETTLED before snapshotting; otherwise the
+# dump races the worker and the source keeps mutating under the comparison.
+$settledOk = $false
+for ($i = 0; $i -lt 24; $i++) {
+    Start-Sleep 5
+    $st = Invoke-Root ("SELECT s.status FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=" + $OrgId + " ORDER BY s.id DESC LIMIT 1;")
+    if ($st -eq "SETTLED") { $settledOk = $true; break }
+}
+Write-Output ("[M16-E04] seed lineage settled=" + $settledOk)
+if (-not $settledOk) { Add-Failure "E04 setup: seed request did not reach SETTLED before dump." }
+# Snapshot the source counts AFTER convergence: the settlement worker mutates
+# the source asynchronously, so counts taken before would race the dump.
+$sourceCounts = @{}
 $restoreDb = "m16restore_" + $stamp
 # Dump path must be visible to both PowerShell and cmd.exe: use a temp file
 # under the repo (removed afterwards), never a Git-Bash-only /tmp path.
 $dumpFile = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) (".m16dump-" + $stamp + ".tmp")
+# NOTE: NEVER --result-file on Windows: mysqldump's --result-file re-encodes
+# binary (UNHEX digest) bytes through the console code page and corrupts the
+# dump (E04 RED: `Unknown command '\?'` on load). cmd.exe `>` redirection
+# writes raw bytes untouched; add --hex-blob so binary columns are ASCII-safe.
 $env:MYSQL_PWD = $rootPassword
 try {
-    & $MysqldumpBin -h $MysqlHost -P $MysqlPort -u root --single-transaction --routines --triggers $Database --result-file=$dumpFile 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "mysqldump failed" }
+    $dumpCmd = '"' + $MysqldumpBin + '" -h ' + $MysqlHost + ' -P ' + $MysqlPort + ' -u root --single-transaction --routines --triggers --hex-blob ' + $Database + ' > "' + $dumpFile + '"'
+    $dumpOut = & cmd /c $dumpCmd 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) { throw ("mysqldump failed: " + $dumpOut.Trim()) }
 } finally {
     Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
 }
 $dumpSize = (Get-Item $dumpFile).Length
 Write-Output ("[M16-E04] dump size=" + $dumpSize + " bytes")
+foreach ($t in $lineageTables) {
+    $sourceCounts[$t] = [long](Invoke-Root -Sql ("SELECT COUNT(*) FROM " + $t + ";"))
+}
+Write-Output ("[M16-E04] source lineage tables captured (" + $lineageTables.Count + " tables)")
 
 # Restore into an isolated database; grant the runtime identity there too.
 # The dump is loaded via cmd.exe input redirection (never a PowerShell pipe:
@@ -116,33 +166,91 @@ foreach ($t in $lineageTables) {
 }
 if ($failures.Count -eq 0) { Write-Output "[M16-E04] all lineage table counts match." }
 
+# ---- Financial semantic comparison: source vs restore must preserve the
+# actual monetary truth, not just row counts. Every query below selects
+# deterministic ordered value rows with TAB separators and LF line endings
+# (mysql -N -B output is tab-separated; PowerShell re-joins multi-line output
+# with spaces, so normalize before comparing). Auto-increment ids are
+# excluded EXCEPT as join keys inside one query (both sides come from the
+# same dump, so internal ids are stable); timestamps are never compared.
+function Normalize-Rows([string]$Text) {
+    if ([string]::IsNullOrWhiteSpace($Text)) { return @() }
+    $lines = @($Text -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+    return @($lines | Sort-Object)
+}
+function Compare-Semantic([string]$Label, [string]$Sql) {
+    $src = @(Normalize-Rows (Invoke-Root -Sql $Sql -Db $Database))
+    $rst = @(Normalize-Rows (Invoke-Root -Sql $Sql -Db $restoreDb))
+    $same = ($src.Count -eq $rst.Count)
+    if ($same) {
+        for ($i = 0; $i -lt $src.Count; $i++) {
+            if ($src[$i] -cne $rst[$i]) { $same = $false; break }
+        }
+    }
+    if ($same) {
+        Write-Output ("[M16-E04] semantic PASS: " + $Label + " (" + $src.Count + " row(s))")
+    } else {
+        Add-Failure ("E04 semantic mismatch: " + $Label + " (source=" + $src.Count + " restore=" + $rst.Count + ")")
+        $n = [Math]::Max($src.Count, $rst.Count)
+        for ($i = 0; $i -lt $n; $i++) {
+            $a = if ($i -lt $src.Count) { $src[$i] } else { "<missing>" }
+            $b = if ($i -lt $rst.Count) { $rst[$i] } else { "<missing>" }
+            if ($a -cne $b) {
+                Write-Output ("[M16-E04-RED] row ${i}: source=[" + $a + "] restore=[" + $b + "]")
+                if ($i -ge 4) { Write-Output "[M16-E04-RED] ... (truncated)"; break }
+            }
+        }
+    }
+}
+Compare-Semantic "gateway_settlement" ("SELECT settlement_key,request_id,status,CAST(posted_amount AS CHAR),currency,ledger_posting_id FROM gateway_settlement ORDER BY settlement_key;")
+Compare-Semantic "ledger_posting" ("SELECT posting_key,source_type,source_id,status FROM ledger_posting ORDER BY posting_key;")
+Compare-Semantic "ledger_entry" ("SELECT posting_id,entry_index,entry_type,CAST(amount AS CHAR),currency FROM ledger_entry ORDER BY posting_id,entry_index;")
+Compare-Semantic "budget" ("SELECT org_id,billing_period_id,scope_type,scope_id,CAST(actual_amount AS CHAR),CAST(committed_amount AS CHAR),CAST(total_amount AS CHAR),status,currency FROM budget ORDER BY org_id,billing_period_id,scope_type,scope_id;")
+Compare-Semantic "budget_reservation" ("SELECT request_id,route_attempt_id,status,CAST(reserved_amount AS CHAR),currency,finalized_at IS NOT NULL,released_at IS NOT NULL FROM budget_reservation ORDER BY request_id,route_attempt_id;")
+Compare-Semantic "reconciliation" ("SELECT 'run',id,status FROM reconciliation_run UNION ALL SELECT 'case',id,status FROM reconciliation_case UNION ALL SELECT 'evidence',id,match_kind FROM reconciliation_evidence ORDER BY 1,2,3;")
+# Expected-zero tables in the normal acceptance path (no statement charges
+# imported, so no dispositions/adjustments/resolutions exist). Assert BOTH
+# sides are zero: the invariant is "nothing fabricated", not "equal counts".
+foreach ($zt in @("provider_charge_disposition", "reconciliation_adjustment", "gateway_financial_resolution")) {
+    $zsrc = [long](Invoke-Root -Sql ("SELECT COUNT(*) FROM " + $zt + ";") -Db $Database)
+    $zrst = [long](Invoke-Root -Sql ("SELECT COUNT(*) FROM " + $zt + ";") -Db $restoreDb)
+    if ($zsrc -eq 0 -and $zrst -eq 0) {
+        Write-Output ("[M16-E04] semantic PASS: " + $zt + " expected zero (source=0 restore=0)")
+    } else {
+        Add-Failure ("E04: " + $zt + " expected zero but source=" + $zsrc + " restore=" + $zrst)
+    }
+}
+
 # Empty-Redis Gateway against the restored DB.
 # NOTE: the JDBC URL is pre-assembled into $restoreUrl. An inline ("..."+$x+"...")
 # group expression on a backtick-continued docker line mis-parses and eats the
 # image reference (docker: invalid reference format); a plain "...=$var" argument
 # is robust regardless of continuation.
 $restoreUrl = "jdbc:mysql://m16-mysql-accept:3306/" + $restoreDb + "?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC"
-docker exec m16-redis-accept redis-cli -a 'm16-redis-accept-pass' -n 1 FLUSHDB | Out-Null
+docker exec m16-redis-accept redis-cli -a "$redisPassword" -n $RedisDb FLUSHDB | Out-Null
 docker rm -f m16-gateway-restore | Out-Null
-docker run -d --name m16-gateway-restore --network m16-accept-net -p 127.0.0.1:18082:8081 `
+docker run -d --name m16-gateway-restore --network m16-accept-net -p ("127.0.0.1:" + $RestoreGatewayPort + ":8081") `
   -e "SPRING_DATASOURCE_URL=$restoreUrl" `
-  -e SPRING_DATASOURCE_USERNAME=gw_m16 -e SPRING_DATASOURCE_PASSWORD='GwM16-Runtime-2026-Accept' `
-  -e SPRING_DATA_REDIS_HOST=m16-redis-accept -e SPRING_DATA_REDIS_PORT=6379 -e SPRING_DATA_REDIS_PASSWORD='m16-redis-accept-pass' `
-  -e SPRING_DATA_REDIS_DATABASE=1 `
+  -e SPRING_DATASOURCE_USERNAME="$GatewayUser" -e SPRING_DATASOURCE_PASSWORD="$gatewayPassword" `
+  -e SPRING_DATA_REDIS_HOST=m16-redis-accept -e SPRING_DATA_REDIS_PORT=6379 -e SPRING_DATA_REDIS_PASSWORD="$redisPassword" `
+  -e SPRING_DATA_REDIS_DATABASE=$RedisDb `
   -e AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1="$GatewayEnvKeys" -e AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1="$GatewayEnvKeys" -e AICOSTOPS_PROVIDER_KEK_V1="$GatewayEnvKeys" `
   -e AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY=10000 -e AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND=1000 `
   -e AICOSTOPS_GATEWAY_QUOTA_REQUESTS_PER_DAY=100000 `
   ai-costops-gateway:m16 | Out-Null
 Start-Sleep 22
-$ready = Invoke-WebRequest -Uri "http://127.0.0.1:18082/actuator/health/readiness" -SkipHttpErrorCheck -TimeoutSec 30
+$restoreBase = "http://127.0.0.1:" + $RestoreGatewayPort
+$ready = Invoke-WebRequest -Uri ($restoreBase + "/actuator/health/readiness") -SkipHttpErrorCheck -TimeoutSec 30
 Write-Output ("[M16-E04] restored-gateway readiness: HTTP " + $ready.StatusCode)
 if ($ready.StatusCode -ne 200) { Add-Failure "E04: restored gateway not ready." }
 
-# Read a restored request through the status API surface.
+# Read a restored request through the status API surface. The request must
+# belong to THIS run's org: the status surface only serves the owning
+# credential (cross-credential reads are privacy-preserving 404 by design).
 $restoredReqId = Invoke-Root -Sql ("SELECT public_request_id FROM gateway_request WHERE org_id=" + $OrgId + " ORDER BY id DESC LIMIT 1;") -Db $restoreDb
 $headers = @{ Authorization = "Bearer $RawKey" }
 try {
-    $status = Invoke-WebRequest -Uri ("http://127.0.0.1:18082/v1/gateway/requests/" + $restoredReqId) -Headers $headers -SkipHttpErrorCheck -TimeoutSec 30
+    $status = Invoke-WebRequest -Uri ($restoreBase + "/v1/gateway/requests/" + $restoredReqId) -Headers $headers -SkipHttpErrorCheck -TimeoutSec 30
     Write-Output ("[M16-E04] restored request status API: HTTP " + $status.StatusCode)
     if ($status.StatusCode -ne 200) { Add-Failure "E04: restored request not readable via Gateway." }
 } catch {
@@ -154,7 +262,7 @@ $newKey = "m16-restore-new-" + $stamp
 $nheaders = @{ Authorization = "Bearer $RawKey"; "Idempotency-Key" = $newKey; "Content-Type" = "application/json" }
 $nbody = '{"model":"' + $ModelKey + '","messages":[{"role":"user","content":"m16 restore probe"}]}'
 try {
-    $new = Invoke-WebRequest -Uri "http://127.0.0.1:18082/v1/chat/completions" -Method Post -Headers $nheaders -Body $nbody -SkipHttpErrorCheck -TimeoutSec 90
+    $new = Invoke-WebRequest -Uri ($restoreBase + "/v1/chat/completions") -Method Post -Headers $nheaders -Body $nbody -SkipHttpErrorCheck -TimeoutSec 90
     Write-Output ("[M16-E04] new work on restored DB: HTTP " + $new.StatusCode)
     if ($new.StatusCode -ne 200) { Add-Failure ("E04: new work got " + $new.StatusCode + " on restored DB.") }
 } catch {
@@ -162,7 +270,7 @@ try {
 }
 
 docker rm -f m16-gateway-restore | Out-Null
-docker exec m16-redis-accept redis-cli -a 'm16-redis-accept-pass' -n 1 FLUSHDB | Out-Null
+docker exec m16-redis-accept redis-cli -a "$redisPassword" -n $RedisDb FLUSHDB | Out-Null
 $env:MYSQL_PWD = $rootPassword
 try {
     & $MysqlBin -h $MysqlHost -P $MysqlPort -u root -e ("DROP DATABASE " + $restoreDb + ";") 2>&1 | Out-Null

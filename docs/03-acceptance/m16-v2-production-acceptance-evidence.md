@@ -1,6 +1,6 @@
 # M16 — V2 Production Acceptance Evidence
 
-**Status:** NOT STARTED  
+**Status:** MACHINE ACCEPTANCE COMPLETE / EXTERNAL GATES BLOCKED
 **Primary Issue:** #151  
 **Branch:** `feat/m16-v2-production-acceptance`  
 **Design baseline:** `d287be1217430d415fe02c80110c79e136d8772c`  
@@ -14,54 +14,65 @@
 | --- | --- |
 | Branch | `feat/m16-v2-production-acceptance` |
 | Starting baseline | `d287be1217430d415fe02c80110c79e136d8772c` |
-| Exact final PR head | NOT YET AVAILABLE |
+| Machine-acceptance SHA | `fe18f97` (+ working-tree M16 changes below; final SHA after commit) |
+| Exact final PR head | NOT YET AVAILABLE (after push) |
 | Final Sol-reviewed SHA | NOT YET AVAILABLE |
+
+Working-tree M16 changes at machine-acceptance time (all reviewed below):
+
+- `gateway/.../ChatCompletionController.java` — B04 product fix (stream permit held for whole SSE lifetime)
+- `gateway/.../StreamPermitCeilingIntegrationTest.java` — new B04 RED/GREEN regression
+- `scripts/m16-production-acceptance.ps1` — single orchestrator (new)
+- `scripts/m16/invoke-m16-load.ps1` — B03/B04 harness (new)
+- `scripts/m16/invoke-m16-b01-idempotency.ps1`, `invoke-m16-b02-budget.ps1`, `invoke-m16-failure.ps1`, `invoke-m16-crash.ps1`, `invoke-m16-provider-revoke.ps1`, `invoke-m16-leakscan.ps1` — scenario harnesses (new)
+- `scripts/m16/mock-provider/mock_provider.py` — hold/release barrier for B04 (modified)
+- `scripts/m16/invoke-m16-restore.ps1` — E04 drill (modified: dump encoding fix)
 
 ## 2. Global financial invariants
 
 | Invariant | Required | Observed | Status | Evidence |
 | --- | ---: | ---: | --- | --- |
-| Lost settlement | 0 | NOT RUN | NOT RUN | — |
-| Duplicate Ledger effect | 0 | NOT RUN | NOT RUN | — |
-| Silent Reservation leak | 0 | NOT RUN | NOT RUN | — |
-| Race-induced Budget overspend | 0 | NOT RUN | NOT RUN | — |
-| Blind Provider redispatch | 0 | NOT RUN | NOT RUN | — |
-| Provider secret leak | 0 | NOT RUN | NOT RUN | — |
-| Gateway key leak | 0 | NOT RUN | NOT RUN | — |
-| Prompt/completion leak | 0 | NOT RUN | NOT RUN | — |
+| Lost settlement | 0 | 0 (B03: 31 settled / 0 pending; C07: 1/1; E04: 304/304) | PASS | §6, §7, §11 |
+| Duplicate Ledger effect | 0 | 0 (posting:entry:settled = 1:1:1, no dup keys) | PASS | §6 |
+| Silent Reservation leak | 0 | 0 (B05 held 1022.36/1200; C09 recovery converges) | PASS | §6, §7 |
+| Race-induced Budget overspend | 0 | 0 (B02 held == total 31.9488; B05 held <= total) | PASS | §6 |
+| Blind Provider redispatch | 0 | 0 (B01 ops=1; C02/C06 replay 409 ops=1; D02 replay 409) | PASS | §6, §7, §8 |
+| Provider secret leak | 0 | 0 sentinels in gateway logs/metrics | PASS | §10 |
+| Gateway key leak | 0 | 0 sentinels in logs/metrics/error bodies | PASS | §10 |
+| Prompt/completion leak | 0 | 0 forbidden; client body carries completion by design | PASS | §10 |
 
 ## 3. Acceptance matrix
 
 | ID | Scenario | Required result | Status | Exact SHA | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| A01 | Production topology boot | All required runtime services healthy | NOT RUN | — | — |
-| A02 | Gateway readiness | Correct dependency/correctness readiness | NOT RUN | — | — |
-| A03 | Gateway DB least privilege | Allowed runtime succeeds; forbidden financial mutation denied by MySQL | NOT RUN | — | — |
-| A04 | Unsafe production config | Startup rejected | NOT RUN | — | — |
-| B01 | 100-way identical replay | One Provider operation; one durable request identity | NOT RUN | — | — |
-| B02 | Budget concurrent exhaustion | No race overspend | NOT RUN | — | — |
-| B03 | Stepped non-stream load | Bounded stable operation through measured envelope | NOT RUN | — | — |
-| B04 | Concurrent SSE | Configured stream bound enforced | NOT RUN | — | — |
-| B05 | Overload | Bounded safe rejection | NOT RUN | — | — |
-| C01 | MySQL down before dispatch | Zero Provider calls | NOT RUN | — | — |
-| C02 | MySQL failure after dispatch | Uncertainty preserved; zero blind redispatch | NOT RUN | — | — |
-| C03 | MySQL restart | Runtime reconnects; financial facts intact | NOT RUN | — | — |
-| C04 | Redis outage | Mandatory dependency behavior fails closed | NOT RUN | — | — |
-| C05 | Redis state loss | No fabricated monetary availability | NOT RUN | — | — |
-| C06 | Gateway restart | Durable request recovery | NOT RUN | — | — |
-| C07 | Backend restart | Settlement recovery | NOT RUN | — | — |
-| C08 | Settlement retry | Exactly one final Ledger outcome or explicit reconciliation requirement | NOT RUN | — | — |
-| C09 | Expired Reservation | RELEASED or PENDING_HOLD according to evidence | NOT RUN | — | — |
-| D01 | Certified safe Provider failure | Eligible safe failover only | NOT RUN | — | — |
-| D02 | Billable-possible Provider failure | Automatic failover stops | NOT RUN | — | — |
-| D03 | Credential revoke | Future work blocked; incurred work preserved | NOT RUN | — | — |
-| D04 | Settlement vs Close | Deterministic convergence | NOT RUN | — | — |
-| D05 | Reconciliation vs Close | Deterministic convergence | NOT RUN | — | — |
-| D06 | Statement difference | Governed append-only correction | NOT RUN | — | — |
-| E01 | Prometheus | Backend + Gateway scraped | PASS | 9e585ed | §9 |
-| E02 | Alerts | Injected failures produce intended signals | PASS | 9e585ed | §9 |
-| E03 | Leak scan | Zero forbidden sentinel leakage | NOT RUN | — | — |
-| E04 | V2 restore | Full durable financial lineage recoverable without Redis | PASS | 9e585ed | §11 |
+| A01 | Production topology boot | All required runtime services healthy | PASS | fe18f97+wt | §4 |
+| A02 | Gateway readiness | Correct dependency/correctness readiness | PASS | fe18f97+wt | §4 |
+| A03 | Gateway DB least privilege | Allowed runtime succeeds; forbidden financial mutation denied by MySQL | PASS | fe18f97+wt | §5 |
+| A04 | Unsafe production config | Startup rejected | PASS | fe18f97+wt | §4 |
+| B01 | 100-way identical replay | One Provider operation; one durable request identity | PASS | fe18f97+wt | §6 |
+| B02 | Budget concurrent exhaustion | No race overspend | PASS | fe18f97+wt | §6 |
+| B03 | Stepped non-stream load | Bounded stable operation through measured envelope | PASS | fe18f97+wt | §6 |
+| B04 | Concurrent SSE | Configured stream bound enforced | PASS | fe18f97+wt | §6 |
+| B05 | Overload | Bounded safe rejection | PASS | fe18f97+wt | §6 |
+| C01 | MySQL down before dispatch | Zero Provider calls | PASS | fe18f97+wt | §7 |
+| C02 | MySQL failure after dispatch | Uncertainty preserved; zero blind redispatch | PASS | fe18f97+wt | §7 |
+| C03 | MySQL restart | Runtime reconnects; financial facts intact | PASS | fe18f97+wt | §7 |
+| C04 | Redis outage | Mandatory dependency behavior fails closed | PASS | fe18f97+wt | §7 |
+| C05 | Redis state loss | No fabricated monetary availability | PASS | fe18f97+wt | §7 |
+| C06 | Gateway restart | Durable request recovery | PASS | fe18f97+wt | §7 |
+| C07 | Backend restart | Settlement recovery | PASS | fe18f97+wt | §7 |
+| C08 | Settlement retry | Exactly one final Ledger outcome or explicit reconciliation requirement | PASS | fe18f97+wt | §7 |
+| C09 | Expired Reservation | RELEASED or PENDING_HOLD according to evidence | PASS | fe18f97+wt | §7 |
+| D01 | Certified safe Provider failure | Eligible safe failover only | PASS | fe18f97+wt | §8 |
+| D02 | Billable-possible Provider failure | Automatic failover stops | PASS | fe18f97+wt | §8 |
+| D03 | Credential revoke | Future work blocked; incurred work preserved | PASS | fe18f97+wt | §8 |
+| D04 | Settlement vs Close | Deterministic convergence | PASS | fe18f97+wt | §8 |
+| D05 | Reconciliation vs Close | Deterministic convergence | PASS | fe18f97+wt | §8 |
+| D06 | Statement difference | Governed append-only correction | PASS | fe18f97+wt | §8 |
+| E01 | Prometheus | Backend + Gateway scraped | PASS | fe18f97+wt | §9 |
+| E02 | Alerts | Injected failures produce intended signals | PASS | fe18f97+wt | §9 |
+| E03 | Leak scan | Zero forbidden sentinel leakage | PASS | fe18f97+wt | §10 |
+| E04 | V2 restore | Full durable financial lineage recoverable without Redis | PASS | fe18f97+wt | §11 |
 | F01 | Browser UAT — administrative setup | PASS | NOT RUN | — | — |
 | F02 | Browser UAT — Gateway lifecycle | PASS + matching durable truth | NOT RUN | — | — |
 | F03 | Browser UAT — Budget exhaustion | PASS + no overspend | NOT RUN | — | — |
@@ -81,131 +92,176 @@
 
 ### Service inventory
 
-NOT RUN.
+A01 PASS. Isolated `m16accept` stack on `m16-accept-net`: `m16-mysql-accept`
+(MySQL 8.4), `m16-redis-accept` (Redis 8.8.1), `m16-backend-accept` (:18080),
+`m16-gateway-accept` (:18081, `gw_m16` least-privilege identity, ceiling 128),
+`m16-mock-provider` (:18089, deterministic hold/release barrier), `m16-prometheus`
+(:19090). `verify-m16-topology.ps1`: `M16_TOPOLOGY_GREEN`.
 
 ### Health/readiness results
 
-NOT RUN.
+A02 PASS. Gateway + Backend `/actuator/health/readiness` both 200.
+Gateway image rebuilt from current sources (`ai-costops-gateway:m16`) after
+the B04 permit fix; readiness re-verified 200 with `gateway_active_streams 0.0`.
 
 ### Gateway production configuration negative tests
 
-NOT RUN.
+A04 PASS. `GatewayProductionConfigurationValidatorTest` GREEN via orchestrator
+(maven-unit gate). Production fail-fast covers HMAC/KEK/datasource/resource bounds.
 
 ## 5. Gateway database least-privilege evidence
 
 ### Effective Gateway grants
 
-NOT RUN.
+A03 PASS (`M16_PRIVILEGE_GREEN`). `SHOW GRANTS`: no GRANT OPTION, no DELETE,
+Gateway-owned writes on 5 tables only (`budget_reservation`, `gateway_request`,
+`gateway_route_attempt`, `gateway_usage_fact`, `gateway_usage_dimension`).
 
 ### Positive allowed operations
 
-NOT RUN.
+SELECT on budget/billing_period/ledger_posting; SELECT ... FOR UPDATE on
+budget/billing_period/gateway_request; gateway_request INSERT+UPDATE (rolled back).
 
 ### Forbidden SQL denied by MySQL
 
-NOT RUN.
+All 9 negatives denied with ERROR 1142: budget UPDATE, billing_period close,
+ledger_posting INSERT, ledger_entry INSERT, gateway_settlement INSERT,
+provider_credential UPDATE, gateway_usage_fact DELETE, DDL CREATE, DDL DROP.
 
-The evidence must demonstrate DB-engine enforcement for Control-Plane-owned financial truth; Java code comments or architecture tests alone are insufficient.
+The evidence demonstrates DB-engine enforcement for Control-Plane-owned financial truth; Java code comments or architecture tests alone are insufficient.
 
 ## 6. Load / concurrency / streaming evidence
 
 ### 100-way identical replay
 
-NOT RUN.
-
-Required final counts:
+B01 PASS. `HTTP 200 x 1, HTTP 409 x 99`, `provider_operations=1`,
+`gateway_requests=1`, `effective_reservations=1`, `billable_attempts=1`, `http_200=1`.
 
 ```text
 gateway_request identity       = 1
-effective Reservation          <= 1
-economically billable attempt  <= 1
+effective Reservation          = 1 (<= 1)
+economically billable attempt  = 1 (<= 1)
 Provider operation             = 1
 duplicate Ledger effect        = 0
 ```
 
 ### Budget concurrency
 
-NOT RUN.
+B02 PASS. 1-slot REQUIRED budget: `HTTP 200 x 1, HTTP 429 x 19`,
+`provider_operations=1`, `held=31.9488/total=31.9488` (no overspend).
 
 ### Non-stream load envelope
 
-NOT RUN.
+B03 PASS. Steps 1/5/20 all `provider_ops == http_200` (1/5/20), no 5xx,
+p50/p95/p99 recorded per step (e.g. step=20: p50=627ms p95=761ms p99=761ms).
+Settlement exactly-once: `requests=37 settled=31 pending=0
+ledger_posting=31 ledger_entry=31`, dup keys 0, cardinality 1:1:1, all postings
+`SYSTEM/GATEWAY_SETTLEMENT`. (The old `ledger must be 0` assertion was a harness
+bug: Backend settlement legitimately posts Ledger; fixed to exactly-once checks.)
 
 ### SSE/active-stream envelope
 
-NOT RUN.
+B04 PASS. Live ceiling 128 sampled burst `HTTP 200 x 5, HTTP 403 x 3`
+(`provider_ops=5`, OPTIONAL-mode budget 403 by design — saturation, not product
+failure). Deterministic ceiling proof on scratch probe (ceiling=2, same image):
+`active_streams=2.0 provider_ops=2 mock_held=2`, ceiling+1 `HTTP 429
+GATEWAY_RATE_LIMITED` with `ops=2` (zero new dispatch), holders complete 200
+2/2, gauge returns to 0.0, fresh stream 200 with `[DONE]`.
+
+**B04 product bug found and fixed (RED → root cause → minimal GREEN):**
+the outer controller Mono's `doFinally` released the stream permit when SSE
+headers committed, freeing the ceiling slot while upstream still occupied it
+(`active_streams=0.0` with 2 held streams, ceiling+1 wrongly admitted 200).
+Fix: streaming permits release ONLY through the Flux body's `doFinally`
+(`releaseStreamPermit`); non-stream/early-failure permits keep the outer path
+(`releasePermit`). Regression: new `StreamPermitCeilingIntegrationTest`
+(RED without fix: `active streams never reached 1`; GREEN with fix 1/1).
 
 ### Measured operating envelope
 
-NOT RUN.
-
-Do not state an arbitrary throughput SLO. Record the observed safe operating range, first saturation point, dominant bottleneck, and recommended configuration.
+No invented SLO. Observed: 32-way burst on a 1200 budget admits 32/32
+(`held=1022.36/1200`, no saturation at this concurrency); live-128 ceiling
+never saturated by the 8-stream sample (budget 403s are the binding constraint
+in the shared org). First saturation proven deterministically at ceiling=2.
+Dominant bottleneck in acceptance is budget/quota policy, not the stream
+Semaphore. Recommended: keep `max-active-streams=128` default; size per
+upstream capacity with the B04 probe pattern.
 
 ## 7. Failure / restart / recovery evidence
 
 ### MySQL pre-dispatch failure
 
-NOT RUN.
+C01 PASS. `mysql-down: HTTP 503 provider_ops=0` (fail closed, zero dispatch).
 
 ### MySQL post-dispatch failure
 
-NOT RUN.
+C02 PASS. Mid-flight `UPSTREAM_ACTIVE` across MySQL stop/start stays
+`UPSTREAM_ACTIVE`, `ops=1`; replay same identity `HTTP 409 ops=1` (no second
+execution); fresh work 200.
 
 ### MySQL restart
 
-NOT RUN.
+C03 PASS. Readiness 200 after restart; `after-restart: HTTP 200 ops=1`.
 
 ### Redis outage / restart / state loss
 
-NOT RUN.
+C04/C05 PASS. `redis-down: HTTP 503 ops=0` (fail closed); after-restart 200/1;
+FLUSHALL then `HTTP 200 ops=1` (MySQL truth governs, no fabricated budget).
 
 ### Gateway crash windows
 
-NOT RUN.
+C06 PASS. `docker kill -s KILL` mid-`UPSTREAM_ACTIVE`: durable state survives,
+replay `HTTP 409 ops=1`, fresh work 200. (`Start-Gateway` uses the rebuilt
+`ai-costops-gateway:m16` image, so the B04 fix is active post-restart.)
 
 ### Backend settlement crash/restart
 
-NOT RUN.
+C07 PASS. Baseline 200, backend restart, readiness 200, `settled=1
+ledger_postings=1 requests=1` (exactly-once convergence).
 
 ### Reservation recovery
 
-NOT RUN.
+C09 PASS. `ReservationRecoveryIntegrationTest` 7/7 GREEN (RELEASED vs
+PENDING_HOLD per dispatch evidence; TTL never invents no-charge).
 
 ### Settlement retry
 
-NOT RUN.
+C08 PASS. `GatewaySettlementTransactionIntegrationTest`
+(concurrentWorkers + repeatedSettlement) 2/2 GREEN: one settlement, one
+financial mutation, no double post.
 
 ## 8. Provider / routing resilience evidence
 
 ### Certified SAFE failure
 
-NOT RUN.
+D01 PASS. `GatewaySafeFailoverIntegrationTest` 4/4 GREEN (DNS SAFE failure
+releases A and dispatches B once; static skip → INITIAL_FALLBACK).
 
 ### BILLABLE_POSSIBLE failure
 
-NOT RUN.
+D02 PASS. `http500 first: HTTP 502 ops=1; replay: HTTP 409 ops=1`, latest
+attempt `BILLABLE_POSSIBLE` (no blind redispatch, no failover).
 
 ### Client disconnect
 
-NOT RUN.
+Covered by B04 release proof (permits return to 0 on cancel/complete) and the
+streaming cancellation integration suites in §14.
 
 ### Live credential revoke
 
-NOT RUN.
+D03 PASS. Baseline A 200; revoked-key B `HTTP 401 ops_before=1 ops_after=1`
+(zero new dispatch); `requests before=2 after=2` (no new billable state);
+A's incurred work settles normally (D02 replay path).
 
 ## 9. Observability / alert evidence
 
 ### Prometheus targets
 
-E01 PASS at HEAD `9e585ed` (+ working-tree M16 changes). Prometheus
-v2.54.1 on the isolated `m16-accept-net` scraped BOTH `m16-backend-accept:8080`
-and `m16-gateway-accept:8081` at `/actuator/prometheus`, both `health="up"`
-(`scrapePool` m16-backend / m16-gateway, 5s interval in acceptance).
-Verified live: `gateway_request_total` and
-`aicostops_reconciliation_run_total` both queryable through Prometheus.
-Committed `deploy/observability/prometheus/prometheus.yml` now carries both
-`aicostops-backend` (`backend:8080`) and `aicostops-gateway`
-(`gateway:8081`) jobs.
+E01 PASS at `fe18f97`+working-tree (full-run gate).
+`prometheus scrapes m16-gateway + m16-backend up=1`. Prometheus v2.54.1 on the
+isolated `m16-accept-net` scraped BOTH `m16-backend-accept:8080` and
+`m16-gateway-accept:8081` at `/actuator/prometheus`, both `health="up"`.
+Committed `deploy/observability/prometheus/prometheus.yml` carries both jobs.
 
 ### Gateway metrics
 
@@ -227,26 +283,18 @@ unit suite 113/113 GREEN after the change.
 
 ### Alert injection results
 
-E02 PASS (injection-verified). Committed
-`deploy/observability/prometheus/alerts.yml` adds group `aicostops-m16`
-(7 rules, all `health="ok"` in Prometheus): billable-possible safety
-spike, UNKNOWN-usage spike, metering-unknown spike, Redis dependency
-error, settlement-retry backlog, reconciliation-required backlog,
-PENDING_HOLD recovery wave. Thresholds are linked to M16 measurements
-(see rule comments), not invented SLOs. Injection: mock Provider
-`http500` x5 (non-stream), observed 5x502 + exactly 5 Provider operations
-+ `gateway_provider_safety_total{BILLABLE_POSSIBLE}=5` +
-`gateway_usage_total{UNKNOWN}=5` + `gateway_metering_unknown_total=5`
-(D02 semantics: no blind redispatch). 6th injection hit the expected
-circuit-open 403, then recovered to 200 after cooldown. Firing proven via
-`/api/v1/alerts`: `M16GatewayUnknownUsageSpike` FIRING and
-`M16GatewayMeteringUnknownSpike` FIRING (value ~2.09 in 2m window at
-query time). Backlog rules correctly stayed inactive (zero settlement
-retries / zero RECONCILIATION_REQUIRED in acceptance = healthy).
-
-Alert thresholds must be linked to M16 measurements where applicable.
+E02 PASS at `fe18f97`+working-tree (full-run gate, `focused step
+alert-injection`). `http500` x3 → `502 x 3`; `/api/v1/alerts` shows
+`M16GatewayProviderSafetyBillablePossible:firing`,
+`M16GatewayUnknownUsageSpike:firing`, `M16GatewayMeteringUnknownSpike:firing`.
+Thresholds linked to M16 measurements (see rule comments), not invented SLOs.
+(Earlier drill at `9e585ed` additionally proved circuit-open 403 on the 6th
+injection with recovery to 200; backlog rules correctly inactive when healthy.)
 
 ## 10. Security / privacy leak scan
+
+E03 PASS at `fe18f97`+working-tree (full-run gate,
+`invoke-m16-leakscan.ps1 exit 0`, `M16_E03_PASS`).
 
 ### Synthetic sentinels
 
@@ -254,13 +302,16 @@ Use only fake values. Never paste real secrets into this document.
 
 ### Surfaces scanned
 
-NOT RUN.
+Gateway logs, mock Provider logs, `/actuator/prometheus` snapshot, error
+envelopes (success 200 + failure 401 paths).
 
 ### Result
 
-NOT RUN.
-
-Required:
+Zero forbidden leakage. Per-surface: gateway-logs raw-key/prompt/idempotency
+clean; metrics raw-key/prompt clean; error-body raw-key/prompt clean; provider
+secret absent from gateway logs/metrics. Two `info` notes (by design, not
+leaks): the client response body carries the completion, and the mock (as the
+Provider stand-in) sees prompts — a real Provider sees prompts by design.
 
 ```text
 raw Gateway key leakage    = 0
@@ -273,54 +324,30 @@ completion leakage         = 0
 
 ## 11. V2 backup / restore evidence
 
-E04 PASS at HEAD `9e585ed` (+ untracked `scripts/m16/invoke-m16-restore.ps1`).
-Executed 2026-09-07 (UTC) against the isolated M16 acceptance stack
-(MySQL `m16accept` on 127.0.0.1:13307, Redis DB1 flushed empty, Gateway
-`:18081`, mock Provider, Backend settlement worker on `:18080` with Flyway
-disabled because the M16 seed database carries V1..V23 tables without a
-Flyway history table).
+E04 PASS at `fe18f97`+working-tree (full-run gate, 2026-09-07 UTC) against the
+isolated M16 acceptance stack (MySQL `m16accept` on 127.0.0.1:13307, Gateway
+`:18081`, mock Provider, Backend settlement worker on `:18080`).
 
-Source truth (all produced through production paths, no SQL fabrication):
-`gateway_request`=6, `gateway_route_attempt`=96, `gateway_usage_fact`=54,
-`gateway_usage_dimension`=102, `budget_reservation`=57, `budget`=23,
-`billing_period`=23, `gateway_credential`=24, `routing_policy`=23,
-`routing_policy_candidate`=23, `pricing_version`=23, `pricing_rate`=46,
-`provider_account`=23, `provider_credential`=4, `ledger_posting`=6,
-`ledger_entry`=6, `gateway_settlement`=6 (all SETTLED, one per request,
-exactly-once), `reconciliation_run`=2, `reconciliation_case`=2,
-`reconciliation_evidence`=2 (AGGREGATE_SCOPE/MISSING_EXTERNAL), no
-`provider_charge_disposition`/`reconciliation_adjustment`/
-`gateway_financial_resolution` (no statement charges imported, so none
-expected). Settlement/Ledger/Budget-actual/Reservation-FINALIZED were
-produced by the real `GatewaySettlementWorker` poll; reconciliation runs
-were produced by real `POST /api/v1/reconciliation-runs` calls with a
-formally-authorized FINANCE_ADMIN identity (org-scoped role_assignment +
-HS256 JWT), one org per user (single-active-membership constraint).
+This run: seed lineage 200 → SETTLED, dump 1089197 bytes, load rc=0, all 21
+lineage tables match, 6 semantic comparisons PASS (`gateway_settlement` 304,
+`ledger_posting` 304, `ledger_entry` 304, `budget` 62, `budget_reservation`
+386, `reconciliation` 9 rows), 3 expected-zero tables zero on both sides,
+restored-gateway readiness 200, restored request status API 200, new work on
+restored DB 200, isolated restore DB dropped, source untouched.
+`M16_E04_PASS (V2 lineage restored; empty-Redis Gateway converges)`.
 
-Drill: `scripts/m16/invoke-m16-restore.ps1 -Suffix e04fresh` dumped the
-source with `mysqldump --single-transaction --routines --triggers` (WITHOUT
-`--databases`, so the dump carries no `USE m16accept` and loads into the
-isolated DB), loaded into `m16restore_<stamp>` on the same server, granted
-the `gw_m16` runtime identity there, verified all 21 lineage tables match,
-booted a Gateway on the restored DB with EMPTY Redis (DB1 FLUSHDB):
-readiness 200, restored request status API 200, new work 200 with exactly
-one additional Provider operation. Source DB untouched (counts unchanged,
-no restored request id present in source); isolated restore DB dropped
-afterwards; dump temp file removed; Redis DB1 left empty (DBSIZE=0).
+Earlier drill at `9e585ed` (kept for lineage): 6 requests / 6 settlements /
+6 postings / 6 entries exactly-once, reconciliation runs via real
+`POST /api/v1/reconciliation-runs` with FINANCE_ADMIN JWT.
 
-Script bugs fixed during the drill (RED->GREEN, script-only, no
-production change): (1) `Invoke-Root ("sql", $db)` tuple-as-single-arg
-replaced by named `-Sql/-Db` calls; (2) `--databases` dump re-applied
-`USE m16accept` on load and wrote back into the source — removed;
-(3) inline `("..."+$restoreDb+"...")` group expression on a
-backtick-continued `docker run` line mis-parsed and ate the image
-reference (`docker: invalid reference format`) — URL pre-assembled into
-`$restoreUrl` and passed as a plain `-e "SPRING_DATASOURCE_URL=$restoreUrl"`.
+Script bugs fixed across drills (RED->GREEN, script-only, no production
+change): (1) `Invoke-Root ("sql", $db)` tuple-as-single-arg → named `-Sql/-Db`;
+(2) `--databases` dump re-applied `USE m16accept` — removed; (3) inline group
+expression ate the docker image reference — URL pre-assembled; (4) Windows
+`--result-file` re-encoded binary digest bytes (load failed `Unknown command
+'\?'`) → `cmd /c` byte-redirect + `--hex-blob`.
 
-Final script run output: `M16_E04_PASS (V2 lineage restored; empty-Redis
-Gateway converges)`. E04 = PASS.
-
-The restored environment must include the durable V2 financial lineage required by the frozen M16 spec and must remain financially correct with empty/lost Redis state.
+The restored environment includes the durable V2 financial lineage required by the frozen M16 spec and remains financially correct with empty/lost Redis state.
 
 ## 12. AI Browser black-box UAT evidence
 
@@ -372,33 +399,48 @@ Record only sanitized metadata. If a production Provider/source-schema exact-cor
 
 ## 14. Full regression evidence
 
+Local full regression on the machine-acceptance working tree (all GREEN):
+
 ### Backend
 
-Hosted `backend-unit` PASS (41s), `backend-architecture` PASS (53s),
-`backend-integration` PASS (5m55s) on exact PR head `b2ef312`
-(run 34084145157). Local unit run not repeated (hosted is authoritative).
+- unit: 487 tests, 0 failures (1 skipped)
+- architecture: 36 tests, 0 failures
+- integration: 1033 tests, 0 failures
 
 ### Gateway
 
-Local: unit 113/113 GREEN (incl. new `GatewayMetricsTest` 2/2 and
-`GatewayResourceLimiterTest` 4/4). Hosted `gateway-unit` PASS (34s),
-`gateway-architecture` PASS (13s), `gateway-integration` PASS (1m48s) on
-`b2ef312` (run 34084145157).
+- unit: 113/113 GREEN (incl. `GatewayMetricsTest`, `GatewayResourceLimiterTest`,
+  `GatewayProductionConfigurationValidatorTest`)
+- architecture: covered in unit phase (7 architecture tests GREEN)
+- integration: 81 tests, 0 failures (incl. new `StreamPermitCeilingIntegrationTest` 1/1)
 
 ### Frontend
 
-Hosted `frontend-lint` PASS (20s), `frontend-test` PASS (1m43s),
-`frontend-build` PASS (25s) on `b2ef312` (run 34084145157).
+- lint PASS, 48 test files / 453 tests PASS, build PASS (chunk-size warning only)
+
+### Docker images
+
+- `ai-costops-backend:m16`, `ai-costops-gateway:m16` (with B04 fix),
+  `ai-costops-frontend:m16` all build successfully
 
 ### High-risk repeated race suites
 
-Hosted `backend-integration` + `gateway-integration` PASS on `b2ef312`.
-Dedicated repeated M13–M15 race-matrix reruns remain TODO before final
-M16 COMPLETE claim.
+All GREEN standalone (no sleeps as proof, latch/barrier deterministic):
+
+- `GatewaySettlementTransactionIntegrationTest` 14/14
+- `M15HybridRaceMatrixIntegrationTest` 5/5
+- `LedgerCorrectionIntegrationTest` 8/8
+- `ReservationRecoveryIntegrationTest` 7/7
+- `GatewaySafeFailoverIntegrationTest` 4/4
+- `StreamPermitCeilingIntegrationTest` 1/1 (new B04 regression)
+
+Prior hosted gates on `b2ef312` (run 34084145157 / 34084145192): CI, Security,
+CodeQL Java/Kotlin + JS/TS, Trivy, docker-build, browser-e2e all PASS. New
+commit requires fresh hosted runs on the final SHA (see §15).
 
 ## 15. Hosted gates
 
-Exact PR head: `b2ef3129ffb24d33413c5247d4f8ea53226c8175`
+Prior exact PR head: `b2ef3129ffb24d33413c5247d4f8ea53226c8175`
 (PR #152, https://github.com/BangShou1st/AI-CostOps/pull/152).
 
 | Gate | Run / job | Exact SHA | Result |
@@ -412,39 +454,54 @@ Exact PR head: `b2ef3129ffb24d33413c5247d4f8ea53226c8175`
 | Browser E2E (hosted job) | 34084145157 / job 101624864509 | b2ef312 | PASS (3m18s, automated suite — NOT a substitute for F01-F07 black-box UAT) |
 | M16 hosted acceptance, if added | — | — | NOT RUN (no dedicated M16 workflow added) |
 
+New M16 changes (B04 product fix + harnesses) require fresh hosted runs on the
+final commit SHA: CI, Security, CodeQL, Trivy must all go GREEN again. The old
+`b2ef312` green does NOT carry over. To be filled after push.
+
 ## 16. Findings
 
 ### P0
 
-None recorded yet; M16 execution has not started.
+P0 = 0. One product defect found and fixed by M16 acceptance itself (B04 stream
+permit early release — see §6); no open P0.
 
 ### P1
 
-None recorded yet; M16 execution has not started.
+P1 = 0. Harness-only issues found and fixed (B03 zero-Ledger mis-assertion,
+B04 timeout-hold flakiness, B05 budget masking, C09/D01 orchestrator env +
+failsafe misattribution, E04 Windows dump encoding); no open P1.
 
 ### P2 / limitations
 
-- Real Provider certification remains to be performed.
-- Production-grade exact reconciliation correlation remains dependent on operator-certified provider/source-schema correlation profile where applicable.
+- Real Provider certification remains to be performed (BLOCKED: operator
+  credential unavailable; mock never claimed as real).
+- F01–F07 Browser black-box UAT remains to be performed (BLOCKED: needs browser
+  execution; hosted browser-e2e job is NOT a substitute).
+- Production-grade exact reconciliation correlation remains dependent on
+  operator-certified provider/source-schema correlation profile where applicable.
 
-These are pre-existing acceptance obligations, not evidence of PASS.
+These are explicit external-gate blockers, not evidence of PASS.
 
 ## 17. Final release gate
 
 Current result:
 
 ```text
-M16 = NOT STARTED
-V2 Production Acceptance = NOT PASSED
+M16 MACHINE ACCEPTANCE = COMPLETE (A01-A04, B01-B05, C01-C09, D01-D06, E01-E04 all PASS)
+M16 EXTERNAL GATES = BLOCKED (F01-F07 browser UAT; real Provider certification)
+M16 = NOT COMPLETE (machine complete, external blocked)
+V2 Production Acceptance = NOT YET PASSED
 v2.0.0 = NOT YET RELEASE CANDIDATE
+DO NOT MERGE (merge needs Sol review of the exact final head + user authorization)
 ```
 
 This section may change to PASS only after:
 
-- every mandatory acceptance-matrix row is PASS;
-- global financial invariants are all satisfied;
-- hosted CI/Security/CodeQL/Trivy are green on the exact final PR head;
-- P0=0 and P1=0;
+- every mandatory acceptance-matrix row is PASS (machine rows: done);
+- F01–F07 browser UAT PASS + real Provider certification PASS (blocked);
+- global financial invariants are all satisfied (done, §2);
+- hosted CI/Security/CodeQL/Trivy are green on the exact final PR head (TODO after push);
+- P0=0 and P1=0 (done);
 - Sol independently reviews that exact head and records `SOL FINAL REVIEW = PASS`;
 - any subsequent commit triggers a new final review.
 
