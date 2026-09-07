@@ -454,9 +454,14 @@ Prior exact PR head: `b2ef3129ffb24d33413c5247d4f8ea53226c8175`
 | Browser E2E (hosted job) | 34084145157 / job 101624864509 | b2ef312 | PASS (3m18s, automated suite — NOT a substitute for F01-F07 black-box UAT) |
 | M16 hosted acceptance, if added | — | — | NOT RUN (no dedicated M16 workflow added) |
 
-New M16 changes (B04 product fix + harnesses) require fresh hosted runs on the
-final commit SHA: CI, Security, CodeQL, Trivy must all go GREEN again. The old
-`b2ef312` green does NOT carry over. To be filled after push.
+Final SHA `67b16ff86a154d448300a88dc70853c07896de91` (PR #152):
+
+- CI run 34117042883: SUCCESS — backend-unit, backend-architecture,
+  backend-integration, gateway-unit, gateway-architecture, gateway-integration,
+  frontend-lint, frontend-test, frontend-build, docker-build, browser-e2e
+  (automated suite — NOT a substitute for F01–F07 black-box UAT).
+- Security run 34117042915: SUCCESS — CodeQL java-kotlin, CodeQL
+  javascript-typescript, Trivy filesystem+images.
 
 ## 16. Findings
 
