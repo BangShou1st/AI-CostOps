@@ -98,10 +98,10 @@ Working-tree M16 changes sealed by this commit (all covered by the GREEN run):
 | F07 | Browser UAT — usability/visual | BLOCKED BY BROWSER EXECUTION | BLOCKED | — | §12 |
 | G01 | Full local regression | PASS | PASS | §14 tree | §14 |
 | G02 | Docker images | PASS | PASS | §14 tree | §14 |
-| G03 | Hosted CI | GREEN on final SHA | PASS (run 34137506117) | §15 HEAD | §15 |
-| G04 | Hosted Security | GREEN on final SHA | PASS (run 34137506120) | §15 HEAD | §15 |
-| G05 | CodeQL | GREEN on final SHA | PASS (jobs 101791772403/101791772160) | §15 HEAD | §15 |
-| G06 | Trivy | GREEN on final SHA | PASS (job 101791772482) | §15 HEAD | §15 |
+| G03 | Hosted CI | GREEN on final SHA | PASS (run 34144094616) | §15 HEAD | §15 |
+| G04 | Hosted Security | GREEN on final SHA | PASS (run 34144094637) | §15 HEAD | §15 |
+| G05 | CodeQL | GREEN on final SHA | PASS (jobs 101812227279/101812227280) | §15 HEAD | §15 |
+| G06 | Trivy | GREEN on final SHA | PASS (job 101812227021) | §15 HEAD | §15 |
 | G07 | P0/P1 blockers | 0 | PASS (P0=0/P1=0, §16) | §16 | §16 |
 
 Machine rows (A01–E04) were executed GREEN on code-under-test `ab46e86`
@@ -520,14 +520,14 @@ Historical runs (superseded; kept for lineage, never re-run):
 
 Final HEAD runs (PR #152; exact HEAD from PR metadata at review time):
 
-- CI run 34137506117: SUCCESS — backend-unit, backend-architecture,
+- CI run 34144094616: SUCCESS — backend-unit, backend-architecture,
   backend-integration, gateway-unit, gateway-architecture, gateway-integration,
-  frontend-lint, frontend-test, frontend-build, docker-build (job 101791772296),
-  browser-e2e (job 101791772120, automated suite — NOT a substitute for
+  frontend-lint, frontend-test, frontend-build, docker-build (job 101812227232),
+  browser-e2e (job 101812227242, automated suite — NOT a substitute for
   F01–F07 black-box UAT).
-- Security run 34137506120: SUCCESS — CodeQL java-kotlin (job 101791772403),
-  CodeQL javascript-typescript (job 101791772160), Trivy filesystem+images
-  (job 101791772482).
+- Security run 34144094637: SUCCESS — CodeQL java-kotlin (job 101812227279),
+  CodeQL javascript-typescript (job 101812227280), Trivy filesystem+images
+  (job 101812227021).
 
 Superseded (historical): CI 34135286157 + Security 34135286219 on `6618277`;
 CI 34130589391 + Security 34130589387 on `69ac724`;
