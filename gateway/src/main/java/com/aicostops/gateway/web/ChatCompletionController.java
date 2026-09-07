@@ -162,16 +162,31 @@ public class ChatCompletionController {
 
         // A stream permit is held for the whole streaming lifetime and always
         // released (complete/error/cancel, or any early failure in this chain).
+        // The permit MUST NOT be released by the outer Mono's doFinally: for
+        // SSE the outer Mono completes as soon as the response headers commit,
+        // while the Flux body keeps streaming. Releasing there would free the
+        // ceiling slot while the upstream call still occupies it (B04 RED).
+        // Non-stream requests and pre-stream early failures release through
+        // the outer doFinally; streaming requests release ONLY through the
+        // Flux body's doFinally in invokeStream.
         var permitHeld = new AtomicBoolean(false);
+        var streamPermit = false;
         if (request.stream()) {
             if (!resourceLimiter.tryAcquireStreamPermit()) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
                         "Too many concurrent streams");
             }
             permitHeld.set(true);
+            streamPermit = true;
         }
+        var streamPermitHeld = streamPermit;
         Runnable releasePermit = () -> {
-            if (permitHeld.getAndSet(false)) {
+            if (!streamPermitHeld && permitHeld.getAndSet(false)) {
+                resourceLimiter.releaseStreamPermit();
+            }
+        };
+        Runnable releaseStreamPermit = () -> {
+            if (streamPermitHeld && permitHeld.getAndSet(false)) {
                 resourceLimiter.releaseStreamPermit();
             }
         };
@@ -211,7 +226,7 @@ public class ChatCompletionController {
                 .flatMap(prepared -> {
                     return request.stream()
                             ? invokeStream(exchange, principal, prepared, request,
-                                    effectiveMaxTokens, releasePermit)
+                                    effectiveMaxTokens, releaseStreamPermit)
                                     .map(entity -> (ResponseEntity<?>) entity)
                             : invokeProviderWithFailover(exchange, principal, prepared, request, effectiveMaxTokens)
                                     .map(completed -> (ResponseEntity<?>) ResponseEntity.ok(
