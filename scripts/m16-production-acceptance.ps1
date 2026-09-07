@@ -27,7 +27,7 @@
       B02 budget concurrent exhaust  -> invoke-m16-b02-budget.ps1 (REQUIRED mode, 1-slot budget)
       B03 stepped non-stream load    -> invoke-m16-load.ps1 (B03 section)
       B04 concurrent SSE bound       -> invoke-m16-load.ps1 (B04 section)
-      B05 overload bounded reject    -> invoke-m16-load.ps1 overload step (ceiling+burst, 429-bounded)
+      B05 overload bounded reject    -> invoke-m16-b05-overload.ps1 (rate-limiter capacity+1, 429-bounded)
       C01 mysql down before dispatch -> invoke-m16-failure.ps1 (C01 section)
       C02 mysql failure after intent -> focused live step (this script)
       C03 mysql restart              -> invoke-m16-failure.ps1 (C03 section)
@@ -93,7 +93,7 @@ $script:Gates = @(
     @{ Id = "B02"; Kind = "script"; Script = "invoke-m16-b02-budget.ps1"; NeedsSeed = $true; RequiredBudget = $true },
     @{ Id = "B03"; Kind = "script"; Script = "invoke-m16-load.ps1"; NeedsSeed = $true; LoadArgs = @("-Steps", "1,5,20", "-StreamCeiling", "4") },
     @{ Id = "B04"; Kind = "alias"; AliasOf = "B03"; NeedsSeed = $false },
-    @{ Id = "B05"; Kind = "step"; Step = "overload"; NeedsSeed = $true },
+    @{ Id = "B05"; Kind = "script"; Script = "invoke-m16-b05-overload.ps1"; NeedsSeed = $true },
     @{ Id = "C01"; Kind = "script"; Script = "invoke-m16-failure.ps1"; NeedsSeed = $true; Covers = "C01,C03,C04,C05" },
     @{ Id = "C02"; Kind = "step"; Step = "mysql-post-dispatch"; NeedsSeed = $true },
     @{ Id = "C03"; Kind = "alias"; AliasOf = "C01"; NeedsSeed = $false },
@@ -224,6 +224,16 @@ function Invoke-GateScript([string]$GateId, [hashtable]$Gate, [object]$Seed) {
             $named["ModelKey"] = $ModelKey; $named["Workers"] = 20
             break
         }
+        "invoke-m16-b05-overload.ps1" {
+            $named["GatewayBase"] = $GatewayBase; $named["MockBase"] = $MockBase
+            $named["MysqlHost"] = $MysqlHost; $named["MysqlPort"] = $MysqlPort
+            $named["Database"] = $Database; $named["MysqlBin"] = $MysqlBin
+            $named["Suffix"] = $suffix; $named["RawKey"] = $Seed.raw_key
+            $named["OrgId"] = ([long]$Seed.org_id)
+            $named["CredentialId"] = ([long]$Seed.credential)
+            $named["ModelKey"] = $ModelKey
+            break
+        }
         "invoke-m16-load.ps1" {
             $named["GatewayBase"] = $GatewayBase; $named["MockBase"] = $MockBase
             $named["MysqlHost"] = $MysqlHost; $named["MysqlPort"] = $MysqlPort
@@ -267,80 +277,17 @@ function Invoke-GateScript([string]$GateId, [hashtable]$Gate, [object]$Seed) {
     return $proc.ExitCode
 }
 
-# Focused live steps that need no new script file: each asserts durable DB
-# truth directly and returns 0/1. Progress lines use Write-Host (console
-# only): Write-Output inside this function would be captured into the
-# caller's $rc variable and corrupt the exit code (B05 RED root cause).
+# Focused live steps (C02/C07/E02) that need no new script file: each
+# asserts durable DB truth directly and returns 0/1. Progress lines use
+# Write-Host (console only): Write-Output inside this function would be
+# captured into the caller's $rc variable and corrupt the exit code.
+# NOTE: B05 overload is NOT a focused step; its deterministic proof lives in
+# scripts/m16/invoke-m16-b05-overload.ps1 (rate-limiter capacity+1).
 function Invoke-FocusedStep([string]$Step, [object]$Seed) {
     [int]$rcResult = 0
     $failures = [System.Collections.ArrayList]::new()
     $stamp = [DateTime]::UtcNow.ToString("yyyyMMddHHmmssfff")
-    if ($Step -eq "overload") {
-        # B05: 32-way burst (24 non-stream + 8 stream) on an AMPLIFIED budget
-        # (>=1200 vs ~31.95/reservation x32 ~= 1022) so budget exhaustion does
-        # NOT mask overload. PASS bar (frozen design: bounded safe rejection,
-        # no unbounded growth): every response is 200 or a bounded rejection
-        # (429/402/403/409); no 5xx/transport; provider ops <= admitted HTTP
-        # classes that dispatch (200; streams admitted 200 commit a dispatch
-        # even when the client-side read races); effective holds <= budget
-        # (no overspend); no duplicate dispatch (ops <= requests); fresh work
-        # after the burst is 200 (converges, no wedge). A full 32/32 admit
-        # with ops == 32 on a 1200 budget is NORMAL (no saturation reached),
-        # not a failure — the machine stays bounded and converges.
-        Invoke-RestMethod -Method Post -Uri ($MockBase + "/admin/mode") -Body '{"mode":"ok"}' -ContentType "application/json" | Out-Null
-        Invoke-RestMethod -Method Post -Uri ($MockBase + "/admin/reset") | Out-Null
-        $pool = [runspacefactory]::CreateRunspacePool(1, 32)
-        $pool.Open()
-        $sb = {
-            param($Uri, $Key, $Model, $Base, $I, $Gate, $Stream)
-            $Gate.WaitOne() | Out-Null
-            $h = @{
-                Authorization = "Bearer $Key"
-                "Idempotency-Key" = ($Base + "-" + $I)
-                "Content-Type" = "application/json"
-            }
-            if ($Stream) { $h["Accept"] = "text/event-stream" }
-            $sj = if ($Stream) { ', "stream": true' } else { '' }
-            $b = '{"model":"' + $Model + '","messages":[{"role":"user","content":"m16 overload"}]' + $sj + '}'
-            try {
-                $r = Invoke-WebRequest -Uri $Uri -Method Post -Headers $h -Body $b -SkipHttpErrorCheck -TimeoutSec 120
-                return [pscustomobject]@{ Status = $r.StatusCode }
-            } catch { return [pscustomobject]@{ Status = -1 } }
-        }
-        $gate = New-Object System.Threading.ManualResetEvent($false)
-        $hs = @()
-        $base = "m16-b05-" + $stamp
-        for ($i = 0; $i -lt 32; $i++) {
-            $stream = ($i -ge 24)
-            $p = [powershell]::Create().AddScript($sb).AddArgument(($GatewayBase + "/v1/chat/completions")).AddArgument($Seed.raw_key).AddArgument($ModelKey).AddArgument($base).AddArgument($i).AddArgument($gate).AddArgument($stream)
-            $p.RunspacePool = $pool
-            $hs += [pscustomobject]@{ P = $p; H = $p.BeginInvoke() }
-        }
-        $gate.Set() | Out-Null
-        $res = @()
-        foreach ($h in $hs) { $res += $h.P.EndInvoke($h.H); $h.P.Dispose() }
-        $pool.Close()
-        $dist = ($res | Group-Object Status | Sort-Object Name | ForEach-Object { "HTTP " + $_.Name + " x " + $_.Count }) -join ", "
-        $ok = @($res | Where-Object { $_.Status -eq 200 }).Count
-        # 429/402/403/409 are all bounded rejections (OPTIONAL-mode budget
-        # exhaustion is 403 by design; quota/rate 429; idempotency races 409).
-        $bounded = @($res | Where-Object { $_.Status -in @(429, 402, 403, 409) }).Count
-        $bad = @($res | Where-Object { $_.Status -ge 500 -or $_.Status -eq -1 }).Count
-        $ops = (Invoke-RestMethod -Uri ($MockBase + "/stats")).post_chat_completions
-        $budgetTotal = [decimal](Invoke-RootSql ("SELECT total_amount FROM budget WHERE org_id=" + $Seed.org_id + " LIMIT 1;"))
-        $held = [decimal](Invoke-RootSql ("SELECT COALESCE(SUM(reserved_amount),0) FROM budget_reservation WHERE org_id=" + $Seed.org_id + " AND status IN ('ACTIVE','PENDING_HOLD');"))
-        Write-Host ("[M16-B05] burst32 [" + $dist + "] ok=" + $ok + " bounded=" + $bounded + " provider_ops=" + $ops + " held=" + $held + "/" + $budgetTotal)
-        if ($bad -gt 0) { $failures.Add("B05: $bad 5xx/transport failures") | Out-Null }
-        if ($ok + $bounded -ne $res.Count) { $failures.Add("B05: unbounded response class present") | Out-Null }
-        if ($ops -gt $res.Count) { $failures.Add("B05: duplicate dispatch provider_ops=$ops > requests=$($res.Count)") | Out-Null }
-        if ($ops -lt $ok) { $failures.Add("B05: missing dispatch provider_ops=$ops < http_200=$ok") | Out-Null }
-        if ($ok -lt 1) { $failures.Add("B05: no request admitted (harness mis-sized?)") | Out-Null }
-        if ($held -gt $budgetTotal) { $failures.Add("B05: overspend held=$held > total=$budgetTotal") | Out-Null }
-        # Converges: fresh work immediately after the burst must be admitted.
-        $freshB05 = Send-Chat $Seed.raw_key ("m16-b05fresh-" + $stamp)
-        Write-Host ("[M16-B05] fresh after burst HTTP " + $freshB05.Status)
-        if ($freshB05.Status -ne 200) { $failures.Add("B05: fresh work after burst got " + $freshB05.Status + " (want 200)") | Out-Null }
-    } elseif ($Step -eq "mysql-post-dispatch") {
+    if ($Step -eq "mysql-post-dispatch") {
         # C02: hold a dispatch in UPSTREAM_ACTIVE with the timeout-mode mock,
         # stop MySQL mid-flight, then restore. Invariants: replaying the same
         # identity causes no second Provider execution; the durable request
@@ -463,6 +410,7 @@ try {
     foreach ($s in @("verify-m16-topology.ps1", "verify-m16-gateway-privileges.ps1",
             "seed-m16-acceptance.ps1", "invoke-m16-b01-idempotency.ps1",
             "invoke-m16-b02-budget.ps1", "invoke-m16-load.ps1",
+            "invoke-m16-b05-overload.ps1",
             "invoke-m16-failure.ps1", "invoke-m16-crash.ps1",
             "invoke-m16-provider-revoke.ps1", "invoke-m16-leakscan.ps1",
             "invoke-m16-restore.ps1")) {
@@ -585,6 +533,8 @@ try {
                 # B03 budget: steps 1+5+20 admit 26 x 31.9488 ~= 831; seed
                 # 1000 so the envelope measures latency, not exhaustion
                 # (exhaustion is B02's job on a 1-slot budget).
+                # B05 rate-limiter proof: 5 fill + 1 over + recovery admits;
+                # seed 1000 so budget NEVER masks the rate bound.
                 $budget = "100.00000000"
                 if ($id -eq "B02") { $budget = $script:SingleSlotBudget }
                 if ($id -eq "B03" -or $id -eq "B05") { $budget = "1000.00000000" }
