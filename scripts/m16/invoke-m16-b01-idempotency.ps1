@@ -95,7 +95,12 @@ foreach ($g in $byStatus) { Write-Output ("[M16-B01]   HTTP " + $g.Name + " x " 
 $providerOps = (Invoke-RestMethod -Uri ($MockBase + "/stats")).post_chat_completions
 # gateway_request identity is keyed by idempotency_key_digest =
 # HMAC-SHA256("idem\0" + rawKey) under the request HMAC key (never persisted raw).
-$hmacKey = [Convert]::FromBase64String(([Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1")).Trim())
+# Read from the running gateway container (same pattern as B05/load) so the
+# harness is self-contained and does not depend on the parent process env.
+$gwEnv = docker inspect m16-gateway-accept --format '{{json .Config.Env}}' | ConvertFrom-Json
+$hit = @($gwEnv | Where-Object { $_ -like "AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1=*" })
+if ($hit.Count -eq 0) { throw "AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1 not found in gateway container env" }
+$hmacKey = [Convert]::FromBase64String($hit[0].Substring("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1".Length + 1).Trim())
 $hm = New-Object System.Security.Cryptography.HMACSHA256(,$hmacKey)
 $hm.TransformBlock([Text.Encoding]::UTF8.GetBytes("idem`0"), 0, 5, $null, 0) | Out-Null
 $hm.TransformFinalBlock([Text.Encoding]::UTF8.GetBytes($idemKey), 0, $idemKey.Length) | Out-Null

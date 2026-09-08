@@ -368,7 +368,9 @@ function Invoke-FocusedStep([string]$Step, [object]$Seed) {
             Write-Host ("[M16-E02] inject[$i] HTTP " + $rr.Status)
         }
         Invoke-RestMethod -Method Post -Uri ($MockBase + "/admin/mode") -Body '{"mode":"ok"}' -ContentType "application/json" | Out-Null
-        Start-Sleep 25
+        # Worst-case: scrape 5s + evaluation 5s + for:15s = 25s; add 10s margin
+        # for async DB finalization latency in the Gateway failure path.
+        Start-Sleep 35
         $alerts = Invoke-RestMethod -Uri ($PrometheusBase + "/api/v1/alerts") -TimeoutSec 30
         $names = @($alerts.data.alerts | ForEach-Object { $_.labels.alertname + ":" + $_.state })
         Write-Host ("[M16-E02] alerts: " + ($names -join ", "))
@@ -407,6 +409,7 @@ try {
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("MYSQL_M16_ROOT_PASSWORD"))) { $envFailures.Add("MYSQL_M16_ROOT_PASSWORD not set") | Out-Null }
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("MYSQL_M16_GATEWAY_PASSWORD"))) { $envFailures.Add("MYSQL_M16_GATEWAY_PASSWORD not set") | Out-Null }
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1"))) { $envFailures.Add("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1 not set") | Out-Null }
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1"))) { $envFailures.Add("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1 not set") | Out-Null }
     foreach ($s in @("verify-m16-topology.ps1", "verify-m16-gateway-privileges.ps1",
             "seed-m16-acceptance.ps1", "invoke-m16-b01-idempotency.ps1",
             "invoke-m16-b02-budget.ps1", "invoke-m16-load.ps1",

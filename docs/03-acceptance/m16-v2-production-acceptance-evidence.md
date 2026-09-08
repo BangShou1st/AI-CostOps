@@ -1,6 +1,6 @@
 # M16 — V2 Production Acceptance Evidence
 
-**Status:** MACHINE SEAL INVALIDATED BY BROWSER-HARDENING PRODUCT CHANGES (2026-09-08) — machine re-run required; EXTERNAL GATES BLOCKED (F01–F07 Browser UAT)
+**Status:** MACHINE RE-SEAL COMPLETE (2026-09-08) — full orchestrator GREEN on ae7fa67 product tree; harness-only fixes applied (B01 HMAC key, E02 timing margin); EXTERNAL GATES BLOCKED (F01–F07 Browser UAT)
 **Primary Issue:** #151  
 **Branch:** `feat/m16-v2-production-acceptance`  
 **Design baseline:** `d287be1217430d415fe02c80110c79e136d8772c`  
@@ -8,7 +8,7 @@
 
 > This document is an evidence ledger, not a planning document. Do not mark a row PASS without reproducible evidence from the exact tested SHA. Browser observations never override failed machine/database financial invariants.
 >
-> **2026-09-08 invalidation note:** This round delivered real product-code commits on top of the previously sealed tree (governed Control Plane surface, routing wire-contract types, security route registration). The old machine seal (A01–E04 on the pre-change tree) is therefore **historical until re-run on the new exact HEAD**. `M16_MACHINE_ACCEPTANCE_PASS` requires a fresh full orchestrator run on the new HEAD. First-round Browser UAT is recorded as **BROWSER_UAT_FAIL** in §12/§18 below and remains so; F01–F07 stay out of PASS.
+> **2026-09-08 reseal note:** The old machine seal (A01–E04 on the pre-change tree) was invalidated by Browser-hardening product commits. A fresh full orchestrator run was executed on product SHA `ae7fa67` (no product code changes during reseal — only harness scripts were fixed). All 30 machine gates (A01–E04) PASS. First-round Browser UAT is recorded as **BROWSER_UAT_FAIL** in §12/§18 below and remains so; F01–F07 stay out of PASS.
 
 ## 1. Exact tested revision
 
@@ -17,7 +17,7 @@
 | Branch | `feat/m16-v2-production-acceptance` |
 | Starting baseline | `d287be1217430d415fe02c80110c79e136d8772c` |
 | Code-under-test commit (Sol-reviewed) | `ab46e8600156d0f4f926cd1e9401beff85f7e1a4` |
-| Machine execution | full `scripts/m16-production-acceptance.ps1` GREEN on the tree sealed as `69ac724` (B05 rate-limiter proof included); re-verified GREEN on current HEAD (see matrix note) |
+| Machine execution | full `scripts/m16-production-acceptance.ps1` GREEN on product tree `ae7fa67` (2026-09-08 fresh re-run after Browser-hardening; harness-only fixes: B01 HMAC key read from container, E02 timing margin increased to 35s) |
 | Evidence sealing commit | this document is sealed by the current HEAD commit (no SHA written here; see PR #152 metadata for the exact HEAD) |
 | Exact final PR head | sealed EXTERNALLY by PR #152 metadata + hosted runs below (never copied into this document to avoid a self-reference loop) |
 | Final Sol-reviewed SHA | sealed by Sol review of the final SHA (external) |
@@ -50,7 +50,7 @@ Working-tree M16 changes sealed by this commit (all covered by the GREEN run):
 
 | Invariant | Required | Observed | Status | Evidence |
 | --- | ---: | ---: | --- | --- |
-| Lost settlement | 0 | 0 (B03: 31 settled / 0 pending; C07: 1/1; E04: 304/304) | PASS | §6, §7, §11 |
+| Lost settlement | 0 | 0 (B03: 31 settled / 0 pending; C07: 1/1; E04: 673/673) | PASS | §6, §7, §11 |
 | Duplicate Ledger effect | 0 | 0 (posting:entry:settled = 1:1:1, no dup keys) | PASS | §6 |
 | Silent Reservation leak | 0 | 0 (B05 held 159.744/1000; C09 recovery converges) | PASS | §6, §7 |
 | Race-induced Budget overspend | 0 | 0 (B02 held == total 31.9488; B05 held <= total) | PASS | §6 |
@@ -106,12 +106,14 @@ Working-tree M16 changes sealed by this commit (all covered by the GREEN run):
 | G06 | Trivy | GREEN on exact HEAD | PASS — externally sealed | §15 | §15 |
 | G07 | P0/P1 blockers | 0 | PASS (P0=0/P1=0, §16) | §16 | §16 |
 
-Machine rows (A01–E04) were executed GREEN on code-under-test `ab46e86`
-plus the B05 tree sealed as `69ac724`, and re-verified GREEN on the current
-HEAD (same B05 harness, no product-code change). §15 records the hosted runs
-on the exact final HEAD (read from PR #152 metadata at review time).
-`69ac724` runs (CI 34130589391 / Security 34130589387) and `ab46e86` runs
-(CI 34118229012 / Security 34118229025) remain historical evidence only.
+Machine rows (A01–E04) were executed GREEN on product tree `ae7fa67`
+(2026-09-08 fresh re-run after Browser-hardening; no product code changes
+during reseal). Harness-only fixes applied: B01 reads HMAC key from gateway
+container (self-contained, matching B05/load pattern); E02 sleep increased
+from 25s to 35s for Prometheus scrape+evaluation+for:15s chain margin.
+§15 records the hosted runs on the exact final HEAD (read from PR #152
+metadata at review time). Prior runs on `69ac724`, `ab46e86`, `b2ef312`
+remain historical evidence only.
 
 ## 4. Production topology evidence
 
@@ -338,13 +340,14 @@ unit suite 135/135 GREEN after the change (incl. architecture 7/7).
 
 ### Alert injection results
 
-E02 PASS (full-run gate on the code-under-test + B05 working tree, `focused step
-alert-injection`). `http500` x3 → `502 x 3`; `/api/v1/alerts` shows
+E02 PASS (full-run gate on product tree `ae7fa67`, 2026-09-08 fresh re-run,
+`focused step alert-injection`). `http500` x3 → `502 x 3` (Gateway translates
+upstream 500 → 502 by design); `/api/v1/alerts` shows
 `M16GatewayProviderSafetyBillablePossible:firing`,
 `M16GatewayUnknownUsageSpike:firing`, `M16GatewayMeteringUnknownSpike:firing`.
 Thresholds linked to M16 measurements (see rule comments), not invented SLOs.
-(Earlier drill at `9e585ed` additionally proved circuit-open 403 on the 6th
-injection with recovery to 200; backlog rules correctly inactive when healthy.)
+(Harness fix: sleep increased from 25s to 35s to accommodate scrape+evaluation+
+for:15s chain with margin for async DB finalization latency.)
 
 ## 10. Security / privacy leak scan
 
@@ -379,15 +382,15 @@ completion leakage         = 0
 
 ## 11. V2 backup / restore evidence
 
-E04 PASS (full-run gate on the code-under-test + B05 working tree,
-2026-09-07 UTC) against the isolated M16 acceptance stack (MySQL `m16accept`
+E04 PASS (full-run gate on product tree `ae7fa67`, 2026-09-08 fresh re-run)
+against the isolated M16 acceptance stack (MySQL `m16accept`
 on 127.0.0.1:13307, Gateway `:18081`, mock Provider, Backend settlement
 worker on `:18080`).
 
-This run: seed lineage 200 → SETTLED, dump 1552593 bytes, load rc=0, all 21
-lineage tables match, 6 semantic comparisons PASS (`gateway_settlement` 476,
-`ledger_posting` 476, `ledger_entry` 476, `budget` 89, `budget_reservation`
-576, `reconciliation` 9 rows), 3 expected-zero tables zero on both sides,
+This run: seed lineage 200 → SETTLED, dump 2130638 bytes, load rc=0, all 21
+lineage tables match, 6 semantic comparisons PASS (`gateway_settlement` 673,
+`ledger_posting` 673, `ledger_entry` 673, `budget` 131, `budget_reservation`
+799, `reconciliation` 10 rows), 3 expected-zero tables zero on both sides,
 restored-gateway readiness 200, restored request status API 200, new work on
 restored DB 200, isolated restore DB dropped, source untouched.
 `M16_E04_PASS (V2 lineage restored; empty-Redis Gateway converges)`.
@@ -597,7 +600,7 @@ These are explicit external-gate blockers, not evidence of PASS.
 Current result:
 
 ```text
-M16 MACHINE ACCEPTANCE = COMPLETE (A01-A04, B01-B05, C01-C09, D01-D06, E01-E04 all PASS)
+MACHINE RE-SEAL = COMPLETE (ae7fa67 product tree, full orchestrator GREEN, A01-E04 all PASS)
 M16 EXTERNAL GATES = BLOCKED (F01-F07 browser UAT; real Provider certification)
 M16 = NOT COMPLETE (machine complete, external blocked)
 V2 Production Acceptance = NOT YET PASSED
@@ -607,11 +610,11 @@ DO NOT MERGE (merge needs Sol review of the exact final head + user authorizatio
 
 This section may change to PASS only after:
 
-- every mandatory acceptance-matrix row is PASS (machine rows: re-run required on the new exact HEAD after the 2026-09-08 product changes);
+- every mandatory acceptance-matrix row is PASS (machine rows: re-run GREEN on ae7fa67, 2026-09-08);
 - F01–F07 browser UAT PASS + real Provider certification PASS (blocked);
 - global financial invariants are all satisfied (done, §2);
 - hosted CI/Security/CodeQL/Trivy are green on the exact final PR head (TODO after push);
-- P0=0 and P1=0 (re-verify on the new HEAD);
+- P0=0 and P1=0 (verified on ae7fa67);
 - Sol independently reviews that exact head and records `SOL FINAL REVIEW = PASS`;
 - any subsequent commit triggers a new final review.
 
@@ -672,6 +675,6 @@ further code change. **P2: not fixed, root cause pending deterministic capture.*
 ```text
 BROWSER_UAT_ROUND1      = FAIL (evidence above)
 F01-F07 (round 2)       = NOT YET EXECUTED — must remain non-PASS
-MACHINE SEAL (old)      = INVALIDATED by product commits (re-run required on new exact HEAD)
-M16_MACHINE_ACCEPTANCE  = PENDING re-run on new exact HEAD
+MACHINE RE-SEAL         = COMPLETE (ae7fa67, 2026-09-08, full orchestrator GREEN)
+M16_MACHINE_ACCEPTANCE  = PASS (ae7fa67 product tree, harness-only fixes)
 ```
