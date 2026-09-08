@@ -167,6 +167,26 @@ public class SecurityConfiguration {
                         // is enforced by the audit application service; the
                         // orgId parameter can never cross organizations.
                         .requestMatchers(HttpMethod.GET, "/api/v1/audit-events").authenticated()
+                        // Governed Control Plane surface (M16 Browser UAT).
+                        // Business permissions are enforced by the gateway-admin
+                        // application services (PROVIDER_ACCOUNT_READ / MANAGE).
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/service-identities",
+                                "/api/v1/service-identities/{id}").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/service-identities").authenticated()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/gateway-credentials",
+                                "/api/v1/gateway-credentials/{id}").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/gateway-credentials",
+                                "/api/v1/gateway-credentials/{id}/revoke").authenticated()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/model-catalog",
+                                "/api/v1/provider-models",
+                                "/api/v1/pricing-versions").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/pricing-versions",
+                                "/api/v1/pricing-versions/{id}/activate").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }
