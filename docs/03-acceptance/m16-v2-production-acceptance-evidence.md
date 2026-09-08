@@ -98,10 +98,10 @@ Working-tree M16 changes sealed by this commit (all covered by the GREEN run):
 | F07 | Browser UAT — usability/visual | BLOCKED BY BROWSER EXECUTION | BLOCKED | — | §12 |
 | G01 | Full local regression | PASS | PASS | §14 tree | §14 |
 | G02 | Docker images | PASS | PASS | §14 tree | §14 |
-| G03 | Hosted CI | GREEN on final SHA | PASS (run 34144094616) | §15 HEAD | §15 |
-| G04 | Hosted Security | GREEN on final SHA | PASS (run 34144094637) | §15 HEAD | §15 |
-| G05 | CodeQL | GREEN on final SHA | PASS (jobs 101812227279/101812227280) | §15 HEAD | §15 |
-| G06 | Trivy | GREEN on final SHA | PASS (job 101812227021) | §15 HEAD | §15 |
+| G03 | Hosted CI | GREEN on exact HEAD | PASS — final exact-head result externally sealed by PR #152 / Sol review | §15 | §15 |
+| G04 | Hosted Security | GREEN on exact HEAD | PASS — externally sealed | §15 | §15 |
+| G05 | CodeQL | GREEN on exact HEAD | PASS — externally sealed | §15 | §15 |
+| G06 | Trivy | GREEN on exact HEAD | PASS — externally sealed | §15 | §15 |
 | G07 | P0/P1 blockers | 0 | PASS (P0=0/P1=0, §16) | §16 | §16 |
 
 Machine rows (A01–E04) were executed GREEN on code-under-test `ab46e86`
@@ -500,9 +500,17 @@ final HEAD is the §15 runs below (read the HEAD from PR #152 metadata).
 ## 15. Hosted gates
 
 PR #152 (https://github.com/BangShou1st/AI-CostOps/pull/152).
-The exact final HEAD is read from PR metadata at review time (this document
-never copies it into itself). The runs below are the seal for that HEAD;
-re-read them from the PR checks page if this document's copy drifts.
+
+Final hosted gate seal: the exact PR HEAD and its associated
+CI/Security/CodeQL/Trivy runs are read from PR #152 / GitHub Actions at
+final Sol review time. This document intentionally does not self-copy those
+run IDs, because every evidence-only commit creates a new HEAD and new
+workflow runs (copying them back would loop forever).
+
+Historical runs below are lineage only (HISTORICAL / PRE-SEAL) and are not
+the final external seal. The final seal additionally covers Docker and the
+hosted browser-e2e automated suite (NOT a substitute for F01–F07
+black-box UAT).
 
 Historical runs (superseded; kept for lineage, never re-run):
 
@@ -520,20 +528,12 @@ Historical runs (superseded; kept for lineage, never re-run):
 | CI on Sol-reviewed ab46e86 | 34118229012 | ab46e86 | SUCCESS (historical after this push) |
 | Security on Sol-reviewed ab46e86 | 34118229025 | ab46e86 | SUCCESS (historical after this push) |
 | M16 hosted acceptance, if added | — | — | NOT RUN (no dedicated M16 workflow added) |
+| CI 34144094616 / Security 34144094637 (incl. CodeQL jobs 101812227279/101812227280, Trivy job 101812227021, docker-build job 101812227232, browser-e2e job 101812227242) | cbd8547 line | HISTORICAL / PRE-SEAL (superseded by later evidence-only commits; lineage only, NOT the final seal) |
+| CI 34145645495 / Security 34145645434 (incl. CodeQL jobs 101816999255/101816999265, Trivy job 101816999013, docker-build job 101816997713, browser-e2e job 101816997569) | 70b428d line | HISTORICAL / PRE-SEAL (superseded by later evidence-only commits; lineage only, NOT the final seal) |
 
-Final HEAD runs (PR #152; exact HEAD from PR metadata at review time):
-
-- CI run 34144094616: SUCCESS — backend-unit, backend-architecture,
-  backend-integration, gateway-unit, gateway-architecture, gateway-integration,
-  frontend-lint, frontend-test, frontend-build, docker-build (job 101812227232),
-  browser-e2e (job 101812227242, automated suite — NOT a substitute for
-  F01–F07 black-box UAT).
-- Security run 34144094637: SUCCESS — CodeQL java-kotlin (job 101812227279),
-  CodeQL javascript-typescript (job 101812227280), Trivy filesystem+images
-  (job 101812227021).
-
-Superseded (historical): CI 34135286157 + Security 34135286219 on `6618277`;
-CI 34130589391 + Security 34130589387 on `69ac724`;
+Pre-seal lineage (all HISTORICAL / PRE-SEAL, none is the final seal):
+CI 34135286157 + Security 34135286219 on `6618277`;
+CI 34130589391 + Security 34130589387 on `69ac724`.
 CI 34118229012 + Security 34118229025 on `ab46e86`; CI 34117602948 +
 Security 34117602928 on the `429b889` docs pointer; CI 34084145157 +
 Security 34084145192 on `b2ef312`.
