@@ -22,17 +22,22 @@ export interface RoutingPolicy {
   candidates: RoutingPolicyCandidate[]
 }
 
+// Wire input DTOs mirror the backend request contract: numeric identity
+// fields are JSON numbers (backend uses primitive `long` / boxed `Long`).
+// Response DTOs (RoutingPolicy/RoutingCandidate/RoutingOption) keep string
+// ids because the backend serializes ids through ApiId as strings. Only the
+// request payloads are numeric.
 export interface RoutingCandidateInput {
-  providerAccountId: string
-  providerModelId: string
+  providerAccountId: number
+  providerModelId: number
   priority: number
   status: RoutingCandidateStatus
   privacyRegionCode?: string | null
 }
 
 export interface RoutingPolicyInput {
-  projectId?: string | null
-  modelId: string
+  projectId?: number | null
+  modelId: number
   candidates: RoutingCandidateInput[]
 }
 

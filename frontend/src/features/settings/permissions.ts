@@ -28,6 +28,9 @@ export const SETTINGS_NAV: readonly SettingsNavEntry[] = [
   { path: '/settings/cost-centers', label: '成本中心', readPermission: 'COST_CENTER_READ' },
   { path: '/settings/provider-accounts', label: '云账号', readPermission: 'PROVIDER_ACCOUNT_READ' },
   { path: '/settings/routing-policies', label: '路由策略', readPermission: 'PROVIDER_ACCOUNT_READ' },
+  { path: '/settings/service-identities', label: '服务身份', readPermission: 'PROVIDER_ACCOUNT_READ' },
+  { path: '/settings/gateway-credentials', label: '网关凭证', readPermission: 'PROVIDER_ACCOUNT_READ' },
+  { path: '/settings/model-pricing', label: '模型与定价', readPermission: 'PROVIDER_ACCOUNT_READ' },
 ]
 
 export function visibleSettingsNav(permissions: readonly string[] | undefined): readonly SettingsNavEntry[] {

@@ -38,6 +38,9 @@ import { PermissionRoute } from './PermissionRoute'
 import { SettingsRedirect } from './SettingsRedirect'
 import { WorkbenchPage } from '../../features/workbench/WorkbenchPage'
 import { RoutingPoliciesPage } from '../../features/settings/routingPolicies/RoutingPoliciesPage'
+import { ServiceIdentitiesPage } from '../../features/gateway/ServiceIdentitiesPage'
+import { GatewayCredentialsPage } from '../../features/gateway/GatewayCredentialsPage'
+import { ModelPricingPage } from '../../features/gateway/ModelPricingPage'
 
 export function AppRouter() {
   const auth = useAuth()
@@ -119,6 +122,15 @@ export function AppRouter() {
         </Route>
         <Route path="/settings/routing-policies" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
           <Route index element={<RoutingPoliciesPage />} />
+        </Route>
+        <Route path="/settings/service-identities" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
+          <Route index element={<ServiceIdentitiesPage />} />
+        </Route>
+        <Route path="/settings/gateway-credentials" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
+          <Route index element={<GatewayCredentialsPage />} />
+        </Route>
+        <Route path="/settings/model-pricing" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
+          <Route index element={<ModelPricingPage />} />
         </Route>
         <Route path="/settings" element={<SettingsRedirect />} />
       </Route>
