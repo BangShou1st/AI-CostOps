@@ -1,12 +1,14 @@
 # M16 — V2 Production Acceptance Evidence
 
-**Status:** MACHINE ACCEPTANCE COMPLETE / EXTERNAL GATES BLOCKED
+**Status:** MACHINE SEAL INVALIDATED BY BROWSER-HARDENING PRODUCT CHANGES (2026-09-08) — machine re-run required; EXTERNAL GATES BLOCKED (F01–F07 Browser UAT)
 **Primary Issue:** #151  
 **Branch:** `feat/m16-v2-production-acceptance`  
 **Design baseline:** `d287be1217430d415fe02c80110c79e136d8772c`  
 **Target release:** `v2.0.0`
 
 > This document is an evidence ledger, not a planning document. Do not mark a row PASS without reproducible evidence from the exact tested SHA. Browser observations never override failed machine/database financial invariants.
+>
+> **2026-09-08 invalidation note:** This round delivered real product-code commits on top of the previously sealed tree (governed Control Plane surface, routing wire-contract types, security route registration). The old machine seal (A01–E04 on the pre-change tree) is therefore **historical until re-run on the new exact HEAD**. `M16_MACHINE_ACCEPTANCE_PASS` requires a fresh full orchestrator run on the new HEAD. First-round Browser UAT is recorded as **BROWSER_UAT_FAIL** in §12/§18 below and remains so; F01–F07 stay out of PASS.
 
 ## 1. Exact tested revision
 
@@ -419,31 +421,49 @@ For every UAT scenario record:
 
 ### F01 — Administrative setup
 
-BLOCKED BY BROWSER EXECUTION (not executed in this machine session).
+**ROUND 1 RESULT: BROWSER_UAT_FAIL.** The browser reviewer could not complete
+governed setup: routing create was RED, and Service Identity / Gateway
+Credential / Model-Pricing management surfaces did not exist in the Browser
+(see §18 for the hardening round record). `F01` remains **FAIL / BLOCKED** —
+the round-2 browser execution has not happened.
 
 ### F02 — Gateway lifecycle
 
-BLOCKED BY BROWSER EXECUTION (not executed in this machine session).
+**ROUND 1 RESULT: BROWSER_UAT_FAIL / BLOCKED.** F02 requires the UAT-01 setup
+(credential + pricing + eligible routing) which failed; no synthetic Gateway
+request was driven from the Browser. Remains **BLOCKED** (§18).
 
 ### F03 — Budget exhaustion
 
-BLOCKED BY BROWSER EXECUTION (not executed in this machine session).
+**ROUND 1 RESULT: BROWSER_UAT_FAIL / BLOCKED.** Requires F01/F02 results; not
+performable. Remains **BLOCKED** (§18).
 
 ### F04 — Credential revoke
 
-BLOCKED BY BROWSER EXECUTION (not executed in this machine session).
+**ROUND 1 RESULT: BLOCKED.** No governed Control Plane revoke surface existed
+in the Browser (backend-only D03 machine semantics were already PASS). The new
+governed revoke surface exists now (§18) but has not been exercised by the
+round-2 browser. Remains **BLOCKED**.
 
 ### F05 — Reconciliation / CLOSED-period correction
 
-BLOCKED BY BROWSER EXECUTION (not executed in this machine session).
+**ROUND 1 RESULT: INCOMPLETE.** No deterministic difference/unresolved evidence
+data was available to the browser (round-1 org had zero difference by chance).
+R2 fixture plan ($ .m16r2fixture.sql + $ .m16r2-provider-statement.csv) is
+prepared but not yet executed (§18). Remains **BLOCKED**.
 
 ### F06 — Permissions
 
-BLOCKED BY BROWSER EXECUTION (not executed in this machine session).
+**ROUND 1 RESULT: BLOCKED.** New pages/routes/guards exist (service identities,
+gateway credentials, model-pricing all gated server-side); round-2 browser
+execution still required. Remains **BLOCKED**.
 
 ### F07 — Usability / visual acceptance
 
-BLOCKED BY BROWSER EXECUTION (not executed in this machine session).
+**ROUND 1 RESULT: BLOCKED.** Stuck-modal (P2) and refresh/logout symptoms were
+reported; the auth cause is runtime configuration (fixed, §18) and the modal
+stuck state was not independently reproduced this round (see §18 P2 record).
+Remains **BLOCKED** until the round-2 observer takes it.
 
 ## 13. Real Provider certification
 
@@ -547,10 +567,19 @@ permit early release — see §6); no open P0.
 
 ### P1
 
-P1 = 0. Harness-only issues found and fixed (B03 zero-Ledger mis-assertion,
-B04 timeout-hold flakiness, B05 false-positive 32-burst replaced by
-deterministic rate-limiter capacity+1 proof, C09/D01 orchestrator env +
-failsafe misattribution, E04 Windows dump encoding); no open P1.
+Historical machine-acceptance P1 = 0 (through `a8dbe1d`, harness-only tree).
+The 2026-09-08 Browser-hardening round opened and closed these P1s (see §18):
+
+- **P1-A** routing create wire-contract mismatch (frontend sent string ids for
+  long DTO fields) → fixed in frontend types/builders + validation;
+- **P1-B** missing mandatory governed Browser surfaces (Service Identity /
+  Gateway Credential / Model-Pricing) → minimal governed Control Plane API +
+  UI delivered with 18 backend integration + frontend tests;
+- **P1-C** Browser refresh/logout 403 caused by acceptance runtime origin
+  allowlist → runtime-only config, product auth untouched.
+
+Re-verification (P0=0 / P1=0) is part of the required machine re-run on the
+new exact HEAD this round.
 
 ### P2 / limitations
 
@@ -578,12 +607,71 @@ DO NOT MERGE (merge needs Sol review of the exact final head + user authorizatio
 
 This section may change to PASS only after:
 
-- every mandatory acceptance-matrix row is PASS (machine rows: done);
+- every mandatory acceptance-matrix row is PASS (machine rows: re-run required on the new exact HEAD after the 2026-09-08 product changes);
 - F01–F07 browser UAT PASS + real Provider certification PASS (blocked);
 - global financial invariants are all satisfied (done, §2);
 - hosted CI/Security/CodeQL/Trivy are green on the exact final PR head (TODO after push);
-- P0=0 and P1=0 (done);
+- P0=0 and P1=0 (re-verify on the new HEAD);
 - Sol independently reviews that exact head and records `SOL FINAL REVIEW = PASS`;
 - any subsequent commit triggers a new final review.
 
 Merge is not part of acceptance execution. It requires separate explicit user authorization.
+
+## 18. Browser UAT Round 1 → Hardening Round (2026-09-08)
+
+### 18.1 First-round Browser UAT result
+
+`BROWSER_UAT_FAIL` registered on the pre-hardening head. Recorded Browser REDs:
+
+1. **Routing create RED** — the create form submitted string identifiers while
+   the backend DTO carries numeric ids, and (live reproduction) the round-1
+   org 116 candidate was not eligible (provider code `MOCK` absent from
+   `provider_catalog`, no current pricing, no active credential).
+2. **Mandatory Browser surface gaps** — Service Identity / Gateway
+   Credential / Model-Pricing had no governed Browser management surface;
+   UAT-01/04 could not be completed. Not downgradable to N/A.
+3. **Auth runtime finding** — reload session loss + logout failure reproduced
+   at the network level: `POST /auth/refresh` and `/auth/logout` returned 403
+   `FORBIDDEN` for `Origin: http://127.0.0.1:18082` because the acceptance
+   backend allowlist defaulted to `http://localhost:8080`.
+4. **F02/F03** blocked by UAT-01 failure; **F05** incomplete (zero-difference
+   data by chance).
+
+### 18.2 Hardening round work (product code on top of the old seal)
+
+| Item | What changed | Regression |
+| --- | --- | --- |
+| P1-A routing wire contract | `RoutingCandidateInput`/`RoutingPolicyInput` carry JSON numbers; create/update payload builders parse and validate positive-integer ids; UI blocks invalid ids | frontend `RoutingPoliciesPage.test.tsx` (numeric payload + invalid block); full frontend 465/465; routing e2e unchanged (already numeric) |
+| P1-B governed Control Plane (backend) | `ServiceIdentityController`, `GatewayCredentialController`, `ModelPricingController` + services + `ControlPlaneMapper` + `AuditGatewayAdminAdapter`; org-scoped, `PROVIDER_ACCOUNT_READ/MANAGE` enforced server-side, cross-org 404, audit events, raw key one-time on create (HMAC digest only at rest), deterministic repeat-revoke 409, decimal-string pricing with append-only version lineage | `ServiceIdentityApiIntegrationTest` / `GatewayCredentialApiIntegrationTest` / `ModelPricingApiIntegrationTest` — 18/18 GREEN |
+| P1-B governed Control Plane (frontend) | `/settings/service-identities`, `/settings/gateway-credentials` (one-time raw-key modal + revoke confirm), `/settings/model-pricing`; `SETTINGS_NAV` + `PermissionRoute` (PROVIDER_ACCOUNT_READ) | gateway page tests (10) + `AuthenticatedLayout.test.tsx` updated; 465/465 frontend |
+| P1-C auth runtime | runtime-only acceptance config (`AICOSTOPS_ALLOWED_ORIGINS` += Browser origins, `AICOSTOPS_REFRESH_COOKIE_SECURE=false` for the loopback boundary); **no product auth change**; live verified 403→200/204, unallowed origin still 403 | existing `auth-session.spec.ts` + auth unit suites (run in machine gates) |
+
+### 18.3 P2 modal stuck — assessment (not fixed)
+
+Not independently reproduced this round (no browser available in the machine
+session). Code-level review found the budget/period-close modals rely solely
+on `isPending` + `onSuccess`; a stuck "正在创建…/正在关闭…" requires the
+mutation promise to never settle, which the auth-origin 403 (P1-C) is the most
+plausible trigger for in the round-1 environment (401 → refresh attempt → 403 →
+interceptor path). The P1-C runtime fix is therefore expected to remove the
+reported symptom; the R2 reviewer must capture a network trace before any
+further code change. **P2: not fixed, root cause pending deterministic capture.**
+
+### 18.4 Round-2 fixtures (prepared, NOT executed)
+
+- `.m16r2fixture.sql` (gitignored) — new org `M16-UAT-BROWSER-R2` + OPEN period
+  + constrained org budget + catalog-valid provider account; users provisioned
+  via API at stand-up; round-1 org 116 / period 111 untouched.
+- `.m16r2-provider-statement.csv` (gitignored) — exact / difference /
+  unresolved starter lines for F05.
+- `docs/03-acceptance/m16-browser-uat-runbook.md` — runtime config, R2
+  provisioning, F05 steps.
+
+### 18.5 Gate status
+
+```text
+BROWSER_UAT_ROUND1      = FAIL (evidence above)
+F01-F07 (round 2)       = NOT YET EXECUTED — must remain non-PASS
+MACHINE SEAL (old)      = INVALIDATED by product commits (re-run required on new exact HEAD)
+M16_MACHINE_ACCEPTANCE  = PENDING re-run on new exact HEAD
+```
