@@ -454,8 +454,9 @@ Record only sanitized metadata. If a production Provider/source-schema exact-cor
 
 ## 14. Full regression evidence
 
-Local full regression on the code-under-test + B05 working tree (all GREEN,
-2026-09-07):
+Local full regression on the B05 tree (all GREEN, re-verified this round;
+code scope since `ab46e86` is harness-only: `invoke-m16-b05-overload.ps1`,
+orchestrator wiring, this ledger):
 
 ### Backend
 
@@ -490,9 +491,11 @@ All GREEN standalone (no sleeps as proof, latch/barrier deterministic):
 - `StreamPermitCeilingIntegrationTest` 1/1 (B04 regression)
 - `CatalogBlockingBoundaryIntegrationTest` covered in gateway integration 82/82
 
-No product-code change in this round (B05 harness-only); prior hosted gates
-on `ab46e86` (CI 34118229012 / Security 34118229025) are now HISTORICAL
-evidence only. Fresh hosted runs are required on the final SHA (see §15).
+No product-code change in this round (B05 harness-only: new overload script +
+orchestrator wiring + this ledger; `gateway`/`backend`/`frontend` sources
+untouched since `ab46e86`); `ab46e86` hosted runs (CI 34118229012 /
+Security 34118229025) are HISTORICAL evidence only. The seal for the exact
+final HEAD is the §15 runs below (read the HEAD from PR #152 metadata).
 
 ## 15. Hosted gates
 
