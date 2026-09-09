@@ -14,12 +14,16 @@
      Backend runtime wiring (isolated loopback acceptance only, production
      defaults untouched): preserves the container allow-origin + insecure-
      cookie runtime config, guarantees AICOSTOPS_ALLOW_PUBLIC_REGISTRATION
-     (required so R3 identities are provisioned through the governed
+     (required so R5 identities are provisioned through the governed
      registration API), and optionally pins the registration org slug via
      -PublicRegistrationOrgSlug. The backend container carries the stable
      Docker DNS alias "backend" required by the frontend nginx upstream
-     (http://backend:8080). The stack starts in dependency order and the
-     run proves GREEN (DNS + frontend + proxy + readiness).
+     (http://backend:8080). Shared secrets (credential HMAC, request HMAC,
+     provider KEK) are injected from the local gitignored manifest
+     (.env.m16-browser-acceptance-secrets) into both Backend and Gateway,
+     and parity is verified after readiness. The stack starts in dependency
+     order and the run proves GREEN (DNS + frontend + proxy + readiness +
+     secret parity).
      Browser entrypoint after GREEN: http://127.0.0.1:18082 (use this single
      hostname for the whole session; the refresh cookie is host-scoped).
      Gate discipline: readiness helpers signal only through the sticky
@@ -54,6 +58,58 @@ function Get-TreeLabel([string]$Tag) {
 }
 function Get-ContainerEnv([string]$Name) {
     return @(docker inspect $Name --format "{{range .Config.Env}}{{println .}}{{end}}" 2>$null | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
+}
+function Read-SecretManifest([string]$Path) {
+    $map = @{}
+    if (-not (Test-Path -LiteralPath $Path)) { return $map }
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        $t = $line.Trim()
+        if ($t -match '^AICOSTOPS_(.+)=(.+)$') { $map[$Matches[1]] = $Matches[2] }
+    }
+    return $map
+}
+function Get-ContainerKey([string]$Name, [string]$EnvKey) {
+    $all = docker inspect $Name --format '{{range .Config.Env}}{{println .}}{{end}}' 2>$null
+    foreach ($line in ($all -split '\n')) {
+        $l = $line.Trim()
+        if ($l -match ('^' + [regex]::Escape($EnvKey) + '=(.+)$')) { return $Matches[1] }
+    }
+    return $null
+}
+function Get-Fingerprint([string]$Val) {
+    if ([string]::IsNullOrWhiteSpace($Val)) { return "MISSING" }
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Val)
+    $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($Bytes)
+    return (-join ($hash[0..3] | ForEach-Object { $_.ToString("x2") }))
+}
+function Test-SecretParity {
+    $manifestPath = Join-Path $RepoRoot ".env.m16-browser-acceptance-secrets"
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        Fail "secret manifest missing: .env.m16-browser-acceptance-secrets"
+        return
+    }
+    $sharedKeys = @(
+        "GATEWAY_CREDENTIAL_HMAC_KEY_V1",
+        "GATEWAY_REQUEST_HMAC_KEY_V1",
+        "PROVIDER_KEK_V1"
+    )
+    $allPass = $true
+    foreach ($k in $sharedKeys) {
+        $beVal = Get-ContainerKey "m16-backend-accept" ("AICOSTOPS_" + $k)
+        $gwVal = Get-ContainerKey "m16-gateway-accept" ("AICOSTOPS_" + $k)
+        $beFp = Get-Fingerprint $beVal
+        $gwFp = Get-Fingerprint $gwVal
+        $short = $k -replace "GATEWAY_", "" -replace "PROVIDER_", "PROVIDER_"
+        if ($beFp -eq $gwFp -and $beFp -ne "MISSING") {
+            Info ($short + " parity: PASS")
+        } else {
+            Fail ($short + " parity: FAIL (backend=" + $beFp + " gateway=" + $gwFp + ")")
+            $allPass = $false
+        }
+    }
+    if (-not $allPass) {
+        Fail "M16-BROWSER-START-RED shared secret parity mismatch"
+    }
 }
 function Test-TcpPort([string]$TargetHost, [int]$Port, [int]$TimeoutMs = 2000) {
     $client = New-Object System.Net.Sockets.TcpClient
@@ -160,6 +216,23 @@ try {
                 }
             }
         }
+        # Inject shared secrets from the local manifest into Backend/Gateway
+        if ($s.Container -eq "m16-backend-accept" -or $s.Container -eq "m16-gateway-accept") {
+            $manifestPath = Join-Path $RepoRoot ".env.m16-browser-acceptance-secrets"
+            $manifest = Read-SecretManifest $manifestPath
+            foreach ($mk in @("GATEWAY_CREDENTIAL_HMAC_KEY_V1", "GATEWAY_REQUEST_HMAC_KEY_V1", "PROVIDER_KEK_V1")) {
+                if ($manifest.ContainsKey($mk)) {
+                    $envKey = "AICOSTOPS_" + $mk
+                    $envVal = $manifest[$mk]
+                    $existing = @($desiredEnv | Where-Object { $_ -like ($envKey + "=*") })
+                    if ($existing.Count -eq 0) {
+                        $desiredEnv += ($envKey + "=" + $envVal)
+                    } else {
+                        $desiredEnv = @($desiredEnv | Where-Object { $_ -notlike ($envKey + "=*") }) + @($envKey + "=" + $envVal)
+                    }
+                }
+            }
+        }
         $envChanged = (Compare-Object $oldEnv $desiredEnv -SyncWindow 0) -ne $null
         if (($runningImage -ne $currentImage) -or $envChanged) {
             Info ("recreating " + $s.Container + " from " + $s.Image)
@@ -198,6 +271,9 @@ try {
     Wait-Http "gateway-liveness" "http://127.0.0.1:18081/actuator/health/liveness" $WaitSeconds
     Wait-Http "mock-health" "http://127.0.0.1:18089/health" 120
     if (-not $script:gateOk) { throw "readiness failed" }
+    Reset-Gate
+    Test-SecretParity
+    if (-not $script:gateOk) { throw "secret parity failed" }
     foreach ($c in @("m16-frontend-accept", "m16-prometheus")) {
         $exists = (docker inspect $c --format "{{.Name}}" 2>$null | Out-String).Trim()
         if (-not [string]::IsNullOrWhiteSpace($exists)) { $null = docker start $c 2>$null }
