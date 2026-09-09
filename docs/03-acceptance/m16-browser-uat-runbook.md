@@ -121,3 +121,49 @@ Permissions reuse `PROVIDER_ACCOUNT_READ` / `PROVIDER_ACCOUNT_MANAGE`
 
 Frontend: three settings pages behind `PermissionRoute` + `SETTINGS_NAV`
 entries, with one-time raw-key presentation and revoke confirmation.
+
+## 5. Deterministic Browser startup (Harness GREEN, R3-ready)
+
+Single entry point (harness-only, idempotent, no product change):
+
+- ./scripts/m16-browser-uat-start.ps1
+- optional -PublicRegistrationOrgSlug pins the isolated backend
+  registration org (R3 provisioning through the governed registration API);
+  -Rebuild forces image rebuilds.
+
+What it guarantees on the durable m16-accept-net network:
+
+- images ai-costops-backend/frontend/gateway:m16 carry label
+  m16.tree=<exact HEAD>; label mismatch triggers a tracked-tree rebuild
+  (timestamps are not a freshness signal);
+- stateless containers are recreated only on image/label/env change, reusing
+  their runtime env verbatim (durable MySQL/Redis volumes never touched,
+  no Redis key is ever deleted);
+- the backend container always carries the stable Docker DNS alias backend,
+  which the frontend nginx upstream (http://backend:8080) requires — this
+  was the proven R2 RED (frontend could not resolve backend, reviewer used
+  a forbidden hardcoded 172.x IP);
+- Browser runtime keeps AICOSTOPS_ALLOWED_ORIGINS with both 18082 origins
+  and AICOSTOPS_REFRESH_COOKIE_SECURE=false (loopback only); production
+  defaults, validateOrigin, SameSite/HttpOnly semantics unchanged.
+
+Reviewer discipline: use http://127.0.0.1:18082 exclusively for the whole
+session (refresh cookie is host-scoped; do not alternate with localhost).
+
+## 6. R3 fixture record (pre-R3 preconditions only)
+
+- R3 org m16-uat-browser-r3-20260909022652 (id 143) + OPEN period 138,
+  org-scope ACTIVE budget 100.00000000 USD (UAT-03 exhaustion setup),
+  catalog-compatible provider account (M16MOCK, ACTIVE);
+- other org m16-uat-browser-r3-other-20260909022652 (id 144) + OPEN period
+  139 for cross-org isolation checks;
+- users provisioned via the governed registration API into the R3 org:
+  ADMIN (SYSTEM_ADMIN), FINANCE (FINANCE_ADMIN), VIEWER (FINANCE_REVIEWER),
+  UNAUTHORIZED (EMPLOYEE only); credentials live only in the git-excluded
+  local .m16r3-browser-uat.env, never in the report;
+- F05 starter .m16r3-provider-statement.csv is a placeholder template only;
+  exact/difference/unresolved rows must derive from R3 live gateway usage.
+- NOT pre-created (Browser R3 does them): Project, F01 Budget, Service
+  Identity, Gateway Credential, Pricing Version, Routing Policy.
+- Round-1 org 116 / period 111 and the R2 org are untouched; no Redis key
+  was deleted for R3.
