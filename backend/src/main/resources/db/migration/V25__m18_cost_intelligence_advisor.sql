@@ -113,6 +113,7 @@ CREATE TABLE advisor_inference_job (
     evidence_fingerprint CHAR(64) NOT NULL,
     advisor_profile_version INT NOT NULL,
     status VARCHAR(32) NOT NULL,
+    evidence_refs_json JSON NOT NULL,
     claim_token CHAR(40) NULL,
     claim_expires_at DATETIME(6) NULL,
     gateway_request_id BIGINT NULL,
