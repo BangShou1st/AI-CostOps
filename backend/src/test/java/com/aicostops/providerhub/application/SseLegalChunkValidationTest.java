@@ -21,4 +21,13 @@ class SseLegalChunkValidationTest {
     @Test void missingDeltaIsRejected() {
         assertFalse(probes.isLegalStreamingChunk("{\"choices\":[{\"index\":0,\"finish_reason\":null}]}"));
     }
+    @Test void fractionalIndexIsRejected() {
+        assertFalse(probes.isLegalStreamingChunk("{\"choices\":[{\"index\":0.5,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}"));
+        assertFalse(probes.isLegalStreamingChunk("{\"choices\":[{\"index\":1.5,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}"));
+        assertFalse(probes.isLegalStreamingChunk("{\"choices\":[{\"index\":-1,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}"));
+        assertFalse(probes.isLegalStreamingChunk("{\"choices\":[{\"index\":1e3,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}"));
+    }
+    @Test void nonNegativeIntIndexIsAccepted() {
+        assertTrue(probes.isLegalStreamingChunk("{\"choices\":[{\"index\":1,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}"));
+    }
 } 

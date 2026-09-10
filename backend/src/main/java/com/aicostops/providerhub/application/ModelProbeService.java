@@ -404,9 +404,9 @@ public class ModelProbeService {
     /**
      * P1-3 bounded legal Chat Completions streaming chunk validation.
      *
-     * <p>Mirrors the Gateway streaming parser contract (OpenAI Chat Completions subset):
-     * root object, choices array with at least one choice object, integer index when present,
-     * delta object with string role/content when present, string/null finish_reason. Any
+    * <p>Mirrors the Gateway streaming parser contract (OpenAI Chat Completions subset):
+     * root object, choices array with at least one choice object, integral non-negative int-range index when present,
+    * delta object with string role/content when present, string/null finish_reason. Any
      * structurally invalid JSON (for example {"choices":[1]} or {"choices":[{}]}) is never
      * VERIFIED. Optional fields may be absent, but present fields must have the exact wire types.
      * VERIFIED additionally requires a terminal data:[DONE] line (see readStreamVerdict).
@@ -430,8 +430,20 @@ public class ModelProbeService {
                     return false;
                 }
                 var index = choice.get("index");
-                if (index != null && !index.isMissingNode() && !index.isNull() && !index.isNumber()) {
-                    return false;
+                if (index != null && !index.isMissingNode() && !index.isNull()) {
+                    if (!index.isIntegralNumber()) {
+                        return false;
+                    }
+                    try {
+                        var raw = index.asText("");
+                        var intValue = new java.math.BigInteger(raw);
+                        if (intValue.signum() < 0
+                                || intValue.compareTo(java.math.BigInteger.valueOf(Integer.MAX_VALUE)) > 0) {
+                            return false;
+                        }
+                    } catch (Exception invalidIndex) {
+                        return false;
+                    }
                 }
                 var delta = choice.get("delta");
                 if (delta == null || delta.isMissingNode() || delta.isNull() || !delta.isObject()) {
