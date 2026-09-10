@@ -139,7 +139,7 @@ public class ChatCompletionController {
             ServerWebExchange exchange) {
         return principal(exchange)
                 .flatMap(principal -> readBoundedBody(exchange)
-                        .flatMap(rawBody -> resolveCatalog(rawBody)
+                        .flatMap(rawBody -> resolveCatalog(principal, rawBody)
                                 .flatMap(catalog -> handleRequest(
                                         exchange, principal, rawBody, catalog))));
     }
@@ -236,13 +236,15 @@ public class ChatCompletionController {
                 .doFinally(ignored -> releasePermit.run());
     }
 
-    private Mono<ResolvedCatalogModel> resolveCatalog(byte[] rawBody) {
+    private Mono<ResolvedCatalogModel> resolveCatalog(GatewayPrincipal principal, byte[] rawBody) {
         var request = ChatCompletionRequestParser.parse(rawBody, objectMapper);
         var modelKey = request.model();
         // Synchronous JDBC/MyBatis catalog reads run strictly on the dedicated
         // gateway-db scheduler, never the Reactor Netty event loop.
         return blockingIo.call(() -> {
-            var modelId = readMapper.findModelIdByKey(modelKey);
+            // Organization-private keys resolve before global keys; a private
+            // key never shadows across organizations.
+            var modelId = readMapper.findVisibleModelId(principal.organizationId(), modelKey);
             if (modelId == null) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_INVALID,
                         "Unknown model");

@@ -184,7 +184,9 @@ public class RoutingPolicyService {
             var accountCode = mapper.findActiveAccountProviderCode(organizationId, candidate.providerAccountId());
             var modelCode = mapper.findEligibleProviderModelCode(candidate.providerModelId(), modelId);
             if (accountCode == null || modelCode == null || !accountCode.equals(modelCode)
-                    || !mapper.isActiveProviderCatalog(accountCode)) {
+                    || !mapper.isActiveProviderCatalog(accountCode)
+                    || !mapper.isRoutablePair(organizationId, candidate.providerAccountId(),
+                            candidate.providerModelId())) {
                 throw validation("Provider account and provider model must be active and use the same provider code.");
             }
             var status = normalizeStatus(candidate.status());

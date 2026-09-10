@@ -107,3 +107,9 @@ ALTER TABLE gateway_route_attempt ADD COLUMN provider_connection_profile_id BIGI
 -- Gateway credential origin: external vs internal-system identity.
 ALTER TABLE gateway_credential ADD COLUMN credential_origin VARCHAR(32) NOT NULL DEFAULT 'USER_ISSUED' AFTER principal_type,
     ADD CONSTRAINT chk_gateway_credential_origin CHECK (credential_origin IN ('USER_ISSUED','INTERNAL_SYSTEM'));
+-- Ownership coherence: global rows carry neither owner nor account;
+-- private rows always bind the exact same-org provider account.
+ALTER TABLE provider_model
+    ADD CONSTRAINT chk_provider_model_ownership CHECK (
+        (owner_org_id IS NULL AND provider_account_id IS NULL)
+        OR (owner_org_id IS NOT NULL AND provider_account_id IS NOT NULL));

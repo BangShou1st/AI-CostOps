@@ -176,8 +176,12 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
     @Test
     void billableHttp500StopsWithoutCallingB() {
         failPrimaryWith500 = true;
-        jdbc.update("UPDATE provider_catalog SET base_url=? WHERE provider_code='MIMO'",
-                "http://127.0.0.1:" + upstream.getAddress().getPort() + "/v1");
+        // V24: dispatch-time endpoint authority is the ACTIVE connection
+        // profile; mutating the catalog seed must not steer live dispatch.
+        jdbc.update("UPDATE provider_connection_profile SET base_url=?"
+                + " WHERE org_id=? AND provider_account_id=? AND status='ACTIVE'",
+                "http://127.0.0.1:" + upstream.getAddress().getPort() + "/v1",
+                env.orgId(), env.providerAccountId());
 
         web.post().uri("/v1/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)

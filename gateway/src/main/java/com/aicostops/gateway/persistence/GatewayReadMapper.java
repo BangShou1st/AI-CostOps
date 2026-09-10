@@ -72,8 +72,12 @@ public interface GatewayReadMapper {
     ProviderCredentialRow findActiveProviderCredential(
             @Param("orgId") long orgId, @Param("accountId") long providerAccountId);
 
-    @Select("SELECT id FROM model_catalog WHERE model_key=#{modelKey}")
-    Long findModelIdByKey(@Param("modelKey") String modelKey);
+    @Select("""
+            SELECT id FROM model_catalog
+            WHERE model_key=#{modelKey} AND (owner_org_id IS NULL OR owner_org_id=#{orgId})
+            ORDER BY owner_org_id DESC LIMIT 1
+            """)
+    Long findVisibleModelId(@Param("orgId") long orgId, @Param("modelKey") String modelKey);
 
     @Select("""
             SELECT auth_type, auth_header_name, network_policy

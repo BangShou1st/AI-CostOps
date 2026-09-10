@@ -124,6 +124,18 @@ public interface RoutingPolicyMapper {
     String findEligibleProviderModelCode(@Param("providerModelId") long providerModelId,
             @Param("modelId") long modelId);
 
+    @Select("""
+            SELECT EXISTS(
+              SELECT 1 FROM provider_model pm
+              WHERE pm.id=#{providerModelId}
+                AND (pm.owner_org_id IS NULL
+                  OR (pm.owner_org_id=#{organizationId}
+                    AND pm.provider_account_id=#{providerAccountId})))
+            """)
+    boolean isRoutablePair(@Param("organizationId") long organizationId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId);
+
     @Select("SELECT EXISTS(SELECT 1 FROM provider_catalog WHERE provider_code=#{providerCode} AND status='ACTIVE')")
     boolean isActiveProviderCatalog(@Param("providerCode") String providerCode);
 
