@@ -67,6 +67,7 @@ ALTER TABLE provider_model ADD COLUMN owner_org_id BIGINT NULL AFTER provider_co
     ADD COLUMN provider_account_scope BIGINT GENERATED ALWAYS AS (COALESCE(provider_account_id, 0)) STORED AFTER namespace_key,
     ADD CONSTRAINT fk_provider_model_owner_org FOREIGN KEY (owner_org_id) REFERENCES organization (id),
     ADD CONSTRAINT fk_provider_model_account_org FOREIGN KEY (provider_account_id, owner_org_id) REFERENCES provider_account (id, org_id);
+ALTER TABLE provider_model ADD KEY idx_provider_model_code (provider_code);
 ALTER TABLE provider_model DROP KEY uq_provider_model_code_name;
 ALTER TABLE provider_model DROP KEY uq_provider_model_code_model_name;
 ALTER TABLE provider_model ADD CONSTRAINT uq_provider_model_namespace_name UNIQUE (namespace_key, provider_account_scope, provider_code, provider_model_name),
