@@ -288,6 +288,29 @@ class AuthenticatedLiveDiscoveryIntegrationTest extends ControlPlaneFixtureSuppo
                 + " WHERE org_id=? AND provider_connection_profile_id=? AND provider_model_name=?",
                 String.class, organizationId, connectionId, model));
     }
+    @Test void overflowCatalogFailsClosedWithZeroMutation() throws Exception {
+        var connectionId = createConnection("{\"providerAccountId\":" + accountId + ",\"baseUrl\":\"" + baseUrl() + "\",\"authType\":\"BEARER\",\"modelsPath\":\"/models\"}");
+        storeCredential(connectionId, BEARER_SECRET);
+        var big = new java.util.ArrayList<String>();
+        for (int i = 0; i < 550; i++) big.add("overflow-model-" + i);
+        for (var n : big) jdbc.update("INSERT INTO provider_model_discovery(org_id,provider_connection_profile_id,provider_model_name,display_name,source,availability,protocol_code,pricing_classification,declared_capabilities_json,verified_capabilities_json,last_seen_at,created_at,updated_at) VALUES (?,?,?,?,?,?,'OPENAI_CHAT_COMPLETIONS','UNKNOWN',CAST(\'{\"capabilities\":[]}\' AS JSON),CAST(\'{\"capabilities\":[]}\' AS JSON),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))", organizationId, connectionId, n, n, "LIVE_DISCOVERY", "AVAILABLE");
+        liveModels.set(big);
+        rawPayload.set(null);
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/refresh", connectionId).header("Authorization", bearerFor(managerUserId)).contentType("application/json").content("{\"modelNames\":[],\"fetchLive\":true}")).andExpect(status().is5xxServerError());
+        for (var n : big) assertAvailability(connectionId, n, "AVAILABLE");
+        assertEquals(550, jdbc.queryForObject("SELECT COUNT(*) FROM provider_model_discovery WHERE org_id=? AND provider_connection_profile_id=? AND availability='AVAILABLE'", Integer.class, organizationId, connectionId).intValue());
+    }
+    @Test void exactly500CatalogSucceeds() throws Exception {
+        var connectionId = createConnection("{\"providerAccountId\":" + accountId + ",\"baseUrl\":\"" + baseUrl() + "\",\"authType\":\"BEARER\",\"modelsPath\":\"/models\"}");
+        storeCredential(connectionId, BEARER_SECRET);
+        var ok = new java.util.ArrayList<String>();
+        for (int i = 0; i < 500; i++) ok.add("ok-model-" + i);
+        liveModels.set(ok);
+        rawPayload.set(null);
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/refresh", connectionId).header("Authorization", bearerFor(managerUserId)).contentType("application/json").content("{\"modelNames\":[],\"fetchLive\":true}")).andExpect(status().isOk());
+        assertEquals("AVAILABLE", jdbc.queryForObject("SELECT availability FROM provider_model_discovery WHERE org_id=? AND provider_connection_profile_id=? AND provider_model_name=?", String.class, organizationId, connectionId, "ok-model-0"));
+        assertEquals(500, jdbc.queryForObject("SELECT COUNT(*) FROM provider_model_discovery WHERE org_id=? AND provider_connection_profile_id=? AND availability='AVAILABLE'", Integer.class, organizationId, connectionId).intValue());
+    }
 
     private void cleanDatabase() {
         jdbc.update("DELETE FROM audit_event");

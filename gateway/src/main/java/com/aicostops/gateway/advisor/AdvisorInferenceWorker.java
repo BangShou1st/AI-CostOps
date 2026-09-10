@@ -120,20 +120,91 @@ public class AdvisorInferenceWorker {
         });
     }
 
+    /**
+     * P1-1 explicit transactional terminal transition for (job, current attempt).
+     * Both updates must affect exactly one row or the whole short transaction rolls back.
+     * Provider I/O never occurs inside. Success maps to COMPLETED/COMPLETED, failure maps
+     * to FAILED/FAILED with the exact safe failure code on the attempt.
+     */
+    void terminalizeFailed(long jobId, String token, int attemptNo, String failureCode) {
+        var now = clock.instant();
+        terminalizeFailedAt(jobId, token, attemptNo, failureCode, now);
+    }
+
+    void terminalizeFailedAt(long jobId, String token, int attemptNo, String failureCode, Instant now) {
+        var code = failureCode == null || failureCode.isBlank() ? "PROVIDER_UNAVAILABLE" : failureCode;
+        var ok = transactions.execute(status -> {
+            if (jobs.markFailed(jobId, token, code, now) != 1) {
+                status.setRollbackOnly();
+                return false;
+            }
+            if (jobs.failAttempt(jobId, attemptNo, code) != 1) {
+                status.setRollbackOnly();
+                return false;
+            }
+            return true;
+        });
+        if (ok == null || !ok) {
+            throw new IllegalStateException("Advisor terminal transition failed; job update rolled back.");
+        }
+    }
+
+    void terminalizeCompleted(long jobId, String token, int attemptNo) {
+        var now = clock.instant();
+        var ok = transactions.execute(status -> {
+            if (jobs.markCompleted(jobId, token, now) != 1) {
+                status.setRollbackOnly();
+                return false;
+            }
+            if (jobs.completeAttempt(jobId, attemptNo) != 1) {
+                status.setRollbackOnly();
+                return false;
+            }
+            return true;
+        });
+        if (ok == null || !ok) {
+            throw new IllegalStateException("Advisor terminal transition failed; job update rolled back.");
+        }
+    }
+
+    void terminalizeCompletedWithExplanation(long orgId, long jobId, String token, int attemptNo,
+            String summary, String drivers, String actionsJson, String warningsJson, String refsJson) {
+        var now = clock.instant();
+        var ok = transactions.execute(status -> {
+            try {
+                jobs.insertExplanation(orgId, jobId, attemptNo, summary, drivers, actionsJson,
+                        warningsJson, refsJson, now);
+            } catch (RuntimeException ex) {
+                status.setRollbackOnly();
+                return false;
+            }
+            if (jobs.markCompleted(jobId, token, now) != 1) {
+                status.setRollbackOnly();
+                return false;
+            }
+            if (jobs.completeAttempt(jobId, attemptNo) != 1) {
+                status.setRollbackOnly();
+                return false;
+            }
+            return true;
+        });
+        if (ok == null || !ok) {
+            throw new IllegalStateException("Advisor terminal transition failed; job update rolled back.");
+        }
+    }
+
     private void execute(ClaimedJob claimed) {
         try {
             runGoverned(claimed);
         } catch (RuntimeException ex) {
             LOG.warn("Advisor job {} failed", claimed.jobId(), ex);
             var code = mapFailureCode(ex);
+            // P1-1 atomic terminal convergence: job+attempt must commit together; never split,
+            // never swallow affected-row mismatches. Provider I/O never occurs here.
             try {
-                jobs.markFailed(claimed.jobId(), claimed.token(), code, clock.instant());
+                terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), code);
             } catch (RuntimeException nested) {
                 LOG.warn("Advisor job {} failure could not be recorded", claimed.jobId(), nested);
-            }
-            try {
-                jobs.failAttempt(claimed.jobId(), claimed.attemptNo(), code);
-            } catch (RuntimeException ignored) {
             }
         }
     }
@@ -147,7 +218,8 @@ public class AdvisorInferenceWorker {
         // executions keep converging on their own lineage via convergeStuckLinked.)
         var job = jobs.findJob(claimed.jobId(), claimed.orgId());
         if (job == null) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "JOB_MISSING", clock.instant());
+            // P1-1: no job row exists, so there is no (job, attempt) pair to terminalize; return
+            // without Provider I/O. Attempt rows without a job row are never dispatched.
             return;
         }
         final AdvisorJobMapper.ProfileRow profile;
@@ -157,11 +229,12 @@ public class AdvisorInferenceWorker {
             profile = jobs.findProfileByOrgVersion(claimed.orgId(), job.advisorProfileVersion());
         }
         if (profile == null) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "PROFILE_MISSING", clock.instant());
+            // P1-1 atomic terminal convergence before any Provider I/O.
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "PROFILE_MISSING");
             return;
         }
         if (!"ACTIVE".equals(profile.status())) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "PROFILE_SUPERSEDED", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "PROFILE_SUPERSEDED");
             return;
         }
         // Exact profile-bound credential (legacy LIMIT 1 fallback for pre-V26 rows only), then
@@ -174,19 +247,19 @@ public class AdvisorInferenceWorker {
             credential = jobs.findInternalCredential(claimed.orgId());
         }
         if (credential == null) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "IDENTITY_MISSING", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "IDENTITY_MISSING");
             return;
         }
         if (credential.projectId() != profile.projectId()
                 || !credential.financialScopeType().equals(profile.financialScopeType())
                 || credential.financialScopeId() != profile.financialScopeId()
                 || !credential.budgetEnforcementMode().equals(profile.budgetEnforcementMode())) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "PROFILE_CREDENTIAL_MISMATCH", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "PROFILE_CREDENTIAL_MISMATCH");
             return;
         }
         var logicalModelId = jobs.findLogicalModelOf(profile.providerModelId());
         if (logicalModelId == null) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "MODEL_NOT_FOUND", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "MODEL_NOT_FOUND");
             return;
         }
         // P1 frozen evidence: the model receives exactly the snapshotted facts. The stored
@@ -195,24 +268,24 @@ public class AdvisorInferenceWorker {
         var snapshot = jobs.findEvidenceSnapshot(claimed.jobId(), claimed.orgId());
         if (snapshot == null || !snapshot.evidenceFingerprint().equals(job.evidenceFingerprint())
                 || !EvidenceFingerprint.verify(snapshot, objectMapper)) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "EVIDENCE_INTEGRITY_FAILED", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "EVIDENCE_INTEGRITY_FAILED");
             return;
         }
         final java.util.Set<String> allowedRefs;
         try {
             allowedRefs = snapshotDerivedRefs(snapshot);
         } catch (RuntimeException ex) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "EVIDENCE_INTEGRITY_FAILED", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "EVIDENCE_INTEGRITY_FAILED");
             return;
         }
         var jobRefs = parseRefs(job.evidenceRefsJson());
         if (!allowedRefs.equals(jobRefs)) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "EVIDENCE_INTEGRITY_FAILED", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "EVIDENCE_INTEGRITY_FAILED");
             return;
         }
         var prompt = buildPrompt(snapshot);
         if (prompt == null) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "SUBJECT_UNAVAILABLE", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "SUBJECT_UNAVAILABLE");
             return;
         }
         var principal = new GatewayPrincipal(credential.id(), claimed.orgId(), profile.projectId(),
@@ -226,11 +299,11 @@ public class AdvisorInferenceWorker {
         try {
             prepared = orchestrator.prepareInitial(command, false).block(Duration.ofMinutes(2));
         } catch (RuntimeException ex) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), mapFailureCode(ex), clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), mapFailureCode(ex));
             return;
         }
         if (prepared == null || prepared.dispatch() == null) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "ROUTING_NOT_READY", clock.instant());
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "ROUTING_NOT_READY");
             return;
         }
         var dispatch = prepared.dispatch();
@@ -282,21 +355,18 @@ public class AdvisorInferenceWorker {
         try {
             validated = validateNarrative(narrative, allowedRefs);
         } catch (IllegalArgumentException ex) {
-            jobs.markFailed(claimed.jobId(), claimed.token(), "INVALID_RESPONSE", clock.instant());
-            try {
-                jobs.failAttempt(claimed.jobId(), claimed.attemptNo(), "INVALID_RESPONSE");
-            } catch (RuntimeException ignored) {
-            }
+            // P1-1 atomic terminal convergence; Provider I/O already happened, but job+attempt
+            // must still commit together with row-count asserts.
+            terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "INVALID_RESPONSE");
             return;
         }
-        jobs.insertExplanation(claimed.orgId(), claimed.jobId(), claimed.attemptNo(),
-                validated.summary(), validated.drivers(), toJson(validated.actions()),
-                toJson(validated.warnings()), toJson(validated.refs()), clock.instant());
-        jobs.markCompleted(claimed.jobId(), claimed.token(), clock.instant());
-        try {
-            jobs.completeAttempt(claimed.jobId(), claimed.attemptNo());
-        } catch (RuntimeException ignored) {
-        }
+        // P1-1 atomic terminal convergence: explanation insert + job COMPLETED + attempt
+        // COMPLETED share one short transaction with row-count asserts; any mismatch rolls
+        // back all three. Provider I/O (adapter.complete + usage finalization above) never
+        // occurs inside this transaction.
+        terminalizeCompletedWithExplanation(claimed.orgId(), claimed.jobId(), claimed.token(),
+                claimed.attemptNo(), validated.summary(), validated.drivers(),
+                toJson(validated.actions()), toJson(validated.warnings()), toJson(validated.refs()));
     }
 
     private void failAfterDispatch(ClaimedJob claimed,
@@ -312,11 +382,9 @@ public class AdvisorInferenceWorker {
             LOG.warn("Advisor failure finalization failed for job {}", claimed.jobId(), nested);
         }
         var code = mapFailureCode(ex);
-        jobs.markFailed(claimed.jobId(), claimed.token(), code, clock.instant());
-        try {
-            jobs.failAttempt(claimed.jobId(), claimed.attemptNo(), code);
-        } catch (RuntimeException ignored) {
-        }
+        // P1-1 atomic terminal convergence after dispatch; usage finalization above never
+        // runs inside the terminal transaction.
+        terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), code);
     }
 
     private void convergeStuckLinked() {
@@ -326,12 +394,17 @@ public class AdvisorInferenceWorker {
                 var state = job.gatewayRequestId() == null ? null
                         : jobs.findGatewayRequestState(job.gatewayRequestId());
                 if (state == null || TERMINAL_PRE_DISPATCH.contains(state)) {
-                    jobs.markFailed(job.id(), job.claimToken(),
+                    // P1-1 stuck-linked convergence: job + its linked current attempt terminalize
+                    // together in one short transaction; never job FAILED + attempt RUNNING.
+                    // Blind redispatch is still absolutely forbidden here.
+                    terminalizeFailedAt(job.id(), job.claimToken(), job.attemptCount(),
                             state == null ? "GATEWAY_LOST" : state, now);
                 } else if (TERMINAL_POST_DISPATCH.contains(state)) {
-                    jobs.markFailed(job.id(), job.claimToken(), "BILLABLE_UNCERTAIN", now);
+                    terminalizeFailedAt(job.id(), job.claimToken(), job.attemptCount(),
+                            "BILLABLE_UNCERTAIN", now);
                 } else if ("TRANSPORT_COMPLETED".equals(state)) {
-                    jobs.markFailed(job.id(), job.claimToken(), "EXPLANATION_PENDING", now);
+                    terminalizeFailedAt(job.id(), job.claimToken(), job.attemptCount(),
+                            "EXPLANATION_PENDING", now);
                 } else {
                     jobs.extendLease(job.id(), now.plus(LEASE));
                 }

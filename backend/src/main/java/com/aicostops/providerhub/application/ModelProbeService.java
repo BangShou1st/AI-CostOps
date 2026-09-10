@@ -56,6 +56,7 @@ public class ModelProbeService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final String providerKek;
+    private final OpenCodeModelManifest openCodeManifest;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ModelProbeService(
@@ -68,7 +69,8 @@ public class ModelProbeService {
             AuditService audit,
             ObjectMapper objectMapper,
             Clock clock,
-            @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
+            @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            OpenCodeModelManifest openCodeManifest) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.discovery = discovery;
@@ -79,6 +81,7 @@ public class ModelProbeService {
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.providerKek = providerKek;
+        this.openCodeManifest = openCodeManifest;
     }
 
     public ProbeResult probe(AuthenticatedUser user, long profileId, long discoveryId) {
@@ -91,6 +94,15 @@ public class ModelProbeService {
         var row = discovery.find(discoveryId, context.organizationId());
         if (row == null || row.providerConnectionProfileId() != profileId) {
             throw notFound("Model discovery was not found.");
+        }
+        // P1-4 OpenCode manifest gate: unknown/unsupported stays AVAILABLE but cannot take the
+        // Chat probe path. Zero Provider I/O here; custom connections skip the manifest because
+        // their connection itself is the explicit Chat contract.
+        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())
+                && !openCodeManifest.isChatCompatible(row.providerModelName())) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.MODEL_NOT_VERIFIED,
+                    "Model not probed",
+                    "OpenCode model is not classified for Chat Completions in the controlled manifest.");
         }
         var outcome = execute(profile, row.providerModelName());
         var verifiedJson = capabilitiesJson(outcome.capabilities());
@@ -326,8 +338,9 @@ public class ModelProbeService {
             if (countEvents(total.toString()) >= MAX_STREAM_EVENTS) {
                 break;
             }
-            // Early exit once a valid chunk + terminal marker are both observed.
-            if (total.toString().contains("[DONE]") && containsChunk(total.toString())) {
+            // Early exit once a legal chunk + terminal marker are both observed. Both must be
+            // protocol-valid; a structurally invalid chunk must never trigger early VERIFIED.
+            if (containsDone(total.toString()) && containsChunk(total.toString())) {
                 break;
             }
         }
@@ -379,19 +392,69 @@ public class ModelProbeService {
                 if (payload.isEmpty() || payload.equals("[DONE]")) {
                     continue;
                 }
-                var node = objectMapper.readTree(payload);
-                if (node == null || !node.isObject()) {
-                    continue;
+                if (isLegalStreamingChunk(payload)) {
+                    return true;
                 }
-                var choices = node.get("choices");
-                if (choices == null || !choices.isArray() || choices.isEmpty()) {
-                    continue;
-                }
-                return true;
             }
         } catch (Exception ignored) {
         }
         return false;
+    }
+
+    /**
+     * P1-3 bounded legal Chat Completions streaming chunk validation.
+     *
+     * <p>Mirrors the Gateway streaming parser contract (OpenAI Chat Completions subset):
+     * root object, choices array with at least one choice object, integer index when present,
+     * delta object with string role/content when present, string/null finish_reason. Any
+     * structurally invalid JSON (for example {"choices":[1]} or {"choices":[{}]}) is never
+     * VERIFIED. Optional fields may be absent, but present fields must have the exact wire types.
+     * VERIFIED additionally requires a terminal data:[DONE] line (see readStreamVerdict).
+     */
+    boolean isLegalStreamingChunk(String payload) {
+        try {
+            if (payload == null || payload.isBlank() || payload.length() > MAX_BODY_BYTES) {
+                return false;
+            }
+            var node = objectMapper.readTree(payload);
+            if (node == null || !node.isObject()) {
+                return false;
+            }
+            var choices = node.get("choices");
+            if (choices == null || choices.isMissingNode() || choices.isNull()
+                    || !choices.isArray() || choices.isEmpty()) {
+                return false;
+            }
+            for (var choice : choices) {
+                if (choice == null || choice.isMissingNode() || choice.isNull() || !choice.isObject()) {
+                    return false;
+                }
+                var index = choice.get("index");
+                if (index != null && !index.isMissingNode() && !index.isNull() && !index.isNumber()) {
+                    return false;
+                }
+                var delta = choice.get("delta");
+                if (delta == null || delta.isMissingNode() || delta.isNull() || !delta.isObject()) {
+                    return false;
+                }
+                var role = delta.get("role");
+                if (role != null && !role.isMissingNode() && !role.isNull() && !role.isString()) {
+                    return false;
+                }
+                var content = delta.get("content");
+                if (content != null && !content.isMissingNode() && !content.isNull()
+                        && !content.isString()) {
+                    return false;
+                }
+                var finish = choice.get("finish_reason");
+                if (finish != null && !finish.isMissingNode() && !finish.isNull() && !finish.isString()) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     boolean isValidChatCompletion(String body) {

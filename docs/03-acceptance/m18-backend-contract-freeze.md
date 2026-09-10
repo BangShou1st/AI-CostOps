@@ -1,13 +1,14 @@
 # M18 — V3 Backend / OpenAPI Contract Freeze (Fourth Repair Candidate)
 
-> Status: **REPAIR CANDIDATE — third repair round, pending GPT-5.6 Sol re-review
-> (second-review findings on HEAD `8ceea10`)**. Branch: `feat/m18-v3-backend-complete`.
+> Status: **FINAL REPAIR CANDIDATE — final repair round, pending GPT-5.6 Sol acceptance (do not mark FROZEN)**.
+> (fourth-review findings on HEAD `d8bbf1e5b69dbc2e66f845ac6aa0909902508ebc`)**. Branch: `feat/m18-v3-backend-complete`.
 > Machine contract: [`m18-openapi.yaml`](./m18-openapi.yaml). Gate:
 > `backend/src/test/java/com/aicostops/contract/M18OpenApiContractTest.java`.
 >
-> This revision repairs all P0/P1 findings from Issue #155 rounds 1-3 (latest reviewed
-> HEAD `8ceea10`). Do not treat as final FROZEN until the independent review accepts
-> the new remote HEAD.
+> This revision is the final repair for Issue #155 fourth review (reviewed HEAD
+> `d8bbf1e5b69dbc2e66f845ac6aa0909902508ebc`, P0=0/P1=4/P2=1). It closes all remaining
+> items with fail-closed semantics and preserves all prior regressions. Do not treat as
+> FROZEN until GPT-5.6 Sol accepts the new remote HEAD. Migration chain remains V1-V27.
 
 ## 1. Conventions (unchanged V1/V2 + V3)
 
@@ -50,7 +51,7 @@ Custom rows are `OPENAI_CHAT_COMPLETIONS` + `DIRECT_PUBLIC_ONLY` with
 | Method & path | Permission | Result |
 |---|---|---|
 | `GET .../{id}/models` | PROVIDER_ACCOUNT_READ | Observations |
-| `POST .../{id}/models/refresh {modelNames[]}` | PROVIDER_ACCOUNT_MANAGE | Upsert AVAILABLE, mark missing UNAVAILABLE |
+| `POST .../{id}/models/refresh {fetchLive:true}` | PROVIDER_ACCOUNT_MANAGE | Provider-backed live snapshot only; client modelNames never become LIVE_DISCOVERY; `fetchLive:false` is rejected with zero mutation; catalog over 500 fails closed with zero mutation |
 | `POST .../{id}/models/manual {modelName}` | PROVIDER_ACCOUNT_MANAGE | 201 MANUAL observation |
 | `POST .../{id}/models/{discoveryId}/probe` | PROVIDER_ACCOUNT_MANAGE | `{pass, capabilities{CHAT_COMPLETIONS,SSE_STREAMING,USAGE,STRUCTURED_JSON}, errorCode}` |
 | `POST .../{id}/models/{discoveryId}/promote` | PROVIDER_ACCOUNT_MANAGE | 201 `{logicalModelId, providerModelId, pricingReady, routingReady}` |
@@ -247,3 +248,17 @@ Savings rate coverage (P1-7 finding N): replayable requires every positive-quant
 State-machine and control-plane sweeps (findings 20/21/22): retry/claim/link/pre-dispatch/post-dispatch/success/invalid-response/lease-expiry/supersede/crash paths checked for blind redispatch, stale G1, half-link, terminal mismatch, and PENDING carrying old failure. Discovery/probe/redirect/secret/DNS/proxy/body/timeout share one transport policy on both planes. Pricing dimensions INPUT/OUTPUT/CACHED/REQUEST validated; unknown positive-quantity dimensions fail closed.
 
 Verification on final HEAD: backend mvn verify 1139 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Gateway mvn verify 84 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend npm ci plus npm run build success with only chunk over 500kB warning. Migration V1 to V27 clean apply validated (27 migrations). git diff check clean. Hosted CI NOT RUN. Literal 127.0.0.1:7897 DEFERRED. Real Provider DEFERRED.
+
+## 14. Final repair round deltas (Issue 155 fourth review, reviewed HEAD d8bbf1e)
+
+Status: FINAL REPAIR CANDIDATE, pending GPT-5.6 Sol acceptance. P0 stays 0. This round closes P1-1..P1-4 plus P2-1.
+
+Terminal convergence (P1-1): explicit transactional terminalizeAttempt for (job, current attempt) with fencing and both-rows-affected asserts; Provider I/O never inside. Backend complete/fail require exactly one row on both sides or rollback (no swallow, no ignored counts). updateProfile supersede fails PENDING jobs plus their PENDING attempts in the same DB transaction with equality assert. Gateway worker pre-dispatch, post-dispatch, success, invalid-narrative and stuck-linked paths all use short TransactionTemplate terminal units. MySQL evidence covers supersede, pre-dispatch evidence failure, injected attempt-failure rollback (completion and failure), success COMPLETED/COMPLETED, and retry G1/G2 immutability.
+
+Catalog bound (P1-2): raw data.size() over 500 fails closed with INVALID_RESPONSE/PROVIDER_UNAVAILABLE and zero discovery mutations (no truncate, no partial UNAVAILABLE). Duplicate-heavy catalogs cannot bypass via unique-count checks. Integration proves 550 AVAILABLE preserved on overflow and 500-model success.
+
+SSE legal chunk (P1-3): VERIFIED requires valid content-type plus at least one bounded legal Chat chunk plus terminal data:[DONE]. Legal chunk mirrors the Gateway wire contract (root object, choices array, choice objects, integer index when present, delta object, string role/content when present, string/null finish_reason). Structurally invalid chunks never VERIFY. Tests cover legal, non-object choice, empty choice, malformed delta, missing delta, truncated without DONE, and wrong content-type.
+
+OpenCode manifest (P1-4, frozen M17 section 17): server-owned versioned OpenCodeModelManifest (MANIFEST_VERSION 2026-09-11-v1) with exact controlled matchers, independent protocol (OPENAI_CHAT_COMPLETIONS/UNSUPPORTED/UNKNOWN) and pricing (VERIFIED_FREE/PAID/UNKNOWN) classifications. No inference from -free or live availability. Live and manual discovery for OPENCODE_ZEN use manifest classification; unknown stays AVAILABLE/UNKNOWN but cannot Chat probe/promote. Promotion requires manifest Chat plus probe PASS plus verified CHAT. Pricing Version remains financial truth; VERIFIED_FREE never auto-creates pricing. Deterministic fixtures prove all five cases without paid traffic. Adapter stays DIRECT_ONLY with noProxy and opencode/1.18.21.
+
+Freeze doc (P2-1): top status, reviewed HEAD, migration count V1-V27, live-only refresh semantics, manifest, terminal and probe semantics made mechanically consistent with runtime and OpenAPI. Status remains FINAL REPAIR CANDIDATE pending Sol acceptance (never ACCEPTED/FROZEN by implementation).

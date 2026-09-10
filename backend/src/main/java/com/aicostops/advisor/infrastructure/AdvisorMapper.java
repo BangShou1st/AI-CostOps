@@ -203,6 +203,25 @@ public interface AdvisorMapper {
     int supersedePendingJobs(@Param("organizationId") long organizationId,
             @Param("prevProfileId") long prevProfileId, @Param("now") Instant now);
 
+    /**
+     * P1-1 terminal convergence: every superseded PENDING job's current PENDING attempt must
+     * fail in the same DB transaction. Matches jobs already marked FAILED/PROFILE_SUPERSEDED
+     * for the same superseded revision (plus legacy unbound rows) so job+attempt never split
+     * as FAILED/PENDING. Provider I/O never occurs in this transaction.
+     */
+    @Update("""
+            UPDATE advisor_inference_attempt a
+            INNER JOIN advisor_inference_job j ON j.id = a.job_id AND j.org_id = a.org_id
+            SET a.status='FAILED', a.failure_code='PROFILE_SUPERSEDED'
+            WHERE a.org_id=#{organizationId}
+              AND a.status='PENDING'
+              AND j.status='FAILED'
+              AND j.failure_code='PROFILE_SUPERSEDED'
+              AND (j.advisor_profile_id=#{prevProfileId} OR j.advisor_profile_id IS NULL)
+            """)
+    int supersedePendingAttempts(@Param("organizationId") long organizationId,
+            @Param("prevProfileId") long prevProfileId);
+
     @Insert("""
             INSERT INTO advisor_evidence_snapshot(org_id,job_id,schema_version,subject_type,subject_id,
               currency,facts_json,drivers_json,summary_json,evidence_fingerprint,generated_at,created_at)

@@ -112,6 +112,14 @@ public class AdvisorService {
         // Already-linked executions keep converging on their own Gateway lineage instead.
         if (previous != null) {
             var superseded = mapper.supersedePendingJobs(context.organizationId(), previous.id(), now);
+            // P1-1 atomic terminal convergence: the current PENDING child attempt of every
+            // superseded job must fail in the same DB transaction (never job FAILED + attempt PENDING).
+            // Provider I/O never occurs here. Both updates share this @Transactional boundary,
+            // so any attempt-update failure rolls back the job update as well.
+            var supersededAttempts = mapper.supersedePendingAttempts(context.organizationId(), previous.id());
+            if (superseded != supersededAttempts) {
+                throw new IllegalStateException("Advisor supersede left job/attempt split state");
+            }
             audit.append("AI_ADVISOR_PROFILE_UPDATED", context.organizationId(), user.userId(),
                     "ADVISOR_PROFILE", created.id(),
                     Map.of("version", created.version(), "supersededJobs", superseded));
@@ -224,7 +232,9 @@ public class AdvisorService {
         if (candidate == null) {
             return null;
         }
-        var token = HexFormat.of().formatHex(randomBytes(20)) + workerIdSuffix(workerId);
+        // P1-1: claim_token is CHAR(40); keep fencing entropy while respecting the column bound.
+        // 16 random bytes (32 hex) plus up to 8 worker suffix chars fits exactly in 40.
+        var token = HexFormat.of().formatHex(randomBytes(16)) + workerIdSuffix(workerId);
         if (mapper.markClaimed(candidate.id(), candidate.orgId(), token,
                 now.plus(CLAIM_LEASE), now) != 1) {
             return null;
@@ -264,7 +274,12 @@ public class AdvisorService {
         if (mapper.markCompleted(jobId, organizationId, token, now) != 1) {
             throw stateConflict("Advisor job claim is not held by this worker.");
         }
-        mapper.completeAttempt(organizationId, jobId, job.attemptCount());
+        // P1-1 atomic terminal convergence: job COMPLETED + current attempt COMPLETED must
+        // commit together. Affected-row mismatch rolls back the whole @Transactional unit
+        // (including the explanation insert above). Provider I/O never occurs here.
+        if (mapper.completeAttempt(organizationId, jobId, job.attemptCount()) != 1) {
+            throw stateConflict("Advisor attempt terminal transition failed; job update rolled back.");
+        }
         audit.append("AI_ADVISOR_EXPLANATION_COMPLETED", organizationId, job.requestedBy(),
                 "ADVISOR_JOB", jobId, Map.of("attempt", job.attemptCount()));
     }
@@ -275,12 +290,46 @@ public class AdvisorService {
         if (mapper.markFailed(jobId, organizationId, token, failureCode, clock.instant()) != 1) {
             throw stateConflict("Advisor job claim is not held by this worker.");
         }
-        try {
-            mapper.failAttempt(organizationId, jobId, job.attemptCount(), failureCode);
-        } catch (RuntimeException ignored) {
+        // P1-1 atomic terminal convergence: job FAILED + current attempt FAILED must commit
+        // together. Never swallow the attempt update and never ignore affected row counts.
+        // Any mismatch rolls back the job update. Provider I/O never occurs here.
+        if (mapper.failAttempt(organizationId, jobId, job.attemptCount(), failureCode) != 1) {
+            throw stateConflict("Advisor attempt terminal transition failed; job update rolled back.");
         }
         audit.append("AI_ADVISOR_EXPLANATION_FAILED", organizationId, null,
                 "ADVISOR_JOB", jobId, Map.of("failureCode", failureCode));
+    }
+
+    /**
+     * P1-1 explicit transactional terminal transition for (job, current attempt).
+     *
+     * <p>Verifies fencing (claim token + current attemptNo) and requires exactly one row on
+     * both sides; any mismatch rolls back the whole short transaction. Provider I/O must
+     * never occur inside this transaction. Success maps to COMPLETED/COMPLETED, failure maps
+     * to FAILED/FAILED with the exact safe failure code on the attempt.
+     */
+    @Transactional
+    public void terminalizeAttempt(long jobId, long organizationId, int attemptNo, String claimToken,
+            String terminalStatus, String failureCode) {
+        var now = clock.instant();
+        if ("COMPLETED".equals(terminalStatus)) {
+            if (mapper.markCompleted(jobId, organizationId, claimToken, now) != 1) {
+                throw stateConflict("Advisor job claim is not held by this worker.");
+            }
+            if (mapper.completeAttempt(organizationId, jobId, attemptNo) != 1) {
+                throw stateConflict("Advisor attempt terminal transition failed; job update rolled back.");
+            }
+        } else if ("FAILED".equals(terminalStatus)) {
+            var code = failureCode == null || failureCode.isBlank() ? "PROVIDER_UNAVAILABLE" : failureCode;
+            if (mapper.markFailed(jobId, organizationId, claimToken, code, now) != 1) {
+                throw stateConflict("Advisor job claim is not held by this worker.");
+            }
+            if (mapper.failAttempt(organizationId, jobId, attemptNo, code) != 1) {
+                throw stateConflict("Advisor attempt terminal transition failed; job update rolled back.");
+            }
+        } else {
+            throw validationFailed("Terminal status must be COMPLETED or FAILED.");
+        }
     }
 
     /** Crash recovery Case A: reclaim lease-expired jobs with no Gateway link. */

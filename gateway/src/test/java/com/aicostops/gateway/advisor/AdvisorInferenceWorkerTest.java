@@ -224,13 +224,17 @@ class AdvisorInferenceWorkerTest {
         when(jobs.findGatewayRequestState(201L)).thenReturn("UPSTREAM_ACTIVE");
         when(jobs.findGatewayRequestState(202L)).thenReturn("TRANSPORT_COMPLETED");
         when(jobs.markFailed(anyLong(), anyString(), anyString(), any())).thenReturn(1);
+        // P1-1 atomic terminal convergence: stuck-linked jobs must terminalize job+attempt together.
+        when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
         when(jobs.claimEligibleAny(any())).thenReturn(null);
 
         worker.tick();
 
         verify(jobs).markFailed(eq(1L), anyString(), eq("BILLABLE_UNCERTAIN"), any());
+        verify(jobs).failAttempt(eq(1L), eq(1), eq("BILLABLE_UNCERTAIN"));
         verify(jobs).extendLease(eq(2L), any());
         verify(jobs).markFailed(eq(3L), anyString(), eq("EXPLANATION_PENDING"), any());
+        verify(jobs).failAttempt(eq(3L), eq(1), eq("EXPLANATION_PENDING"));
     }
 
     @Test
@@ -242,10 +246,12 @@ class AdvisorInferenceWorkerTest {
         when(jobs.findProfileById(eq(7L), eq(10L))).thenReturn(new AdvisorJobMapper.ProfileRow(
                 10L, 7L, 1, 21L, 6L, "PROJECT", 6L, "OPTIONAL", "RETIRED"));
         when(jobs.markFailed(anyLong(), anyString(), anyString(), any())).thenReturn(1);
+        when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
 
         worker.tick();
 
         verify(jobs).markFailed(eq(100L), anyString(), eq("PROFILE_SUPERSEDED"), any());
+        verify(jobs).failAttempt(eq(100L), eq(1), eq("PROFILE_SUPERSEDED"));
         verify(adapterRegistry, never()).require(anyString());
         verify(jobs, never()).linkGateway(anyLong(), anyString(), anyString(), anyLong(), any());
     }
@@ -264,10 +270,12 @@ class AdvisorInferenceWorkerTest {
         when(jobs.findLogicalModelOf(21L)).thenReturn(9L);
         when(jobs.findEvidenceSnapshot(eq(100L), eq(7L))).thenReturn(snapshotRow());
         when(jobs.markFailed(anyLong(), anyString(), anyString(), any())).thenReturn(1);
+        when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
 
         worker.tick();
 
         verify(jobs).markFailed(eq(100L), anyString(), eq("EVIDENCE_INTEGRITY_FAILED"), any());
+        verify(jobs).failAttempt(eq(100L), eq(1), eq("EVIDENCE_INTEGRITY_FAILED"));
         verify(adapterRegistry, never()).require(anyString());
         verify(jobs, never()).linkGateway(anyLong(), anyString(), anyString(), anyLong(), any());
     }
@@ -281,10 +289,12 @@ class AdvisorInferenceWorkerTest {
         when(jobs.findProfileById(eq(7L), eq(10L))).thenReturn(profileRow());
         when(jobs.findCredentialForProfile(eq(7L), eq(10L))).thenReturn(null);
         when(jobs.markFailed(anyLong(), anyString(), anyString(), any())).thenReturn(1);
+        when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
 
         worker.tick();
 
         verify(jobs).markFailed(eq(100L), anyString(), eq("IDENTITY_MISSING"), any());
+        verify(jobs).failAttempt(eq(100L), eq(1), eq("IDENTITY_MISSING"));
         verify(jobs, never()).findBoundInternalCredential(anyLong());
         verify(jobs, never()).findInternalCredential(anyLong());
         verify(adapterRegistry, never()).require(anyString());
@@ -333,6 +343,7 @@ class AdvisorInferenceWorkerTest {
                 good.generatedAt(), good.createdAt());
         when(jobs.findEvidenceSnapshot(eq(100L), eq(7L))).thenReturn(tampered);
         when(jobs.markFailed(anyLong(), anyString(), anyString(), any())).thenReturn(1);
+        when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
 
         worker.tick();
 

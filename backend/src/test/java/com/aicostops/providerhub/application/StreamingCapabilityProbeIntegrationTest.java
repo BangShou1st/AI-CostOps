@@ -195,6 +195,29 @@ class StreamingCapabilityProbeIntegrationTest extends ControlPlaneFixtureSupport
                 .andExpect(jsonPath("$.pass").value(false))
                 .andExpect(jsonPath("$.capabilities.CHAT_COMPLETIONS").value("UNSUPPORTED"));
     }
+    @Test void structurallyInvalidChunkNeverVerifiesStreaming() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            var body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            byte[] payload;
+            if (body.contains("\"stream\":true")) {
+                exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+                var bad = "data: {\"choices\":[1]}\n\n" + "data: [DONE]\n\n";
+                payload = bad.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            } else {
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                payload = COMPLETION_JSON.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            }
+            exchange.sendResponseHeaders(200, payload.length);
+            try (var out = exchange.getResponseBody()) { out.write(payload); }
+        });
+        server.start();
+        try {
+            var connectionId = createConnection(server.getAddress().getPort());
+            var discoveryId = manualModel(connectionId, "stream-model");
+            mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{discoveryId}/probe", connectionId, discoveryId).header("Authorization", bearerFor(actorUserId))).andExpect(status().isOk()).andExpect(jsonPath("$.pass").value(true)).andExpect(jsonPath("$.capabilities.CHAT_COMPLETIONS").value("VERIFIED")).andExpect(jsonPath("$.capabilities.SSE_STREAMING").value("UNSUPPORTED"));
+        } finally { server.stop(0); }
+    }
 
     private long createConnection(int port) throws Exception {
         var body = mockMvc.perform(post("/api/v1/provider-connections")

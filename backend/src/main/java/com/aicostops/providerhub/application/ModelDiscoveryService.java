@@ -40,6 +40,7 @@ public class ModelDiscoveryService {
     private final Clock clock;
     private final ModelDiscoveryService self;
     private final String providerKek;
+    private final OpenCodeModelManifest openCodeManifest;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ModelDiscoveryService(
@@ -52,7 +53,8 @@ public class ModelDiscoveryService {
             AuditService audit,
             Clock clock,
             @Lazy ModelDiscoveryService self,
-            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
+            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            OpenCodeModelManifest openCodeManifest) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.mapper = mapper;
@@ -63,6 +65,7 @@ public class ModelDiscoveryService {
         this.clock = clock;
         this.self = self;
         this.providerKek = providerKek;
+        this.openCodeManifest = openCodeManifest;
     }
 
     public List<DiscoveryResponse> list(AuthenticatedUser user, long profileId) {
@@ -135,8 +138,18 @@ public class ModelDiscoveryService {
             if (name.isEmpty() || name.length() > 200 || !seen.add(name)) {
                 continue;
             }
+            // P1-4 OpenCode manifest: live /models proves availability only. Per-model protocol
+            // and pricing come from the server-owned manifest; unknown stays UNKNOWN and can
+            // never be guessed into the generic Chat adapter. Custom connections keep the
+            // explicit connection-level Chat contract.
+            var protocol = profile.protocolCode();
+            var pricing = "UNKNOWN";
+            if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
+                protocol = openCodeManifest.protocolFor(name);
+                pricing = openCodeManifest.pricingFor(name);
+            }
             mapper.upsertObservation(context.organizationId(), profileId, name, name,
-                    "LIVE_DISCOVERY", "AVAILABLE", profile.protocolCode(), "UNKNOWN",
+                    "LIVE_DISCOVERY", "AVAILABLE", protocol, pricing,
                     EMPTY_CAPABILITIES, EMPTY_CAPABILITIES, now);
         }
         for (var row : mapper.listByProfile(context.organizationId(), profileId)) {
@@ -200,8 +213,16 @@ public class ModelDiscoveryService {
             throw validationFailed("Model name is required.");
         }
         var now = clock.instant();
+        // P1-4 OpenCode manifest also applies to manual observations: never guess Chat
+        // compatibility from the connection-level protocol.
+        var manualProtocol = profile.protocolCode();
+        var manualPricing = "UNKNOWN";
+        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
+            manualProtocol = openCodeManifest.protocolFor(name);
+            manualPricing = openCodeManifest.pricingFor(name);
+        }
         mapper.upsertObservation(context.organizationId(), profileId, name, name,
-                "MANUAL", "AVAILABLE", profile.protocolCode(), "UNKNOWN",
+                "MANUAL", "AVAILABLE", manualProtocol, manualPricing,
                 EMPTY_CAPABILITIES, EMPTY_CAPABILITIES, now);
         var created = mapper.listByProfile(context.organizationId(), profileId).stream()
                 .filter(r -> r.providerModelName().equals(name)).findFirst()
@@ -236,6 +257,16 @@ public class ModelDiscoveryService {
                 || !"OPENAI_CHAT_COMPLETIONS".equals(profile.protocolCode())) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
                     "Model not promotable", "Only OPENAI_CHAT_COMPLETIONS models can be promoted.");
+        }
+        // P1-4 OpenCode manifest gate: promotion requires controlled Chat compatibility plus
+        // successful probe plus verified CHAT. Unknown/unsupported stays AVAILABLE but never
+        // becomes routable via the Chat adapter. Custom connections skip the manifest because
+        // their connection itself is the explicit Chat contract.
+        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())
+                && !openCodeManifest.isChatCompatible(discovery.providerModelName())) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
+                    "Model not promotable",
+                    "OpenCode model is not classified for Chat Completions in the controlled manifest.");
         }
         if (!"PASS".equals(discovery.lastProbeStatus())) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
@@ -465,12 +496,16 @@ public class ModelDiscoveryService {
             if (data == null || !data.isArray()) {
                 throw providerUnavailable("Provider discovery returned a malformed catalog.");
             }
+            // P1-2 fail-closed: a successful catalog larger than the supported bound must never
+            // become a partial snapshot that marks unseen rows UNAVAILABLE. Raw array size is
+            // checked (not unique count) so 500 unique + unbounded duplicates cannot bypass the
+            // bound. Zero discovery mutations occur on overflow; callers preserve availability.
+            if (data.size() > ProviderTransportSupport.MAX_MODEL_IDS) {
+                throw providerUnavailable("Provider discovery catalog exceeds supported bound.");
+            }
             var ids = new java.util.ArrayList<String>();
             var seen = new java.util.HashSet<String>();
             for (var entry : data) {
-                if (ids.size() >= ProviderTransportSupport.MAX_MODEL_IDS) {
-                    break;
-                }
                 if (entry == null || !entry.isObject()) {
                     throw providerUnavailable("Provider discovery returned a malformed catalog.");
                 }
