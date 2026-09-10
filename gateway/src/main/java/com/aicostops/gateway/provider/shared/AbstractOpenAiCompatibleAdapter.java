@@ -58,7 +58,8 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
         var httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()))
-                .followRedirect(false);
+                .followRedirect(false)
+                .resolver(new com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup());
         if (directOnly) {
             httpClient = httpClient.noProxy();
         }

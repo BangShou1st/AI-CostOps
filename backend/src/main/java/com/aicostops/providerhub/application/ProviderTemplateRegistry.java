@@ -19,7 +19,8 @@ public class ProviderTemplateRegistry {
     public static final String CUSTOM_OPENAI_COMPATIBLE = "CUSTOM_OPENAI_COMPATIBLE";
     public static final String PROTOCOL_OPENAI_CHAT_COMPLETIONS = "OPENAI_CHAT_COMPLETIONS";
     public static final String OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
-    public static final String OPENCODE_ZEN_USER_AGENT = "AI-CostOps-OpenCodeZen/3.0";
+    /** Server-owned OpenCode Zen User-Agent. Inherits the known working sibling-project policy. */
+    public static final String OPENCODE_ZEN_USER_AGENT = "opencode/1.18.21";
 
     private final Map<String, ProviderTemplate> templates = Map.of(
             OPENCODE_ZEN, new ProviderTemplate(

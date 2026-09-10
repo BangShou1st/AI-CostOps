@@ -33,24 +33,33 @@ public class ModelDiscoveryService {
     private final AuthorizationContextService authorizationContexts;
     private final ProviderConnectionMapper connections;
     private final ModelDiscoveryMapper mapper;
+    private final com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials;
+    private final CustomEndpointValidator endpointValidator;
     private final AuditService audit;
     private final Clock clock;
     private final ModelDiscoveryService self;
+    private final String providerKek;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ModelDiscoveryService(
             AuthorizationContextService authorizationContexts,
             ProviderConnectionMapper connections,
             ModelDiscoveryMapper mapper,
+            com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials,
+            CustomEndpointValidator endpointValidator,
             AuditService audit,
             Clock clock,
-            @Lazy ModelDiscoveryService self) {
+            @Lazy ModelDiscoveryService self,
+            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.mapper = mapper;
+        this.credentials = credentials;
+        this.endpointValidator = endpointValidator;
         this.audit = audit;
         this.clock = clock;
         this.self = self;
+        this.providerKek = providerKek;
     }
 
     public List<DiscoveryResponse> list(AuthenticatedUser user, long profileId) {
@@ -70,22 +79,28 @@ public class ModelDiscoveryService {
     }
 
     /**
-     * Refreshes observations, optionally fetching the live {@code /models}
-     * catalog first (bounded, names only — response bodies are never stored).
-     * Live I/O happens before the DB transaction is opened.
+     * Refreshes observations, optionally fetching the live {@code /models} catalog first
+     * (bounded, names only — response bodies are never stored). Live I/O happens before the DB
+     * transaction is opened, but only after PROVIDER_ACCOUNT_MANAGE is enforced: live discovery
+     * performs outbound Provider I/O and must never be triggerable by a read-only user. A live
+     * failure never masquerades as an empty catalog; only a successful snapshot may mark absent
+     * models UNAVAILABLE.
      */
     public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId,
             List<String> observedModelNames, boolean fetchLive) {
         if (!fetchLive) {
             return refreshInternal(user, profileId, observedModelNames, List.of());
         }
+        // P1: MANAGE before any Provider I/O (readers must not trigger external side effects).
         var context = authorizationContexts.current(user);
-        authorization.requireOrg(context, "PROVIDER_ACCOUNT_READ");
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
         var profile = connections.find(profileId, context.organizationId());
         if (profile == null) {
             throw notFound("Provider connection was not found.");
         }
-        var live = fetchLiveModels(profile);
+        // Throws PROVIDER_UNAVAILABLE / AUTHENTICATION_FAILED / ENDPOINT_BLOCKED on failure;
+        // callers must not mark existing AVAILABLE rows UNAVAILABLE in that case.
+        var live = fetchLiveModelsOrThrow(profile);
         return self.refreshInternal(user, profileId, observedModelNames, live);
     }
 
@@ -214,32 +229,138 @@ public class ModelDiscoveryService {
                 row.lastSeenAt(), row.lastProbedAt(), row.lastProbeStatus(), row.lastProbeErrorCode());
     }
 
-    private List<String> fetchLiveModels(com.aicostops.providerhub.domain.ProviderConnection profile) {
+    /**
+     * P1: bounded authenticated live discovery sharing the unified Provider transport policy.
+     * Applies base URL / models path / DIRECT_ONLY|DIRECT_PUBLIC_ONLY / credential (BEARER /
+     * API_KEY_HEADER / NONE) / server-owned User-Agent / timeouts / SSRF + redirect policy /
+     * body bound. Never swallows a Provider failure into an empty list.
+     */
+    List<String> fetchLiveModelsOrThrow(com.aicostops.providerhub.domain.ProviderConnection profile) {
         if (profile.modelsPath() == null || profile.modelsPath().isBlank()) {
             return List.of();
         }
+        var target = ProviderTransportSupport.joinBase(profile.baseUrl(), profile.modelsPath());
+        endpointValidator.validateEndpoint(target);
+        // Pre-connect re-validation narrows DNS TOCTOU: the JVM caches the same public result
+        // for the immediate connect below; gateway dispatch has full transport-level filtering.
+        endpointValidator.resolvePublicAddresses(target);
+        var origin = java.net.URI.create(target);
+        var secret = resolveSecret(profile);
+        var authenticated = secret != null;
+        var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent());
         try {
-            var target = joinBase(profile.baseUrl(), profile.modelsPath());
             var client = java.net.http.HttpClient.newBuilder()
                     .proxy(java.net.ProxySelector.of(null))
                     .connectTimeout(java.time.Duration.ofMillis(profile.connectTimeoutMs()))
                     .followRedirects(java.net.http.HttpClient.Redirect.NEVER)
                     .build();
-            var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create(target))
-                    .timeout(java.time.Duration.ofMillis(profile.responseTimeoutMs()))
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-            var response = client.send(request,
-                    java.net.http.HttpResponse.BodyHandlers.ofString(java.nio.charset.StandardCharsets.UTF_8));
-            if (response.statusCode() < 200 || response.statusCode() >= 300
-                    || response.body() == null || response.body().length() > 65536) {
-                return List.of();
+            var current = target;
+            for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
+                var builder = java.net.http.HttpRequest.newBuilder(java.net.URI.create(current))
+                        .timeout(java.time.Duration.ofMillis(profile.responseTimeoutMs()))
+                        .header("Accept", "application/json")
+                        .header("User-Agent", userAgent)
+                        .GET();
+                applyDiscoveryAuth(builder, profile, secret);
+                var response = client.send(builder.build(),
+                        java.net.http.HttpResponse.BodyHandlers.ofString(java.nio.charset.StandardCharsets.UTF_8));
+                var status = response.statusCode();
+                if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                    var location = response.headers().firstValue("location").orElse("");
+                    if (location.isBlank() || hop == ProviderTransportSupport.MAX_REDIRECTS) {
+                        throw providerUnavailable("Provider discovery redirect was rejected.");
+                    }
+                    final java.net.URI resolved;
+                    try {
+                        resolved = ProviderTransportSupport.resolveRedirect(current, location);
+                    } catch (IllegalArgumentException ex) {
+                        throw providerUnavailable("Provider discovery redirect was rejected.");
+                    }
+                    endpointValidator.validateRedirectTarget(resolved.toString());
+                    if (authenticated && !ProviderTransportSupport.sameOrigin(origin, resolved)) {
+                        throw endpointBlocked("Authenticated discovery must not follow a cross-origin redirect.");
+                    }
+                    current = resolved.toString();
+                    continue;
+                }
+                if (status == 401 || status == 403) {
+                    throw authFailed("Provider discovery authentication failed.");
+                }
+                if (status == 429) {
+                    throw providerUnavailable("Provider discovery was rate limited.");
+                }
+                if (status < 200 || status >= 300) {
+                    throw providerUnavailable("Provider discovery is unavailable.");
+                }
+                var body = response.body() == null ? "" : response.body();
+                if (body.length() > ProviderTransportSupport.MAX_BODY_BYTES) {
+                    throw providerUnavailable("Provider discovery response was too large.");
+                }
+                return parseModelIds(body);
             }
-            return parseModelIds(response.body());
+            throw providerUnavailable("Provider discovery is unavailable.");
+        } catch (DomainException ex) {
+            throw ex;
+        } catch (java.net.http.HttpTimeoutException | java.net.SocketTimeoutException ex) {
+            throw providerUnavailable("Provider discovery timed out.");
+        } catch (java.net.ConnectException | java.net.UnknownHostException ex) {
+            throw providerUnavailable("Provider discovery DNS failed.");
         } catch (Exception ex) {
-            return List.of();
+            throw providerUnavailable("Provider discovery is unavailable.");
         }
+    }
+
+    private String resolveSecret(com.aicostops.providerhub.domain.ProviderConnection profile) {
+        if ("NONE".equals(profile.authType())) {
+            return null;
+        }
+        var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
+        if (credential == null) {
+            throw authFailed("Provider credential is not available.");
+        }
+        if (providerKek == null || providerKek.isBlank()) {
+            throw providerUnavailable("Provider discovery is unavailable.");
+        }
+        try {
+            return new com.aicostops.gatewayadmin.security.ProviderCredentialEncryptor(providerKek).decrypt(
+                    credential.ciphertext(), credential.nonce(), profile.organizationId(),
+                    profile.providerAccountId(), credential.credentialType(),
+                    credential.encryptionKeyVersion());
+        } catch (Exception ex) {
+            throw authFailed("Provider discovery authentication failed.");
+        }
+    }
+
+    private void applyDiscoveryAuth(java.net.http.HttpRequest.Builder builder,
+            com.aicostops.providerhub.domain.ProviderConnection profile, String secret) {
+        if (secret == null || "NONE".equals(profile.authType())) {
+            return;
+        }
+        if ("API_KEY_HEADER".equals(profile.authType())) {
+            builder.header(profile.authHeaderName(), secret);
+        } else {
+            builder.header("Authorization", "Bearer " + secret);
+        }
+    }
+
+    private DomainException authFailed(String detail) {
+        return new DomainException(HttpStatus.BAD_GATEWAY, ProblemCode.PROVIDER_UNAVAILABLE,
+                "Provider authentication failed", detail);
+    }
+
+    private DomainException endpointBlocked(String detail) {
+        return new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.ENDPOINT_BLOCKED,
+                "Provider endpoint blocked", detail);
+    }
+
+    private DomainException providerUnavailable(String detail) {
+        return new DomainException(HttpStatus.BAD_GATEWAY, ProblemCode.PROVIDER_UNAVAILABLE,
+                "Provider unavailable", detail);
+    }
+
+    @Deprecated
+    private List<String> fetchLiveModels(com.aicostops.providerhub.domain.ProviderConnection profile) {
+        return fetchLiveModelsOrThrow(profile);
     }
 
     private List<String> parseModelIds(String body) {

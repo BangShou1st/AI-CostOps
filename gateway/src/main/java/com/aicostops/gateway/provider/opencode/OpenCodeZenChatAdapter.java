@@ -24,7 +24,13 @@ import tools.jackson.databind.ObjectMapper;
 public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
 
     public static final String ADAPTER_CODE = "OPENCODE_ZEN";
-    public static final String SERVER_USER_AGENT = "AI-CostOps-OpenCodeZen/3.0";
+    /**
+     * Server-owned OpenCode Zen User-Agent. Single source of truth lives in
+     * backend {@code ProviderTemplateRegistry#OPENCODE_ZEN_USER_AGENT}; this
+     * constant must stay identical ({@code opencode/1.18.21} unless fresh
+     * OpenCode evidence proves a deliberate replacement).
+     */
+    public static final String SERVER_USER_AGENT = "opencode/1.18.21";
 
     public OpenCodeZenChatAdapter(
             WebClient.Builder builder,

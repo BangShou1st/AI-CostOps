@@ -39,6 +39,8 @@ public class ModelProbeService {
 
     private static final int MAX_REDIRECTS = 3;
     private static final int MAX_BODY_BYTES = 65536;
+    private static final int MAX_STREAM_BYTES = 65536;
+    private static final int MAX_STREAM_EVENTS = 50;
     private static final String SYNTHETIC_BODY =
             "{\"model\":\"%s\",\"messages\":[{\"role\":\"user\"," +
             "\"content\":\"Reply with exactly: {\\\"ok\\\":true}\"}]," +
@@ -137,11 +139,19 @@ public class ModelProbeService {
             var body = probeOnce(profile, modelName, secret, secretKind);
             if (body == null) {
                 capabilities.put("CHAT_COMPLETIONS", "UNSUPPORTED");
+                capabilities.put("SSE_STREAMING", "UNKNOWN");
                 return new ProbeResult(false, capabilities, "MODEL_NOT_FOUND");
             }
             capabilities.put("CHAT_COMPLETIONS", body.contains("\"choices\"") ? "VERIFIED" : "UNSUPPORTED");
             capabilities.put("USAGE", body.contains("\"usage\"") ? "VERIFIED" : "UNSUPPORTED");
             capabilities.put("STRUCTURED_JSON", looksStructured(body) ? "VERIFIED" : "UNSUPPORTED");
+            // P1: SSE_STREAMING must be proven by a real bounded streaming call, never inferred
+            // from the non-streaming completion above.
+            if ("VERIFIED".equals(capabilities.get("CHAT_COMPLETIONS"))) {
+                capabilities.put("SSE_STREAMING", probeStreaming(profile, modelName, secret, secretKind));
+            } else {
+                capabilities.put("SSE_STREAMING", "UNKNOWN");
+            }
             var pass = "VERIFIED".equals(capabilities.get("CHAT_COMPLETIONS"));
             return new ProbeResult(pass, capabilities, pass ? null : "PROTOCOL_UNSUPPORTED");
         } catch (DomainException ex) {
@@ -168,8 +178,13 @@ public class ModelProbeService {
                 .build();
         var target = join(profile.baseUrl(), profile.completionPath());
         endpointValidator.validateEndpoint(target);
-        var userAgent = profile.userAgent() == null ? "AI-CostOps-Probe/3.0" : profile.userAgent();
+        endpointValidator.resolvePublicAddresses(target);
+        var origin = URI.create(target);
+        var userAgent = profile.userAgent() == null
+                ? com.aicostops.providerhub.application.ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT
+                : profile.userAgent();
         var payload = SYNTHETIC_BODY.formatted(escapeJson(modelName));
+        var authenticated = secret != null && !"NONE".equals(profile.authType());
         for (var hop = 0; hop <= MAX_REDIRECTS; hop++) {
             var builder = HttpRequest.newBuilder(URI.create(target))
                     .timeout(Duration.ofMillis(profile.responseTimeoutMs()))
@@ -186,8 +201,19 @@ public class ModelProbeService {
                 if (location.isBlank() || hop == MAX_REDIRECTS) {
                     throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
                 }
-                endpointValidator.validateRedirectTarget(location);
-                target = location;
+                final URI resolved;
+                try {
+                    resolved = resolveRedirect(origin, target, location);
+                } catch (IllegalArgumentException ex) {
+                    throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
+                }
+                endpointValidator.validateRedirectTarget(resolved.toString());
+                // P1: never forward a Provider secret to a different origin. Authenticated
+                // cross-origin redirect is rejected without emitting the next request.
+                if (authenticated && !sameOrigin(origin, resolved)) {
+                    throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
+                }
+                target = resolved.toString();
                 continue;
             }
             if (status == 401 || status == 403) {
@@ -208,6 +234,157 @@ public class ModelProbeService {
         throw new ProbeHttpStatus("PROVIDER_UNAVAILABLE");
     }
 
+    /**
+     * P1: bounded streaming capability probe. Fixed synthetic prompt with {@code stream=true};
+     * requires {@code text/event-stream}, at least one legal Chat Completion chunk and terminal
+     * handling; bounded bytes/events/time; never persists prompt/completion/raw bytes.
+     * Returns VERIFIED / UNSUPPORTED / UNKNOWN independently of the non-streaming result.
+     */
+    String probeStreaming(com.aicostops.providerhub.domain.ProviderConnection profile,
+            String modelName, String secret, String secretKind) {
+        var streamPayload = ("{\"model\":\"%s\",\"messages\":[{\"role\":\"user\"," +
+                "\"content\":\"Reply with exactly: {\\\"ok\\\":true}\"}]," +
+                "\"max_tokens\":16,\"stream\":true}").formatted(escapeJson(modelName));
+        try {
+            var client = HttpClient.newBuilder()
+                    .proxy(ProxySelector.of(null))
+                    .connectTimeout(Duration.ofMillis(profile.connectTimeoutMs()))
+                    .followRedirects(HttpClient.Redirect.NEVER)
+                    .build();
+            var target = join(profile.baseUrl(), profile.completionPath());
+            endpointValidator.validateEndpoint(target);
+            var origin = URI.create(target);
+            var authenticated = secret != null && !"NONE".equals(profile.authType());
+            var userAgent = profile.userAgent() == null
+                    ? com.aicostops.providerhub.application.ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT
+                    : profile.userAgent();
+            var current = target;
+            for (var hop = 0; hop <= MAX_REDIRECTS; hop++) {
+                var builder = HttpRequest.newBuilder(URI.create(current))
+                        .timeout(Duration.ofMillis(profile.responseTimeoutMs()))
+                        .header("Content-Type", "application/json")
+                        .header("Accept", "text/event-stream")
+                        .header("User-Agent", userAgent)
+                        .POST(HttpRequest.BodyPublishers.ofString(streamPayload, StandardCharsets.UTF_8));
+                applyAuth(builder, profile, secret, secretKind);
+                var response = client.send(builder.build(),
+                        HttpResponse.BodyHandlers.ofInputStream());
+                var status = response.statusCode();
+                if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                    try (var ignored = response.body()) {
+                    }
+                    var location = response.headers().firstValue("location").orElse("");
+                    if (location.isBlank() || hop == MAX_REDIRECTS) {
+                        return "UNSUPPORTED";
+                    }
+                    final URI resolved;
+                    try {
+                        resolved = resolveRedirect(origin, current, location);
+                    } catch (IllegalArgumentException ex) {
+                        return "UNSUPPORTED";
+                    }
+                    try {
+                        endpointValidator.validateRedirectTarget(resolved.toString());
+                    } catch (DomainException ex) {
+                        return "UNSUPPORTED";
+                    }
+                    if (authenticated && !sameOrigin(origin, resolved)) {
+                        return "UNSUPPORTED";
+                    }
+                    current = resolved.toString();
+                    continue;
+                }
+                if (status == 401 || status == 403 || status == 404) {
+                    try (var ignored = response.body()) {
+                    }
+                    return "UNKNOWN";
+                }
+                if (status < 200 || status >= 300) {
+                    try (var ignored = response.body()) {
+                    }
+                    return "UNSUPPORTED";
+                }
+                var contentType = response.headers().firstValue("content-type").orElse("");
+                if (!contentType.toLowerCase(java.util.Locale.ROOT).contains("text/event-stream")) {
+                    try (var ignored = response.body()) {
+                    }
+                    return "UNSUPPORTED";
+                }
+                try (var stream = response.body()) {
+                    var verdict = readStreamVerdict(stream);
+                    return verdict;
+                }
+            }
+            return "UNKNOWN";
+        } catch (Exception ex) {
+            return "UNKNOWN";
+        }
+    }
+
+    private String readStreamVerdict(java.io.InputStream stream) throws Exception {
+        var buf = new byte[4096];
+        var total = new StringBuilder();
+        var read = 0;
+        var deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        int n;
+        while ((n = stream.read(buf)) != -1) {
+            if (System.nanoTime() > deadline) {
+                break;
+            }
+            read += n;
+            if (read > MAX_STREAM_BYTES) {
+                break;
+            }
+            total.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+            if (total.length() > MAX_STREAM_BYTES) {
+                break;
+            }
+            if (countEvents(total.toString()) >= MAX_STREAM_EVENTS) {
+                break;
+            }
+            // Early exit once a valid chunk + terminal marker are both observed.
+            if (total.toString().contains("[DONE]") && containsChunk(total.toString())) {
+                break;
+            }
+        }
+        var text = total.toString();
+        if (!containsChunk(text)) {
+            return "UNSUPPORTED";
+        }
+        return "VERIFIED";
+    }
+
+    private static int countEvents(String text) {
+        var count = 0;
+        var idx = 0;
+        while ((idx = text.indexOf("data:", idx)) != -1) {
+            count++;
+            idx += 5;
+        }
+        return count;
+    }
+
+    private boolean containsChunk(String text) {
+        try {
+            for (var line : text.split("\n")) {
+                var trimmed = line.strip();
+                if (!trimmed.startsWith("data:")) {
+                    continue;
+                }
+                var payload = trimmed.substring(5).strip();
+                if (payload.isEmpty() || payload.equals("[DONE]")) {
+                    continue;
+                }
+                var node = objectMapper.readTree(payload);
+                if (node.has("choices")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
     private void applyAuth(HttpRequest.Builder builder,
             com.aicostops.providerhub.domain.ProviderConnection profile, String secret, String secretKind) {
         if ("NONE".equals(profile.authType()) || secret == null) {
@@ -218,6 +395,28 @@ public class ModelProbeService {
         } else {
             builder.header(profile.authHeaderName(), secret);
         }
+    }
+
+    static boolean sameOrigin(URI a, URI b) {
+        return a.getScheme().equalsIgnoreCase(b.getScheme())
+                && a.getHost().equalsIgnoreCase(b.getHost())
+                && effectivePort(a) == effectivePort(b);
+    }
+
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() != -1) {
+            return uri.getPort();
+        }
+        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+    }
+
+    static URI resolveRedirect(URI origin, String current, String location) {
+        var base = URI.create(current);
+        var resolved = base.resolve(location);
+        if (resolved.getScheme() == null || resolved.getHost() == null) {
+            throw new IllegalArgumentException("Redirect target is malformed");
+        }
+        return resolved;
     }
 
     private boolean looksStructured(String body) {

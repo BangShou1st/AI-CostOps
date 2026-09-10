@@ -43,8 +43,10 @@ public class ProviderConnectionService {
     private final ProviderConnectionMapper mapper;
     private final ProviderTemplateRegistry templates;
     private final CustomEndpointValidator endpointValidator;
+    private final com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials;
     private final AuditService audit;
     private final Clock clock;
+    private final String providerKek;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProviderConnectionService(
@@ -52,14 +54,18 @@ public class ProviderConnectionService {
             ProviderConnectionMapper mapper,
             ProviderTemplateRegistry templates,
             CustomEndpointValidator endpointValidator,
+            com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials,
             AuditService audit,
-            Clock clock) {
+            Clock clock,
+            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.templates = templates;
         this.endpointValidator = endpointValidator;
+        this.credentials = credentials;
         this.audit = audit;
         this.clock = clock;
+        this.providerKek = providerKek;
     }
 
     public List<TemplateResponse> templates(AuthenticatedUser user) {
@@ -229,29 +235,71 @@ public class ProviderConnectionService {
         return response(activated);
     }
 
-    /** Explicit bounded health probe. Never runs inside a DB transaction. */
+    /**
+     * Explicit bounded health probe. Never runs inside a DB transaction. P1: MANAGE-only side
+     * effect applying the configured credential + server-owned UA + network/SSRF/redirect policy.
+     * Unauthenticated GET against an auth-protected endpoint must not masquerade as AUTH failure
+     * of the connection itself; the configured auth is always applied.
+     */
     public ProbeResponse probe(AuthenticatedUser user, long id) {
         var context = authorizationContexts.current(user);
-        authorization.requireOrg(context, "PROVIDER_ACCOUNT_READ");
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
         var profile = require(context.organizationId(), id);
         var checkedAt = clock.instant();
         String status;
         String errorCode;
         try {
             endpointValidator.validateEndpoint(profile.baseUrl());
-            var target = profile.baseUrl() + (profile.modelsPath() == null ? "" : profile.modelsPath());
+            var initial = ProviderTransportSupport.joinBase(profile.baseUrl(),
+                    profile.modelsPath() == null ? "" : profile.modelsPath());
+            endpointValidator.validateEndpoint(initial);
+            endpointValidator.resolvePublicAddresses(initial);
+            var origin = URI.create(initial);
+            var secret = resolveProbeSecret(profile);
+            var authenticated = secret != null;
+            var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent());
             var client = HttpClient.newBuilder()
                     .proxy(ProxySelector.of(null))
                     .connectTimeout(Duration.ofMillis(profile.connectTimeoutMs()))
                     .followRedirects(HttpClient.Redirect.NEVER)
                     .build();
-            var httpRequest = HttpRequest.newBuilder(URI.create(target))
-                    .timeout(Duration.ofMillis(profile.responseTimeoutMs()))
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-            var httpResponse = client.send(httpRequest, HttpResponse.BodyHandlers.discarding());
-            var code = httpResponse.statusCode();
+            var current = initial;
+            int code = -1;
+            for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
+                var builder = HttpRequest.newBuilder(URI.create(current))
+                        .timeout(Duration.ofMillis(profile.responseTimeoutMs()))
+                        .header("Accept", "application/json")
+                        .header("User-Agent", userAgent)
+                        .GET();
+                if (authenticated) {
+                    if ("API_KEY_HEADER".equals(profile.authType())) {
+                        builder.header(profile.authHeaderName(), secret);
+                    } else if (!"NONE".equals(profile.authType())) {
+                        builder.header("Authorization", "Bearer " + secret);
+                    }
+                }
+                var httpResponse = client.send(builder.build(), HttpResponse.BodyHandlers.discarding());
+                code = httpResponse.statusCode();
+                if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                    var location = httpResponse.headers().firstValue("location").orElse("");
+                    if (location.isBlank() || hop == ProviderTransportSupport.MAX_REDIRECTS) {
+                        throw new RedirectBlockedException();
+                    }
+                    final URI resolved;
+                    try {
+                        resolved = ProviderTransportSupport.resolveRedirect(current, location);
+                    } catch (IllegalArgumentException ex) {
+                        throw new RedirectBlockedException();
+                    }
+                    endpointValidator.validateRedirectTarget(resolved.toString());
+                    if (authenticated && !ProviderTransportSupport.sameOrigin(origin, resolved)) {
+                        throw new RedirectBlockedException();
+                    }
+                    current = resolved.toString();
+                    continue;
+                }
+                break;
+            }
             if (code >= 200 && code < 300) {
                 status = "PASS";
                 errorCode = null;
@@ -268,6 +316,9 @@ public class ProviderConnectionService {
                 status = "FAIL";
                 errorCode = "PROVIDER_UNAVAILABLE";
             }
+        } catch (RedirectBlockedException ex) {
+            status = "FAIL";
+            errorCode = "ENDPOINT_BLOCKED";
         } catch (DomainException ex) {
             status = "FAIL";
             errorCode = "ENDPOINT_BLOCKED";
@@ -288,6 +339,27 @@ public class ProviderConnectionService {
                 "PROVIDER_CONNECTION", id, Map.of("result", status,
                         "errorCode", errorCode == null ? "NONE" : errorCode));
         return new ProbeResponse(status, errorCode, checkedAt);
+    }
+
+    private String resolveProbeSecret(com.aicostops.providerhub.domain.ProviderConnection profile) {
+        if ("NONE".equals(profile.authType())) {
+            return null;
+        }
+        var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
+        if (credential == null || providerKek == null || providerKek.isBlank()) {
+            return null;
+        }
+        try {
+            return new com.aicostops.gatewayadmin.security.ProviderCredentialEncryptor(providerKek).decrypt(
+                    credential.ciphertext(), credential.nonce(), profile.organizationId(),
+                    profile.providerAccountId(), credential.credentialType(),
+                    credential.encryptionKeyVersion());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private static final class RedirectBlockedException extends Exception {
     }
 
     public List<ConnectionResponse> revisions(AuthenticatedUser user, long accountId) {
