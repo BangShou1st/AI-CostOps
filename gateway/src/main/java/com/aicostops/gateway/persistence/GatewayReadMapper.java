@@ -15,7 +15,7 @@ public interface GatewayReadMapper {
 
     @Select("""
             SELECT id, org_id, credential_prefix, secret_digest, secret_digest_version,
-                   principal_type, organization_member_id, service_identity_id, project_id,
+                   principal_type, credential_origin, organization_member_id, service_identity_id, project_id,
                    financial_scope_type, financial_scope_id, budget_enforcement_mode, status,
                    expires_at
             FROM gateway_credential
@@ -75,6 +75,15 @@ public interface GatewayReadMapper {
     @Select("SELECT id FROM model_catalog WHERE model_key=#{modelKey}")
     Long findModelIdByKey(@Param("modelKey") String modelKey);
 
+    @Select("""
+            SELECT auth_type, auth_header_name, network_policy
+            FROM provider_connection_profile
+            WHERE org_id=#{orgId} AND provider_account_id=#{accountId} AND status='ACTIVE'
+            ORDER BY version DESC LIMIT 1
+            """)
+    ConnectionProfileRow findActiveConnectionProfile(
+            @Param("orgId") long orgId, @Param("accountId") long providerAccountId);
+
     record CredentialRow(
             long id,
             long orgId,
@@ -82,6 +91,7 @@ public interface GatewayReadMapper {
             byte[] secretDigest,
             short secretDigestVersion,
             String principalType,
+            String credentialOrigin,
             Long organizationMemberId,
             Long serviceIdentityId,
             long projectId,
@@ -101,5 +111,8 @@ public interface GatewayReadMapper {
     }
 
     record ProviderCredentialRow(String credentialType, byte[] ciphertext, byte[] nonce, short encryptionKeyVersion) {
+    }
+
+    record ConnectionProfileRow(String authType, String authHeaderName, String networkPolicy) {
     }
 }

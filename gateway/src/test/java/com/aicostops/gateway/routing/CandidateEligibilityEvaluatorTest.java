@@ -47,13 +47,16 @@ class CandidateEligibilityEvaluatorTest {
     private static ResolvedRoutingPolicy.Candidate candidate(long id, Long accountId, Long modelId,
             Long pricingId, String currency) {
         return new ResolvedRoutingPolicy.Candidate(id, 0, accountId, "MIMO", modelId, "model", pricingId,
-                currency, "https://example.test", "MIMO", true, true, true, true);
+                currency, "https://example.test", "MIMO", true, true, true, true,
+                -1L, null, 77L, "/chat/completions", "OPENAI_CHAT_COMPLETIONS",
+                "DIRECT_PUBLIC_ONLY", true);
     }
 
     private static ResolvedRoutingPolicy.Candidate candidate(long id, Long accountId, Long modelId,
             Long pricingId, String currency, long logicalModelId, String providerModelCode) {
         return new ResolvedRoutingPolicy.Candidate(id, 0, accountId, "MIMO", modelId, "model", pricingId,
                 currency, "https://example.test", "MIMO", true, true, true, true,
-                logicalModelId, providerModelCode);
+                logicalModelId, providerModelCode, 77L, "/chat/completions",
+                "OPENAI_CHAT_COMPLETIONS", "DIRECT_PUBLIC_ONLY", true);
     }
 }

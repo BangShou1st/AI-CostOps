@@ -586,7 +586,19 @@ public class ChatCompletionController {
     private Mono<ProviderCallContext> buildProviderContext(
             GatewayPrincipal principal, DispatchResult result) {
         return blockingIo.call(() -> {
-            var credential = credentialDecryptor.decrypt(principal.organizationId(), result.providerAccountId());
+            var profile = readMapper.findActiveConnectionProfile(
+                    principal.organizationId(), result.providerAccountId());
+            final String credentialType;
+            final byte[] secret;
+            if (profile != null && "NONE".equals(profile.authType())) {
+                credentialType = "NONE";
+                secret = null;
+            } else {
+                var credential = credentialDecryptor.decrypt(
+                        principal.organizationId(), result.providerAccountId());
+                credentialType = credential.credentialType();
+                secret = credential.secret();
+            }
             return new ProviderCallContext(
                     result.adapterCode(),
                     result.providerAccountId(),
@@ -595,9 +607,14 @@ public class ChatCompletionController {
                     result.pricingVersionId(),
                     result.currency(),
                     result.baseUrl(),
-                    credential.credentialType(),
-                    credential.secret(),
-                    result.routeDecisionId());
+                    credentialType,
+                    secret,
+                    result.routeDecisionId(),
+                    result.providerConnectionProfileId(),
+                    result.completionPath(),
+                    result.protocolCode(),
+                    result.networkPolicy(),
+                    profile == null ? null : profile.authHeaderName());
         });
     }
 

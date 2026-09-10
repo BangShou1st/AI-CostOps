@@ -56,7 +56,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var requestId = insertRequest("history");
         var policyId = policyId();
         var first = coordinator.plan(env.orgId(), requestId, policyId, "INITIAL_PRIMARY",
-                env.providerAccountId(), env.providerModelId(), env.pricingVersionId());
+                env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
         coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.BUDGET_INSUFFICIENT_PRE_PROVIDER);
 
         var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
@@ -67,11 +67,11 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var secondPricing = jdbc.queryForObject(
                 "SELECT id FROM pricing_version WHERE provider_account_id=?", Long.class, secondAccount);
         var second = coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
-                secondAccount, secondModel, secondPricing);
+                secondAccount, secondModel, null, secondPricing);
         coordinator.markSafe(env.orgId(), second.id(), ProviderSafetyReason.DNS_PRE_CONNECT);
 
         assertThatThrownBy(() -> coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
-                env.providerAccountId(), env.providerModelId(), env.pricingVersionId()))
+                env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId()))
                 .isInstanceOf(RouteAttemptCoordinator.PlanRejectedException.class)
                 .satisfies(error -> assertThat(((RouteAttemptCoordinator.PlanRejectedException) error).rejection())
                         .isEqualTo(RouteAttemptCoordinator.PlanRejection.CANDIDATE_ALREADY_ATTEMPTED));
@@ -84,7 +84,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var thirdPricing = jdbc.queryForObject(
                 "SELECT id FROM pricing_version WHERE provider_account_id=?", Long.class, thirdAccount);
         coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
-                thirdAccount, thirdModel, thirdPricing);
+                thirdAccount, thirdModel, null, thirdPricing);
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_route_attempt "
                 + "WHERE org_id=? AND request_id=?", Integer.class, env.orgId(), requestId)).isEqualTo(3);
@@ -100,7 +100,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
             var requestId = insertRequest("hold-" + status);
             var policyId = policyId();
             var first = coordinator.plan(env.orgId(), requestId, policyId, "INITIAL_PRIMARY",
-                    env.providerAccountId(), env.providerModelId(), env.pricingVersionId());
+                    env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
             coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.DNS_PRE_CONNECT);
             insertReservation(requestId, first.id(), status);
             var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
@@ -112,7 +112,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
                     "SELECT id FROM pricing_version WHERE provider_account_id=?", Long.class, secondAccount);
 
             assertThatThrownBy(() -> coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
-                    secondAccount, secondModel, secondPricing))
+                    secondAccount, secondModel, null, secondPricing))
                     .isInstanceOf(RouteAttemptCoordinator.PlanRejectedException.class)
                     .satisfies(error -> assertThat(((RouteAttemptCoordinator.PlanRejectedException) error).rejection())
                             .isEqualTo(RouteAttemptCoordinator.PlanRejection.EFFECTIVE_RESERVATION_REMAINS));
@@ -120,7 +120,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
             jdbc.update("UPDATE budget_reservation SET status='RELEASED', version=version+1, "
                     + "released_at=UTC_TIMESTAMP(6) WHERE request_id=?", requestId);
             var legal = coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
-                    secondAccount, secondModel, secondPricing);
+                    secondAccount, secondModel, null, secondPricing);
             assertThat(legal.attemptNo()).isEqualTo(2);
             GatewayTestFixture.clean(jdbc);
         }
@@ -133,7 +133,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var requestId = insertRequest("race");
         var policyId = policyId();
         var first = coordinator.plan(env.orgId(), requestId, policyId, "INITIAL_PRIMARY",
-                env.providerAccountId(), env.providerModelId(), env.pricingVersionId());
+                env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
         coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.DNS_PRE_CONNECT);
         var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
                 "https://race.example/v1", 1);
@@ -172,7 +172,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var requestId = insertRequest("duplicate");
         var policyId = policyId();
         var first = coordinator.plan(env.orgId(), requestId, policyId, "INITIAL_PRIMARY",
-                env.providerAccountId(), env.providerModelId(), env.pricingVersionId());
+                env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
         coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.DNS_PRE_CONNECT);
         var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
                 "https://duplicate.example/v1", 1);
@@ -182,7 +182,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var secondPricing = jdbc.queryForObject(
                 "SELECT id FROM pricing_version WHERE provider_account_id=?", Long.class, secondAccount);
         var second = coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
-                secondAccount, secondModel, secondPricing);
+                secondAccount, secondModel, null, secondPricing);
         coordinator.markSafe(env.orgId(), second.id(), ProviderSafetyReason.DNS_PRE_CONNECT);
 
         var ready = new CountDownLatch(2);
@@ -212,7 +212,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var requestId = insertRequest("terminal");
         var policyId = policyId();
         var first = coordinator.plan(env.orgId(), requestId, policyId, "INITIAL_PRIMARY",
-                env.providerAccountId(), env.providerModelId(), env.pricingVersionId());
+                env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
         coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.CLIENT_CANCEL_BEFORE_DISPATCH);
         jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH', terminal_at=UTC_TIMESTAMP(6) "
                 + "WHERE id=? AND org_id=?", requestId, env.orgId());
@@ -226,7 +226,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
                 "SELECT id FROM pricing_version WHERE provider_account_id=?", Long.class, secondAccount);
 
         assertThatThrownBy(() -> coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
-                secondAccount, secondModel, secondPricing))
+                secondAccount, secondModel, null, secondPricing))
                 .isInstanceOf(RouteAttemptCoordinator.PlanRejectedException.class)
                 .satisfies(error -> assertThat(((RouteAttemptCoordinator.PlanRejectedException) error).rejection())
                         .isEqualTo(RouteAttemptCoordinator.PlanRejection.REQUEST_NOT_ROUTEABLE));
@@ -238,7 +238,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         try {
             if (!go.await(10, TimeUnit.SECONDS)) return new PlanOutcome(false, "barrier-timeout");
             var planned = coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
-                    accountId, modelId, pricingId);
+                    accountId, modelId, null, pricingId);
             return new PlanOutcome(true, "attempt-" + planned.attemptNo());
         } catch (RouteAttemptCoordinator.PlanRejectedException ex) {
             return new PlanOutcome(false, ex.rejection().name());

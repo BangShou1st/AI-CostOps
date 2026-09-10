@@ -66,6 +66,11 @@ public class GatewayAuthenticationManager implements ReactiveAuthenticationManag
         if (row == null) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_AUTH_INVALID, "Invalid Gateway key");
         }
+        if ("INTERNAL_SYSTEM".equals(row.credentialOrigin())) {
+            // Internal advisor identities are database/internal only and must
+            // never authenticate through the public bearer filter.
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_AUTH_INVALID, "Invalid Gateway key");
+        }
         var expected = digestSecret(parsed.secretPart());
         if (expected.length != row.secretDigest().length
                 || !MessageDigest.isEqual(expected, row.secretDigest())) {

@@ -27,7 +27,8 @@ public class RouteAttemptCoordinator {
     }
 
     public PlannedAttempt plan(long orgId, long requestId, long routingPolicyId,
-            String routeReasonCode, long providerAccountId, long providerModelId, long pricingVersionId) {
+            String routeReasonCode, long providerAccountId, long providerModelId,
+            Long providerConnectionProfileId, long pricingVersionId) {
         var planned = transactions.execute(status -> {
             var request = mapper.findByIdForUpdate(requestId, orgId);
             if (request == null) throw new IllegalStateException("Gateway request is not available");
@@ -66,7 +67,7 @@ public class RouteAttemptCoordinator {
             try {
                 mapper.insertRouteAttempt(new GatewayRequestMapper.RouteAttemptInsert(
                         orgId, requestId, attemptNo, decisionId, routingPolicyId, providerAccountId,
-                        providerModelId, pricingVersionId, routeReasonCode));
+                        providerModelId, providerConnectionProfileId, pricingVersionId, routeReasonCode));
             } catch (DuplicateKeyException ex) {
                 var winner = mapper.findLatestAttempt(orgId, requestId);
                 if (winner == null || winner.attemptNo() != attemptNo) throw ex;
