@@ -138,9 +138,21 @@ public class AdvisorInferenceWorker {
             jobs.markFailed(claimed.jobId(), claimed.token(), "PROFILE_MISSING", clock.instant());
             return;
         }
-        var credential = jobs.findInternalCredential(claimed.orgId());
+        // P0: prefer the ACTIVE-profile-bound credential; fall back to legacy LIMIT 1 only for
+        // pre-V26 rows that have no advisor_profile_id yet. Then enforce exact principal match.
+        var credential = jobs.findBoundInternalCredential(claimed.orgId());
+        if (credential == null) {
+            credential = jobs.findInternalCredential(claimed.orgId());
+        }
         if (credential == null) {
             jobs.markFailed(claimed.jobId(), claimed.token(), "IDENTITY_MISSING", clock.instant());
+            return;
+        }
+        if (credential.projectId() != profile.projectId()
+                || !credential.financialScopeType().equals(profile.financialScopeType())
+                || credential.financialScopeId() != profile.financialScopeId()
+                || !credential.budgetEnforcementMode().equals(profile.budgetEnforcementMode())) {
+            jobs.markFailed(claimed.jobId(), claimed.token(), "PROFILE_CREDENTIAL_MISMATCH", clock.instant());
             return;
         }
         var logicalModelId = jobs.findLogicalModelOf(profile.providerModelId());

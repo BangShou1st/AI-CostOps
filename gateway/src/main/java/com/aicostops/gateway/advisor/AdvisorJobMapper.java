@@ -87,6 +87,22 @@ public interface AdvisorJobMapper {
             """)
     InternalCredentialRow findInternalCredential(@Param("organizationId") long organizationId);
 
+    /**
+     * P0: exact ACTIVE-profile-bound credential. The worker must use this row; the legacy
+     * LIMIT 1 lookup above is retained only as a migration fallback for pre-V26 rows.
+     */
+    @Select("""
+            SELECT gc.id,gc.org_id,gc.service_identity_id,gc.project_id,gc.financial_scope_type,
+              gc.financial_scope_id,gc.budget_enforcement_mode
+            FROM gateway_credential gc
+            JOIN service_identity si ON si.id = gc.service_identity_id AND si.org_id = gc.org_id
+            JOIN advisor_profile ap ON ap.id = gc.advisor_profile_id AND ap.org_id = gc.org_id
+            WHERE gc.org_id = #{organizationId} AND si.code = 'AICOSTOPS_ADVISOR'
+              AND gc.credential_origin = 'INTERNAL_SYSTEM' AND gc.status = 'ACTIVE'
+              AND ap.status = 'ACTIVE' LIMIT 1
+            """)
+    InternalCredentialRow findBoundInternalCredential(@Param("organizationId") long organizationId);
+
     @Select("""
             SELECT grain_type,grain_key,currency,observed_amount,baseline_amount,delta_amount,
               delta_percent,robust_z_score,CAST(drivers_json AS CHAR) AS drivers_json

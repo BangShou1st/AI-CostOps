@@ -41,8 +41,28 @@ public interface AdvisorMapper {
     @Select("SELECT status FROM provider_model WHERE id=#{providerModelId}")
     String findProviderModelStatus(@Param("providerModelId") long providerModelId);
 
+    /** Org-visible Provider Model status: global OR same-org private, ACTIVE, routable. */
+    @Select("""
+            SELECT pm.status FROM provider_model pm
+            JOIN model_catalog mc ON mc.id = pm.model_id
+            WHERE pm.id = #{providerModelId}
+              AND (pm.owner_org_id IS NULL OR pm.owner_org_id = #{organizationId})
+              AND (mc.owner_org_id IS NULL OR mc.owner_org_id = #{organizationId})
+              AND (pm.provider_account_id IS NULL OR EXISTS(
+                SELECT 1 FROM provider_account pa
+                WHERE pa.id = pm.provider_account_id AND pa.org_id = #{organizationId} AND pa.status = 'ACTIVE'))
+            """)
+    String findOrgVisibleProviderModelStatus(@Param("providerModelId") long providerModelId,
+            @Param("organizationId") long organizationId);
+
     @Select("SELECT status FROM project WHERE id=#{projectId} AND org_id=#{organizationId}")
     String findProjectStatus(@Param("projectId") long projectId, @Param("organizationId") long organizationId);
+
+    @Select("SELECT status FROM team WHERE id=#{scopeId} AND org_id=#{organizationId}")
+    String findTeamStatus(@Param("scopeId") long scopeId, @Param("organizationId") long organizationId);
+
+    @Select("SELECT status FROM cost_center WHERE id=#{scopeId} AND org_id=#{organizationId}")
+    String findCostCenterStatus(@Param("scopeId") long scopeId, @Param("organizationId") long organizationId);
 
     @Select("SELECT id FROM service_identity WHERE org_id=#{organizationId} AND code='AICOSTOPS_ADVISOR' LIMIT 1")
     Long findAdvisorIdentity(@Param("organizationId") long organizationId);
@@ -52,6 +72,49 @@ public interface AdvisorMapper {
 
     @Select("SELECT id FROM gateway_credential WHERE org_id=#{organizationId} AND service_identity_id=#{serviceIdentityId} AND credential_origin='INTERNAL_SYSTEM' AND status='ACTIVE' LIMIT 1")
     Long findInternalCredential(@Param("organizationId") long organizationId, @Param("serviceIdentityId") long serviceIdentityId);
+
+    /** Current ACTIVE profile-bound credential for the advisor identity (P0 exact binding). */
+    @Select("""
+            SELECT gc.id FROM gateway_credential gc
+            JOIN advisor_profile ap ON ap.id = gc.advisor_profile_id AND ap.org_id = gc.org_id
+            WHERE gc.org_id = #{organizationId} AND gc.service_identity_id = #{serviceIdentityId}
+              AND gc.credential_origin = 'INTERNAL_SYSTEM' AND gc.status = 'ACTIVE'
+              AND ap.status = 'ACTIVE' LIMIT 1
+            """)
+    Long findBoundInternalCredential(@Param("organizationId") long organizationId,
+            @Param("serviceIdentityId") long serviceIdentityId);
+
+    @Select("""
+            SELECT gc.id FROM gateway_credential gc
+            WHERE gc.org_id = #{organizationId} AND gc.service_identity_id = #{serviceIdentityId}
+              AND gc.credential_origin = 'INTERNAL_SYSTEM' AND gc.status = 'ACTIVE'
+            """)
+    java.util.List<Long> listActiveInternalCredentials(@Param("organizationId") long organizationId,
+            @Param("serviceIdentityId") long serviceIdentityId);
+
+    @Update("UPDATE gateway_credential SET status='REVOKED', revoked_at=#{now}, updated_at=#{now} WHERE id=#{id} AND org_id=#{organizationId} AND status='ACTIVE'")
+    int revokeInternalCredential(@Param("id") long id, @Param("organizationId") long organizationId,
+            @Param("now") Instant now);
+
+    @Update("UPDATE gateway_credential_model SET status='DISABLED' WHERE credential_id=#{credentialId} AND org_id=#{organizationId} AND status='ACTIVE'")
+    int disableCredentialModels(@Param("credentialId") long credentialId,
+            @Param("organizationId") long organizationId);
+
+    @Insert("""
+            INSERT INTO gateway_credential(org_id,credential_prefix,secret_digest,secret_digest_version,
+              principal_type,credential_origin,organization_member_id,service_identity_id,project_id,
+              financial_scope_type,financial_scope_id,budget_enforcement_mode,status,expires_at,
+              predecessor_credential_id,advisor_profile_id,created_at,updated_at,revoked_at)
+            VALUES(#{organizationId},#{prefix},#{digest},1,'SERVICE','INTERNAL_SYSTEM',NULL,
+              #{serviceIdentityId},#{projectId},#{scopeType},#{scopeId},#{budgetMode},'ACTIVE',NULL,
+              #{predecessorId},#{profileId},#{now},#{now},NULL)
+            """)
+    int insertBoundInternalCredential(@Param("organizationId") long organizationId, @Param("prefix") String prefix,
+            @Param("digest") byte[] digest, @Param("serviceIdentityId") long serviceIdentityId,
+            @Param("projectId") long projectId, @Param("scopeType") String scopeType,
+            @Param("scopeId") long scopeId, @Param("budgetMode") String budgetMode,
+            @Param("predecessorId") Long predecessorId, @Param("profileId") long profileId,
+            @Param("now") Instant now);
 
     @Insert("""
             INSERT INTO gateway_credential(org_id,credential_prefix,secret_digest,secret_digest_version,
@@ -73,8 +136,31 @@ public interface AdvisorMapper {
     int allowCredentialModel(@Param("credentialId") long credentialId, @Param("organizationId") long organizationId,
             @Param("modelId") long modelId, @Param("now") Instant now);
 
+    @Select("SELECT id,org_id,run_id,grain_type,grain_key,currency,observed_amount,baseline_amount,delta_amount FROM cost_anomaly WHERE id=#{id} AND org_id=#{organizationId}")
+    AnomalySubject findAnomalySubject(@Param("id") long id, @Param("organizationId") long organizationId);
+
+    @Select("SELECT id,org_id,scope_type,scope_key,currency,projected_amount,method FROM cost_forecast_snapshot WHERE id=#{id} AND org_id=#{organizationId}")
+    ForecastSubject findForecastSubject(@Param("id") long id, @Param("organizationId") long organizationId);
+
+    @Select("SELECT id,org_id,logical_model_id,currency,current_cost,candidate_cost,potential_saving FROM savings_recommendation WHERE id=#{id} AND org_id=#{organizationId}")
+    SavingsSubject findSavingsSubject(@Param("id") long id, @Param("organizationId") long organizationId);
+
+    @Select("SELECT id,org_id,scope_type,scope_id,currency,total_amount,actual_amount,committed_amount FROM budget WHERE id=#{id} AND org_id=#{organizationId} AND status='ACTIVE'")
+    BudgetSubject findBudgetSubject(@Param("id") long id, @Param("organizationId") long organizationId);
+
     @Select("SELECT model_id FROM provider_model WHERE id=#{providerModelId}")
     Long findLogicalModelOf(@Param("providerModelId") long providerModelId);
+
+    /** Org-visible logical model for a provider model (global OR same-org private). */
+    @Select("""
+            SELECT pm.model_id FROM provider_model pm
+            JOIN model_catalog mc ON mc.id = pm.model_id
+            WHERE pm.id = #{providerModelId}
+              AND (pm.owner_org_id IS NULL OR pm.owner_org_id = #{organizationId})
+              AND (mc.owner_org_id IS NULL OR mc.owner_org_id = #{organizationId})
+            """)
+    Long findOrgVisibleLogicalModelOf(@Param("providerModelId") long providerModelId,
+            @Param("organizationId") long organizationId);
 
     @Insert("""
             INSERT INTO advisor_inference_job(org_id,requested_by,subject_type,subject_id,
@@ -153,6 +239,25 @@ public interface AdvisorMapper {
 
     @Select("SELECT id,org_id,job_id,attempt_no,schema_version,summary,drivers_explanation,CAST(recommended_actions_json AS CHAR) AS recommended_actions_json,CAST(warnings_json AS CHAR) AS warnings_json,CAST(fact_reference_ids_json AS CHAR) AS fact_reference_ids_json,created_at FROM advisor_explanation WHERE org_id=#{organizationId} AND job_id=#{jobId} ORDER BY id DESC LIMIT 1")
     ExplanationRow findLatestExplanation(@Param("organizationId") long organizationId, @Param("jobId") long jobId);
+
+    record AnomalySubject(long id, long orgId, long runId, String grainType, String grainKey,
+            String currency, java.math.BigDecimal observedAmount, java.math.BigDecimal baselineAmount,
+            java.math.BigDecimal deltaAmount) {
+    }
+
+    record ForecastSubject(long id, long orgId, String scopeType, String scopeKey, String currency,
+            java.math.BigDecimal projectedAmount, String method) {
+    }
+
+    record SavingsSubject(long id, long orgId, long logicalModelId, String currency,
+            java.math.BigDecimal currentCost, java.math.BigDecimal candidateCost,
+            java.math.BigDecimal potentialSaving) {
+    }
+
+    record BudgetSubject(long id, long orgId, String scopeType, long scopeId, String currency,
+            java.math.BigDecimal totalAmount, java.math.BigDecimal actualAmount,
+            java.math.BigDecimal committedAmount) {
+    }
 
     record ProfileRow(long id, long orgId, int version, long providerModelId, long projectId,
             String financialScopeType, long financialScopeId, String budgetEnforcementMode,

@@ -1,6 +1,5 @@
 package com.aicostops.advisor.api;
 
-import com.aicostops.advisor.application.AdvisorEvidence;
 import com.aicostops.advisor.application.AdvisorService;
 import com.aicostops.advisor.application.AdvisorService.ExplanationRequest;
 import com.aicostops.advisor.application.AdvisorService.JobResponse;
@@ -43,14 +42,17 @@ public class AdvisorController {
                 body.budgetEnforcementMode()));
     }
 
+    /**
+     * P1: server-generated evidence. The client supplies only the subject identity; any
+     * money/drivers/summaries in the payload are ignored (never trusted) so clients cannot
+     * forge dollar amounts or fact references.
+     */
     @PostMapping("/explanations")
     @ResponseStatus(HttpStatus.CREATED)
     public JobResponse requestExplanation(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody ExplanationBody body) {
-        return advisor.requestExplanation(user, new ExplanationRequest(body.subjectType(),
-                body.subjectId(), body.currency(), body.facts(), body.drivers(),
-                body.forecastSummary(), body.budgetRiskSummary(), body.savingsSummary()));
+        return advisor.requestExplanation(user, new ExplanationRequest(body.subjectType(), body.subjectId()));
     }
 
     @GetMapping("/explanations/{id}")
@@ -73,14 +75,6 @@ public class AdvisorController {
             String budgetEnforcementMode) {
     }
 
-    public record ExplanationBody(
-            String subjectType,
-            long subjectId,
-            String currency,
-            java.util.List<AdvisorEvidence.MoneyFact> facts,
-            java.util.List<AdvisorEvidence.Driver> drivers,
-            String forecastSummary,
-            String budgetRiskSummary,
-            String savingsSummary) {
+    public record ExplanationBody(String subjectType, long subjectId) {
     }
 }

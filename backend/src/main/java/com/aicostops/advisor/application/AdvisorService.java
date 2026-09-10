@@ -73,8 +73,10 @@ public class AdvisorService {
     public ProfileResponse updateProfile(AuthenticatedUser user, UpdateProfileRequest request) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "AI_ADVISOR_MANAGE");
-        if (!"ACTIVE".equals(mapper.findProviderModelStatus(request.providerModelId()))) {
-            throw validationFailed("Advisor provider model must be ACTIVE.");
+        // P1: org-visible provider model (global OR same-org private, ACTIVE). Never cross-org private.
+        if (!"ACTIVE".equals(mapper.findOrgVisibleProviderModelStatus(request.providerModelId(),
+                context.organizationId()))) {
+            throw validationFailed("Advisor provider model must be ACTIVE and visible to this organization.");
         }
         if (!"ACTIVE".equals(mapper.findProjectStatus(request.projectId(), context.organizationId()))) {
             throw validationFailed("Advisor project must be ACTIVE in this organization.");
@@ -83,6 +85,8 @@ public class AdvisorService {
         if (!scope.equals("PROJECT") && !scope.equals("TEAM") && !scope.equals("COST_CENTER")) {
             throw validationFailed("Financial scope type must be PROJECT, TEAM or COST_CENTER.");
         }
+        // P1: financialScopeId must belong to current org with matching type and ACTIVE status.
+        validateFinancialScopeOwnership(context.organizationId(), scope, request.financialScopeId());
         var budgetMode = request.budgetEnforcementMode() == null ? "" : request.budgetEnforcementMode();
         if (!budgetMode.equals("REQUIRED") && !budgetMode.equals("OPTIONAL")) {
             throw validationFailed("Budget enforcement mode must be REQUIRED or OPTIONAL.");
@@ -97,13 +101,33 @@ public class AdvisorService {
                 request.projectId(), scope, request.financialScopeId(), budgetMode,
                 context.organizationMemberId(), now);
         var created = mapper.findProfile(mapper.lastInsertId(), context.organizationId());
-        ensureInternalIdentity(context.organizationId(), request.projectId(), budgetMode,
-                request.providerModelId(), now);
+        // P0: rotate INTERNAL_SYSTEM credential so execution principal exactly matches new ACTIVE profile.
+        rotateInternalIdentity(context.organizationId(), created.id(), request.projectId(), scope,
+                request.financialScopeId(), budgetMode, request.providerModelId(), now);
         audit.append("AI_ADVISOR_PROFILE_UPDATED", context.organizationId(), user.userId(),
                 "ADVISOR_PROFILE", created.id(), Map.of("version", created.version()));
         return profileResponse(created);
     }
 
+    private void validateFinancialScopeOwnership(long organizationId, String scopeType, long scopeId) {
+        final String status = switch (scopeType) {
+            case "PROJECT" -> mapper.findProjectStatus(scopeId, organizationId);
+            case "TEAM" -> mapper.findTeamStatus(scopeId, organizationId);
+            case "COST_CENTER" -> mapper.findCostCenterStatus(scopeId, organizationId);
+            default -> null;
+        };
+        if (!"ACTIVE".equals(status)) {
+            throw validationFailed("Advisor financial scope must be ACTIVE in this organization.");
+        }
+    }
+
+    /**
+     * P1: server-generated evidence. The client supplies only the subject identity
+     * (subjectType + subjectId); the backend loads deterministic facts by current org and
+     * builds/fingerprints the envelope itself. Client-supplied money/drivers are never trusted
+     * (legacy fields, if present, are ignored) so a malicious client cannot inject amounts or
+     * fake fact references. Foreign-org or missing subjects are rejected.
+     */
     @Transactional
     public JobResponse requestExplanation(AuthenticatedUser user, ExplanationRequest request) {
         var context = authorizationContexts.current(user);
@@ -115,9 +139,7 @@ public class AdvisorService {
         if (request.subjectType() == null || !SUBJECT_TYPES.contains(request.subjectType())) {
             throw validationFailed("Subject type must be ANOMALY, FORECAST, BUDGET_RISK or SAVINGS.");
         }
-        var envelope = AdvisorEvidence.build(request.subjectType(), request.subjectId(),
-                request.currency(), request.facts(), request.drivers(), request.forecastSummary(),
-                request.budgetRiskSummary(), request.savingsSummary(), clock.instant());
+        var envelope = buildServerEnvelope(context.organizationId(), request.subjectType(), request.subjectId());
         var fingerprint = AdvisorEvidence.fingerprint(envelope);
         var now = clock.instant();
         final String refsJson;
@@ -226,22 +248,55 @@ public class AdvisorService {
         return mapper.reclaimOrphans(organizationId, clock.instant());
     }
 
-    private void ensureInternalIdentity(long organizationId, long projectId, String budgetMode,
-            long providerModelId, Instant now) {
+    /**
+     * P0: append-only rotation. Every ACTIVE profile revision mints a fresh INTERNAL_SYSTEM
+     * credential carrying the profile exact project / scope / budget mode, retires all previous
+     * ACTIVE advisor credentials, and grants only the new logical model. Old credentials are never
+     * reused for new jobs; history is preserved via REVOKED rows + predecessor linkage.
+     */
+    private void rotateInternalIdentity(long organizationId, long profileId, long projectId,
+            String scopeType, long scopeId, String budgetMode, long providerModelId, Instant now) {
         mapper.ensureAdvisorIdentity(organizationId, now);
         var identityId = mapper.findAdvisorIdentity(organizationId);
         if (identityId == null) {
             throw new IllegalStateException("Advisor service identity is unavailable");
         }
-        if (mapper.findInternalCredential(organizationId, identityId) == null) {
-            mapper.insertInternalCredential(organizationId, internalPrefix(), randomBytes(32),
-                    identityId, projectId, budgetMode, now);
+        var logicalModelId = mapper.findOrgVisibleLogicalModelOf(providerModelId, organizationId);
+        if (logicalModelId == null) {
+            throw validationFailed("Advisor provider model must be ACTIVE and visible to this organization.");
         }
-        var credentialId = mapper.findInternalCredential(organizationId, identityId);
-        var logicalModelId = mapper.findLogicalModelOf(providerModelId);
-        if (credentialId != null && logicalModelId != null) {
+        var predecessors = mapper.listActiveInternalCredentials(organizationId, identityId);
+        Long predecessor = predecessors == null || predecessors.isEmpty() ? null : predecessors.get(0);
+        mapper.insertBoundInternalCredential(organizationId, internalPrefix(), randomBytes(32),
+                identityId, projectId, scopeType, scopeId, budgetMode, predecessor, profileId, now);
+        var credentialId = mapper.findBoundInternalCredential(organizationId, identityId);
+        if (credentialId == null) {
+            credentialId = mapper.findInternalCredential(organizationId, identityId);
+        }
+        if (credentialId != null) {
             mapper.allowCredentialModel(credentialId, organizationId, logicalModelId, now);
         }
+        // Retire every other ACTIVE advisor credential so only the new profile-bound row executes.
+        if (predecessors != null) {
+            for (var oldId : predecessors) {
+                if (credentialId != null && oldId.equals(credentialId)) {
+                    continue;
+                }
+                mapper.revokeInternalCredential(oldId, organizationId, now);
+                mapper.disableCredentialModels(oldId, organizationId);
+            }
+        }
+    }
+
+    @Deprecated
+    private void ensureInternalIdentity(long organizationId, long projectId, String budgetMode,
+            long providerModelId, Instant now) {
+        var profile = mapper.findActiveProfile(organizationId);
+        if (profile == null) {
+            throw new IllegalStateException("Advisor profile is unavailable");
+        }
+        rotateInternalIdentity(organizationId, profile.id(), projectId, profile.financialScopeType(),
+                profile.financialScopeId(), budgetMode, providerModelId, now);
     }
 
     private String internalPrefix() {
@@ -305,15 +360,75 @@ public class AdvisorService {
             long financialScopeId, String budgetEnforcementMode) {
     }
 
-    public record ExplanationRequest(
-            String subjectType,
-            long subjectId,
-            String currency,
-            List<AdvisorEvidence.MoneyFact> facts,
-            List<AdvisorEvidence.Driver> drivers,
-            String forecastSummary,
-            String budgetRiskSummary,
-            String savingsSummary) {
+    public record ExplanationRequest(String subjectType, long subjectId) {
+        public ExplanationRequest(String subjectType, long subjectId, String currency,
+                List<AdvisorEvidence.MoneyFact> facts, List<AdvisorEvidence.Driver> drivers,
+                String forecastSummary, String budgetRiskSummary, String savingsSummary) {
+            this(subjectType, subjectId);
+        }
+    }
+
+    private AdvisorEvidence.Envelope buildServerEnvelope(long organizationId, String subjectType, long subjectId) {
+        return switch (subjectType) {
+            case "ANOMALY" -> {
+                var row = mapper.findAnomalySubject(subjectId, organizationId);
+                if (row == null) {
+                    throw notFound("Advisor subject was not found.");
+                }
+                var facts = List.of(
+                        new AdvisorEvidence.MoneyFact("anomaly:" + row.id() + ":observed", "observed",
+                                row.observedAmount(), row.currency()),
+                        new AdvisorEvidence.MoneyFact("anomaly:" + row.id() + ":baseline", "baseline",
+                                row.baselineAmount(), row.currency()),
+                        new AdvisorEvidence.MoneyFact("anomaly:" + row.id() + ":delta", "delta",
+                                row.deltaAmount(), row.currency()));
+                var drivers = List.of(new AdvisorEvidence.Driver(row.grainType(), row.grainKey(),
+                        row.deltaAmount(), row.currency()));
+                yield AdvisorEvidence.build("ANOMALY", row.id(), row.currency(), facts, drivers,
+                        "", "", "", clock.instant());
+            }
+            case "FORECAST" -> {
+                var row = mapper.findForecastSubject(subjectId, organizationId);
+                if (row == null) {
+                    throw notFound("Advisor subject was not found.");
+                }
+                var facts = List.of(new AdvisorEvidence.MoneyFact("forecast:" + row.id() + ":projected",
+                        "projected", row.projectedAmount(), row.currency()));
+                yield AdvisorEvidence.build("FORECAST", row.id(), row.currency(), facts, List.of(),
+                        "method=" + row.method(), "", "", clock.instant());
+            }
+            case "SAVINGS" -> {
+                var row = mapper.findSavingsSubject(subjectId, organizationId);
+                if (row == null) {
+                    throw notFound("Advisor subject was not found.");
+                }
+                var facts = List.of(
+                        new AdvisorEvidence.MoneyFact("savings:" + row.id() + ":current", "current-cost",
+                                row.currentCost(), row.currency()),
+                        new AdvisorEvidence.MoneyFact("savings:" + row.id() + ":candidate", "candidate-cost",
+                                row.candidateCost(), row.currency()),
+                        new AdvisorEvidence.MoneyFact("savings:" + row.id() + ":saving", "potential-saving",
+                                row.potentialSaving(), row.currency()));
+                yield AdvisorEvidence.build("SAVINGS", row.id(), row.currency(), facts, List.of(),
+                        "", "", "", clock.instant());
+            }
+            case "BUDGET_RISK" -> {
+                var row = mapper.findBudgetSubject(subjectId, organizationId);
+                if (row == null) {
+                    throw notFound("Advisor subject was not found.");
+                }
+                var facts = List.of(
+                        new AdvisorEvidence.MoneyFact("budget:" + row.id() + ":actual", "actual",
+                                row.actualAmount(), row.currency()),
+                        new AdvisorEvidence.MoneyFact("budget:" + row.id() + ":committed", "committed",
+                                row.committedAmount(), row.currency()),
+                        new AdvisorEvidence.MoneyFact("budget:" + row.id() + ":total", "total",
+                                row.totalAmount(), row.currency()));
+                yield AdvisorEvidence.build("BUDGET_RISK", row.id(), row.currency(), facts, List.of(),
+                        "", "scope=" + row.scopeType() + ":" + row.scopeId(), "", clock.instant());
+            }
+            default -> throw validationFailed("Subject type must be ANOMALY, FORECAST, BUDGET_RISK or SAVINGS.");
+        };
     }
 
     public record ProfileResponse(
