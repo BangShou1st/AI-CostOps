@@ -11,7 +11,7 @@ class M18IntelligenceRepairTest {
 
     @Test
     void unusedCheaperCandidateIsRecommendableOnSameUsageVector() {
-        var usage = Map.of("input_tokens", 1_000_000L, "output_tokens", 500_000L);
+        var usage = Map.of("input_tokens", new BigDecimal("1000000"), "output_tokens", new BigDecimal("500000"));
         var currentRates = Map.of("input_tokens", new SavingsEngine.PricedRate(1_000_000, new BigDecimal("10.00")),
                 "output_tokens", new SavingsEngine.PricedRate(1_000_000, new BigDecimal("30.00")));
         var candidateRates = Map.of("input_tokens", new SavingsEngine.PricedRate(1_000_000, new BigDecimal("2.00")),
@@ -24,10 +24,24 @@ class M18IntelligenceRepairTest {
 
     @Test
     void savingsRequiresSameLogicalModel() {
-        var usage = Map.of("input_tokens", 100L);
+        var usage = Map.of("input_tokens", new BigDecimal("100"));
         var rates = Map.of("input_tokens", new SavingsEngine.PricedRate(1, new BigDecimal("1.00")));
         assertThrows(IllegalArgumentException.class,
                 () -> SavingsEngine.compare(1L, 1L, 2L, usage, rates, rates));
+    }
+
+    @Test
+    void fractionalUsageIsNotTruncated() {
+        var usage = Map.of("input_tokens", new BigDecimal("0.50000000"));
+        var rates = Map.of("input_tokens", new SavingsEngine.PricedRate(1, new BigDecimal("2.00")));
+        assertEquals(0, SavingsEngine.replay(usage, rates).compareTo(new BigDecimal("1.00")));
+    }
+
+    @Test
+    void fractionalUsageKeepsPrecision() {
+        var usage = Map.of("input_tokens", new BigDecimal("1.12500000"));
+        var rates = Map.of("input_tokens", new SavingsEngine.PricedRate(1, new BigDecimal("2.00")));
+        assertEquals(0, SavingsEngine.replay(usage, rates).compareTo(new BigDecimal("2.25")));
     }
 
     @Test

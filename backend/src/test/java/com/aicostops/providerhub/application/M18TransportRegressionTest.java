@@ -16,6 +16,34 @@ class M18TransportRegressionTest {
     }
 
     @Test
+    void customProviderNeverMasqueradesAsOpenCode() {
+        assertEquals("opencode/1.18.21", ProviderTransportSupport.serverUserAgent(null, "OPENCODE_ZEN"));
+        assertEquals(ProviderTransportSupport.NEUTRAL_PROVIDER_USER_AGENT,
+                ProviderTransportSupport.serverUserAgent(null, "CUSTOM_OPENAI_COMPATIBLE"));
+        assertEquals(ProviderTransportSupport.NEUTRAL_PROVIDER_USER_AGENT,
+                ProviderTransportSupport.serverUserAgent("  ", "CUSTOM_OPENAI_COMPATIBLE"));
+        assertEquals("Custom-Agent/9.9",
+                ProviderTransportSupport.serverUserAgent("Custom-Agent/9.9", "CUSTOM_OPENAI_COMPATIBLE"));
+    }
+
+    /**
+     * Cross-module UA contract: the Gateway adapter must carry the identical server-owned
+     * OpenCode UA. Single source of truth is enforced by asserting the same literal on both
+     * sides (plus a source-level presence check so a silent rename breaks loudly).
+     */
+    @Test
+    void gatewayAdapterSharesServerOwnedOpenCodeUa() throws Exception {
+        var adapter = java.nio.file.Path.of("../gateway/src/main/java/com/aicostops/gateway"
+                + "/provider/opencode/OpenCodeZenChatAdapter.java");
+        assertTrue(java.nio.file.Files.exists(adapter),
+                () -> "Gateway adapter source moved; update the UA contract: " + adapter.toAbsolutePath());
+        var source = java.nio.file.Files.readString(adapter);
+        assertTrue(source.contains("\"opencode/1.18.21\""),
+                () -> "Gateway OpenCode UA drifted from the frozen sibling policy");
+        assertEquals("opencode/1.18.21", ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT);
+    }
+
+    @Test
     void sameOriginRequiresSchemeHostAndPort() {
         assertTrue(ProviderTransportSupport.sameOrigin(URI.create("https://a.example.com/v1"),
                 URI.create("https://a.example.com/other")));

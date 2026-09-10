@@ -97,7 +97,7 @@ class CostIntelligenceEnginesTest {
 
     @Test
     void savingsReplayUsesPricingSemantics() {
-        var usage = Map.of("INPUT_TOKEN", 1_000_000L, "OUTPUT_TOKEN", 500_000L);
+        var usage = Map.of("INPUT_TOKEN", new BigDecimal("1000000"), "OUTPUT_TOKEN", new BigDecimal("500000"));
         var current = Map.of(
                 "INPUT_TOKEN", new SavingsEngine.PricedRate(1_000_000L, new BigDecimal("2.00")),
                 "OUTPUT_TOKEN", new SavingsEngine.PricedRate(1_000_000L, new BigDecimal("8.00")));

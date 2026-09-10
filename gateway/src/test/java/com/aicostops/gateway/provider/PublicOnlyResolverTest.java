@@ -66,4 +66,21 @@ class PublicOnlyResolverTest {
         assertEquals("opencode/1.18.21",
                 com.aicostops.gateway.provider.opencode.OpenCodeZenChatAdapter.SERVER_USER_AGENT);
     }
+
+    /**
+     * Cross-module UA contract mirror: the backend template registry must carry the identical
+     * server-owned OpenCode UA (see backend M18TransportRegressionTest).
+     */
+    @Test
+    void backendRegistrySharesServerOwnedOpenCodeUa() throws Exception {
+        var registry = java.nio.file.Path.of("../backend/src/main/java/com/aicostops/providerhub"
+                + "/application/ProviderTemplateRegistry.java");
+        assertTrue(java.nio.file.Files.exists(registry),
+                () -> "Backend registry source moved; update the UA contract: " + registry.toAbsolutePath());
+        var source = java.nio.file.Files.readString(registry);
+        assertTrue(source.contains("\"opencode/1.18.21\""),
+                () -> "Backend OpenCode UA drifted from the frozen sibling policy");
+        assertEquals("opencode/1.18.21",
+                com.aicostops.gateway.provider.opencode.OpenCodeZenChatAdapter.SERVER_USER_AGENT);
+    }
 }
