@@ -15,16 +15,10 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageRequest;
 import com.aicostops.shared.web.PageResponse;
 import com.aicostops.shared.web.ProblemCode;
-import java.net.ProxySelector;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Clock;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import javax.net.ssl.SSLHandshakeException;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,9 +38,11 @@ public class ProviderConnectionService {
     private final ProviderTemplateRegistry templates;
     private final CustomEndpointValidator endpointValidator;
     private final com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials;
+    private final ProviderControlPlaneTransport transport;
     private final AuditService audit;
     private final Clock clock;
     private final String providerKek;
+    private final ProviderConnectionService self;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProviderConnectionService(
@@ -55,16 +51,20 @@ public class ProviderConnectionService {
             ProviderTemplateRegistry templates,
             CustomEndpointValidator endpointValidator,
             com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials,
+            ProviderControlPlaneTransport transport,
             AuditService audit,
             Clock clock,
+            @Lazy ProviderConnectionService self,
             @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.templates = templates;
         this.endpointValidator = endpointValidator;
         this.credentials = credentials;
+        this.transport = transport;
         this.audit = audit;
         this.clock = clock;
+        this.self = self;
         this.providerKek = providerKek;
     }
 
@@ -93,8 +93,43 @@ public class ProviderConnectionService {
         return response(require(context.organizationId(), id));
     }
 
-    @Transactional
+    /**
+     * Creates a DRAFT profile. External network destination preflight (DNS) runs here, outside
+     * any DB transaction; the short state-change transaction below performs only deterministic
+     * validation plus writes. Runtime SSRF authority stays with the transport resolver at
+     * actual connect time.
+     */
     public ConnectionResponse create(AuthenticatedUser user, CreateConnectionRequest request) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
+        var preflightUrl = createPreflightUrl(context.organizationId(), request);
+        if (preflightUrl != null) {
+            endpointValidator.validateSyntax(preflightUrl);
+            endpointValidator.resolvePublicAddresses(preflightUrl);
+        }
+        return self.createTx(user, request);
+    }
+
+    /** Effective user-supplied base URL needing external preflight, or null when the tx alone
+     * decides (missing account/URL reported deterministically inside the transaction). Built-in
+     * server-owned endpoints need no user-input preflight. */
+    private String createPreflightUrl(long organizationId, CreateConnectionRequest request) {
+        if (request.providerAccountId() == null || request.baseUrl() == null
+                || request.baseUrl().isBlank()) {
+            return null;
+        }
+        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(request.templateCode())) {
+            return null;
+        }
+        var accountCode = mapper.findActiveAccountProviderCode(organizationId, request.providerAccountId());
+        if (!ProviderTemplateRegistry.CUSTOM_OPENAI_COMPATIBLE.equals(accountCode)) {
+            return null;
+        }
+        return request.baseUrl();
+    }
+
+    @Transactional
+    public ConnectionResponse createTx(AuthenticatedUser user, CreateConnectionRequest request) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
         if (request.providerAccountId() == null) {
@@ -151,7 +186,8 @@ public class ProviderConnectionService {
             endpointValidator.validateAuthHeaderName(authType, request.authHeaderName());
             networkPolicy = "DIRECT_PUBLIC_ONLY";
             userAgent = request.userAgent();
-            endpointValidator.validateEndpoint(baseUrl);
+            // DNS preflight ran outside the transaction; re-check only deterministic shape here.
+            endpointValidator.validateSyntax(baseUrl);
         }
         var version = mapper.nextVersion(context.organizationId(), request.providerAccountId());
         var now = clock.instant();
@@ -170,8 +206,27 @@ public class ProviderConnectionService {
         return response(created);
     }
 
-    @Transactional
+    /**
+     * DRAFT-only update. External network destination preflight (DNS) for a changed base URL
+     * runs here, outside any DB transaction; the short state-change transaction below performs
+     * only deterministic validation plus writes.
+     */
     public ConnectionResponse updateDraft(AuthenticatedUser user, long id, UpdateConnectionRequest request) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
+        var current = require(context.organizationId(), id);
+        if (!"DRAFT".equals(current.status())) {
+            throw stateConflict("Only DRAFT connections are editable.");
+        }
+        if (request.baseUrl() != null && !request.baseUrl().equals(current.baseUrl())) {
+            endpointValidator.validateSyntax(request.baseUrl());
+            endpointValidator.resolvePublicAddresses(request.baseUrl());
+        }
+        return self.updateDraftTx(user, id, request);
+    }
+
+    @Transactional
+    public ConnectionResponse updateDraftTx(AuthenticatedUser user, long id, UpdateConnectionRequest request) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
         var current = requireForUpdate(context.organizationId(), id);
@@ -191,9 +246,12 @@ public class ProviderConnectionService {
         if (!authType.equals("BEARER") && !authType.equals("API_KEY_HEADER") && !authType.equals("NONE")) {
             throw validationFailed("Unsupported auth type.");
         }
-        endpointValidator.validateAuthHeaderName(authType, request.authHeaderName());
+        // P2: validate the effective header name, not the raw request field, so editing an
+        // unrelated draft field without resending authHeaderName keeps the retained value valid.
+        endpointValidator.validateAuthHeaderName(authType, authHeaderName);
         if (!baseUrl.equals(current.baseUrl())) {
-            endpointValidator.validateEndpoint(baseUrl);
+            // DNS preflight ran outside the transaction; re-check only deterministic shape here.
+            endpointValidator.validateSyntax(baseUrl);
         }
         mapper.updateDraft(id, context.organizationId(), baseUrl,
                 request.completionPath() == null ? current.completionPath() : request.completionPath(),
@@ -208,15 +266,33 @@ public class ProviderConnectionService {
         return response(updated);
     }
 
-    @Transactional
+    /**
+     * Activates a DRAFT profile. External network destination preflight (DNS) runs here, outside
+     * any DB transaction; the short activation transaction below performs only deterministic
+     * validation plus the retire-previous/activate writes.
+     */
     public ConnectionResponse activate(AuthenticatedUser user, long id) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
+        var target = require(context.organizationId(), id);
+        if (!"DRAFT".equals(target.status())) {
+            throw stateConflict("Only DRAFT connections can be activated.");
+        }
+        endpointValidator.validateSyntax(target.baseUrl());
+        endpointValidator.resolvePublicAddresses(target.baseUrl());
+        return self.activateTx(user, id);
+    }
+
+    @Transactional
+    public ConnectionResponse activateTx(AuthenticatedUser user, long id) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
         var target = requireForUpdate(context.organizationId(), id);
         if (!"DRAFT".equals(target.status())) {
             throw stateConflict("Only DRAFT connections can be activated.");
         }
-        endpointValidator.validateEndpoint(target.baseUrl());
+        // DNS preflight ran outside the transaction; re-check only deterministic shape here.
+        endpointValidator.validateSyntax(target.baseUrl());
         var previous = mapper.findActiveForUpdate(context.organizationId(), target.providerAccountId());
         var now = clock.instant();
         if (previous != null && previous.id() != target.id()) {
@@ -253,39 +329,32 @@ public class ProviderConnectionService {
             var initial = ProviderTransportSupport.joinBase(profile.baseUrl(),
                     profile.modelsPath() == null ? "" : profile.modelsPath());
             endpointValidator.validateEndpoint(initial);
-            endpointValidator.resolvePublicAddresses(initial);
-            var origin = URI.create(initial);
-            var secret = resolveProbeSecret(profile);
+            var origin = java.net.URI.create(initial);
+            // P1 fail-closed: a configured BEARER/API_KEY_HEADER connection without a usable
+            // credential must FAIL here with zero outbound requests, never downgrade to an
+            // anonymous request that could false-PASS against an open endpoint.
+            var secret = resolveProbeSecretOrThrow(profile);
             var authenticated = secret != null;
-            var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent());
-            var client = HttpClient.newBuilder()
-                    .proxy(ProxySelector.of(null))
-                    .connectTimeout(Duration.ofMillis(profile.connectTimeoutMs()))
-                    .followRedirects(HttpClient.Redirect.NEVER)
-                    .build();
+            var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
+                    profile.templateCode());
+            var headers = probeHeaders(profile, userAgent, secret);
             var current = initial;
             int code = -1;
             for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
-                var builder = HttpRequest.newBuilder(URI.create(current))
-                        .timeout(Duration.ofMillis(profile.responseTimeoutMs()))
-                        .header("Accept", "application/json")
-                        .header("User-Agent", userAgent)
-                        .GET();
-                if (authenticated) {
-                    if ("API_KEY_HEADER".equals(profile.authType())) {
-                        builder.header(profile.authHeaderName(), secret);
-                    } else if (!"NONE".equals(profile.authType())) {
-                        builder.header("Authorization", "Bearer " + secret);
-                    }
+                final ProviderControlPlaneTransport.Result httpResponse;
+                try {
+                    httpResponse = transport.get(current, headers, profile.connectTimeoutMs(),
+                            profile.responseTimeoutMs());
+                } catch (ProviderControlPlaneTransport.TransportException ex) {
+                    throw mapProbeTransport(ex);
                 }
-                var httpResponse = client.send(builder.build(), HttpResponse.BodyHandlers.discarding());
                 code = httpResponse.statusCode();
                 if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
-                    var location = httpResponse.headers().firstValue("location").orElse("");
+                    var location = httpResponse.firstHeader("location");
                     if (location.isBlank() || hop == ProviderTransportSupport.MAX_REDIRECTS) {
                         throw new RedirectBlockedException();
                     }
-                    final URI resolved;
+                    final java.net.URI resolved;
                     try {
                         resolved = ProviderTransportSupport.resolveRedirect(current, location);
                     } catch (IllegalArgumentException ex) {
@@ -316,21 +385,18 @@ public class ProviderConnectionService {
                 status = "FAIL";
                 errorCode = "PROVIDER_UNAVAILABLE";
             }
+        } catch (ProbeAuthException ex) {
+            status = "FAIL";
+            errorCode = "AUTHENTICATION_FAILED";
         } catch (RedirectBlockedException ex) {
             status = "FAIL";
             errorCode = "ENDPOINT_BLOCKED";
         } catch (DomainException ex) {
             status = "FAIL";
             errorCode = "ENDPOINT_BLOCKED";
-        } catch (SSLHandshakeException ex) {
+        } catch (ProbeTransportException ex) {
             status = "FAIL";
-            errorCode = "TLS_FAILED";
-        } catch (java.net.ConnectException | java.net.UnknownHostException ex) {
-            status = "FAIL";
-            errorCode = "DNS_FAILED";
-        } catch (java.net.http.HttpTimeoutException | java.net.SocketTimeoutException ex) {
-            status = "FAIL";
-            errorCode = "CONNECTION_TIMEOUT";
+            errorCode = ex.errorCode;
         } catch (Exception ex) {
             status = "FAIL";
             errorCode = "PROVIDER_UNAVAILABLE";
@@ -341,13 +407,47 @@ public class ProviderConnectionService {
         return new ProbeResponse(status, errorCode, checkedAt);
     }
 
-    private String resolveProbeSecret(com.aicostops.providerhub.domain.ProviderConnection profile) {
+    private java.util.Map<String, String> probeHeaders(
+            com.aicostops.providerhub.domain.ProviderConnection profile, String userAgent,
+            String secret) {
+        var headers = new java.util.LinkedHashMap<String, String>();
+        headers.put("Accept", "application/json");
+        headers.put("User-Agent", userAgent);
+        if (secret == null || "NONE".equals(profile.authType())) {
+            return headers;
+        }
+        if ("API_KEY_HEADER".equals(profile.authType())) {
+            headers.put(profile.authHeaderName(), secret);
+        } else {
+            headers.put("Authorization", "Bearer " + secret);
+        }
+        return headers;
+    }
+
+    private ProbeTransportException mapProbeTransport(ProviderControlPlaneTransport.TransportException ex) {
+        return switch (ex.errorCode()) {
+            case ProviderControlPlaneTransport.TransportException.DNS_FAILED ->
+                new ProbeTransportException("DNS_FAILED");
+            case ProviderControlPlaneTransport.TransportException.TLS_FAILED ->
+                new ProbeTransportException("TLS_FAILED");
+            case ProviderControlPlaneTransport.TransportException.CONNECTION_TIMEOUT ->
+                new ProbeTransportException("CONNECTION_TIMEOUT");
+            default -> new ProbeTransportException("PROVIDER_UNAVAILABLE");
+        };
+    }
+
+    /**
+     * Fail-closed credential resolution: BEARER/API_KEY_HEADER without a usable secret throws
+     * before any outbound request is emitted. NONE expects no credential.
+     */
+    private String resolveProbeSecretOrThrow(com.aicostops.providerhub.domain.ProviderConnection profile)
+            throws ProbeAuthException {
         if ("NONE".equals(profile.authType())) {
             return null;
         }
         var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
         if (credential == null || providerKek == null || providerKek.isBlank()) {
-            return null;
+            throw new ProbeAuthException();
         }
         try {
             return new com.aicostops.gatewayadmin.security.ProviderCredentialEncryptor(providerKek).decrypt(
@@ -355,11 +455,31 @@ public class ProviderConnectionService {
                     profile.providerAccountId(), credential.credentialType(),
                     credential.encryptionKeyVersion());
         } catch (Exception ex) {
+            throw new ProbeAuthException();
+        }
+    }
+
+    @Deprecated
+    private String resolveProbeSecret(com.aicostops.providerhub.domain.ProviderConnection profile) {
+        try {
+            return resolveProbeSecretOrThrow(profile);
+        } catch (ProbeAuthException ex) {
             return null;
         }
     }
 
     private static final class RedirectBlockedException extends Exception {
+    }
+
+    private static final class ProbeAuthException extends Exception {
+    }
+
+    private static final class ProbeTransportException extends Exception {
+        private final String errorCode;
+
+        private ProbeTransportException(String errorCode) {
+            this.errorCode = errorCode;
+        }
     }
 
     public List<ConnectionResponse> revisions(AuthenticatedUser user, long accountId) {

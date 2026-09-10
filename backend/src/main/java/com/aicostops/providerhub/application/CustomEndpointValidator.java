@@ -28,13 +28,33 @@ public class CustomEndpointValidator {
             "CONTENT-LENGTH", "CONNECTION", "COOKIE", "SET-COOKIE", "TRANSFER-ENCODING");
 
     private final DnsResolver dnsResolver;
+    private final java.util.function.Predicate<java.net.InetAddress> addressPolicy;
 
     public CustomEndpointValidator() {
-        this(DnsResolver.system());
+        this(DnsResolver.system(), CustomEndpointValidator::isPublicUnicast);
     }
 
     CustomEndpointValidator(DnsResolver dnsResolver) {
+        this(dnsResolver, CustomEndpointValidator::isPublicUnicast);
+    }
+
+    /**
+     * Test seam: custom DNS plus custom address policy. Production always uses the strict
+     * public-unicast policy; lenient policies exist only in test sourcesets for controlled
+     * loopback servers and can never be enabled by browser/admin runtime configuration.
+     */
+    CustomEndpointValidator(DnsResolver dnsResolver,
+            java.util.function.Predicate<java.net.InetAddress> addressPolicy) {
         this.dnsResolver = dnsResolver;
+        this.addressPolicy = addressPolicy;
+    }
+
+    /**
+     * Pure deterministic URL shape validation: syntax, scheme, userinfo absence, host shape
+     * and port range. Performs no DNS and no network I/O, so it is safe inside DB transactions.
+     */
+    public void validateSyntax(String rawUrl) {
+        parse(rawUrl, "endpoint");
     }
 
     /** Validates a configured endpoint URL (initial destination). */
@@ -122,7 +142,7 @@ public class CustomEndpointValidator {
         }
         var accepted = new ArrayList<InetAddress>(resolved.length);
         for (var address : resolved) {
-            if (address == null || !isPublicUnicast(address)) {
+            if (address == null || !addressPolicy.test(address)) {
                 throw blocked("Provider " + role + " resolves to a non-public address");
             }
             accepted.add(address);

@@ -51,6 +51,7 @@ public class ModelProbeService {
     private final ModelDiscoveryMapper discovery;
     private final ProbeCredentialMapper credentials;
     private final CustomEndpointValidator endpointValidator;
+    private final ProviderControlPlaneTransport transport;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -63,6 +64,7 @@ public class ModelProbeService {
             ModelDiscoveryMapper discovery,
             ProbeCredentialMapper credentials,
             CustomEndpointValidator endpointValidator,
+            ProviderControlPlaneTransport transport,
             AuditService audit,
             ObjectMapper objectMapper,
             Clock clock,
@@ -72,6 +74,7 @@ public class ModelProbeService {
         this.discovery = discovery;
         this.credentials = credentials;
         this.endpointValidator = endpointValidator;
+        this.transport = transport;
         this.audit = audit;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -169,41 +172,39 @@ public class ModelProbeService {
         }
     }
 
+    /**
+     * Bounded completion probe over the shared control-plane transport (single DNS resolution
+     * bound to the actual connect per hop, proxy disabled, bounded body, manual redirects with
+     * per-hop SSRF re-validation and same-origin secret policy).
+     */
     private String probeOnce(com.aicostops.providerhub.domain.ProviderConnection profile,
             String modelName, String secret, String secretKind) throws Exception {
-        var client = HttpClient.newBuilder()
-                .proxy(ProxySelector.of(null))
-                .connectTimeout(Duration.ofMillis(profile.connectTimeoutMs()))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
         var target = join(profile.baseUrl(), profile.completionPath());
         endpointValidator.validateEndpoint(target);
-        endpointValidator.resolvePublicAddresses(target);
         var origin = URI.create(target);
-        var userAgent = profile.userAgent() == null
-                ? com.aicostops.providerhub.application.ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT
-                : profile.userAgent();
+        var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
+                profile.templateCode());
         var payload = SYNTHETIC_BODY.formatted(escapeJson(modelName));
         var authenticated = secret != null && !"NONE".equals(profile.authType());
+        var current = target;
         for (var hop = 0; hop <= MAX_REDIRECTS; hop++) {
-            var builder = HttpRequest.newBuilder(URI.create(target))
-                    .timeout(Duration.ofMillis(profile.responseTimeoutMs()))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .header("User-Agent", userAgent)
-                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8));
-            applyAuth(builder, profile, secret, secretKind);
-            var response = client.send(builder.build(),
-                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            final ProviderControlPlaneTransport.Result response;
+            try {
+                response = transport.post(current,
+                        probeHeaders(profile, userAgent, secret, secretKind, "application/json"),
+                        payload, profile.connectTimeoutMs(), profile.responseTimeoutMs());
+            } catch (ProviderControlPlaneTransport.TransportException ex) {
+                throw mapProbeTransport(ex);
+            }
             var status = response.statusCode();
             if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
-                var location = response.headers().firstValue("location").orElse("");
+                var location = response.firstHeader("location");
                 if (location.isBlank() || hop == MAX_REDIRECTS) {
                     throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
                 }
                 final URI resolved;
                 try {
-                    resolved = resolveRedirect(origin, target, location);
+                    resolved = resolveRedirect(origin, current, location);
                 } catch (IllegalArgumentException ex) {
                     throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
                 }
@@ -213,7 +214,7 @@ public class ModelProbeService {
                 if (authenticated && !sameOrigin(origin, resolved)) {
                     throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
                 }
-                target = resolved.toString();
+                current = resolved.toString();
                 continue;
             }
             if (status == 401 || status == 403) {
@@ -228,8 +229,7 @@ public class ModelProbeService {
             if (status < 200 || status >= 300) {
                 throw new ProbeHttpStatus("PROVIDER_UNAVAILABLE");
             }
-            var body = response.body() == null ? "" : response.body();
-            return body.length() > MAX_BODY_BYTES ? body.substring(0, MAX_BODY_BYTES) : body;
+            return response.bodyAsUtf8();
         }
         throw new ProbeHttpStatus("PROVIDER_UNAVAILABLE");
     }
@@ -246,34 +246,25 @@ public class ModelProbeService {
                 "\"content\":\"Reply with exactly: {\\\"ok\\\":true}\"}]," +
                 "\"max_tokens\":16,\"stream\":true}").formatted(escapeJson(modelName));
         try {
-            var client = HttpClient.newBuilder()
-                    .proxy(ProxySelector.of(null))
-                    .connectTimeout(Duration.ofMillis(profile.connectTimeoutMs()))
-                    .followRedirects(HttpClient.Redirect.NEVER)
-                    .build();
             var target = join(profile.baseUrl(), profile.completionPath());
             endpointValidator.validateEndpoint(target);
             var origin = URI.create(target);
             var authenticated = secret != null && !"NONE".equals(profile.authType());
-            var userAgent = profile.userAgent() == null
-                    ? com.aicostops.providerhub.application.ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT
-                    : profile.userAgent();
+            var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
+                    profile.templateCode());
             var current = target;
             for (var hop = 0; hop <= MAX_REDIRECTS; hop++) {
-                var builder = HttpRequest.newBuilder(URI.create(current))
-                        .timeout(Duration.ofMillis(profile.responseTimeoutMs()))
-                        .header("Content-Type", "application/json")
-                        .header("Accept", "text/event-stream")
-                        .header("User-Agent", userAgent)
-                        .POST(HttpRequest.BodyPublishers.ofString(streamPayload, StandardCharsets.UTF_8));
-                applyAuth(builder, profile, secret, secretKind);
-                var response = client.send(builder.build(),
-                        HttpResponse.BodyHandlers.ofInputStream());
+                final ProviderControlPlaneTransport.Result response;
+                try {
+                    response = transport.post(current,
+                            probeHeaders(profile, userAgent, secret, secretKind, "text/event-stream"),
+                            streamPayload, profile.connectTimeoutMs(), profile.responseTimeoutMs());
+                } catch (ProviderControlPlaneTransport.TransportException ex) {
+                    return "UNKNOWN";
+                }
                 var status = response.statusCode();
                 if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
-                    try (var ignored = response.body()) {
-                    }
-                    var location = response.headers().firstValue("location").orElse("");
+                    var location = response.firstHeader("location");
                     if (location.isBlank() || hop == MAX_REDIRECTS) {
                         return "UNSUPPORTED";
                     }
@@ -295,24 +286,17 @@ public class ModelProbeService {
                     continue;
                 }
                 if (status == 401 || status == 403 || status == 404) {
-                    try (var ignored = response.body()) {
-                    }
                     return "UNKNOWN";
                 }
                 if (status < 200 || status >= 300) {
-                    try (var ignored = response.body()) {
-                    }
                     return "UNSUPPORTED";
                 }
-                var contentType = response.headers().firstValue("content-type").orElse("");
+                var contentType = response.firstHeader("content-type");
                 if (!contentType.toLowerCase(java.util.Locale.ROOT).contains("text/event-stream")) {
-                    try (var ignored = response.body()) {
-                    }
                     return "UNSUPPORTED";
                 }
-                try (var stream = response.body()) {
-                    var verdict = readStreamVerdict(stream);
-                    return verdict;
+                try (var stream = new java.io.ByteArrayInputStream(response.body())) {
+                    return readStreamVerdict(stream);
                 }
             }
             return "UNKNOWN";
@@ -385,16 +369,33 @@ public class ModelProbeService {
         return false;
     }
 
-    private void applyAuth(HttpRequest.Builder builder,
-            com.aicostops.providerhub.domain.ProviderConnection profile, String secret, String secretKind) {
+    private java.util.Map<String, String> probeHeaders(
+            com.aicostops.providerhub.domain.ProviderConnection profile, String userAgent,
+            String secret, String secretKind, String accept) {
+        var headers = new java.util.LinkedHashMap<String, String>();
+        headers.put("Accept", accept);
+        headers.put("User-Agent", userAgent);
         if ("NONE".equals(profile.authType()) || secret == null) {
-            return;
+            return headers;
         }
         if ("BEARER".equals(profile.authType()) || "BEARER_TOKEN".equals(secretKind)) {
-            builder.header("Authorization", "Bearer " + secret);
+            headers.put("Authorization", "Bearer " + secret);
         } else {
-            builder.header(profile.authHeaderName(), secret);
+            headers.put(profile.authHeaderName(), secret);
         }
+        return headers;
+    }
+
+    private ProbeHttpStatus mapProbeTransport(ProviderControlPlaneTransport.TransportException ex) {
+        return switch (ex.errorCode()) {
+            case ProviderControlPlaneTransport.TransportException.DNS_FAILED ->
+                new ProbeHttpStatus("DNS_FAILED");
+            case ProviderControlPlaneTransport.TransportException.TLS_FAILED ->
+                new ProbeHttpStatus("TLS_FAILED");
+            case ProviderControlPlaneTransport.TransportException.CONNECTION_TIMEOUT ->
+                new ProbeHttpStatus("CONNECTION_TIMEOUT");
+            default -> new ProbeHttpStatus("PROVIDER_UNAVAILABLE");
+        };
     }
 
     static boolean sameOrigin(URI a, URI b) {

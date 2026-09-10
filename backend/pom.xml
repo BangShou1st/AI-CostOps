@@ -61,6 +61,14 @@
       <artifactId>spring-boot-starter-webmvc</artifactId>
     </dependency>
     <dependency>
+      <!-- M18 round-3: control-plane Provider transport converges on Reactor Netty so DNS
+           resolution, public-only filtering and TCP connect happen in one transport boundary
+           (same policy family as the Gateway data plane). Default TLS hostname verification
+           is never disabled. -->
+      <groupId>io.projectreactor.netty</groupId>
+      <artifactId>reactor-netty-http</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>

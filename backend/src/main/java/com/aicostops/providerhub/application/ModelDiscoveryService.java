@@ -35,6 +35,7 @@ public class ModelDiscoveryService {
     private final ModelDiscoveryMapper mapper;
     private final com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials;
     private final CustomEndpointValidator endpointValidator;
+    private final ProviderControlPlaneTransport transport;
     private final AuditService audit;
     private final Clock clock;
     private final ModelDiscoveryService self;
@@ -47,6 +48,7 @@ public class ModelDiscoveryService {
             ModelDiscoveryMapper mapper,
             com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials,
             CustomEndpointValidator endpointValidator,
+            ProviderControlPlaneTransport transport,
             AuditService audit,
             Clock clock,
             @Lazy ModelDiscoveryService self,
@@ -56,6 +58,7 @@ public class ModelDiscoveryService {
         this.mapper = mapper;
         this.credentials = credentials;
         this.endpointValidator = endpointValidator;
+        this.transport = transport;
         this.audit = audit;
         this.clock = clock;
         this.self = self;
@@ -98,10 +101,50 @@ public class ModelDiscoveryService {
         if (profile == null) {
             throw notFound("Provider connection was not found.");
         }
-        // Throws PROVIDER_UNAVAILABLE / AUTHENTICATION_FAILED / ENDPOINT_BLOCKED on failure;
-        // callers must not mark existing AVAILABLE rows UNAVAILABLE in that case.
+        // Throws PROVIDER_UNAVAILABLE / ENDPOINT_BLOCKED on failure; callers must not mark
+        // existing AVAILABLE rows UNAVAILABLE in that case. A successful live snapshot is the
+        // only source of truth here: client-supplied modelNames are ignored on the live path
+        // (use POST .../models/manual for intentional manual registration).
         var live = fetchLiveModelsOrThrow(profile);
-        return self.refreshInternal(user, profileId, observedModelNames, live);
+        return self.refreshFromLiveSnapshot(user, profileId, live);
+    }
+
+    /**
+     * Persists one successful live {@code /models} snapshot: upserts every observed ID as
+     * LIVE_DISCOVERY/AVAILABLE, then marks previously AVAILABLE rows absent from the snapshot
+     * UNAVAILABLE. Must only be called after a successful snapshot; live failures must never
+     * reach here.
+     */
+    @Transactional
+    List<DiscoveryResponse> refreshFromLiveSnapshot(AuthenticatedUser user, long profileId,
+            List<String> liveModels) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
+        var profile = connections.find(profileId, context.organizationId());
+        if (profile == null) {
+            throw notFound("Provider connection was not found.");
+        }
+        var now = clock.instant();
+        var seen = new HashSet<String>();
+        for (var raw : liveModels == null ? List.<String>of() : liveModels) {
+            var name = raw == null ? "" : raw.strip();
+            if (name.isEmpty() || name.length() > 200 || !seen.add(name)) {
+                continue;
+            }
+            mapper.upsertObservation(context.organizationId(), profileId, name, name,
+                    "LIVE_DISCOVERY", "AVAILABLE", profile.protocolCode(), "UNKNOWN",
+                    EMPTY_CAPABILITIES, EMPTY_CAPABILITIES, now);
+        }
+        for (var row : mapper.listByProfile(context.organizationId(), profileId)) {
+            if ("AVAILABLE".equals(row.availability()) && !seen.contains(row.providerModelName())) {
+                mapper.markOneUnavailable(context.organizationId(), profileId, row.providerModelName(), now);
+            }
+        }
+        audit.append("PROVIDER_MODEL_DISCOVERED", context.organizationId(), user.userId(),
+                "PROVIDER_CONNECTION", profileId,
+                Map.of("observed", seen.size(), "protocol", profile.protocolCode(),
+                        "source", "LIVE_SNAPSHOT"));
+        return list(user, profileId);
     }
 
     @Transactional
@@ -235,79 +278,63 @@ public class ModelDiscoveryService {
      * API_KEY_HEADER / NONE) / server-owned User-Agent / timeouts / SSRF + redirect policy /
      * body bound. Never swallows a Provider failure into an empty list.
      */
+    /**
+     * Bounded authenticated live discovery over the shared control-plane transport (single DNS
+     * resolution bound to the actual connect per hop, proxy disabled, bounded body, manual
+     * redirects with per-hop SSRF re-validation and same-origin secret policy). Never swallows a
+     * Provider failure into an empty list.
+     */
     List<String> fetchLiveModelsOrThrow(com.aicostops.providerhub.domain.ProviderConnection profile) {
         if (profile.modelsPath() == null || profile.modelsPath().isBlank()) {
             return List.of();
         }
         var target = ProviderTransportSupport.joinBase(profile.baseUrl(), profile.modelsPath());
         endpointValidator.validateEndpoint(target);
-        // Pre-connect re-validation narrows DNS TOCTOU: the JVM caches the same public result
-        // for the immediate connect below; gateway dispatch has full transport-level filtering.
-        endpointValidator.resolvePublicAddresses(target);
         var origin = java.net.URI.create(target);
         var secret = resolveSecret(profile);
         var authenticated = secret != null;
-        var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent());
-        try {
-            var client = java.net.http.HttpClient.newBuilder()
-                    .proxy(java.net.ProxySelector.of(null))
-                    .connectTimeout(java.time.Duration.ofMillis(profile.connectTimeoutMs()))
-                    .followRedirects(java.net.http.HttpClient.Redirect.NEVER)
-                    .build();
-            var current = target;
-            for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
-                var builder = java.net.http.HttpRequest.newBuilder(java.net.URI.create(current))
-                        .timeout(java.time.Duration.ofMillis(profile.responseTimeoutMs()))
-                        .header("Accept", "application/json")
-                        .header("User-Agent", userAgent)
-                        .GET();
-                applyDiscoveryAuth(builder, profile, secret);
-                var response = client.send(builder.build(),
-                        java.net.http.HttpResponse.BodyHandlers.ofString(java.nio.charset.StandardCharsets.UTF_8));
-                var status = response.statusCode();
-                if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
-                    var location = response.headers().firstValue("location").orElse("");
-                    if (location.isBlank() || hop == ProviderTransportSupport.MAX_REDIRECTS) {
-                        throw providerUnavailable("Provider discovery redirect was rejected.");
-                    }
-                    final java.net.URI resolved;
-                    try {
-                        resolved = ProviderTransportSupport.resolveRedirect(current, location);
-                    } catch (IllegalArgumentException ex) {
-                        throw providerUnavailable("Provider discovery redirect was rejected.");
-                    }
-                    endpointValidator.validateRedirectTarget(resolved.toString());
-                    if (authenticated && !ProviderTransportSupport.sameOrigin(origin, resolved)) {
-                        throw endpointBlocked("Authenticated discovery must not follow a cross-origin redirect.");
-                    }
-                    current = resolved.toString();
-                    continue;
-                }
-                if (status == 401 || status == 403) {
-                    throw authFailed("Provider discovery authentication failed.");
-                }
-                if (status == 429) {
-                    throw providerUnavailable("Provider discovery was rate limited.");
-                }
-                if (status < 200 || status >= 300) {
-                    throw providerUnavailable("Provider discovery is unavailable.");
-                }
-                var body = response.body() == null ? "" : response.body();
-                if (body.length() > ProviderTransportSupport.MAX_BODY_BYTES) {
-                    throw providerUnavailable("Provider discovery response was too large.");
-                }
-                return parseModelIds(body);
+        var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
+                profile.templateCode());
+        var current = target;
+        for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
+            final ProviderControlPlaneTransport.Result response;
+            try {
+                response = transport.get(current, discoveryHeaders(profile, userAgent, secret),
+                        profile.connectTimeoutMs(), profile.responseTimeoutMs());
+            } catch (ProviderControlPlaneTransport.TransportException ex) {
+                throw mapTransportFailure(ex);
             }
-            throw providerUnavailable("Provider discovery is unavailable.");
-        } catch (DomainException ex) {
-            throw ex;
-        } catch (java.net.http.HttpTimeoutException | java.net.SocketTimeoutException ex) {
-            throw providerUnavailable("Provider discovery timed out.");
-        } catch (java.net.ConnectException | java.net.UnknownHostException ex) {
-            throw providerUnavailable("Provider discovery DNS failed.");
-        } catch (Exception ex) {
-            throw providerUnavailable("Provider discovery is unavailable.");
+            var status = response.statusCode();
+            if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                var location = response.firstHeader("location");
+                if (location.isBlank() || hop == ProviderTransportSupport.MAX_REDIRECTS) {
+                    throw providerUnavailable("Provider discovery redirect was rejected.");
+                }
+                final java.net.URI resolved;
+                try {
+                    resolved = ProviderTransportSupport.resolveRedirect(current, location);
+                } catch (IllegalArgumentException ex) {
+                    throw providerUnavailable("Provider discovery redirect was rejected.");
+                }
+                endpointValidator.validateRedirectTarget(resolved.toString());
+                if (authenticated && !ProviderTransportSupport.sameOrigin(origin, resolved)) {
+                    throw endpointBlocked("Authenticated discovery must not follow a cross-origin redirect.");
+                }
+                current = resolved.toString();
+                continue;
+            }
+            if (status == 401 || status == 403) {
+                throw authFailed("Provider discovery authentication failed.");
+            }
+            if (status == 429) {
+                throw providerUnavailable("Provider discovery was rate limited.");
+            }
+            if (status < 200 || status >= 300) {
+                throw providerUnavailable("Provider discovery is unavailable.");
+            }
+            return parseModelIds(response.bodyAsUtf8());
         }
+        throw providerUnavailable("Provider discovery is unavailable.");
     }
 
     private String resolveSecret(com.aicostops.providerhub.domain.ProviderConnection profile) {
@@ -331,16 +358,33 @@ public class ModelDiscoveryService {
         }
     }
 
-    private void applyDiscoveryAuth(java.net.http.HttpRequest.Builder builder,
-            com.aicostops.providerhub.domain.ProviderConnection profile, String secret) {
+    private java.util.Map<String, String> discoveryHeaders(
+            com.aicostops.providerhub.domain.ProviderConnection profile, String userAgent,
+            String secret) {
+        var headers = new java.util.LinkedHashMap<String, String>();
+        headers.put("Accept", "application/json");
+        headers.put("User-Agent", userAgent);
         if (secret == null || "NONE".equals(profile.authType())) {
-            return;
+            return headers;
         }
         if ("API_KEY_HEADER".equals(profile.authType())) {
-            builder.header(profile.authHeaderName(), secret);
+            headers.put(profile.authHeaderName(), secret);
         } else {
-            builder.header("Authorization", "Bearer " + secret);
+            headers.put("Authorization", "Bearer " + secret);
         }
+        return headers;
+    }
+
+    private DomainException mapTransportFailure(ProviderControlPlaneTransport.TransportException ex) {
+        return switch (ex.errorCode()) {
+            case ProviderControlPlaneTransport.TransportException.CONNECTION_TIMEOUT ->
+                providerUnavailable("Provider discovery timed out.");
+            case ProviderControlPlaneTransport.TransportException.DNS_FAILED ->
+                providerUnavailable("Provider discovery DNS failed.");
+            case ProviderControlPlaneTransport.TransportException.TLS_FAILED ->
+                providerUnavailable("Provider discovery TLS failed.");
+            default -> providerUnavailable("Provider discovery is unavailable.");
+        };
     }
 
     private DomainException authFailed(String detail) {
