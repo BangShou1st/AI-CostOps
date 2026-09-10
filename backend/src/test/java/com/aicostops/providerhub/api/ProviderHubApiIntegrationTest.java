@@ -59,6 +59,13 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
         actorUserId = insertUser("hub-admin@example.com");
         actorMemberId = insertMember(organizationId, actorUserId);
         accountId = insertAccount(organizationId, "CUSTOM_OPENAI_COMPATIBLE", "Custom Main");
+        // Other suites wipe provider_catalog between classes; reseed the
+        // server-owned custom family row this test's accounts bind to.
+        jdbc.update("INSERT INTO provider_catalog(provider_code,name,adapter_code,base_url,status,"
+                + "capabilities_json,created_at,updated_at) VALUES ('CUSTOM_OPENAI_COMPATIBLE',"
+                + "'Custom OpenAI-Compatible','CUSTOM_OPENAI_COMPATIBLE','https://example.invalid',"
+                + "'DISABLED',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))"
+                + " ON DUPLICATE KEY UPDATE updated_at=UTC_TIMESTAMP(6)");
         createPermissionRole("HUB_READER", List.of("PROVIDER_ACCOUNT_READ"));
         createPermissionRole("HUB_MANAGER", List.of("PROVIDER_ACCOUNT_MANAGE"));
         assign("HUB_READER", "ORG", organizationId);
