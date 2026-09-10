@@ -163,23 +163,20 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
     void discoveryPromotionIsolatesPrivateModels() throws Exception {
         var connectionId = createDraft("{\"providerAccountId\":" + accountId
                 + ",\"baseUrl\":\"https://example.com\"}");
-        var refreshBody = mockMvc.perform(post("/api/v1/provider-connections/{id}/models/refresh", connectionId)
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/manual", connectionId)
                         .header("Authorization", bearer()).contentType("application/json")
-                        .content("{\"modelNames\":[\"model-x\",\"model-y\"]}"))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getContentAsString();
-        assertThat(JsonPath.<List<String>>read(refreshBody, "$[*].providerModelName"))
-                .contains("model-x", "model-y");
-        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/refresh", connectionId)
+                        .content("{\"modelName\":\"model-x\"}"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/manual", connectionId)
                         .header("Authorization", bearer()).contentType("application/json")
-                        .content("{\"modelNames\":[\"model-x\"]}"))
-                .andExpect(status().isOk());
-        assertThat(jdbc.queryForObject("SELECT availability FROM provider_model_discovery"
-                + " WHERE org_id=? AND provider_connection_profile_id=? AND provider_model_name='model-y'",
-                String.class, organizationId, connectionId)).isEqualTo("UNAVAILABLE");
+                        .content("{\"modelName\":\"model-y\"}"))
+                .andExpect(status().isCreated());
         var discoveryId = jdbc.queryForObject("SELECT id FROM provider_model_discovery"
                 + " WHERE org_id=? AND provider_connection_profile_id=? AND provider_model_name='model-x'",
                 Long.class, organizationId, connectionId);
+        jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS',"
+                + "verified_capabilities_json=CAST('{\"capabilities\":[\"CHAT_COMPLETIONS\"]}' AS JSON)"
+                + " WHERE id=?", discoveryId);
         var promoteBody = mockMvc.perform(
                         post("/api/v1/provider-connections/{id}/models/{discoveryId}/promote",
                                 connectionId, discoveryId).header("Authorization", bearer()))
@@ -189,6 +186,65 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
         assertThat(((Number) JsonPath.read(promoteBody, "$.providerModelId")).longValue()).isPositive();
         assertThat(jdbc.queryForObject("SELECT owner_org_id FROM model_catalog WHERE model_key='model-x'",
                 Long.class)).isEqualTo(organizationId);
+    }
+
+    @Test
+    void refreshWithoutLiveIsRejectedWithZeroMutation() throws Exception {
+        var connectionId = createDraft("{\"providerAccountId\":" + accountId
+                + ",\"baseUrl\":\"https://example.com\"}");
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/manual", connectionId)
+                        .header("Authorization", bearer()).contentType("application/json")
+                        .content("{\"modelName\":\"model-keep\"}"))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/refresh", connectionId)
+                        .header("Authorization", bearer()).contentType("application/json")
+                        .content("{\"modelNames\":[\"model-x\"]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/refresh", connectionId)
+                        .header("Authorization", bearer()).contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+        assertThat(jdbc.queryForObject("SELECT availability FROM provider_model_discovery"
+                + " WHERE org_id=? AND provider_connection_profile_id=? AND provider_model_name='model-keep'",
+                String.class, organizationId, connectionId)).isEqualTo("AVAILABLE");
+    }
+
+    @Test
+    void unprobedManualModelCannotPromote() throws Exception {
+        var connectionId = createDraft("{\"providerAccountId\":" + accountId
+                + ",\"baseUrl\":\"https://example.com\"}");
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/manual", connectionId)
+                        .header("Authorization", bearer()).contentType("application/json")
+                        .content("{\"modelName\":\"model-unprobed\"}"))
+                .andExpect(status().isCreated());
+        var discoveryId = jdbc.queryForObject("SELECT id FROM provider_model_discovery"
+                + " WHERE org_id=? AND provider_connection_profile_id=? AND provider_model_name='model-unprobed'",
+                Long.class, organizationId, connectionId);
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{discoveryId}/promote",
+                        connectionId, discoveryId).header("Authorization", bearer()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MODEL_NOT_VERIFIED"));
+    }
+
+    @Test
+    void failedProbeModelCannotPromote() throws Exception {
+        var connectionId = createDraft("{\"providerAccountId\":" + accountId
+                + ",\"baseUrl\":\"https://example.com\"}");
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/manual", connectionId)
+                        .header("Authorization", bearer()).contentType("application/json")
+                        .content("{\"modelName\":\"model-failed\"}"))
+                .andExpect(status().isCreated());
+        var discoveryId = jdbc.queryForObject("SELECT id FROM provider_model_discovery"
+                + " WHERE org_id=? AND provider_connection_profile_id=? AND provider_model_name='model-failed'",
+                Long.class, organizationId, connectionId);
+        jdbc.update("UPDATE provider_model_discovery SET last_probe_status='FAIL',"
+                + "verified_capabilities_json=CAST('{\"capabilities\":[]}' AS JSON),"
+                + "last_probe_error_code='PROTOCOL_UNSUPPORTED' WHERE id=?", discoveryId);
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{discoveryId}/promote",
+                        connectionId, discoveryId).header("Authorization", bearer()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("MODEL_NOT_VERIFIED"));
     }
 
     @Test
@@ -206,6 +262,9 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
         var discoveryId = jdbc.queryForObject("SELECT id FROM provider_model_discovery"
                 + " WHERE org_id=? AND provider_connection_profile_id=?",
                 Long.class, organizationId, connectionId);
+        jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS',"
+                + "verified_capabilities_json=CAST('{\"capabilities\":[\"CHAT_COMPLETIONS\"]}' AS JSON)"
+                + " WHERE id=?", discoveryId);
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{discoveryId}/promote",
                         connectionId, discoveryId).header("Authorization", bearer()))
                 .andExpect(status().isConflict());

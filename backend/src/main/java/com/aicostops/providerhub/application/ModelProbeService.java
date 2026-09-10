@@ -145,8 +145,8 @@ public class ModelProbeService {
                 capabilities.put("SSE_STREAMING", "UNKNOWN");
                 return new ProbeResult(false, capabilities, "MODEL_NOT_FOUND");
             }
-            capabilities.put("CHAT_COMPLETIONS", body.contains("\"choices\"") ? "VERIFIED" : "UNSUPPORTED");
-            capabilities.put("USAGE", body.contains("\"usage\"") ? "VERIFIED" : "UNSUPPORTED");
+            capabilities.put("CHAT_COMPLETIONS", isValidChatCompletion(body) ? "VERIFIED" : "UNSUPPORTED");
+            capabilities.put("USAGE", hasValidUsage(body) ? "VERIFIED" : "UNSUPPORTED");
             capabilities.put("STRUCTURED_JSON", looksStructured(body) ? "VERIFIED" : "UNSUPPORTED");
             // P1: SSE_STREAMING must be proven by a real bounded streaming call, never inferred
             // from the non-streaming completion above.
@@ -335,7 +335,27 @@ public class ModelProbeService {
         if (!containsChunk(text)) {
             return "UNSUPPORTED";
         }
+        if (!containsDone(text)) {
+            return "UNKNOWN";
+        }
         return "VERIFIED";
+    }
+
+    private boolean containsDone(String text) {
+        try {
+            for (var line : text.split("\n")) {
+                var trimmed = line.strip();
+                if (!trimmed.startsWith("data:")) {
+                    continue;
+                }
+                var payload = trimmed.substring(5).strip();
+                if (payload.equals("[DONE]")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     private static int countEvents(String text) {
@@ -360,13 +380,81 @@ public class ModelProbeService {
                     continue;
                 }
                 var node = objectMapper.readTree(payload);
-                if (node.has("choices")) {
-                    return true;
+                if (node == null || !node.isObject()) {
+                    continue;
                 }
+                var choices = node.get("choices");
+                if (choices == null || !choices.isArray() || choices.isEmpty()) {
+                    continue;
+                }
+                return true;
             }
         } catch (Exception ignored) {
         }
         return false;
+    }
+
+    boolean isValidChatCompletion(String body) {
+        try {
+            if (body == null || body.isBlank() || body.length() > MAX_BODY_BYTES) {
+                return false;
+            }
+            var root = objectMapper.readTree(body);
+            if (root == null || !root.isObject()) {
+                return false;
+            }
+            var choices = root.get("choices");
+            if (choices == null || !choices.isArray() || choices.isEmpty()) {
+                return false;
+            }
+            var first = choices.get(0);
+            if (first == null || !first.isObject()) {
+                return false;
+            }
+            var message = first.get("message");
+            if (message == null || !message.isObject()) {
+                return false;
+            }
+            var content = message.get("content");
+            if (content == null || !content.isString()) {
+                return false;
+            }
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    boolean hasValidUsage(String body) {
+        try {
+            if (body == null || body.isBlank() || body.length() > MAX_BODY_BYTES) {
+                return false;
+            }
+            var root = objectMapper.readTree(body);
+            if (root == null || !root.isObject()) {
+                return false;
+            }
+            var usage = root.get("usage");
+            if (usage == null || !usage.isObject()) {
+                return false;
+            }
+            return isNonNegativeNumber(usage.get("prompt_tokens"))
+                    && isNonNegativeNumber(usage.get("completion_tokens"))
+                    && isNonNegativeNumber(usage.get("total_tokens"));
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private boolean isNonNegativeNumber(tools.jackson.databind.JsonNode node) {
+        if (node == null || !node.isNumber()) {
+            return false;
+        }
+        try {
+            return new java.math.BigDecimal(node.asText("")).compareTo(java.math.BigDecimal.ZERO) >= 0;
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     private java.util.Map<String, String> probeHeaders(
@@ -422,9 +510,32 @@ public class ModelProbeService {
 
     private boolean looksStructured(String body) {
         try {
-            var node = objectMapper.readTree(body);
-            var text = node.toString();
-            return text.contains("\"ok\"");
+            var root = objectMapper.readTree(body);
+            if (root == null || !root.isObject()) {
+                return false;
+            }
+            var choices = root.get("choices");
+            if (choices == null || !choices.isArray() || choices.isEmpty()) {
+                return false;
+            }
+            var first = choices.get(0);
+            if (first == null || !first.isObject()) {
+                return false;
+            }
+            var message = first.get("message");
+            if (message == null || !message.isObject()) {
+                return false;
+            }
+            var content = message.get("content");
+            if (content == null || !content.isString()) {
+                return false;
+            }
+            var inner = objectMapper.readTree(content.stringValue());
+            if (inner == null || !inner.isObject()) {
+                return false;
+            }
+            var ok = inner.get("ok");
+            return ok != null && ok.isBoolean() && ok.booleanValue();
         } catch (Exception ex) {
             return false;
         }

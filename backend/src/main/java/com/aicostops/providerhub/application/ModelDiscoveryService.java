@@ -76,9 +76,13 @@ public class ModelDiscoveryService {
                 .map(this::response).toList();
     }
 
-    /** Refreshes observations: upserts seen models, marks absent ones UNAVAILABLE. */
+    /**
+     * Legacy client-authored refresh entry: production live provenance must come from the
+     * Provider. Client modelNames can no longer become LIVE_DISCOVERY; use
+     * POST .../models/manual for intentional registration. Rejected with zero mutation.
+     */
     public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId, List<String> observedModelNames) {
-        return self.refreshInternal(user, profileId, observedModelNames, List.of());
+        throw validationFailed("Model refresh requires live Provider discovery; use manual registration for declared models.");
     }
 
     /**
@@ -92,7 +96,7 @@ public class ModelDiscoveryService {
     public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId,
             List<String> observedModelNames, boolean fetchLive) {
         if (!fetchLive) {
-            return refreshInternal(user, profileId, observedModelNames, List.of());
+            throw validationFailed("Model refresh requires live Provider discovery; use manual registration for declared models.");
         }
         // P1: MANAGE before any Provider I/O (readers must not trigger external side effects).
         var context = authorizationContexts.current(user);
@@ -228,6 +232,19 @@ public class ModelDiscoveryService {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
                     "Model not promotable", "Only AVAILABLE observations can be promoted.");
         }
+        if (!"OPENAI_CHAT_COMPLETIONS".equals(discovery.protocolCode())
+                || !"OPENAI_CHAT_COMPLETIONS".equals(profile.protocolCode())) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
+                    "Model not promotable", "Only OPENAI_CHAT_COMPLETIONS models can be promoted.");
+        }
+        if (!"PASS".equals(discovery.lastProbeStatus())) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
+                    "Model not promotable", "Only probed models can be promoted.");
+        }
+        if (!hasVerifiedChatCompletions(discovery.verifiedCapabilitiesJson())) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
+                    "Model not promotable", "Only models with verified Chat Completions can be promoted.");
+        }
         var modelKey = discovery.providerModelName().toLowerCase(java.util.Locale.ROOT);
         if (!modelKey.matches("[a-z0-9][a-z0-9._-]{0,99}")) {
             throw validationFailed("Model name cannot become a routable model key.");
@@ -272,6 +289,31 @@ public class ModelDiscoveryService {
                 row.lastSeenAt(), row.lastProbedAt(), row.lastProbeStatus(), row.lastProbeErrorCode());
     }
 
+    boolean hasVerifiedChatCompletions(String verifiedCapabilitiesJson) {
+        if (verifiedCapabilitiesJson == null || verifiedCapabilitiesJson.isBlank()) {
+            return false;
+        }
+        try {
+            var root = DISCOVERY_MAPPER.readTree(verifiedCapabilitiesJson);
+            if (root == null || !root.isObject()) {
+                return false;
+            }
+            var caps = root.get("capabilities");
+            if (caps == null || !caps.isArray()) {
+                return false;
+            }
+            for (var item : caps) {
+                if (item != null && item.isString()
+                        && "CHAT_COMPLETIONS".equals(item.stringValue())) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     /**
      * P1: bounded authenticated live discovery sharing the unified Provider transport policy.
      * Applies base URL / models path / DIRECT_ONLY|DIRECT_PUBLIC_ONLY / credential (BEARER /
@@ -286,7 +328,7 @@ public class ModelDiscoveryService {
      */
     List<String> fetchLiveModelsOrThrow(com.aicostops.providerhub.domain.ProviderConnection profile) {
         if (profile.modelsPath() == null || profile.modelsPath().isBlank()) {
-            return List.of();
+            throw validationFailed("Provider models path is not configured; use manual registration.");
         }
         var target = ProviderTransportSupport.joinBase(profile.baseUrl(), profile.modelsPath());
         endpointValidator.validateEndpoint(target);
@@ -407,15 +449,49 @@ public class ModelDiscoveryService {
         return fetchLiveModelsOrThrow(profile);
     }
 
-    private List<String> parseModelIds(String body) {
-        var ids = new java.util.ArrayList<String>();
-        var matcher = java.util.regex.Pattern.compile("\"id\"\\s*:\\s*\"([^\"]{1,200})\"")
-                .matcher(body);
-        while (matcher.find() && ids.size() < 500) {
-            var id = matcher.group(1).strip();
-            if (!id.isEmpty() && !ids.contains(id)) ids.add(id);
+    private static final tools.jackson.databind.ObjectMapper DISCOVERY_MAPPER =
+            new tools.jackson.databind.ObjectMapper();
+
+    List<String> parseModelIds(String body) {
+        if (body == null || body.isBlank() || body.length() > ProviderTransportSupport.MAX_BODY_BYTES) {
+            throw providerUnavailable("Provider discovery returned a malformed catalog.");
         }
-        return ids;
+        try {
+            var root = DISCOVERY_MAPPER.readTree(body);
+            if (root == null || !root.isObject()) {
+                throw providerUnavailable("Provider discovery returned a malformed catalog.");
+            }
+            var data = root.get("data");
+            if (data == null || !data.isArray()) {
+                throw providerUnavailable("Provider discovery returned a malformed catalog.");
+            }
+            var ids = new java.util.ArrayList<String>();
+            var seen = new java.util.HashSet<String>();
+            for (var entry : data) {
+                if (ids.size() >= ProviderTransportSupport.MAX_MODEL_IDS) {
+                    break;
+                }
+                if (entry == null || !entry.isObject()) {
+                    throw providerUnavailable("Provider discovery returned a malformed catalog.");
+                }
+                var idNode = entry.get("id");
+                if (idNode == null || !idNode.isString()) {
+                    throw providerUnavailable("Provider discovery returned a malformed catalog.");
+                }
+                var id = idNode.stringValue() == null ? "" : idNode.stringValue().strip();
+                if (id.isEmpty() || id.length() > 200) {
+                    throw providerUnavailable("Provider discovery returned a malformed catalog.");
+                }
+                if (seen.add(id)) {
+                    ids.add(id);
+                }
+            }
+            return List.copyOf(ids);
+        } catch (DomainException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw providerUnavailable("Provider discovery returned a malformed catalog.");
+        }
     }
 
     private static String joinBase(String base, String path) {

@@ -52,4 +52,33 @@ class M18IntelligenceRepairTest {
         assertEquals(0, assessment.immediateExposure().compareTo(new BigDecimal("87.00")));
         assertEquals(0, assessment.projectedPeriodEnd().compareTo(new BigDecimal("95.00")));
     }
+
+    @Test
+    void missingCandidateRateIsNotReplayable() {
+        var usage = Map.of("INPUT_TOKEN", new BigDecimal("100"), "OUTPUT_TOKEN", new BigDecimal("100"));
+        var currentRates = Map.of("INPUT_TOKEN", new SavingsEngine.PricedRate(1, new BigDecimal("1.00")),
+                "OUTPUT_TOKEN", new SavingsEngine.PricedRate(1, new BigDecimal("10.00")));
+        var candidateRates = Map.of("INPUT_TOKEN", new SavingsEngine.PricedRate(1, new BigDecimal("0.50")));
+        assertTrue(SavingsEngine.isReplayable(usage, currentRates));
+        assertFalse(SavingsEngine.isReplayable(usage, candidateRates));
+    }
+
+    @Test
+    void explicitZeroRateIsReplayable() {
+        var usage = Map.of("INPUT_TOKEN", new BigDecimal("100"), "OUTPUT_TOKEN", new BigDecimal("100"));
+        var candidateRates = Map.of("INPUT_TOKEN", new SavingsEngine.PricedRate(1, new BigDecimal("0.50")),
+                "OUTPUT_TOKEN", new SavingsEngine.PricedRate(1, BigDecimal.ZERO));
+        assertTrue(SavingsEngine.isReplayable(usage, candidateRates));
+        assertEquals(0, SavingsEngine.replay(usage, candidateRates).compareTo(new BigDecimal("50.00")));
+    }
+
+    @Test
+    void invalidRatesAreNotReplayable() {
+        var usage = Map.of("INPUT_TOKEN", new BigDecimal("10"));
+        assertFalse(SavingsEngine.isReplayable(usage,
+                Map.of("INPUT_TOKEN", new SavingsEngine.PricedRate(0, new BigDecimal("1.00")))));
+        assertFalse(SavingsEngine.isReplayable(usage,
+                Map.of("INPUT_TOKEN", new SavingsEngine.PricedRate(1, new BigDecimal("-1.00")))));
+        assertFalse(SavingsEngine.isReplayable(usage, Map.of()));
+    }
 }

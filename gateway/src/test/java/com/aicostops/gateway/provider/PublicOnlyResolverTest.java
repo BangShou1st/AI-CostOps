@@ -62,6 +62,18 @@ class PublicOnlyResolverTest {
     }
 
     @Test
+    void blocksSpecialUseRangesAtPolicyLevel() throws Exception {
+        assertTrue(DispatchEndpointGuard.isPublicUnicast(InetAddress.getByName("8.8.8.8")));
+        assertFalse(DispatchEndpointGuard.isPublicUnicast(InetAddress.getByName("10.0.0.1")));
+        assertFalse(DispatchEndpointGuard.isPublicUnicast(InetAddress.getByName("100.64.0.1")));
+        assertFalse(DispatchEndpointGuard.isPublicUnicast(InetAddress.getByName("127.0.0.1")));
+        assertFalse(DispatchEndpointGuard.isPublicUnicast(InetAddress.getByName("169.254.169.254")));
+        assertFalse(DispatchEndpointGuard.isPublicUnicast(InetAddress.getByName("192.0.2.1")));
+        assertFalse(DispatchEndpointGuard.isPublicUnicast(InetAddress.getByName("198.18.0.1")));
+        assertFalse(DispatchEndpointGuard.isPublicUnicast(InetAddress.getByName("203.0.113.1")));
+    }
+
+    @Test
     void openCodeAdapterUsesServerOwnedUaAndDirectOnly() {
         assertEquals("opencode/1.18.21",
                 com.aicostops.gateway.provider.opencode.OpenCodeZenChatAdapter.SERVER_USER_AGENT);

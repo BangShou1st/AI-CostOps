@@ -54,6 +54,7 @@ class AuthenticatedLiveDiscoveryIntegrationTest extends ControlPlaneFixtureSuppo
     private final AtomicReference<List<String>> liveModels =
             new AtomicReference<>(List.of("model-a", "model-b"));
     private final AtomicBoolean failNext = new AtomicBoolean(false);
+    private final AtomicReference<String> rawPayload = new AtomicReference<>(null);
 
     private long organizationId;
     private long managerUserId;
@@ -95,6 +96,9 @@ class AuthenticatedLiveDiscoveryIntegrationTest extends ControlPlaneFixtureSuppo
             if (failNext.getAndSet(false)) {
                 payload = "{\"error\":\"boom\"}".getBytes(StandardCharsets.UTF_8);
                 code = 500;
+            } else if (rawPayload.get() != null) {
+                payload = rawPayload.get().getBytes(StandardCharsets.UTF_8);
+                code = 200;
             } else if (("Bearer " + BEARER_SECRET).equals(auth) || API_KEY_SECRET.equals(apiKey)
                     || (auth == null && apiKey == null && openMode())) {
                 var body = new StringBuilder("{\"data\":[");
@@ -193,6 +197,55 @@ class AuthenticatedLiveDiscoveryIntegrationTest extends ControlPlaneFixtureSuppo
                 .andExpect(status().is5xxServerError());
         assertAvailability(connectionId, "model-a", "AVAILABLE");
         assertAvailability(connectionId, "model-b", "AVAILABLE");
+    }
+
+    @Test
+    void missingModelsPathFailsClosedWithZeroIo() throws Exception {
+        var connectionId = createConnection("{\"providerAccountId\":" + accountId + ",\"baseUrl\":\""
+                + baseUrl() + "\",\"authType\":\"BEARER\"}");
+        storeCredential(connectionId, BEARER_SECRET);
+        var before = catalogHits.get();
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/refresh", connectionId)
+                        .header("Authorization", bearerFor(managerUserId)).contentType("application/json")
+                        .content("{\"modelNames\":[],\"fetchLive\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        assertEquals(before, catalogHits.get());
+    }
+
+    @Test
+    void validEmptyCatalogMarksPreviousUnavailable() throws Exception {
+        var connectionId = createConnection("{\"providerAccountId\":" + accountId + ",\"baseUrl\":\""
+                + baseUrl() + "\",\"authType\":\"BEARER\",\"modelsPath\":\"/models\"}");
+        storeCredential(connectionId, BEARER_SECRET);
+        refreshLive(connectionId);
+        assertAvailability(connectionId, "model-a", "AVAILABLE");
+        liveModels.set(List.of());
+        refreshLive(connectionId);
+        assertAvailability(connectionId, "model-a", "UNAVAILABLE");
+        assertAvailability(connectionId, "model-b", "UNAVAILABLE");
+    }
+
+    @Test
+    void malformedCatalogNeverWipesAvailability() throws Exception {
+        var connectionId = createConnection("{\"providerAccountId\":" + accountId + ",\"baseUrl\":\""
+                + baseUrl() + "\",\"authType\":\"BEARER\",\"modelsPath\":\"/models\"}");
+        storeCredential(connectionId, BEARER_SECRET);
+        refreshLive(connectionId);
+        assertAvailability(connectionId, "model-a", "AVAILABLE");
+        for (var bad : List.of("not-json", "{}", "{\"foo\":[]}", "{\"data\":\"wrong\"}",
+                "{\"data\":[{\"otherId\":\"x\"}]}", "{\"data\":[{\"id\":\"\"}]}")) {
+            rawPayload.set(bad);
+            mockMvc.perform(post("/api/v1/provider-connections/{id}/models/refresh", connectionId)
+                            .header("Authorization", bearerFor(managerUserId)).contentType("application/json")
+                            .content("{\"modelNames\":[],\"fetchLive\":true}"))
+                    .andExpect(status().is5xxServerError());
+            assertAvailability(connectionId, "model-a", "AVAILABLE");
+            assertAvailability(connectionId, "model-b", "AVAILABLE");
+        }
+        rawPayload.set(null);
+        refreshLive(connectionId);
+        assertAvailability(connectionId, "model-a", "AVAILABLE");
     }
 
     private String baseUrl() {

@@ -61,12 +61,41 @@ public final class SavingsEngine {
         for (var entry : usage.entrySet()) {
             var rate = rates.get(entry.getKey());
             var quantity = entry.getValue();
-            if (rate == null || quantity == null || quantity.signum() <= 0) {
+            if (quantity == null || quantity.signum() <= 0) {
+                continue;
+            }
+            if (!isValidRate(rate)) {
                 continue;
             }
             total = total.add(quantity.multiply(rate.unitPrice())
                     .divide(BigDecimal.valueOf(rate.unitQuantity()), 18, RoundingMode.HALF_UP));
         }
         return total;
+    }
+
+    public static boolean isReplayable(Map<String, BigDecimal> usage, Map<String, PricedRate> rates) {
+        if (usage == null || rates == null) {
+            return false;
+        }
+        for (var entry : usage.entrySet()) {
+            var quantity = entry.getValue();
+            if (quantity == null || quantity.signum() <= 0) {
+                continue;
+            }
+            if (!isValidRate(rates.get(entry.getKey()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean isValidRate(PricedRate rate) {
+        if (rate == null || rate.unitPrice() == null) {
+            return false;
+        }
+        if (rate.unitQuantity() <= 0) {
+            return false;
+        }
+        return rate.unitPrice().compareTo(BigDecimal.ZERO) >= 0;
     }
 }

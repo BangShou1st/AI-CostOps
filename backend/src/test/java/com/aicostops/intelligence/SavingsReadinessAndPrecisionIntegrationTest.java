@@ -83,6 +83,62 @@ class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContaine
         assertEquals(2, candidates.size());
     }
 
+    @Test
+    void missingCandidateOutputRateProducesNoRecommendation() {
+        var org = insertOrg();
+        var logical = insertLogicalModel("sav-logical-miss");
+        var accountA = insertAccount(org, "Account A");
+        var accountB = insertAccount(org, "Account B");
+        var modelA = insertProviderModel(logical, "sav-miss-a");
+        var modelB = insertProviderModel(logical, "sav-miss-b");
+        var pricingA = insertPricing(org, accountA, modelA, "1.00");
+        var pricingB = insertPricing(org, accountB, modelB, "0.50");
+        jdbc.update("INSERT INTO pricing_rate(org_id,pricing_version_id,dimension_code,unit_quantity,"
+                + "unit_price) VALUES (?,?,'OUTPUT_TOKEN',1,10.00)", org, pricingA);
+        insertConnection(org, accountA);
+        insertConnection(org, accountB);
+        insertUsage(org, pricingA, accountA, modelA, "100");
+        var usageId = jdbc.queryForObject("SELECT id FROM gateway_usage_fact WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                Long.class, org);
+        jdbc.update("INSERT INTO gateway_usage_dimension(org_id,usage_fact_id,dimension_code,quantity,"
+                + "provenance) VALUES (?,?, 'OUTPUT_TOKEN',100,'PROVIDER_FINAL')", org, usageId);
+        var yesterday = LocalDate.now().minusDays(1);
+        var outcome = intelligence.runAnalysis(org, yesterday, "USD");
+        assertEquals("COMPLETED", outcome.status());
+        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceService.RUN_VERSION);
+        assertNotNull(runId);
+        assertEquals(0, store.listRecommendations(org, runId).size());
+    }
+
+    @Test
+    void explicitZeroOutputRateIsReplayable() {
+        var org = insertOrg();
+        var logical = insertLogicalModel("sav-logical-zero");
+        var accountA = insertAccount(org, "Account A");
+        var accountB = insertAccount(org, "Account B");
+        var modelA = insertProviderModel(logical, "sav-zero-a");
+        var modelB = insertProviderModel(logical, "sav-zero-b");
+        var pricingA = insertPricing(org, accountA, modelA, "1.00");
+        var pricingB = insertPricing(org, accountB, modelB, "0.50");
+        jdbc.update("INSERT INTO pricing_rate(org_id,pricing_version_id,dimension_code,unit_quantity,"
+                + "unit_price) VALUES (?,?,'OUTPUT_TOKEN',1,10.00)", org, pricingA);
+        jdbc.update("INSERT INTO pricing_rate(org_id,pricing_version_id,dimension_code,unit_quantity,"
+                + "unit_price) VALUES (?,?,'OUTPUT_TOKEN',1,0.00)", org, pricingB);
+        insertConnection(org, accountA);
+        insertConnection(org, accountB);
+        insertUsage(org, pricingA, accountA, modelA, "100");
+        var usageId = jdbc.queryForObject("SELECT id FROM gateway_usage_fact WHERE org_id=? ORDER BY id DESC LIMIT 1",
+                Long.class, org);
+        jdbc.update("INSERT INTO gateway_usage_dimension(org_id,usage_fact_id,dimension_code,quantity,"
+                + "provenance) VALUES (?,?, 'OUTPUT_TOKEN',100,'PROVIDER_FINAL')", org, usageId);
+        var yesterday = LocalDate.now().minusDays(1);
+        var outcome = intelligence.runAnalysis(org, yesterday, "USD");
+        assertEquals("COMPLETED", outcome.status());
+        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceService.RUN_VERSION);
+        assertNotNull(runId);
+        assertEquals(1, store.listRecommendations(org, runId).size());
+    }
+
     private long insertOrg() {
         jdbc.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at)"
                 + " VALUES ('Sav Org','sav-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");

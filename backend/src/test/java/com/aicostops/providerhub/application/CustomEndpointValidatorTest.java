@@ -43,12 +43,30 @@ class CustomEndpointValidatorTest {
         "http://192.168.1.10/v1", "http://169.254.169.254/latest/meta-data/",
         "http://[::1]/v1", "http://[fe80::1]/v1", "http://[fc00::1]/v1",
         "http://[ff02::1]/v1", "http://0.0.0.0/v1",
+        "http://100.64.0.1/v1", "http://100.127.255.1/v1",
+        "http://192.0.2.1/v1", "http://198.51.100.7/v1", "http://203.0.113.9/v1",
+        "http://198.18.0.1/v1", "http://198.19.255.1/v1",
+        "http://192.0.0.1/v1", "http://224.0.0.1/v1", "http://255.255.255.255/v1",
+        "http://[2001:db8::1]/v1",
         "https://user:pass@example.com/v1", "ftp://example.com/v1", "file:///etc/passwd"
     })
     void rejectsBlockedTargets(String url) {
         var ex = assertThrows(DomainException.class, () -> validator.validateEndpoint(url));
         assertTrue(ex.code() == com.aicostops.shared.web.ProblemCode.ENDPOINT_BLOCKED,
                 () -> "Unexpected problem code: " + ex.code());
+    }
+
+    @Test
+    void allowsGloballyRoutablePublic() throws Exception {
+        assertTrue(CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("8.8.8.8")));
+        assertTrue(CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("1.1.1.1")));
+        assertTrue(!CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("10.0.0.1")));
+        assertTrue(!CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("100.64.0.1")));
+        assertTrue(!CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("127.0.0.1")));
+        assertTrue(!CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("169.254.169.254")));
+        assertTrue(!CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("192.0.2.1")));
+        assertTrue(!CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("198.18.0.1")));
+        assertTrue(!CustomEndpointValidator.isPublicUnicast(InetAddress.getByName("203.0.113.1")));
     }
 
     @Test

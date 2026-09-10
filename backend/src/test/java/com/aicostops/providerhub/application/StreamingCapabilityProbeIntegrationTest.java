@@ -48,8 +48,12 @@ class StreamingCapabilityProbeIntegrationTest extends ControlPlaneFixtureSupport
 
     private HttpServer sseProvider;
     private HttpServer jsonOnlyProvider;
+    private HttpServer truncatedProvider;
+    private HttpServer fakeChoicesProvider;
     private int ssePort;
     private int jsonOnlyPort;
+    private int truncatedPort;
+    private int fakeChoicesPort;
 
     private long organizationId;
     private long actorUserId;
@@ -98,12 +102,46 @@ class StreamingCapabilityProbeIntegrationTest extends ControlPlaneFixtureSupport
         });
         jsonOnlyProvider.start();
         jsonOnlyPort = jsonOnlyProvider.getAddress().getPort();
+        truncatedProvider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        truncatedProvider.createContext("/chat/completions", exchange -> {
+            var body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            byte[] payload;
+            if (body.contains("\"stream\":true")) {
+                exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+                var chunk = "data: {\"id\":\"chunk-1\",\"object\":\"chat.completion.chunk\","
+                        + "\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,"
+                        + "\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}\n\n";
+                payload = chunk.getBytes(StandardCharsets.UTF_8);
+            } else {
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                payload = COMPLETION_JSON.getBytes(StandardCharsets.UTF_8);
+            }
+            exchange.sendResponseHeaders(200, payload.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(payload);
+            }
+        });
+        truncatedProvider.start();
+        truncatedPort = truncatedProvider.getAddress().getPort();
+        fakeChoicesProvider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        fakeChoicesProvider.createContext("/chat/completions", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            var payload = "{\"foo\":\"choices\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, payload.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(payload);
+            }
+        });
+        fakeChoicesProvider.start();
+        fakeChoicesPort = fakeChoicesProvider.getAddress().getPort();
     }
 
     @AfterEach
     void tearDown() {
         if (sseProvider != null) sseProvider.stop(0);
         if (jsonOnlyProvider != null) jsonOnlyProvider.stop(0);
+        if (truncatedProvider != null) truncatedProvider.stop(0);
+        if (fakeChoicesProvider != null) fakeChoicesProvider.stop(0);
         cleanDatabase();
     }
 
@@ -131,6 +169,31 @@ class StreamingCapabilityProbeIntegrationTest extends ControlPlaneFixtureSupport
                 .andExpect(jsonPath("$.pass").value(true))
                 .andExpect(jsonPath("$.capabilities.CHAT_COMPLETIONS").value("VERIFIED"))
                 .andExpect(jsonPath("$.capabilities.SSE_STREAMING").value("UNSUPPORTED"));
+    }
+
+    @Test
+    void truncatedStreamWithoutTerminalIsNeverVerified() throws Exception {
+        var connectionId = createConnection(truncatedPort);
+        var discoveryId = manualModel(connectionId, "stream-model");
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{discoveryId}/probe",
+                        connectionId, discoveryId)
+                        .header("Authorization", bearerFor(actorUserId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pass").value(true))
+                .andExpect(jsonPath("$.capabilities.CHAT_COMPLETIONS").value("VERIFIED"))
+                .andExpect(jsonPath("$.capabilities.SSE_STREAMING").value("UNKNOWN"));
+    }
+
+    @Test
+    void fakeChoicesSubstringIsNeverVerified() throws Exception {
+        var connectionId = createConnection(fakeChoicesPort);
+        var discoveryId = manualModel(connectionId, "stream-model");
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{discoveryId}/probe",
+                        connectionId, discoveryId)
+                        .header("Authorization", bearerFor(actorUserId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pass").value(false))
+                .andExpect(jsonPath("$.capabilities.CHAT_COMPLETIONS").value("UNSUPPORTED"));
     }
 
     private long createConnection(int port) throws Exception {

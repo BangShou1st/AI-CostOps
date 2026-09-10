@@ -30,6 +30,9 @@ class ScopedBudgetRiskIntegrationTest extends ControlPlaneFixtureSupport {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private java.time.Clock clock;
+
     private long organizationId;
     private long readerUserId;
     private long readerMemberId;
@@ -50,7 +53,7 @@ class ScopedBudgetRiskIntegrationTest extends ControlPlaneFixtureSupport {
         insertBudget("TEAM", teamA, "100.00", "80.00", "5.00");
         insertBudget("TEAM", teamB, "1000.00", "10.00", "0.00");
         insertBudget("COST_CENTER", costCenterA, "50.00", "20.00", "5.00");
-        var yesterday = LocalDate.now().minusDays(1);
+        var yesterday = LocalDate.now(clock).minusDays(1);
         jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,"
                 + "created_at) VALUES (?,'" + yesterday + "','USD',1,'COMPLETED',UTC_TIMESTAMP(6))",
                 organizationId);

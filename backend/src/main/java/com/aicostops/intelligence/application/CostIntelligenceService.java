@@ -264,14 +264,18 @@ public class CostIntelligenceService {
             withRates.add(new ReplayedCandidate(candidate, ownUsage, rates, ownCost));
         }
         if (withRates.size() < 2) return;
-        // Source route = largest observed historical cost (real spend); fall back to largest usage
-        // volume when costs tie at zero. Candidates with no own usage stay eligible as challengers.
         var sourced = withRates.stream().filter(c -> c.cost() != null).toList();
         if (sourced.isEmpty()) return;
         var current = sourced.stream().max(Comparator.comparing(ReplayedCandidate::cost)).orElseThrow();
         if (current.usage().isEmpty()) return;
+        if (!SavingsEngine.isReplayable(current.usage(), current.rates())) {
+            return;
+        }
         for (var challenger : withRates) {
             if (challenger.candidate().pricingVersionId() == current.candidate().pricingVersionId()) {
+                continue;
+            }
+            if (!SavingsEngine.isReplayable(current.usage(), challenger.rates())) {
                 continue;
             }
             var comparison = SavingsEngine.compare(logicalModelId, logicalModelId, logicalModelId,
