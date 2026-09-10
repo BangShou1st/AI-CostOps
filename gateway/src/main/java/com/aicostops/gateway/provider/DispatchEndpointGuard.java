@@ -15,7 +15,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class DispatchEndpointGuard {
 
-    public void check(String baseUrl, String completionPath) {
+    public void check(String baseUrl, String completionPath, String networkPolicy) {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw guardFailure("endpoint is missing");
         }
@@ -36,7 +36,7 @@ public class DispatchEndpointGuard {
         if (host == null || host.isBlank()) {
             throw guardFailure("endpoint hostname is malformed");
         }
-        if (isLiteralBlockedIp(host)) {
+        if ("DIRECT_PUBLIC_ONLY".equals(networkPolicy) && isLiteralBlockedIp(host)) {
             throw guardFailure("endpoint literal address is not public");
         }
         if (completionPath != null && !completionPath.isBlank()

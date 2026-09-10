@@ -87,7 +87,7 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
     public Mono<ProviderChatCompletion> complete(ProviderCallContext context,
             ChatCompletionCommand command) {
         validateCredentials(context);
-        endpointGuard.check(context.baseUrl(), context.completionPath());
+        endpointGuard.check(context.baseUrl(), context.completionPath(), context.networkPolicy());
         var request = wireRequest(context, command, false);
         return webClient.post().uri(targetUrl(context))
                 .headers(headers -> applyHeaders(headers, context))
@@ -106,7 +106,7 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
     public Flux<ProviderChatStreamEvent> stream(ProviderCallContext context,
             ChatCompletionCommand command) {
         validateCredentials(context);
-        endpointGuard.check(context.baseUrl(), context.completionPath());
+        endpointGuard.check(context.baseUrl(), context.completionPath(), context.networkPolicy());
         var request = wireRequest(context, command, true);
         var decoder = new OpenAiSseDecoder(properties.getMaxInMemoryBytes());
         var hardTimeoutMs = properties.getHardTimeoutMs();
