@@ -247,10 +247,10 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
 
     private void cleanDatabase() {
         jdbc.update("DELETE FROM audit_event");
+        jdbc.update("DELETE FROM advisor_evidence_snapshot");
         jdbc.update("DELETE FROM advisor_explanation");
         jdbc.update("DELETE FROM advisor_inference_attempt");
         jdbc.update("DELETE FROM advisor_inference_job");
-        jdbc.update("DELETE FROM advisor_profile");
         jdbc.update("DELETE FROM savings_recommendation");
         jdbc.update("DELETE FROM cost_forecast_snapshot");
         jdbc.update("DELETE FROM cost_anomaly");
@@ -259,6 +259,10 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
         jdbc.update("DELETE FROM provider_connection_profile");
         jdbc.update("UPDATE provider_credential SET predecessor_credential_id=NULL");
         jdbc.update("DELETE FROM provider_credential");
+        jdbc.update("UPDATE gateway_credential SET predecessor_credential_id=NULL, advisor_profile_id=NULL");
+        jdbc.update("DELETE FROM gateway_credential_model");
+        jdbc.update("DELETE FROM gateway_credential");
+        jdbc.update("DELETE FROM advisor_profile");
         jdbc.update("DELETE FROM role_assignment");
         jdbc.update("DELETE FROM provider_model WHERE owner_org_id IS NOT NULL");
         jdbc.update("DELETE FROM model_catalog WHERE owner_org_id IS NOT NULL");
