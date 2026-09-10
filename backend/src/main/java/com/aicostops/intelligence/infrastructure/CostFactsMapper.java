@@ -8,11 +8,20 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 /**
- * Derived-facts reads over settled Gateway financial truth (M18 V3).
+ * Derived-facts reads over effective POSTED Ledger lineage (M18 repair).
  *
- * <p>Only SETTLED settlements feed anomaly/forecast/savings. Advisor-owned
- * spend stays in org totals but is excluded from trigger/candidate roots
- * by default (feedback-loop protection).
+ * <p>Authoritative money is {@code SUM(ledger_entry.amount)} over POSTED postings where
+ * {@code source_gateway_settlement_id IS NOT NULL OR source_reconciliation_adjustment_id
+ * IS NOT NULL}. Initial Gateway Settlement postings, append-only correction
+ * reversal/replacement entries (same source_gateway_settlement_id, signed amounts) and
+ * reconciliation-adjustment postings are all honored; history is never rewritten and no
+ * second V3 financial truth exists. Currencies never mix (grouped + filtered by currency).
+ * Advisor-owned spend stays in org financial totals elsewhere but is excluded from
+ * trigger/candidate roots here by default (feedback-loop protection).
+ * Aggregation behavior for unmappable effects: CASE_FULL reconciliation adjustments without a
+ * gateway lineage are included in org/project/team/cost-center grains via their own
+ * ledger_entry dimensions, but excluded from provider/logical-model grains which require an
+ * exact gateway_settlement lineage (no invented provider/model inference).
  */
 @Mapper
 public interface CostFactsMapper {
@@ -21,61 +30,97 @@ public interface CostFactsMapper {
             AND (si.id IS NULL OR si.code <> 'AICOSTOPS_ADVISOR')
             """;
 
-    String SETTLED_SCOPE = """
-            gs.org_id=#{organizationId} AND gs.currency=#{currency}
-              AND gs.status='SETTLED' AND gs.posted_amount IS NOT NULL
-              AND gs.settled_at >= #{start} AND gs.settled_at < #{end}
+    String LEDGER_ADVISOR_EXCLUSION = """
+            AND (si.id IS NULL OR si.code <> 'AICOSTOPS_ADVISOR')
+            AND (si2.id IS NULL OR si2.code <> 'AICOSTOPS_ADVISOR')
+            """;
+
+    String LEDGER_SCOPE = """
+            le.org_id=#{organizationId} AND le.currency=#{currency} AND lp.status='POSTED'
+              AND lp.posted_at >= #{start} AND lp.posted_at < #{end}
+              AND (le.source_gateway_settlement_id IS NOT NULL
+                OR le.source_reconciliation_adjustment_id IS NOT NULL)
+            """;
+
+    String LEDGER_JOINS = """
+            FROM ledger_entry le
+            JOIN ledger_posting lp ON lp.id=le.posting_id AND lp.org_id=le.org_id
+            LEFT JOIN gateway_settlement gs ON gs.id=le.source_gateway_settlement_id AND gs.org_id=le.org_id
+            LEFT JOIN gateway_request gr ON gr.id=gs.request_id AND gr.org_id=gs.org_id
+            LEFT JOIN service_identity si ON si.id=gr.service_identity_id AND si.org_id=gr.org_id
+            LEFT JOIN reconciliation_adjustment ra ON ra.id=le.source_reconciliation_adjustment_id AND ra.org_id=le.org_id
+            LEFT JOIN gateway_request gr2 ON gr2.id=ra.gateway_request_id AND gr2.org_id=ra.org_id
+            LEFT JOIN service_identity si2 ON si2.id=gr2.service_identity_id AND si2.org_id=gr2.org_id
+            WHERE
             """;
 
     @Select("""
-            SELECT DATE(gs.settled_at) AS day,SUM(gs.posted_amount) AS amount
-            FROM gateway_settlement gs
-            JOIN gateway_request gr ON gr.id=gs.request_id AND gr.org_id=gs.org_id
-            LEFT JOIN service_identity si ON si.id=gr.service_identity_id AND si.org_id=gr.org_id
-            WHERE
-            """ + SETTLED_SCOPE + ADVISOR_EXCLUSION + """
-            GROUP BY DATE(gs.settled_at) ORDER BY day
+            SELECT DATE(lp.posted_at) AS day,SUM(le.amount) AS amount
+            """ + LEDGER_JOINS + LEDGER_SCOPE + LEDGER_ADVISOR_EXCLUSION + """
+            GROUP BY DATE(lp.posted_at) ORDER BY day
             """)
     List<DailyTotal> orgDaily(@Param("organizationId") long organizationId,
             @Param("currency") String currency, @Param("start") LocalDate start, @Param("end") LocalDate end);
 
     @Select("""
-            SELECT DATE(gs.settled_at) AS day,gs.financial_scope_id AS scopeId,SUM(gs.posted_amount) AS amount
-            FROM gateway_settlement gs
-            JOIN gateway_request gr ON gr.id=gs.request_id AND gr.org_id=gs.org_id
-            LEFT JOIN service_identity si ON si.id=gr.service_identity_id AND si.org_id=gr.org_id
-            WHERE
-            """ + SETTLED_SCOPE + ADVISOR_EXCLUSION + """
-              AND gs.financial_scope_type='PROJECT'
-            GROUP BY DATE(gs.settled_at),gs.financial_scope_id ORDER BY scopeId,day
+            SELECT DATE(lp.posted_at) AS day,le.project_id AS scopeId,SUM(le.amount) AS amount
+            """ + LEDGER_JOINS + LEDGER_SCOPE + LEDGER_ADVISOR_EXCLUSION + """
+              AND le.project_id IS NOT NULL
+            GROUP BY DATE(lp.posted_at),le.project_id ORDER BY scopeId,day
             """)
     List<ScopedDailyTotal> projectDaily(@Param("organizationId") long organizationId,
             @Param("currency") String currency, @Param("start") LocalDate start, @Param("end") LocalDate end);
 
     @Select("""
-            SELECT DATE(gs.settled_at) AS day,gs.provider_account_id AS scopeId,
-              pa.display_name AS scopeLabel,SUM(gs.posted_amount) AS amount
-            FROM gateway_settlement gs
+            SELECT DATE(lp.posted_at) AS day,le.team_id AS scopeId,SUM(le.amount) AS amount
+            """ + LEDGER_JOINS + LEDGER_SCOPE + LEDGER_ADVISOR_EXCLUSION + """
+              AND le.team_id IS NOT NULL
+            GROUP BY DATE(lp.posted_at),le.team_id ORDER BY scopeId,day
+            """)
+    List<ScopedDailyTotal> teamDaily(@Param("organizationId") long organizationId,
+            @Param("currency") String currency, @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    @Select("""
+            SELECT DATE(lp.posted_at) AS day,le.cost_center_id AS scopeId,SUM(le.amount) AS amount
+            """ + LEDGER_JOINS + LEDGER_SCOPE + LEDGER_ADVISOR_EXCLUSION + """
+              AND le.cost_center_id IS NOT NULL
+            GROUP BY DATE(lp.posted_at),le.cost_center_id ORDER BY scopeId,day
+            """)
+    List<ScopedDailyTotal> costCenterDaily(@Param("organizationId") long organizationId,
+            @Param("currency") String currency, @Param("start") LocalDate start, @Param("end") LocalDate end);
+
+    @Select("""
+            SELECT DATE(lp.posted_at) AS day,gs.provider_account_id AS scopeId,
+              pa.display_name AS scopeLabel,SUM(le.amount) AS amount
+            FROM ledger_entry le
+            JOIN ledger_posting lp ON lp.id=le.posting_id AND lp.org_id=le.org_id
+            JOIN gateway_settlement gs ON gs.id=le.source_gateway_settlement_id AND gs.org_id=le.org_id
             JOIN gateway_request gr ON gr.id=gs.request_id AND gr.org_id=gs.org_id
             LEFT JOIN service_identity si ON si.id=gr.service_identity_id AND si.org_id=gr.org_id
             LEFT JOIN provider_account pa ON pa.id=gs.provider_account_id
-            WHERE
-            """ + SETTLED_SCOPE + ADVISOR_EXCLUSION + """
-            GROUP BY DATE(gs.settled_at),gs.provider_account_id,pa.display_name ORDER BY scopeId,day
+            WHERE le.org_id=#{organizationId} AND le.currency=#{currency} AND lp.status='POSTED'
+              AND lp.posted_at >= #{start} AND lp.posted_at < #{end}
+              AND le.source_gateway_settlement_id IS NOT NULL
+              AND (si.id IS NULL OR si.code <> 'AICOSTOPS_ADVISOR')
+            GROUP BY DATE(lp.posted_at),gs.provider_account_id,pa.display_name ORDER BY scopeId,day
             """)
     List<ScopedDailyTotal> providerDaily(@Param("organizationId") long organizationId,
             @Param("currency") String currency, @Param("start") LocalDate start, @Param("end") LocalDate end);
 
     @Select("""
-            SELECT DATE(gs.settled_at) AS day,mc.model_key AS scopeLabel,SUM(gs.posted_amount) AS amount
-            FROM gateway_settlement gs
+            SELECT DATE(lp.posted_at) AS day,mc.model_key AS scopeLabel,SUM(le.amount) AS amount
+            FROM ledger_entry le
+            JOIN ledger_posting lp ON lp.id=le.posting_id AND lp.org_id=le.org_id
+            JOIN gateway_settlement gs ON gs.id=le.source_gateway_settlement_id AND gs.org_id=le.org_id
             JOIN gateway_request gr ON gr.id=gs.request_id AND gr.org_id=gs.org_id
             LEFT JOIN service_identity si ON si.id=gr.service_identity_id AND si.org_id=gr.org_id
             JOIN provider_model pm ON pm.id=gs.provider_model_id
             JOIN model_catalog mc ON mc.id=pm.model_id
-            WHERE
-            """ + SETTLED_SCOPE + ADVISOR_EXCLUSION + """
-            GROUP BY DATE(gs.settled_at),mc.model_key ORDER BY scopeLabel,day
+            WHERE le.org_id=#{organizationId} AND le.currency=#{currency} AND lp.status='POSTED'
+              AND lp.posted_at >= #{start} AND lp.posted_at < #{end}
+              AND le.source_gateway_settlement_id IS NOT NULL
+              AND (si.id IS NULL OR si.code <> 'AICOSTOPS_ADVISOR')
+            GROUP BY DATE(lp.posted_at),mc.model_key ORDER BY scopeLabel,day
             """)
     List<LabeledDailyTotal> modelDaily(@Param("organizationId") long organizationId,
             @Param("currency") String currency, @Param("start") LocalDate start, @Param("end") LocalDate end);
@@ -105,14 +150,27 @@ public interface CostFactsMapper {
               pa.display_name AS accountLabel,pm.provider_model_name AS modelName
             FROM pricing_version pv
             JOIN provider_model pm ON pm.id=pv.provider_model_id
+            JOIN model_catalog mc ON mc.id=pm.model_id
             JOIN provider_account pa ON pa.id=pv.provider_account_id AND pa.org_id=pv.org_id
+            JOIN provider_connection_profile pcp ON pcp.org_id=pv.org_id
+              AND pcp.provider_account_id=pv.provider_account_id AND pcp.status='ACTIVE'
             WHERE pv.org_id=#{organizationId} AND pv.currency=#{currency} AND pv.status='ACTIVE'
               AND pv.effective_from <= #{now} AND (pv.effective_to IS NULL OR pv.effective_to > #{now})
-              AND pm.model_id=#{logicalModelId} AND pm.status='ACTIVE'
-              AND pa.status='ACTIVE'
-              AND EXISTS(SELECT 1 FROM provider_credential pcred
+              AND pm.model_id=#{logicalModelId} AND pm.status='ACTIVE' AND pm.routing_eligible=TRUE
+              AND pa.status='ACTIVE' AND pa.provider_code=pm.provider_code
+              AND (pm.owner_org_id IS NULL OR pm.owner_org_id=#{organizationId})
+              AND (mc.owner_org_id IS NULL OR mc.owner_org_id=#{organizationId})
+              AND (pm.provider_account_id IS NULL OR pm.provider_account_id=pv.provider_account_id)
+              AND (pcp.auth_type='NONE' OR EXISTS(SELECT 1 FROM provider_credential pcred
                 WHERE pcred.org_id=pv.org_id AND pcred.provider_account_id=pv.provider_account_id
-                AND pcred.status='ACTIVE')
+                AND pcred.status='ACTIVE'))
+              AND EXISTS(SELECT 1 FROM pricing_rate pr
+                WHERE pr.org_id=pv.org_id AND pr.pricing_version_id=pv.id)
+              AND EXISTS(SELECT 1 FROM routing_policy_candidate rpc
+                JOIN routing_policy rp ON rp.id=rpc.routing_policy_id AND rp.org_id=rpc.org_id
+                WHERE rpc.org_id=pv.org_id AND rpc.provider_account_id=pv.provider_account_id
+                  AND rpc.provider_model_id=pv.provider_model_id AND rpc.status='ACTIVE'
+                  AND rp.status='ACTIVE' AND rp.model_id=pm.model_id)
             """)
     List<PricingCandidate> pricingCandidates(@Param("organizationId") long organizationId,
             @Param("currency") String currency, @Param("logicalModelId") long logicalModelId,
@@ -176,7 +234,27 @@ public interface CostFactsMapper {
     record RateRow(String dimensionCode, long unitQuantity, BigDecimal unitPrice) {
     }
 
+    @Select("SELECT id,org_id,model_id,status FROM routing_policy WHERE id=#{policyId} AND org_id=#{organizationId}")
+    RoutingPolicyRow findRoutingPolicy(@Param("policyId") long policyId,
+            @Param("organizationId") long organizationId);
+
+    @Select("""
+            SELECT rpc.provider_account_id AS accountId,rpc.provider_model_id AS modelId,rpc.status AS status
+            FROM routing_policy_candidate rpc
+            WHERE rpc.org_id=#{organizationId} AND rpc.routing_policy_id=#{policyId}
+              AND rpc.provider_account_id=#{accountId} AND rpc.provider_model_id=#{modelId}
+            """)
+    RoutingCandidateRow findRoutingCandidate(@Param("organizationId") long organizationId,
+            @Param("policyId") long policyId, @Param("accountId") long accountId,
+            @Param("modelId") long modelId);
+
     record BudgetRow(long id, String scopeType, long scopeId, String currency,
             BigDecimal totalAmount, BigDecimal actualAmount, BigDecimal committedAmount) {
+    }
+
+    record RoutingPolicyRow(long id, long orgId, long modelId, String status) {
+    }
+
+    record RoutingCandidateRow(long accountId, long modelId, String status) {
     }
 }

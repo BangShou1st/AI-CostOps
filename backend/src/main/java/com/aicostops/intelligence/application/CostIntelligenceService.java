@@ -137,13 +137,25 @@ public class CostIntelligenceService {
         persistAnomalies(organizationId, runId, orgAnomalies, now);
         for (var grain : projectGrains(organizationId, currency, start, end)) {
             persistAnomalies(organizationId, runId,
-                    CostAnomalyEngine.detect("PROJECT", "project:" + grain.scopeId(), grain.series(),
+                    CostAnomalyEngine.detect("PROJECT", grain.key(), grain.series(),
+                            List.of(), materiality),
+                    now);
+        }
+        for (var grain : teamGrains(organizationId, currency, start, end)) {
+            persistAnomalies(organizationId, runId,
+                    CostAnomalyEngine.detect("TEAM", grain.key(), grain.series(),
+                            List.of(), materiality),
+                    now);
+        }
+        for (var grain : costCenterGrains(organizationId, currency, start, end)) {
+            persistAnomalies(organizationId, runId,
+                    CostAnomalyEngine.detect("COST_CENTER", grain.key(), grain.series(),
                             List.of(), materiality),
                     now);
         }
         for (var grain : providerGrains(organizationId, currency, start, end)) {
             persistAnomalies(organizationId, runId,
-                    CostAnomalyEngine.detect("PROVIDER", "provider:" + grain.scopeId(), grain.series(),
+                    CostAnomalyEngine.detect("PROVIDER", grain.key(), grain.series(),
                             List.of(), materiality),
                     now);
         }
@@ -158,7 +170,16 @@ public class CostIntelligenceService {
         persistForecast(organizationId, runId, "ORGANIZATION", "org:" + organizationId,
                 orgSeries, remaining, observedThrough, currency, now);
         for (var grain : projectGrains(organizationId, currency, start, end)) {
-            persistForecast(organizationId, runId, "PROJECT", "project:" + grain.scopeId(),
+            persistForecast(organizationId, runId, "PROJECT", grain.key(),
+                    grain.series(), remaining, observedThrough, currency, now);
+        }
+        // P1: TEAM / COST_CENTER scoped forecast grains (never fall back to whole-org).
+        for (var grain : teamGrains(organizationId, currency, start, end)) {
+            persistForecast(organizationId, runId, "TEAM", grain.key(),
+                    grain.series(), remaining, observedThrough, currency, now);
+        }
+        for (var grain : costCenterGrains(organizationId, currency, start, end)) {
+            persistForecast(organizationId, runId, "COST_CENTER", grain.key(),
                     grain.series(), remaining, observedThrough, currency, now);
         }
         buildSavings(organizationId, runId, start, end, currency, materiality, now);
@@ -232,27 +253,44 @@ public class CostIntelligenceService {
         }
     }
 
+    /**
+     * P1: counterfactual replay from the real current/source route usage vector. The source is
+     * the candidate with the largest observed historical cost (the actual spend route); that same
+     * usage vector is replayed through every other production-ready candidate rate card. A cheaper
+     * candidate with zero historical usage of its own is still recommendable; candidates without
+     * readiness (filtered in pricingCandidates) never reach here.
+     */
     private void compareCandidates(long organizationId, long runId, long logicalModelId,
             List<CostFactsMapper.PricingCandidate> candidates, LocalDate start, LocalDate end,
             String currency, BigDecimal materiality, Instant now) {
-        var replayed = new ArrayList<ReplayedCandidate>();
+        var withRates = new ArrayList<ReplayedCandidate>();
         for (var candidate : candidates) {
-            var usage = usageMap(organizationId, currency, start, end,
-                    candidate.accountId(), candidate.modelId());
-            if (usage.isEmpty()) continue;
             var rates = rateMap(organizationId, candidate.pricingVersionId());
             if (rates.isEmpty()) continue;
-            replayed.add(new ReplayedCandidate(candidate, usage, rates,
-                    SavingsEngine.replay(usage, rates)));
+            var ownUsage = usageMap(organizationId, currency, start, end,
+                    candidate.accountId(), candidate.modelId());
+            var ownCost = ownUsage.isEmpty() ? null : SavingsEngine.replay(ownUsage, rates);
+            withRates.add(new ReplayedCandidate(candidate, ownUsage, rates, ownCost));
         }
-        if (replayed.size() < 2) return;
-        replayed.sort(Comparator.comparing(ReplayedCandidate::cost).reversed());
-        var current = replayed.get(0);
-        for (var challenger : replayed.subList(1, replayed.size())) {
+        if (withRates.size() < 2) return;
+        // Source route = largest observed historical cost (real spend); fall back to largest usage
+        // volume when costs tie at zero. Candidates with no own usage stay eligible as challengers.
+        var sourced = withRates.stream().filter(c -> c.cost() != null).toList();
+        if (sourced.isEmpty()) return;
+        var current = sourced.stream().max(Comparator.comparing(ReplayedCandidate::cost)).orElseThrow();
+        if (current.usage().isEmpty()) return;
+        for (var challenger : withRates) {
+            if (challenger.candidate().pricingVersionId() == current.candidate().pricingVersionId()) {
+                continue;
+            }
             var comparison = SavingsEngine.compare(logicalModelId, logicalModelId, logicalModelId,
                     current.usage(), current.rates(), challenger.rates());
             if (comparison.potentialSaving().compareTo(materiality) <= 0
                     || comparison.potentialSavingPercent().compareTo(SAVING_PERCENT_THRESHOLD) < 0) {
+                continue;
+            }
+            // Only emit when challenger is strictly cheaper on the identical usage vector.
+            if (comparison.candidateCost().compareTo(comparison.currentCost()) >= 0) {
                 continue;
             }
             store.insertRecommendation(organizationId, runId, logicalModelId,
@@ -327,6 +365,28 @@ public class CostIntelligenceService {
                     .put(row.day(), row.amount());
         }
         return groupedSeries(grouped, start, end, currency);
+    }
+
+    private List<GrainSeries> teamGrains(long organizationId, String currency, LocalDate start, LocalDate end) {
+        var grouped = new LinkedHashMap<Long, Map<LocalDate, BigDecimal>>();
+        for (var row : facts.teamDaily(organizationId, currency, start, end)) {
+            grouped.computeIfAbsent(row.scopeId(), key -> new LinkedHashMap<>()).put(row.day(), row.amount());
+        }
+        return grouped.entrySet().stream()
+                .map(entry -> new GrainSeries("team:" + entry.getKey(), entry.getKey(),
+                        "team:" + entry.getKey(), completeSeries(entry.getValue(), start, end, currency)))
+                .toList();
+    }
+
+    private List<GrainSeries> costCenterGrains(long organizationId, String currency, LocalDate start, LocalDate end) {
+        var grouped = new LinkedHashMap<Long, Map<LocalDate, BigDecimal>>();
+        for (var row : facts.costCenterDaily(organizationId, currency, start, end)) {
+            grouped.computeIfAbsent(row.scopeId(), key -> new LinkedHashMap<>()).put(row.day(), row.amount());
+        }
+        return grouped.entrySet().stream()
+                .map(entry -> new GrainSeries("cost_center:" + entry.getKey(), entry.getKey(),
+                        "cost_center:" + entry.getKey(), completeSeries(entry.getValue(), start, end, currency)))
+                .toList();
     }
 
     private List<GrainSeries> groupedSeries(Map<String, Map<LocalDate, BigDecimal>> grouped,
@@ -451,11 +511,20 @@ public class CostIntelligenceService {
                 currency, assessment.risk());
     }
 
+    /**
+     * P1: scoped forecast lookup. TEAM/COST_CENTER use their own grains; missing scoped
+     * history yields ZERO future usage (never whole-org fallback which misattributes spend).
+     */
     private BigDecimal latestForecastAmount(long organizationId, String scopeType, long scopeId, String currency) {
         var runDate = LocalDate.now(clock).minusDays(1);
         var runId = store.findRunId(organizationId, runDate, currency, RUN_VERSION);
         if (runId == null) return BigDecimal.ZERO;
-        var key = "PROJECT".equals(scopeType) ? ("project:" + scopeId) : ("org:" + organizationId);
+        final String key = switch (scopeType) {
+            case "PROJECT" -> "project:" + scopeId;
+            case "TEAM" -> "team:" + scopeId;
+            case "COST_CENTER" -> "cost_center:" + scopeId;
+            default -> "org:" + organizationId;
+        };
         return store.listForecasts(organizationId, runId).stream()
                 .filter(r -> r.scopeKey().equals(key))
                 .map(IntelligenceMapper.ForecastRow::projectedAmount)
@@ -473,6 +542,12 @@ public class CostIntelligenceService {
                 .map(this::recommendationResponse).toList();
     }
 
+    /**
+     * P1: recommendation mutations change business state and require BUDGET_MANAGE (closest
+     * frozen manage permission). COST_READ-only users must not fabricate ACK/DISMISS/APPLIED.
+     * mark-applied additionally proves same-org ACTIVE routing linkage to the recommended
+     * candidate; it only records a human-completed action and never auto-creates routing policy.
+     */
     @Transactional
     public RecommendationResponse acknowledge(AuthenticatedUser user, long id) {
         return transition(user, id, "OPEN", "ACKNOWLEDGED", null, "SAVINGS_RECOMMENDATION_ACKNOWLEDGED");
@@ -481,7 +556,7 @@ public class CostIntelligenceService {
     @Transactional
     public RecommendationResponse dismiss(AuthenticatedUser user, long id) {
         var context = authorizationContexts.current(user);
-        authorization.requireOrg(context, "COST_READ");
+        authorization.requireOrg(context, "BUDGET_MANAGE");
         var current = recommendation(context.organizationId(), id);
         if (!"OPEN".equals(current.status()) && !"ACKNOWLEDGED".equals(current.status())) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
@@ -493,14 +568,43 @@ public class CostIntelligenceService {
 
     @Transactional
     public RecommendationResponse markApplied(AuthenticatedUser user, long id, Long routingPolicyId) {
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "BUDGET_MANAGE");
+        if (routingPolicyId == null) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Recommendation validation failed", "Routing policy linkage is required.");
+        }
+        var current = recommendation(context.organizationId(), id);
+        validateAppliedLinkage(context.organizationId(), current, routingPolicyId);
         return transition(user, id, "ACKNOWLEDGED", "APPLIED", routingPolicyId,
                 "SAVINGS_RECOMMENDATION_APPLIED");
+    }
+
+    private void validateAppliedLinkage(long organizationId,
+            IntelligenceMapper.RecommendationRow recommendation, long routingPolicyId) {
+        var policy = facts.findRoutingPolicy(routingPolicyId, organizationId);
+        if (policy == null || !"ACTIVE".equals(policy.status())) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Recommendation validation failed", "Routing policy must be ACTIVE in this organization.");
+        }
+        if (policy.modelId() != recommendation.logicalModelId()) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Recommendation validation failed",
+                    "Routing policy logical model must match the recommendation.");
+        }
+        var candidate = facts.findRoutingCandidate(organizationId, routingPolicyId,
+                recommendation.candidateProviderAccountId(), recommendation.candidateProviderModelId());
+        if (candidate == null || !"ACTIVE".equals(candidate.status())) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Recommendation validation failed",
+                    "Routing policy must actually contain the recommended candidate.");
+        }
     }
 
     private RecommendationResponse transition(AuthenticatedUser user, long id, String from, String to,
             Long policyId, String auditEvent) {
         var context = authorizationContexts.current(user);
-        authorization.requireOrg(context, "COST_READ");
+        authorization.requireOrg(context, "BUDGET_MANAGE");
         if (store.transitionRecommendation(id, context.organizationId(), from, to, policyId) != 1) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                     "Recommendation state conflict", "The recommendation is not in a mutable state.");
