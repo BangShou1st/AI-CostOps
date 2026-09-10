@@ -78,11 +78,11 @@ public interface IntelligenceMapper {
               current_provider_model_id,current_pricing_version_id,candidate_provider_account_id,
               candidate_provider_model_id,candidate_pricing_version_id,currency,evidence_window_start,
               evidence_window_end,current_cost,candidate_cost,potential_saving,potential_saving_percent,
-              evidence_fingerprint,status,routing_policy_id,calculated_at,created_at)
+              evidence_fingerprint,status,routing_policy_id,routing_change_required,calculated_at,created_at)
             VALUES(#{organizationId},#{runId},#{logicalModelId},#{currentAccount},#{currentModel},
               #{currentPricing},#{candidateAccount},#{candidateModel},#{candidatePricing},#{currency},
               #{windowStart},#{windowEnd},#{currentCost},#{candidateCost},#{saving},#{savingPercent},
-              #{fingerprint},'OPEN',NULL,#{now},#{now})
+              #{fingerprint},'OPEN',NULL,#{routingChangeRequired},#{now},#{now})
             """)
     int insertRecommendation(@Param("organizationId") long organizationId, @Param("runId") long runId,
             @Param("logicalModelId") long logicalModelId, @Param("currentAccount") long currentAccount,
@@ -92,14 +92,15 @@ public interface IntelligenceMapper {
             @Param("windowStart") LocalDate windowStart, @Param("windowEnd") LocalDate windowEnd,
             @Param("currentCost") BigDecimal currentCost, @Param("candidateCost") BigDecimal candidateCost,
             @Param("saving") BigDecimal saving, @Param("savingPercent") BigDecimal savingPercent,
-            @Param("fingerprint") String fingerprint, @Param("now") Instant now);
+            @Param("fingerprint") String fingerprint,
+            @Param("routingChangeRequired") boolean routingChangeRequired, @Param("now") Instant now);
 
     @Select("""
             SELECT id,logical_model_id,current_provider_account_id,current_provider_model_id,
               current_pricing_version_id,candidate_provider_account_id,candidate_provider_model_id,
               candidate_pricing_version_id,currency,evidence_window_start,evidence_window_end,
               current_cost,candidate_cost,potential_saving,potential_saving_percent,
-              evidence_fingerprint,status,routing_policy_id,calculated_at
+              evidence_fingerprint,status,routing_policy_id,routing_change_required,calculated_at
             FROM savings_recommendation WHERE org_id=#{organizationId} AND run_id=#{runId} ORDER BY id
             """)
     List<RecommendationRow> listRecommendations(@Param("organizationId") long organizationId,
@@ -110,7 +111,7 @@ public interface IntelligenceMapper {
               current_pricing_version_id,candidate_provider_account_id,candidate_provider_model_id,
               candidate_pricing_version_id,currency,evidence_window_start,evidence_window_end,
               current_cost,candidate_cost,potential_saving,potential_saving_percent,
-              evidence_fingerprint,status,routing_policy_id,calculated_at
+              evidence_fingerprint,status,routing_policy_id,routing_change_required,calculated_at
             FROM savings_recommendation WHERE id=#{id} AND org_id=#{organizationId}
             """)
     RecommendationRow findRecommendation(@Param("id") long id, @Param("organizationId") long organizationId);
@@ -133,6 +134,7 @@ public interface IntelligenceMapper {
             long candidateProviderModelId, long candidatePricingVersionId, String currency,
             LocalDate evidenceWindowStart, LocalDate evidenceWindowEnd, BigDecimal currentCost,
             BigDecimal candidateCost, BigDecimal potentialSaving, BigDecimal potentialSavingPercent,
-            String evidenceFingerprint, String status, Long routingPolicyId, Instant calculatedAt) {
+            String evidenceFingerprint, String status, Long routingPolicyId, boolean routingChangeRequired,
+            Instant calculatedAt) {
     }
 }

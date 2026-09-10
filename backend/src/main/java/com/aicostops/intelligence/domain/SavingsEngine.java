@@ -27,11 +27,19 @@ public final class SavingsEngine {
             BigDecimal potentialSavingPercent) {
     }
 
+    /**
+     * Counterfactual replay over the shared source-route usage vector. Quantities stay
+     * {@link BigDecimal} end to end (usage is DECIMAL(30,8); only {@code unit_quantity} is an
+     * integral BIGINT rate scalar). Dimension math follows the settlement pricing engine operand
+     * order (quantity x unit_price / unit_quantity) at raw precision (scale 18); unlike the
+     * authoritative settlement path, which rejects non-terminating quotients, this derived
+     * estimate rounds half-up so one candidate rate can never fail a whole analysis run.
+     */
     public static Comparison compare(
             long logicalModelId,
             long currentLogicalModelId,
             long candidateLogicalModelId,
-            Map<String, Long> historicalUsage,
+            Map<String, BigDecimal> historicalUsage,
             Map<String, PricedRate> currentRates,
             Map<String, PricedRate> candidateRates) {
         Objects.requireNonNull(historicalUsage, "Historical usage is required");
@@ -48,16 +56,16 @@ public final class SavingsEngine {
         return new Comparison(current, candidate, saving.max(BigDecimal.ZERO), percent.max(BigDecimal.ZERO));
     }
 
-    public static BigDecimal replay(Map<String, Long> usage, Map<String, PricedRate> rates) {
+    public static BigDecimal replay(Map<String, BigDecimal> usage, Map<String, PricedRate> rates) {
         var total = BigDecimal.ZERO;
         for (var entry : usage.entrySet()) {
             var rate = rates.get(entry.getKey());
-            if (rate == null || entry.getValue() == null || entry.getValue() <= 0) {
+            var quantity = entry.getValue();
+            if (rate == null || quantity == null || quantity.signum() <= 0) {
                 continue;
             }
-            total = total.add(BigDecimal.valueOf(entry.getValue())
-                    .multiply(rate.unitPrice())
-                    .divide(BigDecimal.valueOf(rate.unitQuantity()), 8, RoundingMode.HALF_UP));
+            total = total.add(quantity.multiply(rate.unitPrice())
+                    .divide(BigDecimal.valueOf(rate.unitQuantity()), 18, RoundingMode.HALF_UP));
         }
         return total;
     }

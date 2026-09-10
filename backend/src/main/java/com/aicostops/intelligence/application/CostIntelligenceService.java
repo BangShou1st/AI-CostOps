@@ -141,18 +141,9 @@ public class CostIntelligenceService {
                             List.of(), materiality),
                     now);
         }
-        for (var grain : teamGrains(organizationId, currency, start, end)) {
-            persistAnomalies(organizationId, runId,
-                    CostAnomalyEngine.detect("TEAM", grain.key(), grain.series(),
-                            List.of(), materiality),
-                    now);
-        }
-        for (var grain : costCenterGrains(organizationId, currency, start, end)) {
-            persistAnomalies(organizationId, runId,
-                    CostAnomalyEngine.detect("COST_CENTER", grain.key(), grain.series(),
-                            List.of(), materiality),
-                    now);
-        }
+        // TEAM/COST_CENTER grains feed scoped forecasts below; anomaly persistence stays on the
+        // frozen grain set because cost_anomaly.chk_anomaly_grain only admits
+        // ORGANIZATION/PROJECT/PROVIDER/LOGICAL_MODEL.
         for (var grain : providerGrains(organizationId, currency, start, end)) {
             persistAnomalies(organizationId, runId,
                     CostAnomalyEngine.detect("PROVIDER", grain.key(), grain.series(),
@@ -293,6 +284,12 @@ public class CostIntelligenceService {
             if (comparison.candidateCost().compareTo(comparison.currentCost()) >= 0) {
                 continue;
             }
+            // A production-ready candidate that is not yet referenced by an ACTIVE routing
+            // revision stays recommendable; the flag tells clients a routing change is required
+            // before APPLIED can link it.
+            var routed = facts.countActiveRoutingReferences(organizationId,
+                    challenger.candidate().accountId(), challenger.candidate().modelId(),
+                    logicalModelId) > 0;
             store.insertRecommendation(organizationId, runId, logicalModelId,
                     current.candidate().accountId(), current.candidate().modelId(),
                     current.candidate().pricingVersionId(), challenger.candidate().accountId(),
@@ -301,16 +298,17 @@ public class CostIntelligenceService {
                     comparison.candidateCost(), comparison.potentialSaving(),
                     comparison.potentialSavingPercent(),
                     fingerprint(logicalModelId, start, end, current, challenger, comparison),
-                    now);
+                    !routed, now);
         }
     }
 
-    private Map<String, Long> usageMap(long organizationId, String currency, LocalDate start,
+    /** Usage quantities stay BigDecimal end to end (DECIMAL(30,8)); truncation to long is forbidden. */
+    private Map<String, BigDecimal> usageMap(long organizationId, String currency, LocalDate start,
             LocalDate end, long accountId, long modelId) {
-        var usage = new LinkedHashMap<String, Long>();
+        var usage = new LinkedHashMap<String, BigDecimal>();
         for (var row : facts.usageTotals(organizationId, currency, start, end, accountId, modelId)) {
             if (row.quantity() != null && row.quantity().compareTo(BigDecimal.ZERO) > 0) {
-                usage.put(row.dimensionCode(), row.quantity().longValue());
+                usage.put(row.dimensionCode(), row.quantity());
             }
         }
         return usage;
@@ -531,6 +529,28 @@ public class CostIntelligenceService {
                 .findFirst().orElse(BigDecimal.ZERO);
     }
 
+    /**
+     * Deterministic budget-risk evidence for Advisor snapshots: the model explains these
+     * precomputed values and must never recompute projected spend or risk classification.
+     * Reservations are included in immediate exposure only, never extrapolated.
+     */
+    public BudgetRiskEvidence assessScopeBudget(long organizationId, String scopeType, long scopeId,
+            BigDecimal actual, BigDecimal committed, BigDecimal total, String currency, long budgetId) {
+        var reservations = facts.activeReservations(organizationId, budgetId);
+        var forecast = latestForecastAmount(organizationId, scopeType, scopeId, currency);
+        var assessment = BudgetRiskService.assess(actual, committed,
+                reservations == null ? BigDecimal.ZERO : reservations, forecast, total, currency);
+        return new BudgetRiskEvidence(actual, committed,
+                reservations == null ? BigDecimal.ZERO : reservations, forecast,
+                assessment.immediateExposure(), assessment.projectedPeriodEnd(), total, currency,
+                assessment.risk());
+    }
+
+    public record BudgetRiskEvidence(BigDecimal actual, BigDecimal committed, BigDecimal reservations,
+            BigDecimal forecastFutureUsage, BigDecimal immediateExposure, BigDecimal projectedPeriodEnd,
+            BigDecimal budgetTotal, String currency, String risk) {
+    }
+
     public List<RecommendationResponse> recommendations(AuthenticatedUser user, String currency) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "COST_READ");
@@ -628,7 +648,7 @@ public class CostIntelligenceService {
                 row.candidateProviderAccountId(), row.candidateProviderModelId(), row.currency(),
                 row.currentCost().toPlainString(), row.candidateCost().toPlainString(),
                 row.potentialSaving().toPlainString(), row.potentialSavingPercent().toPlainString(),
-                row.status(), row.routingPolicyId(), row.calculatedAt());
+                row.status(), row.routingPolicyId(), row.routingChangeRequired(), row.calculatedAt());
     }
 
     private record GrainSeries(String key, Long scopeId, String label, List<DailyBucket> series) {
@@ -638,7 +658,7 @@ public class CostIntelligenceService {
     }
 
     private record ReplayedCandidate(
-            CostFactsMapper.PricingCandidate candidate, Map<String, Long> usage,
+            CostFactsMapper.PricingCandidate candidate, Map<String, BigDecimal> usage,
             Map<String, PricedRate> rates, BigDecimal cost) {
     }
 
@@ -666,6 +686,7 @@ public class CostIntelligenceService {
     public record RecommendationResponse(long id, long logicalModelId, long currentProviderAccountId,
             long candidateProviderAccountId, long candidateProviderModelId, String currency,
             String currentCost, String candidateCost, String potentialSaving,
-            String potentialSavingPercent, String status, Long routingPolicyId, Instant calculatedAt) {
+            String potentialSavingPercent, String status, Long routingPolicyId,
+            boolean routingChangeRequired, Instant calculatedAt) {
     }
 }
