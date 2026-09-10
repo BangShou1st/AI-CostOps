@@ -240,7 +240,9 @@ public class AdvisorService {
             throw stateConflict("Advisor job claim is not held by this worker.");
         }
         var job = requireJob(organizationId, jobId);
-        mapper.linkAttempt(organizationId, jobId, job.attemptCount(), gatewayRequestId);
+        if (mapper.linkAttempt(organizationId, jobId, job.attemptCount(), gatewayRequestId) != 1) {
+            throw stateConflict("Advisor attempt link was not recorded.");
+        }
     }
 
     /** Persists only the validated bounded narrative, then completes. */
@@ -262,14 +264,20 @@ public class AdvisorService {
         if (mapper.markCompleted(jobId, organizationId, token, now) != 1) {
             throw stateConflict("Advisor job claim is not held by this worker.");
         }
+        mapper.completeAttempt(organizationId, jobId, job.attemptCount());
         audit.append("AI_ADVISOR_EXPLANATION_COMPLETED", organizationId, job.requestedBy(),
                 "ADVISOR_JOB", jobId, Map.of("attempt", job.attemptCount()));
     }
 
     @Transactional
     public void fail(long jobId, long organizationId, String token, String failureCode) {
+        var job = requireJob(organizationId, jobId);
         if (mapper.markFailed(jobId, organizationId, token, failureCode, clock.instant()) != 1) {
             throw stateConflict("Advisor job claim is not held by this worker.");
+        }
+        try {
+            mapper.failAttempt(organizationId, jobId, job.attemptCount(), failureCode);
+        } catch (RuntimeException ignored) {
         }
         audit.append("AI_ADVISOR_EXPLANATION_FAILED", organizationId, null,
                 "ADVISOR_JOB", jobId, Map.of("failureCode", failureCode));

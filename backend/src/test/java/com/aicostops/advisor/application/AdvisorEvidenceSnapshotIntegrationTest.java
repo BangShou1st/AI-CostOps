@@ -108,6 +108,34 @@ class AdvisorEvidenceSnapshotIntegrationTest extends ControlPlaneFixtureSupport 
                 .andExpect(status().isNotFound());
     }
 
+    @Test
+    void explicitRetryClearsStaleLineageAndCreatesFreshAttempt() throws Exception {
+        var jobId = requestExplanation("{\"subjectType\":\"ANOMALY\",\"subjectId\":" + anomalyId + "}");
+        jdbc.update("UPDATE advisor_inference_job SET status='FAILED',failure_code='PROVIDER_UNAVAILABLE',"
+                + "completed_at=UTC_TIMESTAMP(6),started_at=UTC_TIMESTAMP(6) WHERE id=? AND org_id=?",
+                jobId, organizationId);
+        jdbc.update("UPDATE advisor_inference_attempt SET status='FAILED',failure_code='PROVIDER_UNAVAILABLE'"
+                + " WHERE job_id=? AND org_id=? AND attempt_no=1", jobId, organizationId);
+        mockMvc.perform(post("/api/v1/ai-advisor/explanations/{id}/retry", jobId)
+                        .header("Authorization", bearerFor(managerUserId)))
+                .andExpect(status().isOk());
+        var job = jdbc.queryForMap("SELECT status,gateway_request_id,failure_code,started_at,"
+                + "completed_at,claim_token,claim_expires_at,attempt_count FROM advisor_inference_job"
+                + " WHERE id=? AND org_id=?", jobId, organizationId);
+        assertEquals("PENDING", job.get("status").toString());
+        assertNull(job.get("gateway_request_id"));
+        assertNull(job.get("failure_code"));
+        assertNull(job.get("started_at"));
+        assertNull(job.get("completed_at"));
+        assertNull(job.get("claim_token"));
+        assertEquals(2, ((Number) job.get("attempt_count")).intValue());
+        var attempts = jdbc.queryForList("SELECT attempt_no,status FROM advisor_inference_attempt"
+                + " WHERE job_id=? AND org_id=? ORDER BY attempt_no", jobId, organizationId);
+        assertEquals(2, attempts.size());
+        assertEquals("FAILED", attempts.get(0).get("status").toString());
+        assertEquals("PENDING", attempts.get(1).get("status").toString());
+    }
+
     private void putProfile(long providerModelId, long projectId, String scopeType, long scopeId,
             String budgetMode) throws Exception {
         mockMvc.perform(put("/api/v1/ai-advisor/profile")

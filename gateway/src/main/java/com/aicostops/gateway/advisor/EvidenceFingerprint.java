@@ -22,33 +22,84 @@ final class EvidenceFingerprint {
     private EvidenceFingerprint() {
     }
 
-    record Fact(String id, String amountPlain) {
+    record Fact(String id, String label, String amountPlain, String currency) {
     }
 
-    record Driver(String dimension, String key, String deltaPlain) {
+    record Driver(String id, String dimension, String key, String deltaPlain, String currency) {
     }
 
     static String fingerprint(String subjectType, long subjectId, String currency, int schemaVersion,
             List<Fact> facts, List<Driver> drivers, String forecastSummary, String budgetRiskSummary,
             String savingsSummary) {
         try {
-            var canonical = new StringBuilder(subjectType).append('|').append(subjectId).append('|')
-                    .append(currency).append('|').append(schemaVersion).append('|');
-            for (var fact : facts) {
-                canonical.append(fact.id()).append('=').append(fact.amountPlain()).append(';');
+            var out = new StringBuilder(512);
+            out.append("{\"schemaVersion\":").append(schemaVersion);
+            out.append(",\"subjectType\":\"").append(jsonEscape(subjectType)).append('"');
+            out.append(",\"subjectId\":").append(subjectId);
+            out.append(",\"currency\":\"").append(jsonEscape(currency)).append('"');
+            out.append(",\"facts\":[");
+            for (var i = 0; i < facts.size(); i++) {
+                var fact = facts.get(i);
+                if (i > 0) out.append(',');
+                out.append("{\"factId\":\"").append(jsonEscape(fact.id())).append('"');
+                out.append(",\"label\":\"").append(jsonEscape(fact.label())).append('"');
+                out.append(",\"amount\":\"").append(jsonEscape(fact.amountPlain())).append('"');
+                out.append(",\"currency\":\"").append(jsonEscape(fact.currency())).append("\"}");
             }
-            for (var driver : drivers) {
-                canonical.append(driver.dimension()).append(':').append(driver.key()).append('=')
-                        .append(driver.deltaPlain()).append(';');
+            out.append("],\"drivers\":[");
+            for (var i = 0; i < drivers.size(); i++) {
+                var driver = drivers.get(i);
+                if (i > 0) out.append(',');
+                out.append("{\"id\":\"").append(jsonEscape(driver.id())).append('"');
+                out.append(",\"dimension\":\"").append(jsonEscape(driver.dimension())).append('"');
+                out.append(",\"key\":\"").append(jsonEscape(driver.key())).append('"');
+                out.append(",\"deltaAmount\":\"").append(jsonEscape(driver.deltaPlain())).append('"');
+                out.append(",\"currency\":\"").append(jsonEscape(driver.currency())).append("\"}");
             }
-            canonical.append(forecastSummary).append('|').append(budgetRiskSummary).append('|')
-                    .append(savingsSummary);
+            out.append("],\"forecastSummary\":\"").append(jsonEscape(forecastSummary)).append('"');
+            out.append(",\"budgetRiskSummary\":\"").append(jsonEscape(budgetRiskSummary)).append('"');
+            out.append(",\"savingsSummary\":\"").append(jsonEscape(savingsSummary)).append("\"}");
             var digest = MessageDigest.getInstance("SHA-256")
-                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+                    .digest(out.toString().getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest);
         } catch (Exception ex) {
             throw new IllegalStateException("Evidence fingerprint is unavailable", ex);
         }
+    }
+
+    static String jsonEscape(String value) {
+        if (value == null) return "";
+        var out = new StringBuilder(value.length() + 16);
+        for (var i = 0; i < value.length(); i++) {
+            var c = value.charAt(i);
+            if (c == 34) {
+                out.append((char) 92);
+                out.append((char) 34);
+            } else if (c == 92) {
+                out.append((char) 92);
+                out.append((char) 92);
+            } else if (c == 8) {
+                out.append((char) 92);
+                out.append('b');
+            } else if (c == 12) {
+                out.append((char) 92);
+                out.append('f');
+            } else if (c == 10) {
+                out.append((char) 92);
+                out.append('n');
+            } else if (c == 13) {
+                out.append((char) 92);
+                out.append('r');
+            } else if (c == 9) {
+                out.append((char) 92);
+                out.append('t');
+            } else if (c < 32) {
+                out.append(String.format("\\u%04x", (int) c));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 
     /** Recomputes the snapshot fingerprint; any parse/normalization problem returns false. */
@@ -64,19 +115,31 @@ final class EvidenceFingerprint {
             var facts = new ArrayList<Fact>();
             for (var item : factsNode) {
                 var id = item.path("factId").asText("");
-                if (id.isBlank()) {
+                var label = item.path("label").asText("");
+                var currency = item.path("currency").asText("");
+                if (id.isBlank() || label.isBlank() || currency.isBlank()) {
                     return false;
                 }
-                facts.add(new Fact(id, plain(item.path("amount").asText(""))));
+                var amountText = item.path("amount").asText("");
+                if (amountText.isBlank()) {
+                    return false;
+                }
+                facts.add(new Fact(id, label, plain(amountText), currency));
             }
             var drivers = new ArrayList<Driver>();
             for (var item : driversNode) {
+                var driverId = item.path("id").asText("");
                 var dimension = item.path("dimension").asText("");
                 var key = item.path("key").asText("");
-                if (dimension.isBlank() || key.isBlank()) {
+                var currency = item.path("currency").asText("");
+                if (driverId.isBlank() || dimension.isBlank() || key.isBlank() || currency.isBlank()) {
                     return false;
                 }
-                drivers.add(new Driver(dimension, key, plain(item.path("deltaAmount").asText(""))));
+                var deltaText = item.path("deltaAmount").asText("");
+                if (deltaText.isBlank()) {
+                    return false;
+                }
+                drivers.add(new Driver(driverId, dimension, key, plain(deltaText), currency));
             }
             var recomputed = fingerprint(snapshot.subjectType(), snapshot.subjectId(),
                     snapshot.currency(), snapshot.schemaVersion(), List.copyOf(facts),

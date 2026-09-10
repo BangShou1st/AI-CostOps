@@ -101,6 +101,8 @@ class AdvisorInferenceWorkerTest {
                 null, java.util.Set.of());
         when(orchestrator.prepareInitial(any(), eq(false))).thenReturn(Mono.just(prepared));
         when(jobs.linkGateway(anyLong(), anyString(), anyString(), anyLong(), any())).thenReturn(1);
+        when(jobs.linkAttempt(anyLong(), anyInt(), anyLong())).thenReturn(1);
+        when(jobs.completeAttempt(anyLong(), anyInt())).thenReturn(1);
         when(credentialDecryptor.decrypt(7L, 14L)).thenReturn(
                 new ProviderCredentialDecryptor.DecryptedCredential("BEARER_TOKEN", "s3cr3t".getBytes()));
         when(readMapper.findActiveConnectionProfile(7L, 14L)).thenReturn(
@@ -143,6 +145,8 @@ class AdvisorInferenceWorkerTest {
                 null, java.util.Set.of());
         when(orchestrator.prepareInitial(any(), eq(false))).thenReturn(Mono.just(prepared));
         when(jobs.linkGateway(anyLong(), anyString(), anyString(), anyLong(), any())).thenReturn(1);
+        when(jobs.linkAttempt(anyLong(), anyInt(), anyLong())).thenReturn(1);
+        when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
         when(credentialDecryptor.decrypt(7L, 14L)).thenReturn(
                 new ProviderCredentialDecryptor.DecryptedCredential("BEARER_TOKEN", "s3cr3t".getBytes()));
         when(readMapper.findActiveConnectionProfile(7L, 14L)).thenReturn(
@@ -184,6 +188,8 @@ class AdvisorInferenceWorkerTest {
                 null, java.util.Set.of());
         when(orchestrator.prepareInitial(any(), eq(false))).thenReturn(Mono.just(prepared));
         when(jobs.linkGateway(anyLong(), anyString(), anyString(), anyLong(), any())).thenReturn(1);
+        when(jobs.linkAttempt(anyLong(), anyInt(), anyLong())).thenReturn(1);
+        when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
         when(credentialDecryptor.decrypt(7L, 14L)).thenReturn(
                 new ProviderCredentialDecryptor.DecryptedCredential("BEARER_TOKEN", "s3cr3t".getBytes()));
         when(readMapper.findActiveConnectionProfile(7L, 14L)).thenReturn(
@@ -245,6 +251,73 @@ class AdvisorInferenceWorkerTest {
     }
 
     @Test
+    void refsMismatchFailsBeforeProviderIo() {
+        var worker = worker();
+        when(jobs.claimEligibleAny(any())).thenReturn(jobRow()).thenReturn(null);
+        when(jobs.markClaimed(anyLong(), anyString(), any(), any())).thenReturn(1);
+        var mismatched = new AdvisorJobMapper.JobRow(100L, 7L, 8L, "ANOMALY", 3L, snapshotFingerprint(),
+                "[\"extra-id\"]", 1,
+                10L, "PENDING", null, null, null, 1, null, Instant.now(), null, null);
+        when(jobs.findJob(eq(100L), eq(7L))).thenReturn(mismatched);
+        when(jobs.findProfileById(eq(7L), eq(10L))).thenReturn(profileRow());
+        when(jobs.findCredentialForProfile(eq(7L), eq(10L))).thenReturn(credentialRow());
+        when(jobs.findLogicalModelOf(21L)).thenReturn(9L);
+        when(jobs.findEvidenceSnapshot(eq(100L), eq(7L))).thenReturn(snapshotRow());
+        when(jobs.markFailed(anyLong(), anyString(), anyString(), any())).thenReturn(1);
+
+        worker.tick();
+
+        verify(jobs).markFailed(eq(100L), anyString(), eq("EVIDENCE_INTEGRITY_FAILED"), any());
+        verify(adapterRegistry, never()).require(anyString());
+        verify(jobs, never()).linkGateway(anyLong(), anyString(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void v27BoundJobMustNotFallbackToOtherInternalCredential() {
+        var worker = worker();
+        when(jobs.claimEligibleAny(any())).thenReturn(jobRow()).thenReturn(null);
+        when(jobs.markClaimed(anyLong(), anyString(), any(), any())).thenReturn(1);
+        when(jobs.findJob(eq(100L), eq(7L))).thenReturn(jobRow());
+        when(jobs.findProfileById(eq(7L), eq(10L))).thenReturn(profileRow());
+        when(jobs.findCredentialForProfile(eq(7L), eq(10L))).thenReturn(null);
+        when(jobs.markFailed(anyLong(), anyString(), anyString(), any())).thenReturn(1);
+
+        worker.tick();
+
+        verify(jobs).markFailed(eq(100L), anyString(), eq("IDENTITY_MISSING"), any());
+        verify(jobs, never()).findBoundInternalCredential(anyLong());
+        verify(jobs, never()).findInternalCredential(anyLong());
+        verify(adapterRegistry, never()).require(anyString());
+        verify(jobs, never()).linkGateway(anyLong(), anyString(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void halfLinkedJobAttemptRollsBackWithoutProviderIo() {
+        var worker = worker();
+        when(jobs.claimEligibleAny(any())).thenReturn(jobRow()).thenReturn(null);
+        when(jobs.markClaimed(anyLong(), anyString(), any(), any())).thenReturn(1);
+        when(jobs.findJob(eq(100L), eq(7L))).thenReturn(jobRow());
+        when(jobs.findProfileById(eq(7L), eq(10L))).thenReturn(profileRow());
+        when(jobs.findCredentialForProfile(eq(7L), eq(10L))).thenReturn(credentialRow());
+        when(jobs.findLogicalModelOf(21L)).thenReturn(9L);
+        when(jobs.findEvidenceSnapshot(eq(100L), eq(7L))).thenReturn(snapshotRow());
+        var dispatch = dispatch();
+        var prepared = new GatewayRequestOrchestrator.PreparedDispatch(dispatch,
+                new GatewayPrincipal(5L, 7L, 6L, "SERVICE", null, 4L, "PROJECT", 6L, "OPTIONAL"),
+                new GatewayRequestService.AuthorizeCommand(null, 9L, new byte[0], "k", 1024L, false),
+                null, java.util.Set.of());
+        when(orchestrator.prepareInitial(any(), eq(false))).thenReturn(Mono.just(prepared));
+        when(jobs.linkGateway(anyLong(), anyString(), anyString(), anyLong(), any())).thenReturn(1);
+        when(jobs.linkAttempt(anyLong(), anyInt(), anyLong())).thenReturn(0);
+
+        worker.tick();
+
+        verify(adapterRegistry, never()).require(anyString());
+        verify(jobs, never()).markCompleted(anyLong(), anyString(), any());
+        verify(jobs, never()).insertExplanation(anyLong(), anyLong(), anyInt(), anyString(), anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
     void tamperedSnapshotFailsBeforeProviderIo() {
         var worker = worker();
         when(jobs.claimEligibleAny(any())).thenReturn(jobRow()).thenReturn(null);
@@ -271,7 +344,8 @@ class AdvisorInferenceWorkerTest {
     @Test
     void legacyJobWithoutProfileBindingResolvesThroughStoredVersion() {
         var worker = worker();
-        var legacy = new AdvisorJobMapper.JobRow(100L, 7L, 8L, "ANOMALY", 3L, snapshotFingerprint(), "[]", 1,
+        var legacy = new AdvisorJobMapper.JobRow(100L, 7L, 8L, "ANOMALY", 3L, snapshotFingerprint(),
+                "[\"anomaly:3:observed\"]", 1,
                 null, "PENDING", null, null, null, 1, null, Instant.now(), null, null);
         when(jobs.claimEligibleAny(any())).thenReturn(legacy).thenReturn(null);
         when(jobs.markClaimed(anyLong(), anyString(), any(), any())).thenReturn(1);
@@ -287,6 +361,8 @@ class AdvisorInferenceWorkerTest {
                 null, java.util.Set.of());
         when(orchestrator.prepareInitial(any(), eq(false))).thenReturn(Mono.just(prepared));
         when(jobs.linkGateway(anyLong(), anyString(), anyString(), anyLong(), any())).thenReturn(1);
+        when(jobs.linkAttempt(anyLong(), anyInt(), anyLong())).thenReturn(1);
+        when(jobs.completeAttempt(anyLong(), anyInt())).thenReturn(1);
         when(credentialDecryptor.decrypt(7L, 14L)).thenReturn(
                 new ProviderCredentialDecryptor.DecryptedCredential("BEARER_TOKEN", "s3cr3t".getBytes()));
         when(readMapper.findActiveConnectionProfile(7L, 14L)).thenReturn(
@@ -311,13 +387,14 @@ class AdvisorInferenceWorkerTest {
     }
 
     private static AdvisorJobMapper.JobRow jobRow() {
-        return new AdvisorJobMapper.JobRow(100L, 7L, 8L, "ANOMALY", 3L, snapshotFingerprint(), "[]", 1,
+        return new AdvisorJobMapper.JobRow(100L, 7L, 8L, "ANOMALY", 3L, snapshotFingerprint(),
+                "[\"anomaly:3:observed\"]", 1,
                 10L, "PENDING", null, null, null, 1, null, Instant.now(), null, null);
     }
 
     private static String snapshotFingerprint() {
-        return EvidenceFingerprint.fingerprint("ANOMALY", 3L, "USD", 1,
-                java.util.List.of(new EvidenceFingerprint.Fact("anomaly:3:observed", "30.00")),
+        return EvidenceFingerprint.fingerprint("ANOMALY", 3L, "USD", 2,
+                java.util.List.of(new EvidenceFingerprint.Fact("anomaly:3:observed", "observed", "30.00", "USD")),
                 java.util.List.of(), "", "", "");
     }
 
@@ -336,7 +413,7 @@ class AdvisorInferenceWorkerTest {
 
     private static AdvisorJobMapper.SnapshotRow snapshotRow() {
         var fingerprint = snapshotFingerprint();
-        return new AdvisorJobMapper.SnapshotRow(1L, 7L, 100L, 1, "ANOMALY", 3L, "USD",
+        return new AdvisorJobMapper.SnapshotRow(1L, 7L, 100L, 2, "ANOMALY", 3L, "USD",
                 "[{\"factId\":\"anomaly:3:observed\",\"label\":\"observed\","
                         + "\"amount\":\"30.00\",\"currency\":\"USD\"}]",
                 "[]",

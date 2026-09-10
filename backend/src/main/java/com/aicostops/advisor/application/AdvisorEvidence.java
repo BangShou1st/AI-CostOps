@@ -18,7 +18,7 @@ import java.util.Objects;
  */
 public final class AdvisorEvidence {
 
-    public static final int SCHEMA_VERSION = 1;
+    public static final int SCHEMA_VERSION = 2;
     public static final int MAX_FACTS = 20;
     public static final int MAX_DRIVERS = 10;
     public static final int MAX_TEXT = 500;
@@ -79,11 +79,14 @@ public final class AdvisorEvidence {
     }
 
     /**
-     * Deterministic fingerprint binding one job attempt to its evidence. The canonical form covers
-     * subject identity, money facts, deterministic drivers AND the summary block (which carries
-     * the precomputed budget-risk classification), so any tampering with the frozen snapshot is
-     * detectable by the Gateway worker before Provider I/O. The Gateway module mirrors this exact
-     * canonicalization (see {@code EvidenceFingerprint}); the cross-module contract test pins it.
+     * Deterministic fingerprint binding one job attempt to its evidence. The canonical form is one
+     * frozen JSON document covering every semantically meaningful snapshot field that can reach
+     * the model prompt (subject identity, envelope currency, per-fact id/label/amount/currency,
+     * per-driver reference id/dimension/key/delta/currency, and all three summaries), so any
+     * tampering with the frozen snapshot is detectable by the Gateway worker before Provider I/O.
+     * The Gateway module mirrors this exact canonicalization (see {@code EvidenceFingerprint});
+     * the cross-module contract test pins it. Amounts are {@link BigDecimal#toPlainString}.
+     * DB surrogate ids, timestamps, JSON whitespace and storage formatting are never hashed.
      */
     public static String fingerprint(Envelope envelope) {
         try {
@@ -95,23 +98,76 @@ public final class AdvisorEvidence {
         }
     }
 
-    /** Exact canonical string hashed by {@link #fingerprint}; mirrored by the Gateway worker. */
+    /** Exact canonical JSON hashed by {@link #fingerprint}; mirrored by the Gateway worker. */
     static String canonicalForm(Envelope envelope) {
-        var canonical = new StringBuilder(envelope.subjectType()).append('|')
-                .append(envelope.subjectId()).append('|').append(envelope.currency()).append('|')
-                .append(envelope.schemaVersion()).append('|');
-        for (var fact : envelope.facts()) {
-            canonical.append(fact.factId()).append('=')
-                    .append(fact.amount().toPlainString()).append(';');
+        var out = new StringBuilder(512);
+        out.append("{\"schemaVersion\":").append(envelope.schemaVersion());
+        out.append(",\"subjectType\":\"").append(jsonEscape(envelope.subjectType())).append('"');
+        out.append(",\"subjectId\":").append(envelope.subjectId());
+        out.append(",\"currency\":\"").append(jsonEscape(envelope.currency())).append('"');
+        out.append(",\"facts\":[");
+        var facts = envelope.facts();
+        for (var i = 0; i < facts.size(); i++) {
+            var fact = facts.get(i);
+            if (i > 0) out.append(',');
+            out.append("{\"factId\":\"").append(jsonEscape(fact.factId())).append('"');
+            out.append(",\"label\":\"").append(jsonEscape(fact.label())).append('"');
+            out.append(",\"amount\":\"").append(jsonEscape(fact.amount().toPlainString())).append('"');
+            out.append(",\"currency\":\"").append(jsonEscape(fact.currency())).append("\"}");
         }
-        for (var driver : envelope.drivers()) {
-            canonical.append(driver.dimension()).append(':').append(driver.key()).append('=')
-                    .append(driver.deltaAmount().toPlainString()).append(';');
+        out.append("],\"drivers\":[");
+        var drivers = envelope.drivers();
+        for (var i = 0; i < drivers.size(); i++) {
+            var driver = drivers.get(i);
+            var refId = envelope.subjectType().toLowerCase(Locale.ROOT) + ":" + envelope.subjectId()
+                    + ":driver:" + i;
+            if (i > 0) out.append(',');
+            out.append("{\"id\":\"").append(jsonEscape(refId)).append('"');
+            out.append(",\"dimension\":\"").append(jsonEscape(driver.dimension())).append('"');
+            out.append(",\"key\":\"").append(jsonEscape(driver.key())).append('"');
+            out.append(",\"deltaAmount\":\"").append(jsonEscape(driver.deltaAmount().toPlainString())).append('"');
+            out.append(",\"currency\":\"").append(jsonEscape(driver.currency())).append("\"}");
         }
-        canonical.append(envelope.forecastSummary()).append('|')
-                .append(envelope.budgetRiskSummary()).append('|')
-                .append(envelope.savingsSummary());
-        return canonical.toString();
+        out.append("],\"forecastSummary\":\"").append(jsonEscape(envelope.forecastSummary())).append('"');
+        out.append(",\"budgetRiskSummary\":\"").append(jsonEscape(envelope.budgetRiskSummary())).append('"');
+        out.append(",\"savingsSummary\":\"").append(jsonEscape(envelope.savingsSummary())).append("\"}");
+        return out.toString();
+    }
+
+    /** JSON string escape matching the Gateway mirror byte for byte. */
+    static String jsonEscape(String value) {
+        if (value == null) return "";
+        var out = new StringBuilder(value.length() + 16);
+        for (var i = 0; i < value.length(); i++) {
+            var c = value.charAt(i);
+            if (c == 34) {
+                out.append((char) 92);
+                out.append((char) 34);
+            } else if (c == 92) {
+                out.append((char) 92);
+                out.append((char) 92);
+            } else if (c == 8) {
+                out.append((char) 92);
+                out.append('b');
+            } else if (c == 12) {
+                out.append((char) 92);
+                out.append('f');
+            } else if (c == 10) {
+                out.append((char) 92);
+                out.append('n');
+            } else if (c == 13) {
+                out.append((char) 92);
+                out.append('r');
+            } else if (c == 9) {
+                out.append((char) 92);
+                out.append('t');
+            } else if (c < 32) {
+                out.append(String.format("\\u%04x", (int) c));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 
     private static String bounded(String value, int max) {

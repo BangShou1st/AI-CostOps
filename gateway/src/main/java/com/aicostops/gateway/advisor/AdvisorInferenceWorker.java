@@ -125,10 +125,15 @@ public class AdvisorInferenceWorker {
             runGoverned(claimed);
         } catch (RuntimeException ex) {
             LOG.warn("Advisor job {} failed", claimed.jobId(), ex);
+            var code = mapFailureCode(ex);
             try {
-                jobs.markFailed(claimed.jobId(), claimed.token(), mapFailureCode(ex), clock.instant());
+                jobs.markFailed(claimed.jobId(), claimed.token(), code, clock.instant());
             } catch (RuntimeException nested) {
                 LOG.warn("Advisor job {} failure could not be recorded", claimed.jobId(), nested);
+            }
+            try {
+                jobs.failAttempt(claimed.jobId(), claimed.attemptNo(), code);
+            } catch (RuntimeException ignored) {
             }
         }
     }
@@ -162,10 +167,10 @@ public class AdvisorInferenceWorker {
         // Exact profile-bound credential (legacy LIMIT 1 fallback for pre-V26 rows only), then
         // enforce principal match against the BOUND profile.
         var credential = jobs.findCredentialForProfile(claimed.orgId(), profile.id());
-        if (credential == null) {
+        if (credential == null && job.advisorProfileId() == null) {
             credential = jobs.findBoundInternalCredential(claimed.orgId());
         }
-        if (credential == null) {
+        if (credential == null && job.advisorProfileId() == null) {
             credential = jobs.findInternalCredential(claimed.orgId());
         }
         if (credential == null) {
@@ -193,6 +198,18 @@ public class AdvisorInferenceWorker {
             jobs.markFailed(claimed.jobId(), claimed.token(), "EVIDENCE_INTEGRITY_FAILED", clock.instant());
             return;
         }
+        final java.util.Set<String> allowedRefs;
+        try {
+            allowedRefs = snapshotDerivedRefs(snapshot);
+        } catch (RuntimeException ex) {
+            jobs.markFailed(claimed.jobId(), claimed.token(), "EVIDENCE_INTEGRITY_FAILED", clock.instant());
+            return;
+        }
+        var jobRefs = parseRefs(job.evidenceRefsJson());
+        if (!allowedRefs.equals(jobRefs)) {
+            jobs.markFailed(claimed.jobId(), claimed.token(), "EVIDENCE_INTEGRITY_FAILED", clock.instant());
+            return;
+        }
         var prompt = buildPrompt(snapshot);
         if (prompt == null) {
             jobs.markFailed(claimed.jobId(), claimed.token(), "SUBJECT_UNAVAILABLE", clock.instant());
@@ -217,11 +234,21 @@ public class AdvisorInferenceWorker {
             return;
         }
         var dispatch = prepared.dispatch();
-        if (jobs.linkGateway(claimed.jobId(), claimed.token(), "DISPATCHING", dispatch.requestId(),
-                clock.instant().plus(LEASE)) != 1) {
+        var linked = transactions.execute(status -> {
+            if (jobs.linkGateway(claimed.jobId(), claimed.token(), "DISPATCHING", dispatch.requestId(),
+                    clock.instant().plus(LEASE)) != 1) {
+                status.setRollbackOnly();
+                return false;
+            }
+            if (jobs.linkAttempt(claimed.jobId(), claimed.attemptNo(), dispatch.requestId()) != 1) {
+                status.setRollbackOnly();
+                return false;
+            }
+            return true;
+        });
+        if (linked == null || !linked) {
             return;
         }
-        jobs.linkAttempt(claimed.jobId(), claimed.attemptNo(), dispatch.requestId());
         final ProviderChatCompletion completion;
         try {
             var context = buildContext(principal, dispatch);
@@ -253,15 +280,23 @@ public class AdvisorInferenceWorker {
                 : String.valueOf(completion.choices().get(0).content());
         final ValidatedNarrative validated;
         try {
-            validated = validateNarrative(narrative, knownRefs(claimed));
+            validated = validateNarrative(narrative, allowedRefs);
         } catch (IllegalArgumentException ex) {
             jobs.markFailed(claimed.jobId(), claimed.token(), "INVALID_RESPONSE", clock.instant());
+            try {
+                jobs.failAttempt(claimed.jobId(), claimed.attemptNo(), "INVALID_RESPONSE");
+            } catch (RuntimeException ignored) {
+            }
             return;
         }
         jobs.insertExplanation(claimed.orgId(), claimed.jobId(), claimed.attemptNo(),
                 validated.summary(), validated.drivers(), toJson(validated.actions()),
                 toJson(validated.warnings()), toJson(validated.refs()), clock.instant());
         jobs.markCompleted(claimed.jobId(), claimed.token(), clock.instant());
+        try {
+            jobs.completeAttempt(claimed.jobId(), claimed.attemptNo());
+        } catch (RuntimeException ignored) {
+        }
     }
 
     private void failAfterDispatch(ClaimedJob claimed,
@@ -276,7 +311,12 @@ public class AdvisorInferenceWorker {
         } catch (RuntimeException nested) {
             LOG.warn("Advisor failure finalization failed for job {}", claimed.jobId(), nested);
         }
-        jobs.markFailed(claimed.jobId(), claimed.token(), mapFailureCode(ex), clock.instant());
+        var code = mapFailureCode(ex);
+        jobs.markFailed(claimed.jobId(), claimed.token(), code, clock.instant());
+        try {
+            jobs.failAttempt(claimed.jobId(), claimed.attemptNo(), code);
+        } catch (RuntimeException ignored) {
+        }
     }
 
     private void convergeStuckLinked() {
@@ -392,16 +432,50 @@ public class AdvisorInferenceWorker {
     }
 
     private Set<String> knownRefs(ClaimedJob claimed) {
+        return parseRefs(claimed.evidenceRefsJson());
+    }
+
+    private Set<String> parseRefs(String refsJson) {
         try {
             var refs = new java.util.HashSet<String>();
-            var raw = claimed.evidenceRefsJson() == null ? "[]" : claimed.evidenceRefsJson();
+            var raw = refsJson == null ? "[]" : refsJson;
             var node = objectMapper.readTree(raw);
             if (node != null && node.isArray()) {
                 for (var item : node) refs.add(item.stringValue());
             }
-            return refs;
+            return Set.copyOf(refs);
         } catch (Exception ex) {
             return Set.of();
+        }
+    }
+
+    private Set<String> snapshotDerivedRefs(AdvisorJobMapper.SnapshotRow snapshot) {
+        try {
+            var refs = new java.util.HashSet<String>();
+            var factsNode = objectMapper.readTree(snapshot.factsJson());
+            var driversNode = objectMapper.readTree(snapshot.driversJson());
+            if (factsNode == null || !factsNode.isArray() || driversNode == null || !driversNode.isArray()) {
+                throw new IllegalArgumentException("Advisor snapshot refs are unreadable");
+            }
+            for (var item : factsNode) {
+                var id = item.path("factId").asText("");
+                if (id.isBlank()) {
+                    throw new IllegalArgumentException("Advisor snapshot fact ref is missing");
+                }
+                refs.add(id);
+            }
+            for (var item : driversNode) {
+                var id = item.path("id").asText("");
+                if (id.isBlank()) {
+                    throw new IllegalArgumentException("Advisor snapshot driver ref is missing");
+                }
+                refs.add(id);
+            }
+            return Set.copyOf(refs);
+        } catch (IllegalArgumentException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Advisor snapshot refs are unreadable", ex);
         }
     }
 

@@ -21,7 +21,7 @@ public interface AdvisorJobMapper {
               advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
               failure_code,created_at,started_at,completed_at
             FROM advisor_inference_job
-            WHERE status='PENDING'
+            WHERE (status='PENDING' AND gateway_request_id IS NULL)
               OR (status='CLAIMED' AND claim_expires_at < #{now} AND gateway_request_id IS NULL)
             ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
             """)
@@ -48,6 +48,13 @@ public interface AdvisorJobMapper {
     @Update("UPDATE advisor_inference_attempt SET gateway_request_id=#{gatewayRequestId},status='RUNNING' WHERE job_id=#{jobId} AND attempt_no=#{attemptNo}")
     int linkAttempt(@Param("jobId") long jobId, @Param("attemptNo") int attemptNo,
             @Param("gatewayRequestId") long gatewayRequestId);
+
+    @Update("UPDATE advisor_inference_attempt SET status='COMPLETED' WHERE job_id=#{jobId} AND attempt_no=#{attemptNo} AND status IN ('PENDING','RUNNING')")
+    int completeAttempt(@Param("jobId") long jobId, @Param("attemptNo") int attemptNo);
+
+    @Update("UPDATE advisor_inference_attempt SET status='FAILED',failure_code=#{failureCode} WHERE job_id=#{jobId} AND attempt_no=#{attemptNo} AND status IN ('PENDING','RUNNING')")
+    int failAttempt(@Param("jobId") long jobId, @Param("attemptNo") int attemptNo,
+            @Param("failureCode") String failureCode);
 
     @Update("UPDATE advisor_inference_job SET status='COMPLETED',completed_at=#{now} WHERE id=#{id} AND claim_token=#{token} AND status IN ('CLAIMED','DISPATCHING','RUNNING')")
     int markCompleted(@Param("id") long id, @Param("token") String token, @Param("now") Instant now);
