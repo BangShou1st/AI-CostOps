@@ -303,6 +303,28 @@ try {
 }
 $rejected = @($sres | Where-Object { $_.Status -eq 429 }).Count
 Write-Output ("[M16-B04] admitted=" + $sok.Count + " bounded_429=" + $rejected)
+function Get-ConsistentSnapshot([long]$Oid) {
+    # Deterministic consistent observation: ONE SQL statement returns the full
+    # settlement/ledger picture as a single row. InnoDB evaluates one statement
+    # under a single statement snapshot, so ledger_postings vs settled cannot
+    # tear when a settlement transaction commits between two SELECTs.
+    $sql = "SELECT " + `
+        "(SELECT COUNT(*) FROM gateway_request WHERE org_id=" + $Oid + "), " + `
+        "(SELECT COUNT(*) FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=" + $Oid + " AND s.status='SETTLED'), " + `
+        "(SELECT COUNT(*) FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=" + $Oid + " AND s.status IN ('PENDING','RETRYABLE_FAILED')), " + `
+        "(SELECT COUNT(*) FROM ledger_posting WHERE org_id=" + $Oid + "), " + `
+        "(SELECT COUNT(*) FROM ledger_entry WHERE org_id=" + $Oid + "), " + `
+        "(SELECT COUNT(*) FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=" + $Oid + " AND s.status='SETTLED' AND s.ledger_posting_id IS NULL), " + `
+        "(SELECT COUNT(*) FROM (SELECT posting_key FROM ledger_posting WHERE org_id=" + $Oid + " GROUP BY posting_key HAVING COUNT(*)>1) d)"
+    $raw = Invoke-Root $sql
+    $parts = @($raw -split "\s+")
+    if ($parts.Count -lt 7) { throw ("consistent snapshot parse failed: [" + $raw + "]") }
+    return [pscustomobject]@{
+        ReqRows = [long]$parts[0]; Settled = [long]$parts[1]; Pending = [long]$parts[2]
+        LedgerRows = [long]$parts[3]; LedgerEntries = [long]$parts[4]
+        Orphan = [long]$parts[5]; DupKey = [long]$parts[6]
+    }
+}
 # ---- Settlement / Ledger exactly-once (B03/B04 share one org) ----
 # Gateway has no Ledger writer by design (A03 least-privilege ERROR 1142 +
 # architecture test; Gateway mappers only touch budget_reservation /
@@ -312,23 +334,18 @@ Write-Output ("[M16-B04] admitted=" + $sok.Count + " bounded_429=" + $rejected)
 # settlement as a Gateway violation. Correct invariants: duplicate Ledger = 0,
 # postings == SETTLED, entries == SETTLED, no SETTLED orphan, all postings
 # backend-owned (SYSTEM / GATEWAY_SETTLEMENT), rows <= legitimate requests.
-$settled = 0
-$pending = 0
-for ($w = 0; $w -lt 24; $w++) {
-    $pending = [long](Invoke-Root ("SELECT COUNT(*) FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=" + $OrgId + " AND s.status IN ('PENDING','RETRYABLE_FAILED');"))
-    $settled = [long](Invoke-Root ("SELECT COUNT(*) FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=" + $OrgId + " AND s.status='SETTLED';"))
-    Write-Output ("[M16-LOAD] settlement wait poll=" + $w + " settled=" + $settled + " pending=" + $pending)
-    if ($pending -eq 0 -and $settled -ge 1) { break }
+$snap = $null
+$converged = $false
+for ($w = 0; $w -lt 36; $w++) {
+    $snap = Get-ConsistentSnapshot $OrgId
+    Write-Output ("[M16-LOAD] consistent snapshot poll=" + $w + " req=" + $snap.ReqRows + " settled=" + $snap.Settled + " pending=" + $snap.Pending + " postings=" + $snap.LedgerRows + " entries=" + $snap.LedgerEntries + " orphan=" + $snap.Orphan + " dupkey=" + $snap.DupKey)
+    if (($snap.Settled -ge 1) -and ($snap.Pending -eq 0) -and ($snap.LedgerRows -eq $snap.Settled) -and ($snap.LedgerEntries -eq $snap.Settled) -and ($snap.Orphan -eq 0)) { $converged = $true; break }
     Start-Sleep 5
 }
-$ledgerRows = [long](Invoke-Root ("SELECT COUNT(*) FROM ledger_posting WHERE org_id=" + $OrgId + ";"))
-$ledgerEntries = [long](Invoke-Root ("SELECT COUNT(*) FROM ledger_entry WHERE org_id=" + $OrgId + ";"))
-$reqRows = [long](Invoke-Root ("SELECT COUNT(*) FROM gateway_request WHERE org_id=" + $OrgId + ";"))
-$settled = [long](Invoke-Root ("SELECT COUNT(*) FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=" + $OrgId + " AND s.status='SETTLED';"))
-$pending = [long](Invoke-Root ("SELECT COUNT(*) FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=" + $OrgId + " AND s.status IN ('PENDING','RETRYABLE_FAILED');"))
+$settled = $snap.Settled; $pending = $snap.Pending; $ledgerRows = $snap.LedgerRows; $ledgerEntries = $snap.LedgerEntries; $reqRows = $snap.ReqRows; $orphan = $snap.Orphan; $dupKey = $snap.DupKey
 Write-Output ("[M16-LOAD] requests(org)=" + $reqRows + " settled=" + $settled + " pending=" + $pending + " ledger_posting(org)=" + $ledgerRows + " ledger_entry(org)=" + $ledgerEntries)
+if (-not $converged) { $failures += ("consistent settlement snapshot did not converge (pending=" + $pending + " settled=" + $settled + " postings=" + $ledgerRows + " entries=" + $ledgerEntries + " orphan=" + $orphan + ")") }
 if ($pending -ne 0) { $failures += "settlement worker did not converge (pending=$pending)" }
-$dupKey = [long](Invoke-Root ("SELECT COUNT(*) FROM (SELECT posting_key FROM ledger_posting WHERE org_id=" + $OrgId + " GROUP BY posting_key HAVING COUNT(*)>1) d;"))
 if ($dupKey -ne 0) { $failures += "duplicate Ledger posting_key groups=$dupKey" }
 $dupSource = [long](Invoke-Root ("SELECT COUNT(*) FROM (SELECT source_id FROM ledger_posting WHERE org_id=" + $OrgId + " AND source_type='GATEWAY_SETTLEMENT' GROUP BY source_id HAVING COUNT(*)>1) d;"))
 if ($dupSource -ne 0) { $failures += "duplicate Ledger source settlement groups=$dupSource" }

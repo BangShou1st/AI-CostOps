@@ -21,7 +21,6 @@ param(
     [string]$MysqlBin = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
     [Parameter(Mandatory)][string]$RawKey,
     [Parameter(Mandatory)][long]$OrgId,
-    [Parameter(Mandatory)][string]$GatewayEnvKeys,
     [string]$ModelKey = "m16-accept-chat",
     # Acceptance-harness hygiene: runtime credentials travel via environment,
     # never hard-coded.
@@ -35,6 +34,38 @@ function Add-Failure([string]$Message) {
     Write-Output ("[M16-C06-RED] " + $Message)
     $failures.Add($Message) | Out-Null
 }
+function Get-SecretFingerprint([string]$Val) {
+    if ([string]::IsNullOrWhiteSpace($Val)) { return "MISSING" }
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Val)
+    $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+    return (-join ($hash[0..3] | ForEach-Object { $_.ToString("x2") }))
+}
+function Get-ContainerSecret([string]$Name, [string]$EnvKey) {
+    $all = docker inspect $Name --format '{{range .Config.Env}}{{println .}}{{end}}' 2>$null
+    foreach ($line in ($all -split "`n")) {
+        $l = $line.Trim()
+        if ($l -match ('^' + [regex]::Escape($EnvKey) + '=(.+)$')) { return $Matches[1] }
+    }
+    return $null
+}
+# Key-separation contract: three independent secrets via process-env inheritance.
+# No single GatewayEnvKeys abstraction; no raw values are ever printed.
+$credHmac = [Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1")
+$reqHmac = [Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1")
+$provKek = [Environment]::GetEnvironmentVariable("AICOSTOPS_PROVIDER_KEK_V1")
+if ([string]::IsNullOrWhiteSpace($credHmac)) { Add-Failure "C06 setup: AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1 not set." }
+if ([string]::IsNullOrWhiteSpace($reqHmac)) { Add-Failure "C06 setup: AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1 not set." }
+if ([string]::IsNullOrWhiteSpace($provKek)) { Add-Failure "C06 setup: AICOSTOPS_PROVIDER_KEK_V1 not set." }
+if ($failures.Count -gt 0) { Write-Output ("[M16-C06-RED] M16_C06_FAIL (" + $failures.Count + " violation(s))" ); exit 1 }
+if (($credHmac -ceq $reqHmac) -or ($credHmac -ceq $provKek) -or ($reqHmac -ceq $provKek)) {
+    Add-Failure "C06 setup: three secret roles must remain distinct (fingerprint collision of roles)."
+    Write-Output ("[M16-C06-RED] M16_C06_FAIL (" + $failures.Count + " violation(s))")
+    exit 1
+}
+$credFpPre = Get-SecretFingerprint $credHmac
+$reqFpPre = Get-SecretFingerprint $reqHmac
+$kekFpPre = Get-SecretFingerprint $provKek
+Write-Output ("[M16-C06] pre-kill secret fp cred=" + $credFpPre + " req=" + $reqFpPre + " kek=" + $kekFpPre)
 $rootPassword = [Environment]::GetEnvironmentVariable("MYSQL_M16_ROOT_PASSWORD")
 if ([string]::IsNullOrWhiteSpace($rootPassword)) { throw "MYSQL_M16_ROOT_PASSWORD is not set." }
 function Invoke-Root([string]$Sql) {
@@ -53,12 +84,18 @@ function Start-Gateway() {
     if ([string]::IsNullOrWhiteSpace($gwPw)) { throw "MYSQL_M16_GATEWAY_PASSWORD is not set." }
     $rdPw = [Environment]::GetEnvironmentVariable("M16_REDIS_PASSWORD")
     if ([string]::IsNullOrWhiteSpace($rdPw)) { $rdPw = "m16-redis-accept-pass" }
+    $cHmac = [Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1")
+    $rHmac = [Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1")
+    $pKek = [Environment]::GetEnvironmentVariable("AICOSTOPS_PROVIDER_KEK_V1")
+    if ([string]::IsNullOrWhiteSpace($cHmac)) { throw "AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1 is not set (inherited env)." }
+    if ([string]::IsNullOrWhiteSpace($rHmac)) { throw "AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1 is not set (inherited env)." }
+    if ([string]::IsNullOrWhiteSpace($pKek)) { throw "AICOSTOPS_PROVIDER_KEK_V1 is not set (inherited env)." }
     docker rm -f m16-gateway-accept 2>$null | Out-Null
     docker run -d --name m16-gateway-accept --network m16-accept-net -p 127.0.0.1:18081:8081 `
       -e SPRING_DATASOURCE_URL='jdbc:mysql://m16-mysql-accept:3306/m16accept?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC' `
       -e SPRING_DATASOURCE_USERNAME="$GatewayUser" -e SPRING_DATASOURCE_PASSWORD="$gwPw" `
       -e SPRING_DATA_REDIS_HOST=m16-redis-accept -e SPRING_DATA_REDIS_PORT=6379 -e SPRING_DATA_REDIS_PASSWORD="$rdPw" `
-      -e AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1="$GatewayEnvKeys" -e AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1="$GatewayEnvKeys" -e AICOSTOPS_PROVIDER_KEK_V1="$GatewayEnvKeys" `
+      -e AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1="$cHmac" -e AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1="$rHmac" -e AICOSTOPS_PROVIDER_KEK_V1="$pKek" `
       -e AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY=10000 -e AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND=1000 `
       -e AICOSTOPS_GATEWAY_QUOTA_REQUESTS_PER_DAY=100000 -e AICOSTOPS_GATEWAY_MAX_ACTIVE_STREAMS=128 `
       ai-costops-gateway:m16 | Out-Null
@@ -86,6 +123,19 @@ Write-Output ("[M16-C06] pre-kill in-flight state=" + $midState)
 docker kill -s KILL m16-gateway-accept | Out-Null
 Write-Output "[M16-C06] gateway killed mid-flight, restarting..."
 Start-Gateway
+Write-Output ("[M16-C06] post-restart secret parity check (fingerprints only, no raw values)")
+$cPost = Get-ContainerSecret "m16-gateway-accept" "AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1"
+$rPost = Get-ContainerSecret "m16-gateway-accept" "AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1"
+$kPost = Get-ContainerSecret "m16-gateway-accept" "AICOSTOPS_PROVIDER_KEK_V1"
+$cFpPost = Get-SecretFingerprint $cPost
+$rFpPost = Get-SecretFingerprint $rPost
+$kFpPost = Get-SecretFingerprint $kPost
+Write-Output ("[M16-C06] post-restart fp cred=" + $cFpPost + " req=" + $rFpPost + " kek=" + $kFpPost)
+if ($cFpPost -ne $credFpPre) { Add-Failure ("C06: credential HMAC mutated across restart (pre=" + $credFpPre + " post=" + $cFpPost + ").") }
+if ($rFpPost -ne $reqFpPre) { Add-Failure ("C06: request HMAC mutated across restart (pre=" + $reqFpPre + " post=" + $rFpPost + ").") }
+if ($kFpPost -ne $kekFpPre) { Add-Failure ("C06: provider KEK mutated across restart (pre=" + $kekFpPre + " post=" + $kFpPost + ").") }
+if (($cFpPost -ceq $rFpPost) -or ($cFpPost -ceq $kFpPost) -or ($rFpPost -ceq $kFpPost)) { Add-Failure "C06: post-restart secret roles collapsed (fingerprints not distinct)." }
+if ($failures.Count -gt 0) { Write-Output ("[M16-C06-RED] M16_C06_FAIL (" + $failures.Count + " violation(s))" ); exit 1 }
 Invoke-RestMethod -Method Post -Uri ($MockBase + "/admin/mode") -Body '{"mode":"ok"}' -ContentType "application/json" | Out-Null
 $opsAfterKill = (Invoke-RestMethod -Uri ($MockBase + "/stats")).post_chat_completions
 $postState = Invoke-Root ("SELECT state FROM gateway_request WHERE org_id=" + $OrgId + " ORDER BY id DESC LIMIT 1;")

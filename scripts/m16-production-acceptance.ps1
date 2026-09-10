@@ -167,7 +167,6 @@ function Invoke-GateScript([string]$GateId, [hashtable]$Gate, [object]$Seed) {
     # All progress logging uses Write-Host: Write-Output inside this function
     # would be captured into the caller's $rc variable and corrupt it.
     $suffix = ($GateId.ToLower() + "-" + (Get-Date -Format "yyyyMMddHHmmssfff"))
-    $hmacKey = [Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1")
     $named = [ordered]@{}
     switch ($Gate.Script) {
         "verify-m16-topology.ps1" { break }
@@ -187,7 +186,7 @@ function Invoke-GateScript([string]$GateId, [hashtable]$Gate, [object]$Seed) {
             $named["MysqlHost"] = $MysqlHost; $named["MysqlPort"] = $MysqlPort
             $named["Database"] = $Database; $named["MysqlBin"] = $MysqlBin
             $named["RawKey"] = $Seed.raw_key; $named["OrgId"] = ([long]$Seed.org_id)
-            $named["GatewayEnvKeys"] = $hmacKey; $named["ModelKey"] = $ModelKey
+            $named["ModelKey"] = $ModelKey
             break
         }
         "invoke-m16-provider-revoke.ps1" {
@@ -204,7 +203,7 @@ function Invoke-GateScript([string]$GateId, [hashtable]$Gate, [object]$Seed) {
             $named["GatewayBase"] = $GatewayBase
             $named["Suffix"] = $suffix; $named["RawKey"] = $Seed.raw_key
             $named["OrgId"] = ([long]$Seed.org_id)
-            $named["GatewayEnvKeys"] = $hmacKey; $named["ModelKey"] = $ModelKey
+            $named["ModelKey"] = $ModelKey
             break
         }
         "invoke-m16-b01-idempotency.ps1" {
@@ -410,6 +409,7 @@ try {
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("MYSQL_M16_GATEWAY_PASSWORD"))) { $envFailures.Add("MYSQL_M16_GATEWAY_PASSWORD not set") | Out-Null }
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1"))) { $envFailures.Add("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1 not set") | Out-Null }
     if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1"))) { $envFailures.Add("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1 not set") | Out-Null }
+    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable("AICOSTOPS_PROVIDER_KEK_V1"))) { $envFailures.Add("AICOSTOPS_PROVIDER_KEK_V1 not set") | Out-Null }
     foreach ($s in @("verify-m16-topology.ps1", "verify-m16-gateway-privileges.ps1",
             "seed-m16-acceptance.ps1", "invoke-m16-b01-idempotency.ps1",
             "invoke-m16-b02-budget.ps1", "invoke-m16-load.ps1",

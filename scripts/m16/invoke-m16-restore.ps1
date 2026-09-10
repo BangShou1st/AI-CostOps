@@ -19,7 +19,7 @@
     environment, asserted by reusing the same env keys for the restored run).
 
 .EXAMPLE
-    .\scripts\m16\invoke-m16-restore.ps1 -Suffix restore1 -RawKey ... -OrgId 25 -GatewayEnvKeys ...
+    .\scripts\m16\invoke-m16-restore.ps1 -Suffix restore1 -RawKey ... -OrgId 25
 #>
 [CmdletBinding()]
 param(
@@ -33,16 +33,42 @@ param(
     [Parameter(Mandatory)][string]$Suffix,
     [Parameter(Mandatory)][string]$RawKey,
     [Parameter(Mandatory)][long]$OrgId,
-    [Parameter(Mandatory)][string]$GatewayEnvKeys,
     [string]$ModelKey = "m16-accept-chat",
     # Acceptance-harness hygiene: runtime credentials travel via environment,
     # never hard-coded. Defaults preserve the historical local values so
     # existing runs keep working.
     [string]$GatewayUser = "gw_m16",
-    [string]$RestoreGatewayPort = "18082",
+    [string]$RestoreGatewayPort = "18084",
     [string]$RedisDb = "1"
 )
 
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+$E04failures = [System.Collections.ArrayList]::new()
+function Add-E04Failure([string]$Message) {
+    Write-Output ("[M16-E04-RED] " + $Message)
+    $E04failures.Add($Message) | Out-Null
+}
+function Get-E04Fingerprint([string]$Val) {
+    if ([string]::IsNullOrWhiteSpace($Val)) { return "MISSING" }
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Val)
+    $hash = [System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+    return (-join ($hash[0..3] | ForEach-Object { $_.ToString("x2") }))
+}
+# Key-separation contract: three independent secrets via process-env inheritance.
+$e04Cred = [Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1")
+$e04Req = [Environment]::GetEnvironmentVariable("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1")
+$e04Kek = [Environment]::GetEnvironmentVariable("AICOSTOPS_PROVIDER_KEK_V1")
+if ([string]::IsNullOrWhiteSpace($e04Cred)) { Add-E04Failure "E04 setup: AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1 not set." }
+if ([string]::IsNullOrWhiteSpace($e04Req)) { Add-E04Failure "E04 setup: AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1 not set." }
+if ([string]::IsNullOrWhiteSpace($e04Kek)) { Add-E04Failure "E04 setup: AICOSTOPS_PROVIDER_KEK_V1 not set." }
+if ($E04failures.Count -gt 0) { Write-Output ("[M16-E04-RED] M16_E04_FAIL (" + $E04failures.Count + " violation(s))" ); exit 1 }
+if (($e04Cred -ceq $e04Req) -or ($e04Cred -ceq $e04Kek) -or ($e04Req -ceq $e04Kek)) {
+    Add-E04Failure "E04 setup: three secret roles must remain distinct."
+    Write-Output ("[M16-E04-RED] M16_E04_FAIL (" + $E04failures.Count + " violation(s))" )
+    exit 1
+}
+Write-Output ("[M16-E04] secret fp cred=" + (Get-E04Fingerprint $e04Cred) + " req=" + (Get-E04Fingerprint $e04Req) + " kek=" + (Get-E04Fingerprint $e04Kek))
 $gatewayPassword = [Environment]::GetEnvironmentVariable("MYSQL_M16_GATEWAY_PASSWORD")
 if ([string]::IsNullOrWhiteSpace($gatewayPassword)) { throw "MYSQL_M16_GATEWAY_PASSWORD is not set." }
 $redisPassword = [Environment]::GetEnvironmentVariable("M16_REDIS_PASSWORD")
@@ -234,7 +260,7 @@ docker run -d --name m16-gateway-restore --network m16-accept-net -p ("127.0.0.1
   -e SPRING_DATASOURCE_USERNAME="$GatewayUser" -e SPRING_DATASOURCE_PASSWORD="$gatewayPassword" `
   -e SPRING_DATA_REDIS_HOST=m16-redis-accept -e SPRING_DATA_REDIS_PORT=6379 -e SPRING_DATA_REDIS_PASSWORD="$redisPassword" `
   -e SPRING_DATA_REDIS_DATABASE=$RedisDb `
-  -e AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1="$GatewayEnvKeys" -e AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1="$GatewayEnvKeys" -e AICOSTOPS_PROVIDER_KEK_V1="$GatewayEnvKeys" `
+  -e AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1="$e04Cred" -e AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1="$e04Req" -e AICOSTOPS_PROVIDER_KEK_V1="$e04Kek" `
   -e AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY=10000 -e AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND=1000 `
   -e AICOSTOPS_GATEWAY_QUOTA_REQUESTS_PER_DAY=100000 `
   ai-costops-gateway:m16 | Out-Null
