@@ -1,12 +1,12 @@
-# M18 — V3 Backend / OpenAPI Contract Freeze (Fourth Repair Candidate)
+# M18 — V3 Backend / OpenAPI Contract Freeze (Final Acceptance Candidate)
 
-> Status: **FINAL REPAIR CANDIDATE — final repair round, pending GPT-5.6 Sol acceptance (do not mark FROZEN)**.
-> (fourth-review findings on HEAD `d8bbf1e5b69dbc2e66f845ac6aa0909902508ebc`)**. Branch: `feat/m18-v3-backend-complete`.
+> Status: **FINAL ACCEPTANCE CANDIDATE — pending GPT-5.6 Sol acceptance (do not mark FROZEN)**.
+> (final-acceptance findings on HEAD `bb291c8e89a6e18326a34d68f8cb2ef80e403c14`)**. Branch: `feat/m18-v3-backend-complete`.
 > Machine contract: [`m18-openapi.yaml`](./m18-openapi.yaml). Gate:
 > `backend/src/test/java/com/aicostops/contract/M18OpenApiContractTest.java`.
 >
-> This revision is the final repair for Issue #155 fourth review (reviewed HEAD
-> `d8bbf1e5b69dbc2e66f845ac6aa0909902508ebc`, P0=0/P1=4/P2=1). It closes all remaining
+> This revision is the final acceptance candidate for Issue #155 final-acceptance review (reviewed HEAD
+> `bb291c8e89a6e18326a34d68f8cb2ef80e403c14`, P0=0/P1=2/P2=1). It closes only the three remaining
 > items with fail-closed semantics and preserves all prior regressions. Do not treat as
 > FROZEN until GPT-5.6 Sol accepts the new remote HEAD. Migration chain remains V1-V27.
 
@@ -139,16 +139,17 @@ carry ids/labels/statuses/codes only.
 - `M18OpenApiContractTest`: frozen YAML paths ⊆ implemented controller
   paths and vice versa for the V3 scope; money fields are string/BigDecimal;
   no secret-bearing components in API projections.
-- Migration chain V1→V25 verified on real MySQL 8.0 (clean apply),
+- Migration chain V1→V27 verified on clean MySQL (clean apply, 27 migrations),
   V23→V24 backfill equivalence (same endpoint/status), single-ACTIVE
   enforcement, org-private coexistence.
 - `OpenCodeDirectOnlyTest`: poison-proxy zero-hit with upstream served
   (normal + streaming) and server-owned User-Agent asserted.
 - `CustomEndpointValidatorTest`, `CostIntelligenceEnginesTest`,
   `AdvisorOutputValidatorTest`: green without containers.
-- Container-backed suites (migration compat, endpoint authority, claim
-  race, full module suites) are implemented for hosted CI; Docker is
-  unavailable in this sandbox so they are NOT RUN here (see final report).
+- Local full-suite evidence: backend `mvn verify` and gateway `mvn verify` run locally
+  against Testcontainers MySQL/Redis (see final report for exact totals on the final HEAD).
+- Hosted CI: NOT RUN pending final PR (GitHub Hosted CI becomes a required gate only
+  after Sol accepts the candidate and the final PR is created).
 
 ## 10. M18 repair deltas (Issue #155, old HEAD `6ec8012`)
 
@@ -262,3 +263,14 @@ SSE legal chunk (P1-3): VERIFIED requires valid content-type plus at least one b
 OpenCode manifest (P1-4, frozen M17 section 17): server-owned versioned OpenCodeModelManifest (MANIFEST_VERSION 2026-09-11-v1) with exact controlled matchers, independent protocol (OPENAI_CHAT_COMPLETIONS/UNSUPPORTED/UNKNOWN) and pricing (VERIFIED_FREE/PAID/UNKNOWN) classifications. No inference from -free or live availability. Live and manual discovery for OPENCODE_ZEN use manifest classification; unknown stays AVAILABLE/UNKNOWN but cannot Chat probe/promote. Promotion requires manifest Chat plus probe PASS plus verified CHAT. Pricing Version remains financial truth; VERIFIED_FREE never auto-creates pricing. Deterministic fixtures prove all five cases without paid traffic. Adapter stays DIRECT_ONLY with noProxy and opencode/1.18.21.
 
 Freeze doc (P2-1): top status, reviewed HEAD, migration count V1-V27, live-only refresh semantics, manifest, terminal and probe semantics made mechanically consistent with runtime and OpenAPI. Status remains FINAL REPAIR CANDIDATE pending Sol acceptance (never ACCEPTED/FROZEN by implementation).
+## 15. Final micro-repair deltas (Issue 155 final-acceptance review, reviewed HEAD bb291c8)
+
+Status: FINAL ACCEPTANCE CANDIDATE, pending GPT-5.6 Sol acceptance. P0 stays 0. This round closes only P1-1, P1-2 plus P2-1 with fail-closed semantics and preserves all prior regressions.
+
+Production manifest (P1-1): server-owned OpenCodeModelManifest MANIFEST_VERSION 2026-09-11-v2 with VERIFIED_AT 2026-09-11 plus SOURCE OpenCode Zen official endpoint table plus SOURCE_REVISION 2026-09-11. Real Chat Completions entries (OPENAI_CHAT_COMPLETIONS) cover deepseek-v4-pro, deepseek-v4-flash, minimax-m3, minimax-m2.7, minimax-m2.5, glm-5.2, glm-5.1, glm-5, kimi-k2.5, kimi-k2.6, kimi-k2.7-code, kimi-k3 plus VERIFIED_FREE big-pickle, mimo-v2.5-free, laguna-s-2.1-free, ling-3.0-tiny-free, longcat-2.0-free, north-mini-code-free, nemotron-3-ultra-free, deepseek-v4-flash-free. Responses, Messages and Gemini-native families are UNSUPPORTED for V3 (gpt-5.6-sol, gpt-5.5 family, grok family, claude fable/opus/sonnet/haiku family, qwen3.7/3.6/3.5 family, gemini-3.6/3.5/3.1/3-flash family). Unknown future models stay AVAILABLE with UNKNOWN protocol and UNKNOWN pricing and can never Chat probe or promote. Pricing never inferred from -free suffix (big-pickle is VERIFIED_FREE without suffix, unknown-random-free stays UNKNOWN). VERIFIED_FREE never auto-creates ACTIVE Pricing Versions. Production main source contains no manifest-*-fixture entries; fixtures exist only via test-only injected manifest. Adapter stays DIRECT_ONLY with noProxy and opencode/1.18.21. Base URL https://opencode.ai/zen/v1 with /models preserved.
+
+SSE integer index (P1-2): isLegalStreamingChunk now requires index.isIntegralNumber plus non-negative int-range validation. Fractional index 0.5 plus DONE never verifies. Existing legal integer index plus legal delta plus DONE still verifies; choices [1], choices [{}], numeric content, string delta, numeric role, and legal chunk without DONE all remain NOT VERIFIED.
+
+Freeze doc (P2-1): title is Final Acceptance Candidate with status FINAL ACCEPTANCE CANDIDATE pending Sol acceptance (never FROZEN by implementation). Migration chain is V1-V27 everywhere for the current gate; V25 remains only in genuine history. Local full-suite evidence is recorded separately from Hosted CI which is NOT RUN pending final PR.
+
+Verification on final HEAD is recorded in the final micro-repair report (backend mvn verify, gateway mvn verify, frontend npm ci plus build, V1-V27 clean MySQL, OpenAPI contract, git diff check). Hosted CI NOT RUN. Literal 127.0.0.1:7897 DEFERRED. Real Provider DEFERRED.
