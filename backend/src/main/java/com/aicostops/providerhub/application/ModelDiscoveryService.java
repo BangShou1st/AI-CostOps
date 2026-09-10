@@ -61,8 +61,33 @@ public class ModelDiscoveryService {
     }
 
     /** Refreshes observations: upserts seen models, marks absent ones UNAVAILABLE. */
-    @Transactional
     public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId, List<String> observedModelNames) {
+        return refreshInternal(user, profileId, observedModelNames, List.of());
+    }
+
+    /**
+     * Refreshes observations, optionally fetching the live {@code /models}
+     * catalog first (bounded, names only — response bodies are never stored).
+     * Live I/O happens before the DB transaction is opened.
+     */
+    public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId,
+            List<String> observedModelNames, boolean fetchLive) {
+        if (!fetchLive) {
+            return refreshInternal(user, profileId, observedModelNames, List.of());
+        }
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_READ");
+        var profile = connections.find(profileId, context.organizationId());
+        if (profile == null) {
+            throw notFound("Provider connection was not found.");
+        }
+        var live = fetchLiveModels(profile);
+        return refreshInternal(user, profileId, observedModelNames, live);
+    }
+
+    @Transactional
+    List<DiscoveryResponse> refreshInternal(AuthenticatedUser user, long profileId,
+            List<String> observedModelNames, List<String> liveModels) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
         var profile = connections.find(profileId, context.organizationId());
@@ -71,6 +96,10 @@ public class ModelDiscoveryService {
         }
         var now = clock.instant();
         var seen = new HashSet<String>();
+        for (var raw : liveModels) {
+            var name = raw == null ? "" : raw.strip();
+            if (!name.isEmpty() && name.length() <= 200) seen.add(name);
+        }
         for (var raw : observedModelNames == null ? List.<String>of() : observedModelNames) {
             var name = raw == null ? "" : raw.strip();
             if (name.isEmpty() || name.length() > 200 || !seen.add(name)) {
@@ -176,6 +205,50 @@ public class ModelDiscoveryService {
         return new DiscoveryResponse(row.id(), row.providerModelName(), row.displayName(),
                 row.source(), row.availability(), row.protocolCode(), row.pricingClassification(),
                 row.lastSeenAt(), row.lastProbedAt(), row.lastProbeStatus(), row.lastProbeErrorCode());
+    }
+
+    private List<String> fetchLiveModels(com.aicostops.providerhub.domain.ProviderConnection profile) {
+        if (profile.modelsPath() == null || profile.modelsPath().isBlank()) {
+            return List.of();
+        }
+        try {
+            var target = joinBase(profile.baseUrl(), profile.modelsPath());
+            var client = java.net.http.HttpClient.newBuilder()
+                    .proxy(java.net.ProxySelector.of(null))
+                    .connectTimeout(java.time.Duration.ofMillis(profile.connectTimeoutMs()))
+                    .followRedirects(java.net.http.HttpClient.Redirect.NEVER)
+                    .build();
+            var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create(target))
+                    .timeout(java.time.Duration.ofMillis(profile.responseTimeoutMs()))
+                    .header("Accept", "application/json")
+                    .GET()
+                    .build();
+            var response = client.send(request,
+                    java.net.http.HttpResponse.BodyHandlers.ofString(java.nio.charset.StandardCharsets.UTF_8));
+            if (response.statusCode() < 200 || response.statusCode() >= 300
+                    || response.body() == null || response.body().length() > 65536) {
+                return List.of();
+            }
+            return parseModelIds(response.body());
+        } catch (Exception ex) {
+            return List.of();
+        }
+    }
+
+    private List<String> parseModelIds(String body) {
+        var ids = new java.util.ArrayList<String>();
+        var matcher = java.util.regex.Pattern.compile("\"id\"\\s*:\\s*\"([^\"]{1,200})\"")
+                .matcher(body);
+        while (matcher.find() && ids.size() < 500) {
+            var id = matcher.group(1).strip();
+            if (!id.isEmpty() && !ids.contains(id)) ids.add(id);
+        }
+        return ids;
+    }
+
+    private static String joinBase(String base, String path) {
+        var trimmed = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
+        return trimmed + (path.startsWith("/") ? path : "/" + path);
     }
 
     private DomainException validationFailed(String detail) {

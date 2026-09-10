@@ -187,6 +187,48 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/pricing-versions",
                                 "/api/v1/pricing-versions/{id}/activate").authenticated()
+                        // M18 V3 Provider Hub / Cost Intelligence / AI Advisor.
+                        // Business permissions are enforced by the providerhub,
+                        // intelligence and advisor application services.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/provider-templates",
+                                "/api/v1/provider-connections",
+                                "/api/v1/provider-connections/{id}",
+                                "/api/v1/provider-connections/{id}/revisions",
+                                "/api/v1/provider-connections/{id}/models",
+                                "/api/v1/provider-connections/{id}/credentials").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/provider-connections",
+                                "/api/v1/provider-connections/{id}/revisions",
+                                "/api/v1/provider-connections/{id}/activate",
+                                "/api/v1/provider-connections/{id}/probe",
+                                "/api/v1/provider-connections/{id}/credentials",
+                                "/api/v1/provider-connections/{id}/credentials/rotate",
+                                "/api/v1/provider-connections/{id}/credentials/{credentialId}/revoke",
+                                "/api/v1/provider-connections/{id}/models/refresh",
+                                "/api/v1/provider-connections/{id}/models/manual",
+                                "/api/v1/provider-connections/{id}/models/{discoveryId}/probe",
+                                "/api/v1/provider-connections/{id}/models/{discoveryId}/promote").authenticated()
+                        .requestMatchers(HttpMethod.PUT,
+                                "/api/v1/provider-connections/{id}").authenticated()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/cost-intelligence/summary",
+                                "/api/v1/cost-intelligence/anomalies",
+                                "/api/v1/cost-intelligence/forecasts",
+                                "/api/v1/cost-intelligence/budget-risks",
+                                "/api/v1/cost-intelligence/recommendations").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/cost-intelligence/recommendations/{id}/acknowledge",
+                                "/api/v1/cost-intelligence/recommendations/{id}/dismiss",
+                                "/api/v1/cost-intelligence/recommendations/{id}/mark-applied").authenticated()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/ai-advisor/profile",
+                                "/api/v1/ai-advisor/explanations/{id}").authenticated()
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/ai-advisor/explanations",
+                                "/api/v1/ai-advisor/explanations/{id}/retry").authenticated()
+                        .requestMatchers(HttpMethod.PUT,
+                                "/api/v1/ai-advisor/profile").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(bearer, UsernamePasswordAuthenticationFilter.class).build();
     }

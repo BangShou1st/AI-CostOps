@@ -123,7 +123,8 @@ public class ProviderHubController {
             @PathVariable long id,
             @RequestBody(required = false) RefreshModelsRequest request) {
         var observed = request == null || request.modelNames() == null ? List.<String>of() : request.modelNames();
-        return discovery.refresh(user, id, observed);
+        var fetchLive = request != null && Boolean.TRUE.equals(request.fetchLive());
+        return discovery.refresh(user, id, observed, fetchLive);
     }
 
     @PostMapping("/provider-connections/{id}/models/manual")
@@ -187,7 +188,7 @@ public class ProviderHubController {
     public record CredentialBody(String rawSecret, String safeLabel) {
     }
 
-    public record RefreshModelsRequest(List<String> modelNames) {
+    public record RefreshModelsRequest(List<String> modelNames, Boolean fetchLive) {
     }
 
     public record ManualModelRequest(String modelName) {
