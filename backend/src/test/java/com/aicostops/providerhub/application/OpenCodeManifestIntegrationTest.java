@@ -31,53 +31,113 @@ class OpenCodeManifestIntegrationTest extends ControlPlaneFixtureSupport {
     }
     @AfterEach void tearDown() { cleanDatabase(); }
     @Test void manifestVersionIsPinned() {
-        assertEquals("2026-09-11-v1", manifest.version());
-        assertEquals("2026-09-11-v1", OpenCodeModelManifest.MANIFEST_VERSION);
+        assertEquals("2026-09-11-v2", manifest.version());
+        assertEquals("2026-09-11-v2", OpenCodeModelManifest.MANIFEST_VERSION);
+        assertEquals("2026-09-11", manifest.verifiedAt());
+        assertEquals("OpenCode Zen official endpoint table", manifest.source());
+        assertEquals("2026-09-11", manifest.sourceRevision());
     }
-    @Test void chatFixtureIsAvailableWithChatProtocol() throws Exception {
+    @Test void realChatModelsAreAvailableWithChatProtocol() throws Exception {
         var conn = createOpenCodeConnection();
-        var id = manualModel(conn, "manifest-chat-fixture");
-        assertEquals("OPENAI_CHAT_COMPLETIONS", protoOf(conn, "manifest-chat-fixture"));
-        assertEquals("AVAILABLE", availOf(conn, "manifest-chat-fixture"));
-        assertTrue(manifest.isChatCompatible("manifest-chat-fixture"));
+        manualModel(conn, "kimi-k2.6");
+        assertEquals("OPENAI_CHAT_COMPLETIONS", protoOf(conn, "kimi-k2.6"));
+        assertEquals("AVAILABLE", availOf(conn, "kimi-k2.6"));
+        assertTrue(manifest.isChatCompatible("kimi-k2.6"));
+        manualModel(conn, "deepseek-v4-pro");
+        assertEquals("OPENAI_CHAT_COMPLETIONS", protoOf(conn, "deepseek-v4-pro"));
+        assertEquals("AVAILABLE", availOf(conn, "deepseek-v4-pro"));
+        assertTrue(manifest.isChatCompatible("deepseek-v4-pro"));
+        manualModel(conn, "minimax-m3");
+        assertEquals("OPENAI_CHAT_COMPLETIONS", protoOf(conn, "minimax-m3"));
+        assertTrue(manifest.isChatCompatible("minimax-m3"));
     }
-    @Test void responsesFixtureStaysAvailableButCannotChatProbeOrPromote() throws Exception {
+    @Test void realFreeChatModelsCarryVerifiedFreeWithoutSuffixInference() throws Exception {
         var conn = createOpenCodeConnection();
-        var id = manualModel(conn, "manifest-responses-fixture");
-        assertEquals("AVAILABLE", availOf(conn, "manifest-responses-fixture"));
-        assertEquals("UNSUPPORTED", protoOf(conn, "manifest-responses-fixture"));
-        assertFalse(manifest.isChatCompatible("manifest-responses-fixture"));
-        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/probe", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isBadRequest());
-        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isConflict());
+        manualModel(conn, "big-pickle");
+        assertEquals("OPENAI_CHAT_COMPLETIONS", protoOf(conn, "big-pickle"));
+        assertEquals("VERIFIED_FREE", pricingOf(conn, "big-pickle"));
+        assertTrue(manifest.isChatCompatible("big-pickle"));
+        manualModel(conn, "mimo-v2.5-free");
+        assertEquals("OPENAI_CHAT_COMPLETIONS", protoOf(conn, "mimo-v2.5-free"));
+        assertEquals("VERIFIED_FREE", pricingOf(conn, "mimo-v2.5-free"));
+        assertTrue(manifest.isChatCompatible("mimo-v2.5-free"));
+    }
+    @Test void realUnsupportedFamiliesStayAvailableButCannotChatProbeOrPromote() throws Exception {
+        var conn = createOpenCodeConnection();
+        var gpt = manualModel(conn, "gpt-5.6-sol");
+        assertEquals("AVAILABLE", availOf(conn, "gpt-5.6-sol"));
+        assertEquals("UNSUPPORTED", protoOf(conn, "gpt-5.6-sol"));
+        assertFalse(manifest.isChatCompatible("gpt-5.6-sol"));
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/probe", conn, gpt).header("Authorization", bearerFor(user))).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, gpt).header("Authorization", bearerFor(user))).andExpect(status().isConflict());
+        var claude = manualModel(conn, "claude-sonnet-5");
+        assertEquals("UNSUPPORTED", protoOf(conn, "claude-sonnet-5"));
+        assertFalse(manifest.isChatCompatible("claude-sonnet-5"));
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/probe", conn, claude).header("Authorization", bearerFor(user))).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, claude).header("Authorization", bearerFor(user))).andExpect(status().isConflict());
+        var qwen = manualModel(conn, "qwen3.7-max");
+        assertEquals("UNSUPPORTED", protoOf(conn, "qwen3.7-max"));
+        assertFalse(manifest.isChatCompatible("qwen3.7-max"));
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, qwen).header("Authorization", bearerFor(user))).andExpect(status().isConflict());
+        var gemini = manualModel(conn, "gemini-3.6-flash");
+        assertEquals("UNSUPPORTED", protoOf(conn, "gemini-3.6-flash"));
+        assertFalse(manifest.isChatCompatible("gemini-3.6-flash"));
+        mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, gemini).header("Authorization", bearerFor(user))).andExpect(status().isConflict());
     }
     @Test void unknownModelStaysUnknownAndCannotPromote() throws Exception {
         var conn = createOpenCodeConnection();
-        var id = manualModel(conn, "unknown-model-xyz");
-        assertEquals("UNKNOWN", protoOf(conn, "unknown-model-xyz"));
-        assertEquals("AVAILABLE", availOf(conn, "unknown-model-xyz"));
-        assertFalse(manifest.isChatCompatible("unknown-model-xyz"));
+        var id = manualModel(conn, "future-unknown-model-xyz");
+        assertEquals("UNKNOWN", protoOf(conn, "future-unknown-model-xyz"));
+        assertEquals("UNKNOWN", pricingOf(conn, "future-unknown-model-xyz"));
+        assertEquals("AVAILABLE", availOf(conn, "future-unknown-model-xyz"));
+        assertFalse(manifest.isChatCompatible("future-unknown-model-xyz"));
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/probe", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isBadRequest());
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isConflict());
     }
     @Test void freeSuffixDoesNotImplyFree() throws Exception {
         var conn = createOpenCodeConnection();
+        manualModel(conn, "unknown-random-free");
+        assertEquals("UNKNOWN", pricingOf(conn, "unknown-random-free"));
+        assertEquals("UNKNOWN", manifest.pricingFor("unknown-random-free"));
+        assertEquals("UNKNOWN", manifest.protocolFor("unknown-random-free"));
         manualModel(conn, "my-model-free");
         assertEquals("UNKNOWN", pricingOf(conn, "my-model-free"));
         assertEquals("UNKNOWN", manifest.pricingFor("my-model-free"));
     }
     @Test void verifiedFreeNeverAutoCreatesPricing() throws Exception {
         var conn = createOpenCodeConnection();
-        var id = manualModel(conn, "manifest-chat-free-fixture");
-        assertEquals("VERIFIED_FREE", pricingOf(conn, "manifest-chat-free-fixture"));
+        var id = manualModel(conn, "big-pickle");
+        assertEquals("VERIFIED_FREE", pricingOf(conn, "big-pickle"));
         jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS', verified_capabilities_json=CAST(\'{\"capabilities\":[\"CHAT_COMPLETIONS\"]}\' AS JSON) WHERE id=? AND org_id=?", id, org);
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isCreated());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM pricing_version WHERE org_id=?", Integer.class, org).intValue());
     }
-    @Test void chatFixtureWithSimulatedProbePromotes() throws Exception {
+    @Test void realChatModelWithSimulatedProbePromotes() throws Exception {
         var conn = createOpenCodeConnection();
-        var id = manualModel(conn, "manifest-chat-fixture");
+        var id = manualModel(conn, "kimi-k2.6");
         jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS', verified_capabilities_json=CAST(\'{\"capabilities\":[\"CHAT_COMPLETIONS\"]}\' AS JSON) WHERE id=? AND org_id=?", id, org);
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isCreated());
+    }
+    @Test void productionManifestHasNoFixtureEntries() throws Exception {
+        assertEquals("UNKNOWN", manifest.protocolFor("manifest-chat-fixture"));
+        assertEquals("UNKNOWN", manifest.pricingFor("manifest-chat-fixture"));
+        assertFalse(manifest.isChatCompatible("manifest-chat-fixture"));
+        assertEquals("UNKNOWN", manifest.protocolFor("manifest-chat-free-fixture"));
+        assertFalse(manifest.isChatCompatible("manifest-responses-fixture"));
+        var conn = createOpenCodeConnection();
+        manualModel(conn, "manifest-chat-fixture");
+        assertEquals("UNKNOWN", protoOf(conn, "manifest-chat-fixture"));
+        assertEquals("AVAILABLE", availOf(conn, "manifest-chat-fixture"));
+    }
+    @Test void testOnlyFixtureManifestIsSeparateFromProduction() {
+        var fixture = OpenCodeModelManifest.testOnly(java.util.Map.of(
+                "manifest-chat-fixture", new OpenCodeModelManifest.Entry(OpenCodeModelManifest.PROTOCOL_CHAT, OpenCodeModelManifest.PRICING_UNKNOWN),
+                "manifest-chat-free-fixture", new OpenCodeModelManifest.Entry(OpenCodeModelManifest.PROTOCOL_CHAT, OpenCodeModelManifest.PRICING_VERIFIED_FREE),
+                "manifest-responses-fixture", new OpenCodeModelManifest.Entry(OpenCodeModelManifest.PROTOCOL_UNSUPPORTED, OpenCodeModelManifest.PRICING_UNKNOWN)));
+        assertTrue(fixture.isChatCompatible("manifest-chat-fixture"));
+        assertFalse(manifest.isChatCompatible("manifest-chat-fixture"));
+        assertEquals("OPENAI_CHAT_COMPLETIONS", fixture.protocolFor("manifest-chat-fixture"));
+        assertEquals("UNKNOWN", manifest.protocolFor("manifest-chat-fixture"));
     }
     private long createOpenCodeConnection() throws Exception {
         var body = mockMvc.perform(post("/api/v1/provider-connections").header("Authorization", bearerFor(user)).contentType("application/json").content("{\"providerAccountId\":" + account + ",\"templateCode\":\"OPENCODE_ZEN\"}")).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
