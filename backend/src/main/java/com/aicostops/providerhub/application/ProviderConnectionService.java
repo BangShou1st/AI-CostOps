@@ -110,6 +110,9 @@ public class ProviderConnectionService {
         final String networkPolicy;
         final String userAgent;
         if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(templateCode)) {
+            if (!ProviderTemplateRegistry.OPENCODE_ZEN.equals(accountCode)) {
+                throw validationFailed("Built-in OpenCode Zen connections require an OPENCODE_ZEN provider account.");
+            }
             var template = templates.require(templateCode);
             rejectBuiltinOverride(request);
             kind = "BUILTIN";
@@ -124,6 +127,10 @@ public class ProviderConnectionService {
         } else {
             if (templateCode != null && !ProviderTemplateRegistry.CUSTOM_OPENAI_COMPATIBLE.equals(templateCode)) {
                 throw validationFailed("Unknown provider template.");
+            }
+            if (!ProviderTemplateRegistry.CUSTOM_OPENAI_COMPATIBLE.equals(accountCode)) {
+                throw validationFailed(
+                        "Custom connections require a CUSTOM_OPENAI_COMPATIBLE provider account.");
             }
             kind = "CUSTOM";
             protocol = ProviderTemplateRegistry.PROTOCOL_OPENAI_CHAT_COMPLETIONS;
@@ -167,7 +174,8 @@ public class ProviderConnectionService {
         }
         if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(current.templateCode())) {
             if (request.baseUrl() != null || request.authType() != null
-                    || request.completionPath() != null || request.modelsPath() != null) {
+                    || request.completionPath() != null || request.modelsPath() != null
+                    || request.userAgent() != null) {
                 throw validationFailed("Built-in template fields are server-owned.");
             }
         }

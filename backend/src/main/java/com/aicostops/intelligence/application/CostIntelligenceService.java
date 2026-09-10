@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -58,6 +59,7 @@ public class CostIntelligenceService {
     private final AuditService audit;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final CostIntelligenceService self;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public CostIntelligenceService(
@@ -66,13 +68,15 @@ public class CostIntelligenceService {
             IntelligenceMapper store,
             AuditService audit,
             ObjectMapper objectMapper,
-            Clock clock) {
+            Clock clock,
+            @Lazy CostIntelligenceService self) {
         this.authorizationContexts = authorizationContexts;
         this.facts = facts;
         this.store = store;
         this.audit = audit;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.self = self;
     }
 
     /** Runs (or converges on) one deterministic analysis. Scheduler + API share this. */
@@ -108,7 +112,9 @@ public class CostIntelligenceService {
         for (var orgId : facts.recentlyActiveOrgs(yesterday.minusDays(30), 100)) {
             for (var currency : facts.settledCurrencies(orgId)) {
                 try {
-                    runAnalysis(orgId, yesterday, currency);
+                    // Self-proxy: same-class calls bypass the @Transactional
+                    // proxy, so the run lifecycle must go through the bean.
+                    self.runAnalysis(orgId, yesterday, currency);
                 } catch (RuntimeException ignored) {
                     // One org/currency failure never blocks the remaining runs;
                     // the FAILED run row records the outcome for operators.

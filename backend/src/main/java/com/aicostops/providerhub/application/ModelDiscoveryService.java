@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,6 +35,7 @@ public class ModelDiscoveryService {
     private final ModelDiscoveryMapper mapper;
     private final AuditService audit;
     private final Clock clock;
+    private final ModelDiscoveryService self;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ModelDiscoveryService(
@@ -41,12 +43,14 @@ public class ModelDiscoveryService {
             ProviderConnectionMapper connections,
             ModelDiscoveryMapper mapper,
             AuditService audit,
-            Clock clock) {
+            Clock clock,
+            @Lazy ModelDiscoveryService self) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.mapper = mapper;
         this.audit = audit;
         this.clock = clock;
+        this.self = self;
     }
 
     public List<DiscoveryResponse> list(AuthenticatedUser user, long profileId) {
@@ -62,7 +66,7 @@ public class ModelDiscoveryService {
 
     /** Refreshes observations: upserts seen models, marks absent ones UNAVAILABLE. */
     public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId, List<String> observedModelNames) {
-        return refreshInternal(user, profileId, observedModelNames, List.of());
+        return self.refreshInternal(user, profileId, observedModelNames, List.of());
     }
 
     /**
@@ -82,7 +86,7 @@ public class ModelDiscoveryService {
             throw notFound("Provider connection was not found.");
         }
         var live = fetchLiveModels(profile);
-        return refreshInternal(user, profileId, observedModelNames, live);
+        return self.refreshInternal(user, profileId, observedModelNames, live);
     }
 
     @Transactional
@@ -167,6 +171,9 @@ public class ModelDiscoveryService {
                     "Model not promotable", "Only AVAILABLE observations can be promoted.");
         }
         var modelKey = discovery.providerModelName().toLowerCase(java.util.Locale.ROOT);
+        if (!modelKey.matches("[a-z0-9][a-z0-9._-]{0,99}")) {
+            throw validationFailed("Model name cannot become a routable model key.");
+        }
         if (mapper.findGlobalLogicalModel(modelKey) != null) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                     "Model key collision", "A private model must not shadow a global model key.");

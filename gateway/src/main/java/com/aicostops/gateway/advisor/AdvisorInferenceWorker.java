@@ -32,7 +32,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -64,6 +65,7 @@ public class AdvisorInferenceWorker {
     private final GatewayUsageFinalizationService usageFinalization;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final TransactionTemplate transactions;
     private final SecureRandom random = new SecureRandom();
 
     public AdvisorInferenceWorker(
@@ -75,7 +77,8 @@ public class AdvisorInferenceWorker {
             ProviderCredentialDecryptor credentialDecryptor,
             GatewayUsageFinalizationService usageFinalization,
             ObjectMapper objectMapper,
-            Clock clock) {
+            Clock clock,
+            PlatformTransactionManager transactionManager) {
         this.jobs = jobs;
         this.readMapper = readMapper;
         this.orchestrator = orchestrator;
@@ -85,6 +88,7 @@ public class AdvisorInferenceWorker {
         this.usageFinalization = usageFinalization;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.transactions = new TransactionTemplate(transactionManager);
     }
 
     @Scheduled(fixedDelayString = "${aicostops.gateway.advisor-worker-delay-ms:30000}")
@@ -100,15 +104,19 @@ public class AdvisorInferenceWorker {
         }
     }
 
-    @Transactional
     public ClaimedJob claimOne() {
-        var now = clock.instant();
-        var candidate = jobs.claimEligibleAny(now);
-        if (candidate == null) return null;
-        var token = HexFormat.of().formatHex(randomBytes(20));
-        if (jobs.markClaimed(candidate.id(), token, now.plus(LEASE), now) != 1) return null;
-        return new ClaimedJob(candidate.id(), candidate.orgId(), token, candidate.attemptCount(),
-                candidate.subjectType(), candidate.subjectId(), candidate.evidenceRefsJson());
+        // Lock + fencing-token assignment commit atomically; the select and
+        // the update must share one transaction (same-class @Transactional
+        // would be bypassed here, so the template is used explicitly).
+        return transactions.execute(status -> {
+            var now = clock.instant();
+            var candidate = jobs.claimEligibleAny(now);
+            if (candidate == null) return null;
+            var token = HexFormat.of().formatHex(randomBytes(20));
+            if (jobs.markClaimed(candidate.id(), token, now.plus(LEASE), now) != 1) return null;
+            return new ClaimedJob(candidate.id(), candidate.orgId(), token, candidate.attemptCount(),
+                    candidate.subjectType(), candidate.subjectId(), candidate.evidenceRefsJson());
+        });
     }
 
     private void execute(ClaimedJob claimed) {

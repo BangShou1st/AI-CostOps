@@ -171,7 +171,8 @@ class IamReadApiIntegrationTest extends AuthenticationContainersSupport {
                         "USER_READ", "USER_MANAGE", "USER_INVITE", "ROLE_READ", "ROLE_ASSIGN",
                         "PROJECT_READ", "PROJECT_MANAGE", "PROJECT_MEMBER_MANAGE", "TEAM_READ", "TEAM_MANAGE",
                         "COST_CENTER_READ", "COST_CENTER_MANAGE", "PROVIDER_ACCOUNT_READ",
-                        "PROVIDER_ACCOUNT_MANAGE", "AUDIT_READ"));
+                        "PROVIDER_ACCOUNT_MANAGE", "AUDIT_READ",
+                        "AI_ADVISOR_USE", "AI_ADVISOR_MANAGE"));
         assertThat(StreamSupport.stream(systemAdmin.path("permissions").spliterator(), false)
                 .allMatch(permission -> new java.util.HashSet<>(permission.propertyNames())
                         .equals(Set.of("id", "code", "name"))
@@ -184,7 +185,7 @@ class IamReadApiIntegrationTest extends AuthenticationContainersSupport {
         assertThat(userRead.path("id").asText()).isEqualTo("1");
         assertThat(userRead.path("name").asText()).isEqualTo("Read users");
         assertThat(permissions.isArray()).isTrue();
-        assertThat(permissions).hasSize(48);
+        assertThat(permissions).hasSize(50);
         assertThat(permissions.get(0).path("id").isTextual()).isTrue();
         assertThat(permissions.toString()).contains("USER_READ", "Read users");
     }
