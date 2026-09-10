@@ -1,4 +1,4 @@
-# M18 — V3 Backend / OpenAPI Contract Freeze
+# M18 — V3 Backend / OpenAPI Contract Freeze (Fourth Repair Candidate)
 
 > Status: **REPAIR CANDIDATE — third repair round, pending GPT-5.6 Sol re-review
 > (second-review findings on HEAD `8ceea10`)**. Branch: `feat/m18-v3-backend-complete`.
@@ -220,3 +220,30 @@ requires a design change, not an implementation shortcut.
 - Fix: advisor `INTERNAL_SYSTEM` credential prefix fits `gateway_credential.credential_prefix`
   `CHAR(12)` (`aic_` + 8 hex chars).
 - Migration chain is now V1→V27 (27 successful migrations on clean MySQL 8.4).
+
+## 13. Fourth repair round deltas (Issue 155 third review, reviewed HEAD c899c23)
+
+Status: FOURTH REPAIR CANDIDATE, pending GPT-5.6 Sol independent review. P0 stays 0.
+This round closes P1-1..P1-8 plus P2-1 with fail-closed semantics and Provider I/O zero on all integrity failures.
+
+Evidence exact snapshot (P1-1/P1-2 finding A+B): canonical fingerprint is now one frozen JSON document covering schemaVersion, subjectType, subjectId, envelope currency, per-fact factId/label/amount-plain/currency, per-driver reference-id/dimension/key/delta-plain/currency, plus forecast/budgetRisk/savings summaries. Amounts use BigDecimal toPlainString. DB ids, timestamps, whitespace never hashed. Backend AdvisorEvidence (SCHEMA_VERSION 2) and gateway EvidenceFingerprint mirror byte for byte; frozen vector updated. Gateway derives allowed refs from verified snapshot only; job evidence_refs_json must equal snapshot-derived set, else EVIDENCE_INTEGRITY_FAILED with zero Provider I/O. Tamper negatives cover fact amount/label/currency, driver id/dimension/key/currency, summary, plus extra-id refs.
+
+Retry lineage and attempt lifecycle (P1-2 findings C+D+E): explicit retry clears job gateway_request_id, claim_token, claim_expires_at, failure_code, started_at, completed_at and increments attempt_count, then inserts fresh PENDING attempt; old attempt rows stay immutable (FAILED+G1 preserved, new PENDING). Job+attempt gateway link is one short TransactionTemplate unit with fencing-token check and both-rows-affected assertion; Provider I/O only after commit; half-link rolls back to both NULL. Attempts move PENDING to RUNNING to COMPLETED/FAILED on both backend and gateway; terminal jobs never leave RUNNING attempts. Claim queries require gateway_request_id IS NULL for PENDING reclaim, so stale G1 can never be mistaken for new attempt.
+
+Exact V27 credential (P2-1 finding F): V27 jobs with non-null advisor_profile_id use only the exact profile-bound ACTIVE credential; missing or revoked yields IDENTITY_MISSING with zero dispatch. Legacy jobs with null binding keep old fallback. Negative test proves another INTERNAL_SYSTEM credential with same scope is never substituted.
+
+Public Internet policy (P1-3 finding G): backend CustomEndpointValidator and gateway DispatchEndpointGuard plus both resolver groups share one explicit globally-routable policy. IPv4 blocks 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, 224/4, 240/4, 255.255.255.255. IPv6 blocks unspecified, loopback, ULA fc00/7, link-local fe80/10, multicast, documentation 2001:db8/32, non-2000/3 globals, with IPv4-mapped embedded checks. Tests pin 8.8.8.8 allowed and 10.0.0.1, 100.64.0.1, 127.0.0.1, 169.254.169.254, 192.0.2.1, 198.18.0.1, 203.0.113.1, ULA blocked on both sides. Controlled loopback stays test-only via injected lenient policy; no production bypass flag.
+
+Discovery refresh (P1-4 finding H): POST models/refresh is live-only. fetchLive=false or absent body with client modelNames is VALIDATION_FAILED with zero mutation. Client names never become LIVE_DISCOVERY. Manual registration stays on POST models/manual with source MANUAL. OpenAPI updated.
+
+Discovery parsing (P1-5 findings I+J): missing modelsPath yields VALIDATION_FAILED with zero Provider I/O and zero mutation (never empty snapshot). Parser is strict typed JSON for shape data:[id], bounded 500, id 1..200 chars, deduped. Invalid JSON, wrong shape, missing id, blank id all fail closed preserving prior availability. Valid empty data:[] is the only true empty catalog that may mark prior AVAILABLE UNAVAILABLE. Integration covers 500, malformed, wrong shape, missing id, valid empty, valid 2.
+
+Capability probe (P1-6 findings K+L): streaming VERIFIED requires text/event-stream plus at least one legal choices-array chunk plus terminal data:[DONE]; truncated stream with chunk but no terminal is UNKNOWN, never VERIFIED; wrong content-type is UNSUPPORTED; malformed SSE is UNSUPPORTED/UNKNOWN. Non-stream CHAT_COMPLETIONS VERIFIED requires parsed root object with choices array, at least one choice with message.content string; USAGE VERIFIED requires numeric prompt_tokens/completion_tokens/total_tokens at least zero; STRUCTURED_JSON VERIFIED parses inner message.content JSON and requires boolean ok true. Substring matching removed. Negatives cover fake choices string, non-array choices, missing usage, truncated SSE.
+
+Promotion gate (P1-8 finding M): promote requires AVAILABLE plus protocol OPENAI_CHAT_COMPLETIONS plus last_probe_status PASS plus verified capabilities containing CHAT_COMPLETIONS, else MODEL_NOT_VERIFIED. Manual unprobed and failed-probe promotes are rejected. Verified promote succeeds. No user-declared capability becomes routable.
+
+Savings rate coverage (P1-7 finding N): replayable requires every positive-quantity usage dimension to have a valid rate with unit_quantity over zero and unit_price at least zero on both current and challenger. Missing rate makes candidate ineligible (skip, never zero). Explicit unit_price zero is valid. Unit tests pin missing INPUT+OUTPUT vs INPUT-only as not replayable, explicit zero as replayable with exact 50.00, plus invalid rates. Integration proves missing OUTPUT yields zero recommendations and explicit zero yields one. BigDecimal exactness preserved.
+
+State-machine and control-plane sweeps (findings 20/21/22): retry/claim/link/pre-dispatch/post-dispatch/success/invalid-response/lease-expiry/supersede/crash paths checked for blind redispatch, stale G1, half-link, terminal mismatch, and PENDING carrying old failure. Discovery/probe/redirect/secret/DNS/proxy/body/timeout share one transport policy on both planes. Pricing dimensions INPUT/OUTPUT/CACHED/REQUEST validated; unknown positive-quantity dimensions fail closed.
+
+Verification on final HEAD: backend mvn verify 1139 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Gateway mvn verify 84 tests, 0 failures, 0 errors, 0 skipped, BUILD SUCCESS. Frontend npm ci plus npm run build success with only chunk over 500kB warning. Migration V1 to V27 clean apply validated (27 migrations). git diff check clean. Hosted CI NOT RUN. Literal 127.0.0.1:7897 DEFERRED. Real Provider DEFERRED.

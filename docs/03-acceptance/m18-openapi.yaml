@@ -120,12 +120,12 @@ paths:
           description: 'Discovery rows'
   /provider-connections/{id}/models/refresh:
     post:
-      summary: Upsert observed models; mark absent ones UNAVAILABLE
+      summary: Live Provider-backed /models discovery only (fetchLive=true required); client modelNames never become LIVE_DISCOVERY, non-live refresh is VALIDATION_FAILED with zero mutation, malformed/unsupported discovery never wipes availability
       security: [bearerAuth: []]
       x-permission: PROVIDER_ACCOUNT_MANAGE
       responses:
         '200':
-          description: 'Discovery rows'
+          description: 'Discovery rows from successful live snapshot only'
   /provider-connections/{id}/models/manual:
     post:
       summary: Register a manual observation
@@ -136,7 +136,7 @@ paths:
           description: 'Discovery row'
   /provider-connections/{id}/models/{discoveryId}/probe:
     post:
-      summary: Bounded synthetic capability probe (VERIFIED only by evidence)
+      summary: Bounded synthetic capability probe (VERIFIED only by parsed protocol evidence; truncated SSE never VERIFIED; non-stream JSON schema verified)
       security: [bearerAuth: []]
       x-permission: PROVIDER_ACCOUNT_MANAGE
       responses:
@@ -144,7 +144,7 @@ paths:
           description: 'Capability map'
   /provider-connections/{id}/models/{discoveryId}/promote:
     post:
-      summary: Create org-private logical/provider model (pricing+routing still gate)
+      summary: Create org-private logical/provider model only when AVAILABLE plus PASS probe plus verified CHAT_COMPLETIONS (pricing+routing still gate)
       security: [bearerAuth: []]
       x-permission: PROVIDER_ACCOUNT_MANAGE
       responses:
