@@ -1,12 +1,13 @@
 # M18 — V3 Backend / OpenAPI Contract Freeze
 
-> Status: **REPAIR CANDIDATE — pending GPT-5.6 Sol second independent review**. Branch:
-> `feat/m18-v3-backend-complete`. Machine contract:
-> [`m18-openapi.yaml`](./m18-openapi.yaml). Gate:
+> Status: **REPAIR CANDIDATE — third repair round, pending GPT-5.6 Sol re-review
+> (second-review findings on HEAD `8ceea10`)**. Branch: `feat/m18-v3-backend-complete`.
+> Machine contract: [`m18-openapi.yaml`](./m18-openapi.yaml). Gate:
 > `backend/src/test/java/com/aicostops/contract/M18OpenApiContractTest.java`.
 >
-> This revision repairs all P0/P1 findings from Issue #155 (old HEAD `6ec8012`). Do not treat
-> as final FROZEN until the second independent review accepts the new remote HEAD.
+> This revision repairs all P0/P1 findings from Issue #155 rounds 1-3 (latest reviewed
+> HEAD `8ceea10`). Do not treat as final FROZEN until the independent review accepts
+> the new remote HEAD.
 
 ## 1. Conventions (unchanged V1/V2 + V3)
 
@@ -193,3 +194,29 @@ No V3 frontend, Responses/Messages/Gemini/Embeddings APIs, header/body
 DSLs, browser proxy controls, private-endpoint enablement, FX, ML sidecars
 or autonomous routing/savings activation. Reopening any frozen choice
 requires a design change, not an implementation shortcut.
+
+## 12. Third repair round deltas (Issue #155 second review, reviewed HEAD `8ceea10`)
+
+- P0 job-profile freeze (V27): `advisor_inference_job.advisor_profile_id` binds each job to
+  its exact profile revision; `updateProfile` supersedes still-PENDING jobs as
+  `FAILED/PROFILE_SUPERSEDED` (an old job never silently executes under a new profile);
+  new requests bind exactly to the ACTIVE revision with a rotated execution principal.
+- P1 immutable evidence (V27): `advisor_evidence_snapshot` persists the bounded
+  server-generated facts/drivers/summary the model receives; the job fingerprint must equal
+  the snapshot fingerprint before any Provider I/O (`EVIDENCE_INTEGRITY_FAILED`);
+  the worker prompt is built from the snapshot only; client-supplied money is never trusted;
+  foreign/missing subjects are rejected; snapshot money is stored as JSON strings so
+  `12.50` never degrades to `12.5`.
+- P1 savings flag (V27): `savings_recommendation.routing_change_required` marks candidates
+  that are production-ready but not referenced by any ACTIVE routing revision; the
+  recommendations API surfaces it as `routingChangeRequired` (boolean); APPLIED linkage
+  still requires a human-created ACTIVE routing link.
+- P1 ledger grains: `providerDaily` additionally attributes direct Provider Charge entries
+  through the deterministic confirmed import lineage
+  (`charge_fact → raw_provider_record → import_attempt → import_batch.provider_account_id`);
+  charge entries without that lineage stay visible in org/project/team/cost-center totals
+  but are never invented in the provider grain. Settlement/usage attribution tolerates a
+  missing `gateway_request` row (LEFT JOIN; advisor exclusion preserved).
+- Fix: advisor `INTERNAL_SYSTEM` credential prefix fits `gateway_credential.credential_prefix`
+  `CHAR(12)` (`aic_` + 8 hex chars).
+- Migration chain is now V1→V27 (27 successful migrations on clean MySQL 8.4).

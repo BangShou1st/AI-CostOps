@@ -261,6 +261,24 @@ components:
       type: string
       pattern: '^-?\d+(\.\d+)?$'
       description: Decimal string, never float
+    Recommendation:
+      type: object
+      required: [id, status, currentCost, candidateCost, potentialSaving,
+        potentialSavingPercent, routingChangeRequired]
+      properties:
+        id: {type: integer, format: int64}
+        status:
+          type: string
+          enum: [OPEN, ACKNOWLEDGED, DISMISSED, APPLIED, EXPIRED]
+        currentCost: {$ref: '#/components/schemas/Money'}
+        candidateCost: {$ref: '#/components/schemas/Money'}
+        potentialSaving: {$ref: '#/components/schemas/Money'}
+        potentialSavingPercent: {$ref: '#/components/schemas/Money'}
+        routingChangeRequired:
+          type: boolean
+          description: True when the candidate is production-ready but not referenced
+            by any ACTIVE routing revision; mark-applied still requires a
+            human-created ACTIVE routing link
     Connection:
       type: object
       required: [id, providerAccountId, version, connectionKind, protocolCode,
