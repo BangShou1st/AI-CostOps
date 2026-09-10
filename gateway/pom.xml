@@ -22,10 +22,10 @@
     <mybatis-spring-boot.version>4.1.0</mybatis-spring-boot.version>
     <testcontainers.version>2.0.5</testcontainers.version>
     <archunit.version>1.4.2</archunit.version>
-    <!-- Trivy gate: spring-boot 4.1.0 manages Netty 4.2.15.Final which carries
-         HIGH netty-codec-compression findings fixed in 4.2.16.Final. Pin the
-         patch release for the data plane. -->
-    <netty.version>4.2.16.Final</netty.version>
+    <!-- Security gate CVE-2026-75595: Netty 4.2.0.Final-4.2.16.Final affected,
+         patched in 4.2.17.Final. Pin the aligned patch release for the
+         data plane; Spring Boot major/minor stays 4.1.0. -->
+    <netty.version>4.2.17.Final</netty.version>
   </properties>
 
   <dependencyManagement>

@@ -26,6 +26,10 @@
     <commons-csv.version>1.14.1</commons-csv.version>
     <commons-compress.version>1.28.0</commons-compress.version>
     <poi.version>5.5.1</poi.version>
+    <!-- Security gate CVE-2026-75595: Spring Boot 4.1.0 manages Netty 4.2.15.Final
+         (affected range >= 4.2.0.Final, <= 4.2.16.Final). Pin the aligned
+         patch release via netty-bom; Spring Boot major/minor stays 4.1.0. -->
+    <netty.version>4.2.17.Final</netty.version>
     <!-- Trivy gate: spring-boot 4.1.0 manages Tomcat 11.0.x below 11.0.25,
          which carries fixed HIGH/CRITICAL findings. Pin the patch release;
          the Spring Boot major/minor stays 4.1.0. -->
@@ -34,6 +38,13 @@
 
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>${netty.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <dependency>
         <groupId>org.testcontainers</groupId>
         <artifactId>testcontainers-bom</artifactId>

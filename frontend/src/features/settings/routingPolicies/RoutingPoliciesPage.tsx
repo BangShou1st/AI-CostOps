@@ -90,19 +90,48 @@ export function RoutingPoliciesPage() {
   )
 }
 
+function parsePositiveId(value: string): number | null {
+  const trimmed = value.trim()
+  if (!/^\d+$/.test(trimmed)) return null
+  const parsed = Number(trimmed)
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null
+}
+
 function NewPolicyModal({ saving, onCancel, onCreate }: { saving: boolean; onCancel: () => void; onCreate: (input: RoutingPolicyInput) => void }) {
   const [modelId, setModelId] = useState('')
   const [projectId, setProjectId] = useState('')
   const [providerAccountId, setProviderAccountId] = useState('')
   const [providerModelId, setProviderModelId] = useState('')
   const [priority, setPriority] = useState(0)
-  return <Modal open title="创建路由策略" okText="创建草稿" cancelText="取消" confirmLoading={saving} okButtonProps={{ disabled: !modelId || !providerAccountId || !providerModelId }} onCancel={onCancel} onOk={() => onCreate({ modelId, projectId: projectId || null, candidates: [{ providerAccountId, providerModelId, priority, status: 'ACTIVE' }] })}>
+
+  const modelIdNum = parsePositiveId(modelId)
+  const projectIdNum = projectId.trim() === '' ? null : parsePositiveId(projectId)
+  const providerAccountIdNum = parsePositiveId(providerAccountId)
+  const providerModelIdNum = parsePositiveId(providerModelId)
+  const projectIdInvalid = projectId.trim() !== '' && projectIdNum === null
+  const hasError = modelIdNum === null || providerAccountIdNum === null || providerModelIdNum === null || projectIdInvalid
+
+  return <Modal
+    open
+    title="创建路由策略"
+    okText="创建草稿"
+    cancelText="取消"
+    confirmLoading={saving}
+    okButtonProps={{ disabled: hasError }}
+    onCancel={onCancel}
+    onOk={() => onCreate({
+      modelId: modelIdNum!,
+      projectId: projectIdNum,
+      candidates: [{ providerAccountId: providerAccountIdNum!, providerModelId: providerModelIdNum!, priority, status: 'ACTIVE' }],
+    })}
+  >
     <Space direction="vertical" style={{ width: '100%' }}>
       <label>模型 ID<Input aria-label="模型 ID" value={modelId} onChange={(event) => setModelId(event.target.value)} /></label>
       <label>项目 ID（留空表示组织默认）<Input aria-label="项目 ID" value={projectId} onChange={(event) => setProjectId(event.target.value)} /></label>
       <label>服务商账号 ID<Input aria-label="服务商账号 ID" value={providerAccountId} onChange={(event) => setProviderAccountId(event.target.value)} /></label>
       <label>服务商模型 ID<Input aria-label="服务商模型 ID" value={providerModelId} onChange={(event) => setProviderModelId(event.target.value)} /></label>
       <label>候选优先级<InputNumber aria-label="候选优先级" min={0} value={priority} onChange={(value) => setPriority(value ?? 0)} /></label>
+      {hasError && <span role="alert" style={{ color: '#cf1322' }}>请为各 ID 填写有效的正整数（项目 ID 可留空）。</span>}
     </Space>
   </Modal>
 }

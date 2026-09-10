@@ -129,7 +129,15 @@ public class GatewayRequestOrchestrator {
                                     candidate.pricingVersionId());
                         } catch (RouteAttemptCoordinator.PlanRejectedException ex) {
                             if (ex.rejection() == RouteAttemptCoordinator.PlanRejection.CANDIDATE_ALREADY_ATTEMPTED) {
-                                return InitialCandidateResult.skipped(attempted, false, false);
+                                // Follower convergence: a concurrent identical call
+                                // owns this candidate on the shared idempotency
+                                // identity. Observe the in-progress identity and
+                                // stop this trial without touching shared state;
+                                // a genuine budget rejection still flows through
+                                // the rejected() path below with its own semantics.
+                                throw new GatewayErrorException(
+                                        GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
+                                        "The same idempotency identity is already being dispatched");
                             }
                             throw ex;
                         }

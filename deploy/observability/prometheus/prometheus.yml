@@ -12,6 +12,13 @@ scrape_configs:
       - targets: ['backend:8080']
         labels:
           service: aicostops-backend
+  - job_name: aicostops-gateway
+    metrics_path: /actuator/prometheus
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['gateway:8081']
+        labels:
+          service: aicostops-gateway
 
 rule_files:
   - /etc/prometheus/alerts.yml

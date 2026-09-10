@@ -1,16 +1,17 @@
 package com.aicostops.gateway.config;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.gateway.provider.mimo.MimoEndpointPolicy;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.env.MockEnvironment;
 
 /**
  * AIC-091 production fail-fast: malformed/missing Base64 32-byte HMAC/KEK
- * secrets, dev bootstrap and dev raw keys reject startup, and the Provider
- * boundary rejects non-HTTPS/non-approved MiMo endpoints in production.
+ * secrets, dev bootstrap and dev raw keys reject startup, the Provider
+ * boundary rejects non-HTTPS/non-approved MiMo endpoints in production, and
+ * missing/default datasource credentials reject startup (M16).
  */
 class GatewayProductionConfigurationValidatorTest {
 
@@ -18,10 +19,7 @@ class GatewayProductionConfigurationValidatorTest {
 
     @Test
     void validSecretsAndSafeDevFlagsPass() {
-        var properties = validProperties();
-        var validator = new GatewayProductionConfigurationValidator(properties);
-
-        validator.validate();
+        new GatewayProductionConfigurationValidator(validProperties(), safeEnv()).validate();
     }
 
     @Test
@@ -29,7 +27,7 @@ class GatewayProductionConfigurationValidatorTest {
         var properties = validProperties();
         properties.setCredentialHmacKeyV1("");
 
-        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties).validate())
+        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("credential-hmac-key-v1");
     }
@@ -39,7 +37,7 @@ class GatewayProductionConfigurationValidatorTest {
         var properties = validProperties();
         properties.setRequestHmacKeyV1(null);
 
-        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties).validate())
+        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("request-hmac-key-v1");
     }
@@ -49,7 +47,7 @@ class GatewayProductionConfigurationValidatorTest {
         var properties = validProperties();
         properties.setProviderKekV1("   ");
 
-        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties).validate())
+        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("provider-kek-v1");
     }
@@ -59,7 +57,7 @@ class GatewayProductionConfigurationValidatorTest {
         var properties = validProperties();
         properties.setCredentialHmacKeyV1("not-base64!!!");
 
-        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties).validate())
+        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("must be valid Base64");
     }
@@ -70,7 +68,7 @@ class GatewayProductionConfigurationValidatorTest {
         properties.setCredentialHmacKeyV1(
                 Base64.getEncoder().encodeToString(new byte[16]));
 
-        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties).validate())
+        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("exactly 32 bytes, got 16");
     }
@@ -80,7 +78,7 @@ class GatewayProductionConfigurationValidatorTest {
         var properties = validProperties();
         properties.setDevBootstrapEnabled(true);
 
-        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties).validate())
+        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("dev-bootstrap-enabled");
     }
@@ -90,7 +88,7 @@ class GatewayProductionConfigurationValidatorTest {
         var properties = validProperties();
         properties.setDevRawKey("aic_0123456789ab_" + "A".repeat(43));
 
-        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties).validate())
+        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("dev-raw-key");
     }
@@ -100,7 +98,7 @@ class GatewayProductionConfigurationValidatorTest {
         var properties = validProperties();
         properties.setMaxActiveStreams(0);
 
-        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties).validate())
+        assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("maxActiveStreams");
     }
@@ -124,6 +122,48 @@ class GatewayProductionConfigurationValidatorTest {
         GatewayProductionConfigurationValidator.requireSecret("x", VALID_32B_BASE64);
     }
 
+    @Test
+    void missingDatasourceUsernameRejects() {
+        var env = safeEnv();
+        env.setProperty("spring.datasource.username", "   ");
+
+        assertThatThrownBy(
+                        () -> new GatewayProductionConfigurationValidator(validProperties(), env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SPRING_DATASOURCE_USERNAME");
+    }
+
+    @Test
+    void missingDatasourcePasswordRejects() {
+        var env = safeEnv();
+        env.setProperty("spring.datasource.password", "");
+
+        assertThatThrownBy(
+                        () -> new GatewayProductionConfigurationValidator(validProperties(), env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SPRING_DATASOURCE_PASSWORD");
+    }
+
+    @Test
+    void localDefaultDatasourcePasswordRejects() {
+        var env = safeEnv();
+        env.setProperty("spring.datasource.password", "change-me-local-only");
+
+        assertThatThrownBy(
+                        () -> new GatewayProductionConfigurationValidator(validProperties(), env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("SPRING_DATASOURCE_PASSWORD");
+    }
+
+    @Test
+    void explicitSafeDatasourceCredentialPasses() {
+        var env = safeEnv();
+        env.setProperty("spring.datasource.username", "aicostops_gateway_acceptance");
+        env.setProperty("spring.datasource.password", "acceptance-only-strong-password-2026");
+
+        new GatewayProductionConfigurationValidator(validProperties(), env).validate();
+    }
+
     private static GatewayProperties validProperties() {
         var properties = new GatewayProperties();
         properties.setCredentialHmacKeyV1(VALID_32B_BASE64);
@@ -132,5 +172,12 @@ class GatewayProductionConfigurationValidatorTest {
         properties.setDevBootstrapEnabled(false);
         properties.setDevRawKey("");
         return properties;
+    }
+
+    private static MockEnvironment safeEnv() {
+        var env = new MockEnvironment();
+        env.setProperty("spring.datasource.username", "aicostops_gateway");
+        env.setProperty("spring.datasource.password", "safe-acceptance-password-2026");
+        return env;
     }
 }
