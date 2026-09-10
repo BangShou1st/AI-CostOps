@@ -11,6 +11,9 @@ import com.aicostops.providerhub.application.ModelDiscoveryService.PromotionResp
 import com.aicostops.providerhub.application.ModelProbeService;
 import com.aicostops.providerhub.application.ModelProbeService.ProbeResult;
 import com.aicostops.providerhub.application.ProviderConnectionService;
+import com.aicostops.providerhub.application.ProviderCredentialService;
+import com.aicostops.providerhub.application.ProviderCredentialService.CredentialRequest;
+import com.aicostops.providerhub.application.ProviderCredentialService.CredentialResponse;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.PageRequest;
 import com.aicostops.shared.web.PageResponse;
@@ -35,14 +38,17 @@ public class ProviderHubController {
     private final ProviderConnectionService connections;
     private final ModelDiscoveryService discovery;
     private final ModelProbeService probe;
+    private final ProviderCredentialService credentials;
 
     public ProviderHubController(
             ProviderConnectionService connections,
             ModelDiscoveryService discovery,
-            ModelProbeService probe) {
+            ModelProbeService probe,
+            ProviderCredentialService credentials) {
         this.connections = connections;
         this.discovery = discovery;
         this.probe = probe;
+        this.credentials = credentials;
     }
 
     @GetMapping("/provider-templates")
@@ -144,6 +150,41 @@ public class ProviderHubController {
             @PathVariable long id,
             @PathVariable long discoveryId) {
         return discovery.promote(user, id, discoveryId);
+    }
+
+    @GetMapping("/provider-connections/{id}/credentials")
+    public List<CredentialResponse> credentials(
+            @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
+        return credentials.list(user, id);
+    }
+
+    @PostMapping("/provider-connections/{id}/credentials")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CredentialResponse createCredential(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long id,
+            @Valid @RequestBody CredentialBody body) {
+        return credentials.create(user, id, new CredentialRequest(body.rawSecret(), body.safeLabel()));
+    }
+
+    @PostMapping("/provider-connections/{id}/credentials/rotate")
+    public CredentialResponse rotateCredential(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long id,
+            @Valid @RequestBody CredentialBody body) {
+        return credentials.rotate(user, id, new CredentialRequest(body.rawSecret(), body.safeLabel()));
+    }
+
+    @PostMapping("/provider-connections/{id}/credentials/{credentialId}/revoke")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revokeCredential(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable long id,
+            @PathVariable long credentialId) {
+        credentials.revoke(user, id, credentialId);
+    }
+
+    public record CredentialBody(String rawSecret, String safeLabel) {
     }
 
     public record RefreshModelsRequest(List<String> modelNames) {

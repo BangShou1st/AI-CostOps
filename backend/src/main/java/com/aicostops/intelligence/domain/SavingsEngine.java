@@ -48,7 +48,7 @@ public final class SavingsEngine {
         return new Comparison(current, candidate, saving.max(BigDecimal.ZERO), percent.max(BigDecimal.ZERO));
     }
 
-    static BigDecimal replay(Map<String, Long> usage, Map<String, PricedRate> rates) {
+    public static BigDecimal replay(Map<String, Long> usage, Map<String, PricedRate> rates) {
         var total = BigDecimal.ZERO;
         for (var entry : usage.entrySet()) {
             var rate = rates.get(entry.getKey());
