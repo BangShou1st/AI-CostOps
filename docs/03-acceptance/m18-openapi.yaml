@@ -1,0 +1,304 @@
+openapi: 3.0.3
+info:
+  title: AI CostOps V3 Backend Contract (M18 Freeze)
+  version: 3.0.0-m18-freeze
+  description: >-
+    M18 backend/OpenAPI contract freeze. Money is always a decimal string.
+    Secrets are never returned. Timestamps are ISO-8601 UTC. Pagination
+    follows {items, page, size, totalElements, totalPages}. Error envelope is
+    the shared RFC-9457 problem with a stable machine code.
+servers:
+  - url: /api/v1
+paths:
+  /provider-templates:
+    get:
+      summary: List server-owned provider templates
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses:
+        '200':
+          description: Templates with locked-field metadata
+  /provider-connections:
+    get:
+      summary: Page connection profiles (current org)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses:
+        '200':
+          description: 'Page of Connection'
+    post:
+      summary: Create a DRAFT connection profile (server-assigned version)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '201':
+          description: 'Draft Connection'
+  /provider-connections/{id}:
+    get:
+      summary: Get one connection profile
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses:
+        '200':
+          description: 'Connection'
+    put:
+      summary: Update a DRAFT profile (ACTIVE/RETIRED immutable)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '200':
+          description: 'Connection'
+  /provider-connections/{id}/revisions:
+    get:
+      summary: List versions of one account
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses:
+        '200':
+          description: 'Connections'
+    post:
+      summary: Open a new DRAFT revision (monotonic version)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '201':
+          description: 'Draft Connection'
+  /provider-connections/{id}/activate:
+    post:
+      summary: Atomically retire previous ACTIVE and activate this DRAFT
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '200':
+          description: 'Active Connection'
+  /provider-connections/{id}/probe:
+    post:
+      summary: Explicit bounded connection probe (no persistence of I/O)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses:
+        '200':
+          description: 'Probe result PASS/FAIL + errorCode'
+  /provider-connections/{id}/credentials:
+    get:
+      summary: List safe credential projections (labels only)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses:
+        '200':
+          description: 'Credentials'
+    post:
+      summary: Store a new ACTIVE secret (AES-256-GCM, never returned)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '201':
+          description: 'Credential metadata'
+  /provider-connections/{id}/credentials/rotate:
+    post:
+      summary: Store a successor secret and revoke the previous ACTIVE one
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '200':
+          description: 'Credential metadata'
+  /provider-connections/{id}/credentials/{credentialId}/revoke:
+    post:
+      summary: Revoke one credential (history preserved)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '204':
+          description: 'Revoked'
+  /provider-connections/{id}/models:
+    get:
+      summary: List discovery observations for one profile
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses:
+        '200':
+          description: 'Discovery rows'
+  /provider-connections/{id}/models/refresh:
+    post:
+      summary: Upsert observed models; mark absent ones UNAVAILABLE
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '200':
+          description: 'Discovery rows'
+  /provider-connections/{id}/models/manual:
+    post:
+      summary: Register a manual observation
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '201':
+          description: 'Discovery row'
+  /provider-connections/{id}/models/{discoveryId}/probe:
+    post:
+      summary: Bounded synthetic capability probe (VERIFIED only by evidence)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '200':
+          description: 'Capability map'
+  /provider-connections/{id}/models/{discoveryId}/promote:
+    post:
+      summary: Create org-private logical/provider model (pricing+routing still gate)
+      security: [bearerAuth: []]
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses:
+        '201':
+          description: 'Promotion ids'
+  /cost-intelligence/summary:
+    get:
+      summary: Latest run status + counts (STALE when no fresh run)
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      responses:
+        '200':
+          description: 'Summary'
+  /cost-intelligence/anomalies:
+    get:
+      summary: Deterministic anomalies (median/MAD/robust-z + gates)
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      responses:
+        '200':
+          description: 'Anomalies with decimal-string money'
+  /cost-intelligence/forecasts:
+    get:
+      summary: DAMPED_HOLT or RECENT_RUN_RATE derived estimates
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      responses:
+        '200':
+          description: 'Forecasts with decimal-string money'
+  /cost-intelligence/budget-risks:
+    get:
+      summary: Immediate exposure vs projected period end + risk enum
+      security: [bearerAuth: []]
+      x-permission: BUDGET_READ
+      responses:
+        '200':
+          description: 'Budget risk'
+  /cost-intelligence/recommendations:
+    get:
+      summary: Deterministic counterfactual savings recommendations
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      responses:
+        '200':
+          description: 'Recommendations with decimal-string money'
+  /cost-intelligence/recommendations/{id}/acknowledge:
+    post:
+      summary: OPEN -> ACKNOWLEDGED
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      responses:
+        '200':
+          description: 'Recommendation'
+  /cost-intelligence/recommendations/{id}/dismiss:
+    post:
+      summary: OPEN/ACKNOWLEDGED -> DISMISSED
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      responses:
+        '200':
+          description: 'Recommendation'
+  /cost-intelligence/recommendations/{id}/mark-applied:
+    post:
+      summary: ACKNOWLEDGED -> APPLIED with routing revision linkage
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      responses:
+        '200':
+          description: 'Recommendation'
+  /ai-advisor/profile:
+    get:
+      summary: Active advisor profile
+      security: [bearerAuth: []]
+      x-permission: AI_ADVISOR_USE
+      responses:
+        '200':
+          description: 'Profile'
+    put:
+      summary: Version the advisor profile (one ACTIVE per org)
+      security: [bearerAuth: []]
+      x-permission: AI_ADVISOR_MANAGE
+      responses:
+        '200':
+          description: 'Profile'
+  /ai-advisor/explanations:
+    post:
+      summary: Request an explanation (durable PENDING job, explicit cost)
+      security: [bearerAuth: []]
+      x-permission: AI_ADVISOR_USE
+      responses:
+        '201':
+          description: 'Job with attempts'
+  /ai-advisor/explanations/{id}:
+    get:
+      summary: Job + attempts + validated narrative
+      security: [bearerAuth: []]
+      x-permission: AI_ADVISOR_USE
+      responses:
+        '200':
+          description: 'Job'
+  /ai-advisor/explanations/{id}/retry:
+    post:
+      summary: Explicit retry as a new append-only attempt
+      security: [bearerAuth: []]
+      x-permission: AI_ADVISOR_USE
+      responses:
+        '200':
+          description: 'Job'
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+  schemas:
+    Money:
+      type: string
+      pattern: '^-?\d+(\.\d+)?$'
+      description: Decimal string, never float
+    Connection:
+      type: object
+      required: [id, providerAccountId, version, connectionKind, protocolCode,
+        baseUrl, completionPath, authType, networkPolicy, status]
+      properties:
+        id: {type: integer, format: int64}
+        providerAccountId: {type: integer, format: int64}
+        version: {type: integer}
+        connectionKind: {type: string, enum: [BUILTIN, CUSTOM]}
+        templateCode: {type: string, nullable: true, enum: [OPENCODE_ZEN, CUSTOM_OPENAI_COMPATIBLE]}
+        protocolCode: {type: string, enum: [OPENAI_CHAT_COMPLETIONS, MIMO_CHAT_COMPLETIONS]}
+        baseUrl: {type: string}
+        completionPath: {type: string}
+        modelsPath: {type: string, nullable: true}
+        authType: {type: string, enum: [BEARER, API_KEY_HEADER, NONE]}
+        networkPolicy: {type: string, enum: [DIRECT_ONLY, DIRECT_PUBLIC_ONLY]}
+        status: {type: string, enum: [DRAFT, ACTIVE, RETIRED]}
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [ENDPOINT_BLOCKED, PROVIDER_UNAVAILABLE, MODEL_NOT_VERIFIED,
+            PRICING_NOT_READY, ROUTING_NOT_READY, VALIDATION_FAILED,
+            STATE_CONFLICT, RESOURCE_NOT_FOUND, FORBIDDEN]
+x-frozen-enums:
+  connectionStatus: [DRAFT, ACTIVE, RETIRED]
+  discoverySource: [LIVE_DISCOVERY, MANUAL]
+  availability: [AVAILABLE, UNAVAILABLE, UNKNOWN]
+  capability: [VERIFIED, UNSUPPORTED, UNKNOWN]
+  pricingClassification: [VERIFIED_FREE, PAID, UNKNOWN]
+  recommendationStatus: [OPEN, ACKNOWLEDGED, DISMISSED, APPLIED, EXPIRED]
+  advisorJobStatus: [PENDING, CLAIMED, DISPATCHING, RUNNING, COMPLETED, FAILED]
+  risk: [LOW, WATCH, HIGH, OVER_BUDGET]
+  forecastMethod: [DAMPED_HOLT, RECENT_RUN_RATE]
+  forecastConfidence: [LOW, MEDIUM, HIGH]
+x-permissions:
+  providerHub: [PROVIDER_ACCOUNT_READ, PROVIDER_ACCOUNT_MANAGE]
+  intelligenceReads: [COST_READ, BUDGET_READ]
+  advisor: [AI_ADVISOR_USE, AI_ADVISOR_MANAGE]
