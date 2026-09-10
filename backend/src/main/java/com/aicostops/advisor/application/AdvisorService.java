@@ -38,6 +38,7 @@ public class AdvisorService {
     private final AuthorizationContextService authorizationContexts;
     private final AdvisorMapper mapper;
     private final AdvisorOutputValidator outputValidator;
+    private final com.aicostops.intelligence.application.CostIntelligenceService intelligence;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -48,12 +49,14 @@ public class AdvisorService {
             AuthorizationContextService authorizationContexts,
             AdvisorMapper mapper,
             AdvisorOutputValidator outputValidator,
+            com.aicostops.intelligence.application.CostIntelligenceService intelligence,
             AuditService audit,
             ObjectMapper objectMapper,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.outputValidator = outputValidator;
+        this.intelligence = intelligence;
         this.audit = audit;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -104,8 +107,18 @@ public class AdvisorService {
         // P0: rotate INTERNAL_SYSTEM credential so execution principal exactly matches new ACTIVE profile.
         rotateInternalIdentity(context.organizationId(), created.id(), request.projectId(), scope,
                 request.financialScopeId(), budgetMode, request.providerModelId(), now);
-        audit.append("AI_ADVISOR_PROFILE_UPDATED", context.organizationId(), user.userId(),
-                "ADVISOR_PROFILE", created.id(), Map.of("version", created.version()));
+        // P0 frozen-job principle: undispatched work bound to the superseded revision (or legacy
+        // unbound rows) deterministically fails here so it can never silently execute under v2.
+        // Already-linked executions keep converging on their own Gateway lineage instead.
+        if (previous != null) {
+            var superseded = mapper.supersedePendingJobs(context.organizationId(), previous.id(), now);
+            audit.append("AI_ADVISOR_PROFILE_UPDATED", context.organizationId(), user.userId(),
+                    "ADVISOR_PROFILE", created.id(),
+                    Map.of("version", created.version(), "supersededJobs", superseded));
+        } else {
+            audit.append("AI_ADVISOR_PROFILE_UPDATED", context.organizationId(), user.userId(),
+                    "ADVISOR_PROFILE", created.id(), Map.of("version", created.version()));
+        }
         return profileResponse(created);
     }
 
@@ -142,15 +155,35 @@ public class AdvisorService {
         var envelope = buildServerEnvelope(context.organizationId(), request.subjectType(), request.subjectId());
         var fingerprint = AdvisorEvidence.fingerprint(envelope);
         var now = clock.instant();
+        // Fact references cover money facts plus deterministic driver references so the model can
+        // cite drivers without failing output validation; all IDs are server-generated.
+        var allRefs = new java.util.ArrayList<>(envelope.factReferenceIds());
+        allRefs.addAll(driverReferenceIds(envelope));
         final String refsJson;
         try {
-            refsJson = objectMapper.writeValueAsString(envelope.factReferenceIds());
+            refsJson = objectMapper.writeValueAsString(allRefs);
         } catch (Exception ex) {
             throw new IllegalStateException("Advisor evidence references are unavailable", ex);
         }
+        // P0: the job is bound to its exact profile revision (id + version); the worker must
+        // never substitute the later ACTIVE revision.
         mapper.insertJob(context.organizationId(), context.organizationMemberId(),
-                envelope.subjectType(), envelope.subjectId(), fingerprint, refsJson, profile.version(), now);
+                envelope.subjectType(), envelope.subjectId(), fingerprint, refsJson, profile.version(),
+                profile.id(), now);
         var jobId = mapper.lastInsertId();
+        // P1: persist the immutable bounded evidence snapshot the model will actually receive.
+        // The worker verifies the fingerprint before any Provider I/O instead of re-reading
+        // mutable subject rows.
+        try {
+            mapper.insertEvidenceSnapshot(context.organizationId(), jobId, envelope.schemaVersion(),
+                    envelope.subjectType(), envelope.subjectId(), envelope.currency(),
+                    snapshotFactsJson(envelope),
+                    snapshotDriversJson(envelope),
+                    objectMapper.writeValueAsString(snapshotSummary(envelope)), fingerprint,
+                    envelope.generatedAt(), now);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Advisor evidence snapshot is unavailable", ex);
+        }
         mapper.insertAttempt(context.organizationId(), jobId, 1, now);
         audit.append("AI_ADVISOR_EXPLANATION_REQUESTED", context.organizationId(), user.userId(),
                 "ADVISOR_JOB", jobId,
@@ -300,7 +333,8 @@ public class AdvisorService {
     }
 
     private String internalPrefix() {
-        return "aic_int_" + HexFormat.of().formatHex(randomBytes(4));
+        // gateway_credential.credential_prefix is CHAR(12): keep the generated prefix exactly 12 chars.
+        return "aic_" + HexFormat.of().formatHex(randomBytes(4));
     }
 
     private byte[] randomBytes(int length) {
@@ -382,10 +416,10 @@ public class AdvisorService {
                                 row.baselineAmount(), row.currency()),
                         new AdvisorEvidence.MoneyFact("anomaly:" + row.id() + ":delta", "delta",
                                 row.deltaAmount(), row.currency()));
-                var drivers = List.of(new AdvisorEvidence.Driver(row.grainType(), row.grainKey(),
-                        row.deltaAmount(), row.currency()));
-                yield AdvisorEvidence.build("ANOMALY", row.id(), row.currency(), facts, drivers,
-                        "", "", "", clock.instant());
+                // P1: drivers come from the persisted deterministic contribution analysis, never
+                // from the grain itself; empty stays explicitly empty for the model.
+                yield AdvisorEvidence.build("ANOMALY", row.id(), row.currency(), facts,
+                        parseAnomalyDrivers(row), "", "", "", clock.instant());
             }
             case "FORECAST" -> {
                 var row = mapper.findForecastSubject(subjectId, organizationId);
@@ -417,6 +451,11 @@ public class AdvisorService {
                 if (row == null) {
                     throw notFound("Advisor subject was not found.");
                 }
+                // P1: risk inputs and classification are precomputed deterministically here and
+                // frozen into the snapshot; the model only explains them.
+                var evidence = intelligence.assessScopeBudget(organizationId, row.scopeType(),
+                        row.scopeId(), row.actualAmount(), row.committedAmount(), row.totalAmount(),
+                        row.currency(), row.id());
                 var facts = List.of(
                         new AdvisorEvidence.MoneyFact("budget:" + row.id() + ":actual", "actual",
                                 row.actualAmount(), row.currency()),
@@ -424,11 +463,115 @@ public class AdvisorService {
                                 row.committedAmount(), row.currency()),
                         new AdvisorEvidence.MoneyFact("budget:" + row.id() + ":total", "total",
                                 row.totalAmount(), row.currency()));
+                final String riskBlock;
+                try {
+                    riskBlock = objectMapper.writeValueAsString(java.util.Map.of(
+                            "scope", row.scopeType() + ":" + row.scopeId(),
+                            "actual", evidence.actual().toPlainString(),
+                            "committed", evidence.committed().toPlainString(),
+                            "reservations", evidence.reservations().toPlainString(),
+                            "forecastFuture", evidence.forecastFutureUsage().toPlainString(),
+                            "immediate", evidence.immediateExposure().toPlainString(),
+                            "projected", evidence.projectedPeriodEnd().toPlainString(),
+                            "total", evidence.budgetTotal().toPlainString(),
+                            "risk", evidence.risk()));
+                } catch (Exception ex) {
+                    throw new IllegalStateException("Advisor risk evidence is unavailable", ex);
+                }
                 yield AdvisorEvidence.build("BUDGET_RISK", row.id(), row.currency(), facts, List.of(),
-                        "", "scope=" + row.scopeType() + ":" + row.scopeId(), "", clock.instant());
+                        "", riskBlock, "", clock.instant());
             }
             default -> throw validationFailed("Subject type must be ANOMALY, FORECAST, BUDGET_RISK or SAVINGS.");
         };
+    }
+
+    /** Deterministic driver reference ids, aligned with the snapshot driver order. */
+    static List<String> driverReferenceIds(String subjectType, long subjectId, int driverCount) {
+        var refs = new java.util.ArrayList<String>();
+        for (var i = 0; i < driverCount; i++) {
+            refs.add(subjectType.toLowerCase(java.util.Locale.ROOT) + ":" + subjectId + ":driver:" + i);
+        }
+        return refs;
+    }
+
+    private List<String> driverReferenceIds(AdvisorEvidence.Envelope envelope) {
+        return driverReferenceIds(envelope.subjectType(), envelope.subjectId(),
+                envelope.drivers().size());
+    }
+
+    /**
+     * Snapshot facts with amounts as plain decimal strings (never JSON numbers): JSON number
+     * spellings do not preserve BigDecimal scale ({@code 12.50} may read back as {@code 12.5}),
+     * which would break fingerprint recomputation on the Gateway side.
+     */
+    private String snapshotFactsJson(AdvisorEvidence.Envelope envelope) {
+        try {
+            var out = new java.util.ArrayList<java.util.Map<String, String>>();
+            for (var fact : envelope.facts()) {
+                out.add(java.util.Map.of("factId", fact.factId(), "label", fact.label(),
+                        "amount", fact.amount().toPlainString(), "currency", fact.currency()));
+            }
+            return objectMapper.writeValueAsString(out);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Advisor evidence snapshot is unavailable", ex);
+        }
+    }
+
+    private String snapshotDriversJson(AdvisorEvidence.Envelope envelope) {
+        try {
+            var refs = driverReferenceIds(envelope);
+            var out = new java.util.ArrayList<java.util.Map<String, String>>();
+            for (var i = 0; i < envelope.drivers().size(); i++) {
+                var driver = envelope.drivers().get(i);
+                out.add(java.util.Map.of("id", refs.get(i), "dimension", driver.dimension(),
+                        "key", driver.key(), "deltaAmount", driver.deltaAmount().toPlainString(),
+                        "currency", driver.currency()));
+            }
+            return objectMapper.writeValueAsString(out);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Advisor evidence snapshot is unavailable", ex);
+        }
+    }
+
+    private java.util.Map<String, String> snapshotSummary(AdvisorEvidence.Envelope envelope) {
+        return java.util.Map.of("forecastSummary", envelope.forecastSummary(),
+                "budgetRiskSummary", envelope.budgetRiskSummary(),
+                "savingsSummary", envelope.savingsSummary());
+    }
+
+    /**
+     * Parses the persisted deterministic contribution analysis ({@code [{dimension,key,delta}]})
+     * into bounded drivers. Corrupt or absent driver data yields an explicitly empty list so the
+     * model never invents drivers; money stays BigDecimal.
+     */
+    private List<AdvisorEvidence.Driver> parseAnomalyDrivers(AdvisorMapper.AnomalySubject row) {
+        var drivers = new java.util.ArrayList<AdvisorEvidence.Driver>();
+        try {
+            var raw = row.driversJson();
+            if (raw == null || raw.isBlank()) {
+                return List.of();
+            }
+            var node = objectMapper.readTree(raw);
+            if (node == null || !node.isArray()) {
+                return List.of();
+            }
+            for (var item : node) {
+                if (drivers.size() >= AdvisorEvidence.MAX_DRIVERS) {
+                    break;
+                }
+                var dimension = item.path("dimension").asText("").strip();
+                var key = item.path("key").asText("").strip();
+                var deltaText = item.path("delta").asText("").strip();
+                if (dimension.isEmpty() || key.isEmpty() || deltaText.isEmpty()) {
+                    continue;
+                }
+                drivers.add(new AdvisorEvidence.Driver(dimension, key,
+                        new java.math.BigDecimal(deltaText), row.currency()));
+            }
+        } catch (Exception ignored) {
+            return List.of();
+        }
+        return List.copyOf(drivers);
     }
 
     public record ProfileResponse(

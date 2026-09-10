@@ -18,14 +18,23 @@ public interface AdvisorJobMapper {
     @Select("""
             SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,
               CAST(evidence_refs_json AS CHAR) AS evidence_refs_json,advisor_profile_version,
-              status,claim_token,claim_expires_at,gateway_request_id,attempt_count,failure_code,
-              created_at,started_at,completed_at
+              advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
+              failure_code,created_at,started_at,completed_at
             FROM advisor_inference_job
             WHERE status='PENDING'
               OR (status='CLAIMED' AND claim_expires_at < #{now} AND gateway_request_id IS NULL)
             ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED
             """)
     JobRow claimEligibleAny(@Param("now") Instant now);
+
+    @Select("""
+            SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,
+              CAST(evidence_refs_json AS CHAR) AS evidence_refs_json,advisor_profile_version,
+              advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
+              failure_code,created_at,started_at,completed_at
+            FROM advisor_inference_job WHERE id=#{id} AND org_id=#{organizationId}
+            """)
+    JobRow findJob(@Param("id") long id, @Param("organizationId") long organizationId);
 
     @Update("UPDATE advisor_inference_job SET status='CLAIMED',claim_token=#{token},claim_expires_at=#{lease},started_at=#{now} WHERE id=#{id} AND ((status='PENDING') OR (status='CLAIMED' AND claim_expires_at < #{now} AND gateway_request_id IS NULL))")
     int markClaimed(@Param("id") long id, @Param("token") String token,
@@ -53,8 +62,8 @@ public interface AdvisorJobMapper {
     @Select("""
             SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,
               CAST(evidence_refs_json AS CHAR) AS evidence_refs_json,advisor_profile_version,
-              status,claim_token,claim_expires_at,gateway_request_id,attempt_count,failure_code,
-              created_at,started_at,completed_at
+              advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
+              failure_code,created_at,started_at,completed_at
             FROM advisor_inference_job
             WHERE status IN ('CLAIMED','DISPATCHING','RUNNING')
               AND claim_expires_at < #{now} AND gateway_request_id IS NOT NULL
@@ -73,6 +82,39 @@ public interface AdvisorJobMapper {
             FROM advisor_profile WHERE org_id=#{organizationId} AND status='ACTIVE' LIMIT 1
             """)
     ProfileRow findActiveProfile(@Param("organizationId") long organizationId);
+
+    @Select("""
+            SELECT id,org_id,version,provider_model_id,project_id,financial_scope_type,
+              financial_scope_id,budget_enforcement_mode,status
+            FROM advisor_profile WHERE id=#{id} AND org_id=#{organizationId}
+            """)
+    ProfileRow findProfileById(@Param("organizationId") long organizationId, @Param("id") long id);
+
+    @Select("""
+            SELECT id,org_id,version,provider_model_id,project_id,financial_scope_type,
+              financial_scope_id,budget_enforcement_mode,status
+            FROM advisor_profile WHERE org_id=#{organizationId} AND version=#{version} LIMIT 1
+            """)
+    ProfileRow findProfileByOrgVersion(@Param("organizationId") long organizationId,
+            @Param("version") int version);
+
+    /** Exact credential bound to one profile revision (frozen job semantics, any profile status). */
+    @Select("""
+            SELECT gc.id,gc.org_id,gc.service_identity_id,gc.project_id,gc.financial_scope_type,
+              gc.financial_scope_id,gc.budget_enforcement_mode
+            FROM gateway_credential gc
+            WHERE gc.org_id=#{organizationId} AND gc.advisor_profile_id=#{profileId}
+              AND gc.credential_origin='INTERNAL_SYSTEM' AND gc.status='ACTIVE' LIMIT 1
+            """)
+    InternalCredentialRow findCredentialForProfile(@Param("organizationId") long organizationId,
+            @Param("profileId") long profileId);
+
+    @Select("SELECT id,org_id,job_id,schema_version,subject_type,subject_id,currency," +
+            "CAST(facts_json AS CHAR) AS facts_json,CAST(drivers_json AS CHAR) AS drivers_json," +
+            "CAST(summary_json AS CHAR) AS summary_json,evidence_fingerprint,generated_at,created_at" +
+            " FROM advisor_evidence_snapshot WHERE job_id=#{jobId} AND org_id=#{organizationId}")
+    SnapshotRow findEvidenceSnapshot(@Param("jobId") long jobId,
+            @Param("organizationId") long organizationId);
 
     @Select("SELECT model_id FROM provider_model WHERE id=#{providerModelId}")
     Long findLogicalModelOf(@Param("providerModelId") long providerModelId);
@@ -150,9 +192,14 @@ public interface AdvisorJobMapper {
 
     record JobRow(long id, long orgId, long requestedBy, String subjectType, long subjectId,
             String evidenceFingerprint, String evidenceRefsJson, int advisorProfileVersion,
-            String status, String claimToken, Instant claimExpiresAt, Long gatewayRequestId,
-            int attemptCount, String failureCode, Instant createdAt, Instant startedAt,
-            Instant completedAt) {
+            Long advisorProfileId, String status, String claimToken, Instant claimExpiresAt,
+            Long gatewayRequestId, int attemptCount, String failureCode, Instant createdAt,
+            Instant startedAt, Instant completedAt) {
+    }
+
+    record SnapshotRow(long id, long orgId, long jobId, int schemaVersion, String subjectType,
+            long subjectId, String currency, String factsJson, String driversJson, String summaryJson,
+            String evidenceFingerprint, Instant generatedAt, Instant createdAt) {
     }
 
     record ProfileRow(long id, long orgId, int version, long providerModelId, long projectId,

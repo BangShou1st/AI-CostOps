@@ -78,26 +78,40 @@ public final class AdvisorEvidence {
                 generatedAt == null ? Instant.now() : generatedAt, SCHEMA_VERSION);
     }
 
-    /** Deterministic fingerprint binding one job attempt to its evidence. */
+    /**
+     * Deterministic fingerprint binding one job attempt to its evidence. The canonical form covers
+     * subject identity, money facts, deterministic drivers AND the summary block (which carries
+     * the precomputed budget-risk classification), so any tampering with the frozen snapshot is
+     * detectable by the Gateway worker before Provider I/O. The Gateway module mirrors this exact
+     * canonicalization (see {@code EvidenceFingerprint}); the cross-module contract test pins it.
+     */
     public static String fingerprint(Envelope envelope) {
         try {
-            var canonical = new StringBuilder(envelope.subjectType()).append('|')
-                    .append(envelope.subjectId()).append('|').append(envelope.currency()).append('|')
-                    .append(envelope.schemaVersion()).append('|');
-            for (var fact : envelope.facts()) {
-                canonical.append(fact.factId()).append('=')
-                        .append(fact.amount().toPlainString()).append(';');
-            }
-            for (var driver : envelope.drivers()) {
-                canonical.append(driver.dimension()).append(':').append(driver.key()).append('=')
-                        .append(driver.deltaAmount().toPlainString()).append(';');
-            }
             var digest = MessageDigest.getInstance("SHA-256")
-                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+                    .digest(canonicalForm(envelope).getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest);
         } catch (Exception ex) {
             throw new IllegalStateException("Evidence fingerprint is unavailable", ex);
         }
+    }
+
+    /** Exact canonical string hashed by {@link #fingerprint}; mirrored by the Gateway worker. */
+    static String canonicalForm(Envelope envelope) {
+        var canonical = new StringBuilder(envelope.subjectType()).append('|')
+                .append(envelope.subjectId()).append('|').append(envelope.currency()).append('|')
+                .append(envelope.schemaVersion()).append('|');
+        for (var fact : envelope.facts()) {
+            canonical.append(fact.factId()).append('=')
+                    .append(fact.amount().toPlainString()).append(';');
+        }
+        for (var driver : envelope.drivers()) {
+            canonical.append(driver.dimension()).append(':').append(driver.key()).append('=')
+                    .append(driver.deltaAmount().toPlainString()).append(';');
+        }
+        canonical.append(envelope.forecastSummary()).append('|')
+                .append(envelope.budgetRiskSummary()).append('|')
+                .append(envelope.savingsSummary());
+        return canonical.toString();
     }
 
     private static String bounded(String value, int max) {

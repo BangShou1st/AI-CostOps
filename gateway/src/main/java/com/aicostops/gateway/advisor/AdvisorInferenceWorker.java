@@ -34,6 +34,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -133,14 +134,37 @@ public class AdvisorInferenceWorker {
     }
 
     private void runGoverned(ClaimedJob claimed) {
-        var profile = jobs.findActiveProfile(claimed.orgId());
+        // P0 frozen-job principle: execute the exact profile revision this job was requested under
+        // (persisted advisor_profile_id), never the current ACTIVE revision. Legacy jobs without a
+        // binding resolve through their stored version. A job whose bound revision is no longer
+        // ACTIVE fails deterministically here — before any Provider I/O — instead of silently
+        // executing under the new revision. (Claimed jobs never hold a Gateway link yet; linked
+        // executions keep converging on their own lineage via convergeStuckLinked.)
+        var job = jobs.findJob(claimed.jobId(), claimed.orgId());
+        if (job == null) {
+            jobs.markFailed(claimed.jobId(), claimed.token(), "JOB_MISSING", clock.instant());
+            return;
+        }
+        final AdvisorJobMapper.ProfileRow profile;
+        if (job.advisorProfileId() != null) {
+            profile = jobs.findProfileById(claimed.orgId(), job.advisorProfileId());
+        } else {
+            profile = jobs.findProfileByOrgVersion(claimed.orgId(), job.advisorProfileVersion());
+        }
         if (profile == null) {
             jobs.markFailed(claimed.jobId(), claimed.token(), "PROFILE_MISSING", clock.instant());
             return;
         }
-        // P0: prefer the ACTIVE-profile-bound credential; fall back to legacy LIMIT 1 only for
-        // pre-V26 rows that have no advisor_profile_id yet. Then enforce exact principal match.
-        var credential = jobs.findBoundInternalCredential(claimed.orgId());
+        if (!"ACTIVE".equals(profile.status())) {
+            jobs.markFailed(claimed.jobId(), claimed.token(), "PROFILE_SUPERSEDED", clock.instant());
+            return;
+        }
+        // Exact profile-bound credential (legacy LIMIT 1 fallback for pre-V26 rows only), then
+        // enforce principal match against the BOUND profile.
+        var credential = jobs.findCredentialForProfile(claimed.orgId(), profile.id());
+        if (credential == null) {
+            credential = jobs.findBoundInternalCredential(claimed.orgId());
+        }
         if (credential == null) {
             credential = jobs.findInternalCredential(claimed.orgId());
         }
@@ -160,7 +184,16 @@ public class AdvisorInferenceWorker {
             jobs.markFailed(claimed.jobId(), claimed.token(), "MODEL_NOT_FOUND", clock.instant());
             return;
         }
-        var prompt = buildPrompt(claimed);
+        // P1 frozen evidence: the model receives exactly the snapshotted facts. The stored
+        // fingerprint is recomputed here, before any Provider I/O; mutable subject rows are never
+        // re-read for prompt construction.
+        var snapshot = jobs.findEvidenceSnapshot(claimed.jobId(), claimed.orgId());
+        if (snapshot == null || !snapshot.evidenceFingerprint().equals(job.evidenceFingerprint())
+                || !EvidenceFingerprint.verify(snapshot, objectMapper)) {
+            jobs.markFailed(claimed.jobId(), claimed.token(), "EVIDENCE_INTEGRITY_FAILED", clock.instant());
+            return;
+        }
+        var prompt = buildPrompt(snapshot);
         if (prompt == null) {
             jobs.markFailed(claimed.jobId(), claimed.token(), "SUBJECT_UNAVAILABLE", clock.instant());
             return;
@@ -268,69 +301,94 @@ public class AdvisorInferenceWorker {
         }
     }
 
-    private String buildPrompt(ClaimedJob claimed) {
+    /**
+     * Builds the model prompt exclusively from the verified immutable evidence snapshot: every
+     * fact carries its server-generated ID, drivers are the persisted deterministic analysis
+     * (never inferred), and budget-risk inputs plus classification arrive precomputed. Mutable
+     * subject rows are never consulted here.
+     */
+    private String buildPrompt(AdvisorJobMapper.SnapshotRow snapshot) {
         try {
-            var facts = new ArrayList<Map<String, String>>();
-            final String currency;
-            switch (claimed.subjectType()) {
-                case "ANOMALY" -> {
-                    var row = jobs.findAnomaly(claimed.orgId(), claimed.subjectId());
-                    if (row == null) return null;
-                    currency = row.currency();
-                    facts.add(fact("observed", row.observedAmount().toPlainString(), currency));
-                    facts.add(fact("baseline", row.baselineAmount().toPlainString(), currency));
-                    facts.add(fact("delta", row.deltaAmount().toPlainString(), currency));
-                }
-                case "FORECAST" -> {
-                    var row = jobs.findForecast(claimed.orgId(), claimed.subjectId());
-                    if (row == null) return null;
-                    currency = row.currency();
-                    facts.add(fact("projected", row.projectedAmount().toPlainString(), currency));
-                    facts.add(fact("method", row.method(), currency));
-                }
-                case "SAVINGS" -> {
-                    var row = jobs.findSavings(claimed.orgId(), claimed.subjectId());
-                    if (row == null) return null;
-                    currency = row.currency();
-                    facts.add(fact("current-cost", row.currentCost().toPlainString(), currency));
-                    facts.add(fact("candidate-cost", row.candidateCost().toPlainString(), currency));
-                    facts.add(fact("potential-saving", row.potentialSaving().toPlainString(), currency));
-                }
-                case "BUDGET_RISK" -> {
-                    var row = jobs.findBudget(claimed.orgId(), claimed.subjectId());
-                    if (row == null) return null;
-                    currency = row.currency();
-                    facts.add(fact("actual", row.actualAmount().toPlainString(), currency));
-                    facts.add(fact("committed", row.committedAmount().toPlainString(), currency));
-                    facts.add(fact("reserved", row.reservedAmount().toPlainString(), currency));
-                    facts.add(fact("total", row.totalAmount().toPlainString(), currency));
-                }
-                default -> { return null; }
+            var factsNode = objectMapper.readTree(snapshot.factsJson());
+            var driversNode = objectMapper.readTree(snapshot.driversJson());
+            var summaryNode = objectMapper.readTree(snapshot.summaryJson());
+            if (factsNode == null || !factsNode.isArray() || factsNode.isEmpty()
+                    || driversNode == null || !driversNode.isArray()
+                    || summaryNode == null || !summaryNode.isObject()) {
+                return null;
             }
             var envelope = objectMapper.createObjectNode();
-            envelope.put("schema_version", 1);
-            envelope.put("subject", claimed.subjectType());
-            envelope.put("currency", currency);
+            envelope.put("schema_version", snapshot.schemaVersion());
+            envelope.put("subject", snapshot.subjectType());
+            envelope.put("subject_id", snapshot.subjectId());
+            envelope.put("currency", snapshot.currency());
             var factsArray = envelope.putArray("facts");
-            for (var entry : facts) {
+            for (var fact : factsNode) {
+                var id = fact.path("factId").asText("");
+                var label = fact.path("label").asText("");
+                var amount = fact.path("amount").asText("");
+                if (id.isBlank() || label.isBlank() || amount.isBlank()) {
+                    return null;
+                }
                 var node = objectMapper.createObjectNode();
-                node.put("label", entry.get("label"));
-                node.put("amount", entry.get("amount"));
+                node.put("id", id);
+                node.put("label", label);
+                node.put("amount", amount);
+                node.put("currency", fact.path("currency").asText(snapshot.currency()));
                 factsArray.add(node);
             }
-            envelope.put("instruction", "Explain the cost facts briefly. Reply with JSON object "
+            var driversArray = envelope.putArray("drivers");
+            for (var driver : driversNode) {
+                var id = driver.path("id").asText("");
+                var dimension = driver.path("dimension").asText("");
+                var key = driver.path("key").asText("");
+                var delta = driver.path("deltaAmount").asText("");
+                if (id.isBlank() || dimension.isBlank() || key.isBlank() || delta.isBlank()) {
+                    return null;
+                }
+                var node = objectMapper.createObjectNode();
+                node.put("id", id);
+                node.put("dimension", dimension);
+                node.put("key", key);
+                node.put("deltaAmount", delta);
+                node.put("currency", driver.path("currency").asText(snapshot.currency()));
+                driversArray.add(node);
+            }
+            envelope.put("forecastSummary", summaryNode.path("forecastSummary").asText(""));
+            envelope.put("savingsSummary", summaryNode.path("savingsSummary").asText(""));
+            var instruction = new StringBuilder("Explain the cost facts briefly. Reply with JSON object "
                     + "containing only: summary, driversExplanation, recommendedActions (array of strings), "
                     + "warnings (array of strings), factReferences (array of strings). "
-                    + "Never invent amounts; never include money fields.");
+                    + "Never invent amounts; never include money fields. "
+                    + "factReferences may only contain the fact/driver IDs listed above. "
+                    + "Drivers are deterministic analysis results; never invent drivers.");
+            if ("BUDGET_RISK".equals(snapshot.subjectType())) {
+                final JsonNode risk;
+                try {
+                    risk = objectMapper.readTree(summaryNode.path("budgetRiskSummary").asText(""));
+                } catch (Exception ex) {
+                    return null;
+                }
+                if (risk == null || !risk.isObject() || risk.path("risk").asText("").isBlank()) {
+                    return null;
+                }
+                var riskNode = objectMapper.createObjectNode();
+                for (var field : List.of("scope", "actual", "committed", "reservations",
+                        "forecastFuture", "immediate", "projected", "total", "risk")) {
+                    riskNode.put(field, risk.path(field).asText(""));
+                }
+                envelope.set("budgetRisk", riskNode);
+                instruction.append(" The budget risk inputs and classification are precomputed; "
+                        + "explain them only and never recompute projected spend or risk.");
+            } else {
+                envelope.put("budgetRiskSummary", summaryNode.path("budgetRiskSummary").asText(""));
+            }
+            envelope.put("instruction", instruction.toString());
             return objectMapper.writeValueAsString(envelope);
         } catch (RuntimeException ex) {
-            LOG.warn("Advisor prompt build failed for job {}", claimed.jobId(), ex);
+            LOG.warn("Advisor prompt build failed for snapshot {}", snapshot.id(), ex);
             return null;
         }
-    }
-
-    private static Map<String, String> fact(String label, String amount, String currency) {
-        return Map.of("label", label, "amount", amount, "currency", currency);
     }
 
     private Set<String> knownRefs(ClaimedJob claimed) {

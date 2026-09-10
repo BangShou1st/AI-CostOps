@@ -17,6 +17,19 @@ public interface AdvisorMapper {
     @Select("SELECT id,org_id,version,provider_model_id,project_id,financial_scope_type,financial_scope_id,budget_enforcement_mode,status,created_by,created_at,updated_at FROM advisor_profile WHERE id=#{id} AND org_id=#{organizationId}")
     ProfileRow findProfile(@Param("id") long id, @Param("organizationId") long organizationId);
 
+    @Select("SELECT id,org_id,version,provider_model_id,project_id,financial_scope_type,financial_scope_id,budget_enforcement_mode,status,created_by,created_at,updated_at FROM advisor_profile WHERE org_id=#{organizationId} AND version=#{version} LIMIT 1")
+    ProfileRow findProfileByOrgVersion(@Param("organizationId") long organizationId,
+            @Param("version") int version);
+
+    /** Exact credential bound to one profile revision (no ACTIVE-profile join: frozen semantics). */
+    @Select("""
+            SELECT gc.id FROM gateway_credential gc
+            WHERE gc.org_id = #{organizationId} AND gc.advisor_profile_id = #{profileId}
+              AND gc.credential_origin = 'INTERNAL_SYSTEM' AND gc.status = 'ACTIVE' LIMIT 1
+            """)
+    Long findCredentialForProfile(@Param("organizationId") long organizationId,
+            @Param("profileId") long profileId);
+
     @Select("SELECT COALESCE(MAX(version),0)+1 FROM advisor_profile WHERE org_id=#{organizationId}")
     int nextProfileVersion(@Param("organizationId") long organizationId);
 
@@ -136,7 +149,7 @@ public interface AdvisorMapper {
     int allowCredentialModel(@Param("credentialId") long credentialId, @Param("organizationId") long organizationId,
             @Param("modelId") long modelId, @Param("now") Instant now);
 
-    @Select("SELECT id,org_id,run_id,grain_type,grain_key,currency,observed_amount,baseline_amount,delta_amount FROM cost_anomaly WHERE id=#{id} AND org_id=#{organizationId}")
+    @Select("SELECT id,org_id,run_id,grain_type,grain_key,currency,observed_amount,baseline_amount,delta_amount,CAST(drivers_json AS CHAR) AS drivers_json FROM cost_anomaly WHERE id=#{id} AND org_id=#{organizationId}")
     AnomalySubject findAnomalySubject(@Param("id") long id, @Param("organizationId") long organizationId);
 
     @Select("SELECT id,org_id,scope_type,scope_key,currency,projected_amount,method FROM cost_forecast_snapshot WHERE id=#{id} AND org_id=#{organizationId}")
@@ -164,15 +177,52 @@ public interface AdvisorMapper {
 
     @Insert("""
             INSERT INTO advisor_inference_job(org_id,requested_by,subject_type,subject_id,
-              evidence_fingerprint,evidence_refs_json,advisor_profile_version,status,claim_token,claim_expires_at,
+              evidence_fingerprint,evidence_refs_json,advisor_profile_version,advisor_profile_id,
+              status,claim_token,claim_expires_at,
               gateway_request_id,attempt_count,failure_code,created_at,started_at,completed_at)
             VALUES(#{organizationId},#{requestedBy},#{subjectType},#{subjectId},#{fingerprint},
-              CAST(#{refsJson} AS JSON),#{profileVersion},'PENDING',NULL,NULL,NULL,1,NULL,#{now},NULL,NULL)
+              CAST(#{refsJson} AS JSON),#{profileVersion},#{profileId},'PENDING',NULL,NULL,NULL,1,NULL,#{now},NULL,NULL)
             """)
     int insertJob(@Param("organizationId") long organizationId, @Param("requestedBy") long requestedBy,
             @Param("subjectType") String subjectType, @Param("subjectId") long subjectId,
             @Param("fingerprint") String fingerprint, @Param("refsJson") String refsJson,
-            @Param("profileVersion") int profileVersion, @Param("now") Instant now);
+            @Param("profileVersion") int profileVersion, @Param("profileId") long profileId,
+            @Param("now") Instant now);
+
+    /**
+     * Deterministically retires undispatched work bound to a superseded profile revision (plus
+     * legacy rows without a profile binding): they must never silently execute under the new
+     * ACTIVE revision. Already-dispatched/linked jobs converge on their own execution instead.
+     */
+    @Update("""
+            UPDATE advisor_inference_job
+            SET status='FAILED',failure_code='PROFILE_SUPERSEDED',completed_at=#{now}
+            WHERE org_id=#{organizationId} AND status='PENDING'
+              AND (advisor_profile_id=#{prevProfileId} OR advisor_profile_id IS NULL)
+            """)
+    int supersedePendingJobs(@Param("organizationId") long organizationId,
+            @Param("prevProfileId") long prevProfileId, @Param("now") Instant now);
+
+    @Insert("""
+            INSERT INTO advisor_evidence_snapshot(org_id,job_id,schema_version,subject_type,subject_id,
+              currency,facts_json,drivers_json,summary_json,evidence_fingerprint,generated_at,created_at)
+            VALUES(#{organizationId},#{jobId},#{schemaVersion},#{subjectType},#{subjectId},#{currency},
+              CAST(#{factsJson} AS JSON),CAST(#{driversJson} AS JSON),CAST(#{summaryJson} AS JSON),
+              #{fingerprint},#{generatedAt},#{now})
+            """)
+    int insertEvidenceSnapshot(@Param("organizationId") long organizationId, @Param("jobId") long jobId,
+            @Param("schemaVersion") int schemaVersion, @Param("subjectType") String subjectType,
+            @Param("subjectId") long subjectId, @Param("currency") String currency,
+            @Param("factsJson") String factsJson, @Param("driversJson") String driversJson,
+            @Param("summaryJson") String summaryJson, @Param("fingerprint") String fingerprint,
+            @Param("generatedAt") Instant generatedAt, @Param("now") Instant now);
+
+    @Select("SELECT id,org_id,job_id,schema_version,subject_type,subject_id,currency," +
+            "CAST(facts_json AS CHAR) AS facts_json,CAST(drivers_json AS CHAR) AS drivers_json," +
+            "CAST(summary_json AS CHAR) AS summary_json,evidence_fingerprint,generated_at,created_at" +
+            " FROM advisor_evidence_snapshot WHERE job_id=#{jobId} AND org_id=#{organizationId}")
+    SnapshotRow findEvidenceSnapshot(@Param("jobId") long jobId,
+            @Param("organizationId") long organizationId);
 
     @Select("SELECT CAST(evidence_refs_json AS CHAR) FROM advisor_inference_job WHERE id=#{id} AND org_id=#{organizationId}")
     String findEvidenceRefs(@Param("id") long id, @Param("organizationId") long organizationId);
@@ -181,13 +231,13 @@ public interface AdvisorMapper {
     int insertAttempt(@Param("organizationId") long organizationId, @Param("jobId") long jobId,
             @Param("attemptNo") int attemptNo, @Param("now") Instant now);
 
-    @Select("SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,advisor_profile_version,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,failure_code,created_at,started_at,completed_at FROM advisor_inference_job WHERE id=#{id} AND org_id=#{organizationId}")
+    @Select("SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,advisor_profile_version,advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,failure_code,created_at,started_at,completed_at FROM advisor_inference_job WHERE id=#{id} AND org_id=#{organizationId}")
     JobRow findJob(@Param("id") long id, @Param("organizationId") long organizationId);
 
     @Select("""
             SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,advisor_profile_version,
-              status,claim_token,claim_expires_at,gateway_request_id,attempt_count,failure_code,
-              created_at,started_at,completed_at
+              advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
+              failure_code,created_at,started_at,completed_at
             FROM advisor_inference_job
             WHERE status='PENDING'
               OR (status='CLAIMED' AND claim_expires_at < #{now} AND gateway_request_id IS NULL)
@@ -242,7 +292,12 @@ public interface AdvisorMapper {
 
     record AnomalySubject(long id, long orgId, long runId, String grainType, String grainKey,
             String currency, java.math.BigDecimal observedAmount, java.math.BigDecimal baselineAmount,
-            java.math.BigDecimal deltaAmount) {
+            java.math.BigDecimal deltaAmount, String driversJson) {
+    }
+
+    record SnapshotRow(long id, long orgId, long jobId, int schemaVersion, String subjectType,
+            long subjectId, String currency, String factsJson, String driversJson, String summaryJson,
+            String evidenceFingerprint, Instant generatedAt, Instant createdAt) {
     }
 
     record ForecastSubject(long id, long orgId, String scopeType, String scopeKey, String currency,
@@ -265,9 +320,9 @@ public interface AdvisorMapper {
     }
 
     record JobRow(long id, long orgId, long requestedBy, String subjectType, long subjectId,
-            String evidenceFingerprint, int advisorProfileVersion, String status, String claimToken,
-            Instant claimExpiresAt, Long gatewayRequestId, int attemptCount, String failureCode,
-            Instant createdAt, Instant startedAt, Instant completedAt) {
+            String evidenceFingerprint, int advisorProfileVersion, Long advisorProfileId, String status,
+            String claimToken, Instant claimExpiresAt, Long gatewayRequestId, int attemptCount,
+            String failureCode, Instant createdAt, Instant startedAt, Instant completedAt) {
     }
 
     record AttemptRow(long id, long orgId, long jobId, int attemptNo, Long gatewayRequestId,
