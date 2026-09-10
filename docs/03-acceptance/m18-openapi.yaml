@@ -73,9 +73,9 @@ paths:
           description: 'Active Connection'
   /provider-connections/{id}/probe:
     post:
-      summary: Explicit bounded connection probe (no persistence of I/O)
+      summary: Explicit bounded connection probe with configured credential and server-owned UA (MANAGE-only side effect, no persistence of I/O)
       security: [bearerAuth: []]
-      x-permission: PROVIDER_ACCOUNT_READ
+      x-permission: PROVIDER_ACCOUNT_MANAGE
       responses:
         '200':
           description: 'Probe result PASS/FAIL + errorCode'
@@ -192,25 +192,25 @@ paths:
           description: 'Recommendations with decimal-string money'
   /cost-intelligence/recommendations/{id}/acknowledge:
     post:
-      summary: OPEN -> ACKNOWLEDGED
+      summary: OPEN -> ACKNOWLEDGED (business-state change, BUDGET_MANAGE only)
       security: [bearerAuth: []]
-      x-permission: COST_READ
+      x-permission: BUDGET_MANAGE
       responses:
         '200':
           description: 'Recommendation'
   /cost-intelligence/recommendations/{id}/dismiss:
     post:
-      summary: OPEN/ACKNOWLEDGED -> DISMISSED
+      summary: OPEN/ACKNOWLEDGED -> DISMISSED (business-state change, BUDGET_MANAGE only)
       security: [bearerAuth: []]
-      x-permission: COST_READ
+      x-permission: BUDGET_MANAGE
       responses:
         '200':
           description: 'Recommendation'
   /cost-intelligence/recommendations/{id}/mark-applied:
     post:
-      summary: ACKNOWLEDGED -> APPLIED with routing revision linkage
+      summary: ACKNOWLEDGED -> APPLIED with validated same-org ACTIVE routing linkage (records human action only, never auto-creates policy)
       security: [bearerAuth: []]
-      x-permission: COST_READ
+      x-permission: BUDGET_MANAGE
       responses:
         '200':
           description: 'Recommendation'
@@ -231,7 +231,7 @@ paths:
           description: 'Profile'
   /ai-advisor/explanations:
     post:
-      summary: Request an explanation (durable PENDING job, explicit cost)
+      summary: Request an explanation with server-generated evidence (client supplies subjectType and subjectId only; money/drivers are backend-loaded, durable PENDING job, explicit cost)
       security: [bearerAuth: []]
       x-permission: AI_ADVISOR_USE
       responses:
