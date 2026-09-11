@@ -55,8 +55,8 @@ class ScopedBudgetRiskIntegrationTest extends ControlPlaneFixtureSupport {
         insertBudget("COST_CENTER", costCenterA, "50.00", "20.00", "5.00");
         var yesterday = LocalDate.now(clock).minusDays(1);
         jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,"
-                + "created_at) VALUES (?,'" + yesterday + "','USD',1,'COMPLETED',UTC_TIMESTAMP(6))",
-                organizationId);
+                + "created_at) VALUES (?,?, 'USD',1,'COMPLETED',UTC_TIMESTAMP(6))",
+                organizationId, yesterday);
         var runId = jdbc.queryForObject("SELECT id FROM cost_intelligence_run WHERE org_id=?", Long.class,
                 organizationId);
         insertForecast(runId, "TEAM", "team:" + teamA, "10.00");
