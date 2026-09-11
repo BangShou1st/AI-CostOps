@@ -37,8 +37,18 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
         flushRedis();
         cleanDatabase();
         organizationId = insertOrganization("Terminal Org", "terminal-org");
+        // RED guard: force app_user.id != organization_member.id deterministically,
+        // independent of auto-increment counters and test execution order. Probe the
+        // current offset, then shift the app_user sequence asymmetrically when aligned.
+        var probeUser = insertUser("terminal-probe-" + System.nanoTime() + "@example.com");
+        var probeMember = insertMember(organizationId, probeUser);
+        if (probeUser == probeMember) {
+            insertUser("terminal-offset-" + System.nanoTime() + "@example.com");
+        }
         managerUserId = insertUser("terminal-manager@example.com");
         managerMemberId = insertMember(organizationId, managerUserId);
+        assertNotEquals(managerUserId, managerMemberId,
+                "Advisor fixture must keep app_user.id != organization_member.id so member/user confusion fails fast");
         projectA = insertProject(organizationId, "proj-a");
         projectB = insertProject(organizationId, "proj-b");
         teamT = insertTeam(organizationId, "team-t");
@@ -137,6 +147,52 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
         assertEquals("COMPLETED", attemptStatus(jobId, 2));
         assertNotEquals(g1, attemptGateway(jobId, 2));
     }
+    @Test void requesterIdentityPreservedAcrossCompletionAndRetry() throws Exception {
+        // Regression for PR #156 Hosted CI: advisor_inference_job.requested_by must be
+        // app_user.id (human requester), never organization_member.id, because
+        // audit_event.actor_user_id FKs app_user(id). The fixture above guarantees
+        // app_user.id != organization_member.id so any cross-type reuse fails fast.
+        assertNotEquals(managerUserId, managerMemberId,
+                "Fixture must force app_user.id != organization_member.id");
+        putProfile(modelA, projectA, "PROJECT", projectA, "OPTIONAL");
+        var anomaly = insertAnomaly(organizationId, "84.00", "50.00", "34.00");
+        var jobId = requestExplanation("ANOMALY", anomaly);
+        assertEquals(Long.valueOf(managerUserId), jobRequestedBy(jobId),
+                "advisor_inference_job.requested_by must store app_user.id");
+        assertEquals(Long.valueOf(managerUserId), latestAuditActor("AI_ADVISOR_EXPLANATION_REQUESTED", jobId),
+                "REQUESTED audit actor must be the human app_user.id");
+        var claimed = advisorService.claimNext("w-identity");
+        assertNotNull(claimed);
+        var refs = advisorService.knownFactReferences(jobId, organizationId);
+        var ref = refs.iterator().next();
+        var narrative = "{\"summary\":\"Spend rose.\",\"driversExplanation\":\"X.\",\"recommendedActions\":[],\"warnings\":[],\"factReferences\":[\"" + ref + "\"]}";
+        advisorService.complete(jobId, organizationId, claimed.token(), narrative, refs);
+        assertEquals("COMPLETED", jobStatus(jobId));
+        assertEquals("COMPLETED", attemptStatus(jobId, 1));
+        assertEquals(Long.valueOf(managerUserId), latestAuditActor("AI_ADVISOR_EXPLANATION_COMPLETED", jobId),
+                "COMPLETED audit actor must remain the human app_user.id, not organization_member.id");
+        // Explicit retry must preserve the original human requester lineage.
+        mockMvc.perform(post("/api/v1/ai-advisor/explanations/{id}/retry", jobId).header("Authorization", bearerFor(managerUserId))).andExpect(status().isOk());
+        assertEquals(Long.valueOf(managerUserId), jobRequestedBy(jobId),
+                "Retry must not rewrite requested_by to organization_member.id");
+        var second = advisorService.claimNext("w-identity-r2");
+        assertNotNull(second);
+        var refs2 = advisorService.knownFactReferences(jobId, organizationId);
+        var ref2 = refs2.iterator().next();
+        var narrative2 = "{\"summary\":\"Again.\",\"driversExplanation\":\"X.\",\"recommendedActions\":[],\"warnings\":[],\"factReferences\":[\"" + ref2 + "\"]}";
+        advisorService.complete(jobId, organizationId, second.token(), narrative2, refs2);
+        assertEquals("COMPLETED", jobStatus(jobId));
+        // First execution already COMPLETED; retry appends attempt 2 while attempt 1 stays immutable.
+        assertEquals("COMPLETED", attemptStatus(jobId, 1));
+        assertEquals("COMPLETED", attemptStatus(jobId, 2));
+        var completedActors = jdbc.query("SELECT actor_user_id FROM audit_event WHERE org_id=? AND event_type='AI_ADVISOR_EXPLANATION_COMPLETED' AND subject_type='ADVISOR_JOB' AND subject_id=? ORDER BY id",
+                (rs, i) -> rs.getLong(1), organizationId, jobId);
+        assertEquals(2, completedActors.size(), "Expected two COMPLETED audits (initial + retry)");
+        for (var actor : completedActors) {
+            assertEquals(Long.valueOf(managerUserId), actor,
+                    "Every COMPLETED audit actor must be the human app_user.id");
+        }
+    }
     private long putProfile(long pm, long pj, String st, long sid, String bm) throws Exception {
         var body = mockMvc.perform(put("/api/v1/ai-advisor/profile").header("Authorization", bearerFor(managerUserId)).contentType("application/json").content("{\"providerModelId\":" + pm + ",\"projectId\":" + pj + ",\"financialScopeType\":\"" + st + "\",\"financialScopeId\":" + sid + ",\"budgetEnforcementMode\":\"" + bm + "\"}")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(body, "$.id")).longValue();
@@ -161,6 +217,13 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
     }
     private Long attemptGateway(long j, int n) {
         return jdbc.queryForObject("SELECT gateway_request_id FROM advisor_inference_attempt WHERE job_id=? AND org_id=? AND attempt_no=?", Long.class, j, organizationId, n);
+    }
+    private Long jobRequestedBy(long j) {
+        return jdbc.queryForObject("SELECT requested_by FROM advisor_inference_job WHERE id=? AND org_id=?", Long.class, j, organizationId);
+    }
+    private Long latestAuditActor(String eventType, long j) {
+        return jdbc.queryForObject("SELECT actor_user_id FROM audit_event WHERE org_id=? AND event_type=? AND subject_type='ADVISOR_JOB' AND subject_id=? ORDER BY id DESC LIMIT 1",
+                Long.class, organizationId, eventType, j);
     }
     private long insertAnomaly(long org, String o, String b, String d) {
         jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,created_at) VALUES (?,CURDATE(),'USD',1,'COMPLETED',UTC_TIMESTAMP(6))", org);

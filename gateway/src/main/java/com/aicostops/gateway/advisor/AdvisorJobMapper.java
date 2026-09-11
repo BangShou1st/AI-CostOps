@@ -16,7 +16,7 @@ import org.apache.ibatis.annotations.Update;
 public interface AdvisorJobMapper {
 
     @Select("""
-            SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,
+            SELECT id,org_id,requested_by AS requestedByUserId,subject_type,subject_id,evidence_fingerprint,
               CAST(evidence_refs_json AS CHAR) AS evidence_refs_json,advisor_profile_version,
               advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
               failure_code,created_at,started_at,completed_at
@@ -28,7 +28,7 @@ public interface AdvisorJobMapper {
     JobRow claimEligibleAny(@Param("now") Instant now);
 
     @Select("""
-            SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,
+            SELECT id,org_id,requested_by AS requestedByUserId,subject_type,subject_id,evidence_fingerprint,
               CAST(evidence_refs_json AS CHAR) AS evidence_refs_json,advisor_profile_version,
               advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
               failure_code,created_at,started_at,completed_at
@@ -67,7 +67,7 @@ public interface AdvisorJobMapper {
     int reclaimOrphans(@Param("now") Instant now);
 
     @Select("""
-            SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,
+            SELECT id,org_id,requested_by AS requestedByUserId,subject_type,subject_id,evidence_fingerprint,
               CAST(evidence_refs_json AS CHAR) AS evidence_refs_json,advisor_profile_version,
               advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
               failure_code,created_at,started_at,completed_at
@@ -197,7 +197,8 @@ public interface AdvisorJobMapper {
             @Param("warningsJson") String warningsJson, @Param("refsJson") String refsJson,
             @Param("now") Instant now);
 
-    record JobRow(long id, long orgId, long requestedBy, String subjectType, long subjectId,
+    // requestedByUserId mirrors backend semantics: app_user.id, never organization_member.id.
+    record JobRow(long id, long orgId, long requestedByUserId, String subjectType, long subjectId,
             String evidenceFingerprint, String evidenceRefsJson, int advisorProfileVersion,
             Long advisorProfileId, String status, String claimToken, Instant claimExpiresAt,
             Long gatewayRequestId, int attemptCount, String failureCode, Instant createdAt,

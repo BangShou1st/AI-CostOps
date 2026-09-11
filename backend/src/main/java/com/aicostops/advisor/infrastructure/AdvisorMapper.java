@@ -180,10 +180,12 @@ public interface AdvisorMapper {
               evidence_fingerprint,evidence_refs_json,advisor_profile_version,advisor_profile_id,
               status,claim_token,claim_expires_at,
               gateway_request_id,attempt_count,failure_code,created_at,started_at,completed_at)
-            VALUES(#{organizationId},#{requestedBy},#{subjectType},#{subjectId},#{fingerprint},
+            VALUES(#{organizationId},#{requestedByUserId},#{subjectType},#{subjectId},#{fingerprint},
               CAST(#{refsJson} AS JSON),#{profileVersion},#{profileId},'PENDING',NULL,NULL,NULL,1,NULL,#{now},NULL,NULL)
             """)
-    int insertJob(@Param("organizationId") long organizationId, @Param("requestedBy") long requestedBy,
+    // requested_by stores app_user.id (human requester), never organization_member.id:
+    // completion audits it as audit_event.actor_user_id which FKs app_user(id).
+    int insertJob(@Param("organizationId") long organizationId, @Param("requestedByUserId") long requestedByUserId,
             @Param("subjectType") String subjectType, @Param("subjectId") long subjectId,
             @Param("fingerprint") String fingerprint, @Param("refsJson") String refsJson,
             @Param("profileVersion") int profileVersion, @Param("profileId") long profileId,
@@ -250,11 +252,11 @@ public interface AdvisorMapper {
     int insertAttempt(@Param("organizationId") long organizationId, @Param("jobId") long jobId,
             @Param("attemptNo") int attemptNo, @Param("now") Instant now);
 
-    @Select("SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,advisor_profile_version,advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,failure_code,created_at,started_at,completed_at FROM advisor_inference_job WHERE id=#{id} AND org_id=#{organizationId}")
+    @Select("SELECT id,org_id,requested_by AS requestedByUserId,subject_type,subject_id,evidence_fingerprint,advisor_profile_version,advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,failure_code,created_at,started_at,completed_at FROM advisor_inference_job WHERE id=#{id} AND org_id=#{organizationId}")
     JobRow findJob(@Param("id") long id, @Param("organizationId") long organizationId);
 
     @Select("""
-            SELECT id,org_id,requested_by,subject_type,subject_id,evidence_fingerprint,advisor_profile_version,
+            SELECT id,org_id,requested_by AS requestedByUserId,subject_type,subject_id,evidence_fingerprint,advisor_profile_version,
               advisor_profile_id,status,claim_token,claim_expires_at,gateway_request_id,attempt_count,
               failure_code,created_at,started_at,completed_at
             FROM advisor_inference_job
@@ -346,7 +348,8 @@ public interface AdvisorMapper {
             String status, long createdBy, Instant createdAt, Instant updatedAt) {
     }
 
-    record JobRow(long id, long orgId, long requestedBy, String subjectType, long subjectId,
+    // requestedByUserId is app_user.id (human requester), never organization_member.id.
+    record JobRow(long id, long orgId, long requestedByUserId, String subjectType, long subjectId,
             String evidenceFingerprint, int advisorProfileVersion, Long advisorProfileId, String status,
             String claimToken, Instant claimExpiresAt, Long gatewayRequestId, int attemptCount,
             String failureCode, Instant createdAt, Instant startedAt, Instant completedAt) {

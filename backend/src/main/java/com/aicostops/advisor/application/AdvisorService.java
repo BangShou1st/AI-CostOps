@@ -175,7 +175,10 @@ public class AdvisorService {
         }
         // P0: the job is bound to its exact profile revision (id + version); the worker must
         // never substitute the later ACTIVE revision.
-        mapper.insertJob(context.organizationId(), context.organizationMemberId(),
+        // requester identity: advisor_inference_job.requested_by is app_user.id (human
+        // requester), never organization_member.id, because completion audits it as
+        // audit_event.actor_user_id which FKs app_user(id).
+        mapper.insertJob(context.organizationId(), user.userId(),
                 envelope.subjectType(), envelope.subjectId(), fingerprint, refsJson, profile.version(),
                 profile.id(), now);
         var jobId = mapper.lastInsertId();
@@ -280,7 +283,7 @@ public class AdvisorService {
         if (mapper.completeAttempt(organizationId, jobId, job.attemptCount()) != 1) {
             throw stateConflict("Advisor attempt terminal transition failed; job update rolled back.");
         }
-        audit.append("AI_ADVISOR_EXPLANATION_COMPLETED", organizationId, job.requestedBy(),
+        audit.append("AI_ADVISOR_EXPLANATION_COMPLETED", organizationId, job.requestedByUserId(),
                 "ADVISOR_JOB", jobId, Map.of("attempt", job.attemptCount()));
     }
 
