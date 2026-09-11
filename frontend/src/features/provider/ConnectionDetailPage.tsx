@@ -19,6 +19,8 @@ export interface ConnectionDetailPreview {
   revisions: ProviderConnection[]
 }
 
+type LifecycleAction = { kind: 'revision' } | { kind: 'activate'; connectionId: number }
+
 /** Connection profile detail: versions, credentials (masked), probe. preview is DEV-only. */
 export function ConnectionDetailPage(props: { preview?: ConnectionDetailPreview }) {
   const params = useParams()
@@ -49,7 +51,7 @@ export function ConnectionDetailPage(props: { preview?: ConnectionDetailPreview 
   }
 
   const lifecycle = useAuthorizationMutation({
-    mutationFn: (action: 'revision' | 'activate') => action === 'revision' ? providerHubApi.createRevision(id) : providerHubApi.activate(id),
+    mutationFn: (action: LifecycleAction) => action.kind === 'revision' ? providerHubApi.createRevision(id) : providerHubApi.activate(action.connectionId),
     onSuccess: () => { setProblem(null); invalidate() },
     onError: (error) => setProblem(toProblemDetail(error)),
   })
@@ -100,14 +102,14 @@ export function ConnectionDetailPage(props: { preview?: ConnectionDetailPreview 
                 <li key={r.id} className="v3-row v3-row-slim">
                   <div className="v3-row-main"><p className="v3-row-title">v{r.version} · 连接 #{r.id} <ConnectionStatusPill status={r.status} /></p></div>
                   {!preview && canManage && r.status === 'DRAFT' && (
-                    <div className="v3-row-action"><button type="button" className="v3-link-button" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate('activate')}>激活此版</button></div>
+                    <div className="v3-row-action"><button type="button" className="v3-link-button" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ kind: 'activate', connectionId: r.id })}>激活此版</button></div>
                   )}
                 </li>
               ))}
             </ul>
             {!preview && canManage && (
               <div className="v3-actions">
-                <button type="button" className="v3-link-button" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate('revision')}>基于当前开新修订版</button>
+                <button type="button" className="v3-link-button" disabled={lifecycle.isPending} onClick={() => lifecycle.mutate({ kind: 'revision' })}>基于当前开新修订版</button>
                 {lifecycle.isPending && <span role="status">正在提交…</span>}
               </div>
             )}
