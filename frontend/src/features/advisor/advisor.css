@@ -1,0 +1,19 @@
+.v3-primary-button { border: 0; border-radius: var(--v3-radius-control); background: var(--v3-info); color: #fff; font: inherit; font-size: 13px; font-weight: 700; padding: 8px 16px; cursor: pointer; align-self: end; }
+.v3-primary-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.v3-primary-button:focus-visible { outline: 2px solid var(--v3-info); outline-offset: 2px; }
+.v3-stepper { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.v3-stepper li { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 750; letter-spacing: 0.04em; color: var(--v3-text-muted); }
+.v3-step-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--v3-border-strong); display: inline-block; }
+.v3-stepper li[data-done='true'] { color: var(--v3-text-secondary); }
+.v3-stepper li[data-done='true'] .v3-step-dot { background: var(--v3-success); }
+.v3-stepper li[data-active='true'] { color: var(--v3-text); }
+.v3-stepper li[data-active='true'] .v3-step-dot { background: var(--v3-info); box-shadow: 0 0 0 3px var(--v3-info-bg); }
+.v3-stepper li[data-state='FAILED'][data-active] .v3-step-dot, .v3-step-dot.v3-step-failed { background: var(--v3-danger); box-shadow: 0 0 0 3px var(--v3-danger-bg); }
+.v3-narrative { display: grid; gap: 12px; margin-top: 16px; }
+.v3-narrative-facts, .v3-narrative-ai { border: 1px solid var(--v3-border); border-radius: var(--v3-radius-card); padding: 14px 16px; }
+.v3-narrative-facts { background: var(--v3-info-bg); border-color: #c3d5f5; }
+.v3-narrative-ai { background: var(--v3-surface); }
+.v3-narrative-summary { font-size: 14.5px; font-weight: 700; line-height: 1.6; margin: 10px 0 12px; }
+.v3-narrative-body { white-space: pre-wrap; font-size: 13.5px; line-height: 1.7; margin: 6px 0 0; }
+.v3-narrative p:not(.v3-narrative-summary):not(.v3-narrative-body) { font-size: 13px; color: var(--v3-text-secondary); line-height: 1.6; }
+.v3-narrative a { color: var(--v3-info); }

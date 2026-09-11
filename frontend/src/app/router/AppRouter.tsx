@@ -46,7 +46,7 @@ import { OverviewPage } from '../../features/intelligence/OverviewPage'
 import { AnomaliesPage } from '../../features/intelligence/AnomaliesPage'
 import { ForecastsPage } from '../../features/intelligence/ForecastsPage'
 import { SavingsPage } from '../../features/intelligence/SavingsPage'
-import { V3ComingSoon } from '../../features/intelligence/V3ComingSoon'
+import { AdvisorPage } from '../../features/advisor/AdvisorPage'
 
 const DevV3Overview = import.meta.env.DEV
   ? lazy(() => import('../../features/intelligence/benchmark/V3OverviewBenchmark').then((m) => ({ default: m.V3OverviewBenchmark })))
@@ -59,6 +59,15 @@ const DevV3Forecasts = import.meta.env.DEV
   : null
 const DevV3Savings = import.meta.env.DEV
   ? lazy(() => import('../../features/intelligence/benchmark/V3WorkspaceBenchmark').then((m) => ({ default: m.V3SavingsBenchmark })))
+  : null
+const DevV3AdvisorCompleted = import.meta.env.DEV
+  ? lazy(() => import('../../features/advisor/benchmark/V3AdvisorBenchmark').then((m) => ({ default: m.V3AdvisorCompletedBenchmark })))
+  : null
+const DevV3AdvisorRunning = import.meta.env.DEV
+  ? lazy(() => import('../../features/advisor/benchmark/V3AdvisorBenchmark').then((m) => ({ default: m.V3AdvisorRunningBenchmark })))
+  : null
+const DevV3AdvisorFailed = import.meta.env.DEV
+  ? lazy(() => import('../../features/advisor/benchmark/V3AdvisorBenchmark').then((m) => ({ default: m.V3AdvisorFailedBenchmark })))
   : null
 
 export function AppRouter() {
@@ -74,6 +83,9 @@ export function AppRouter() {
     {DevV3Anomalies && <Route path="/dev/v3-anomalies" element={<Suspense fallback={null}><DevV3Anomalies /></Suspense>} />}
     {DevV3Forecasts && <Route path="/dev/v3-forecasts" element={<Suspense fallback={null}><DevV3Forecasts /></Suspense>} />}
     {DevV3Savings && <Route path="/dev/v3-savings" element={<Suspense fallback={null}><DevV3Savings /></Suspense>} />}
+    {DevV3AdvisorCompleted && <Route path="/dev/v3-advisor-completed" element={<Suspense fallback={null}><DevV3AdvisorCompleted /></Suspense>} />}
+    {DevV3AdvisorRunning && <Route path="/dev/v3-advisor-running" element={<Suspense fallback={null}><DevV3AdvisorRunning /></Suspense>} />}
+    {DevV3AdvisorFailed && <Route path="/dev/v3-advisor-failed" element={<Suspense fallback={null}><DevV3AdvisorFailed /></Suspense>} />}
     <Route element={<ProtectedRoute isAuthenticated={auth.status === 'authenticated'} />}>
       <Route element={<AuthenticatedLayout />}>
         <Route path="/workbench" element={<WorkbenchPage />} />
@@ -81,9 +93,7 @@ export function AppRouter() {
         <Route path="/intelligence/anomalies" element={<PermissionRoute permission="COST_READ" />}><Route index element={<AnomaliesPage />} /></Route>
         <Route path="/intelligence/forecasts" element={<PermissionRoute permission="COST_READ" />}><Route index element={<ForecastsPage />} /></Route>
         <Route path="/intelligence/savings" element={<PermissionRoute permission="COST_READ" />}><Route index element={<SavingsPage />} /></Route>
-        <Route path="/advisor" element={<PermissionRoute permission="AI_ADVISOR_USE" />}>
-          <Route index element={<V3ComingSoon eyebrow="AI Advisor" title="AI Advisor" description="受治理的解释体验随 M19 第三批交付：确定性证据＋AI 叙事，绝不做聊天克隆。" />} />
-        </Route>
+        <Route path="/advisor" element={<PermissionRoute permission="AI_ADVISOR_USE" />}><Route index element={<AdvisorPage />} /></Route>
         <Route path="/evidence" element={<PermissionRoute permission="EVIDENCE_READ" />}>
           <Route index element={<EvidenceListPage />} />
           <Route path=":id" element={<EvidenceDetailPage />} />
