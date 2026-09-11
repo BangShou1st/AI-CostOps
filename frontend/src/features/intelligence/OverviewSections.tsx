@@ -162,7 +162,6 @@ export function ExposureSection(props: {
             immediateExposure={risk.immediateExposure}
             projectedPeriodEnd={risk.projectedPeriodEnd}
             budgetTotal={risk.budgetTotal}
-            riskThreshold={String(Number(risk.budgetTotal) * 0.9)}
             currency={currency}
             forecastMethod={forecast.method}
             forecastConfidence={forecast.confidence}

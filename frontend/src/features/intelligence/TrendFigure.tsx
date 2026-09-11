@@ -92,7 +92,7 @@ export function TrendFigure(props: TrendFigureProps) {
         {[25, 50, 75, 100].map((percent) => (
           <g key={percent}>
             <line x1={scale(percent / 100)} y1={40} x2={scale(percent / 100)} y2={rowProjectedY + barH} stroke="#e2e7f0" strokeWidth={1} />
-            <text x={scale(percent / 100)} y={rowProjectedY + barH + 34} textAnchor="middle" fontSize={11} className="v3-fig-detail" fill="#8494ab" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <text x={scale(percent / 100)} y={rowProjectedY + barH + 34} textAnchor="middle" fontSize={11} className="v3-fig-detail" fill="#67788f" style={{ fontVariantNumeric: 'tabular-nums' }}>
               {tickLabel(percent)}
             </text>
           </g>
@@ -116,7 +116,7 @@ export function TrendFigure(props: TrendFigureProps) {
         </g>
         <g transform={`translate(0 ${rowProjectedY})`}>
           <text x={plotL - 10} y={5} fontSize={12} fontWeight={700} fill="#475569" textAnchor="end" className="v3-fig-detail">Projected</text>
-          <rect x={plotL} y={-barH / 2} width={Math.max(xProjected - plotL, 2)} height={barH} rx={6} fill="#e4ebf5" stroke="#8494ab" strokeWidth={2} strokeDasharray="7 5">
+          <rect x={plotL} y={-barH / 2} width={Math.max(xProjected - plotL, 2)} height={barH} rx={6} fill="#e4ebf5" stroke="#67788f" strokeWidth={2} strokeDasharray="7 5">
             <title>{`Projected period end ${formatMoney(props.projectedPeriodEnd, currency)}`}</title>
           </rect>
           {geo.overProjected && <text x={plotR + 4} y={6} fontSize={12} fontWeight={800} fill="#b42318" aria-hidden="true">▸</text>}

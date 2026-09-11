@@ -59,10 +59,10 @@ export function ConnectionDetailPage(props: { preview?: ConnectionDetailPreview 
     onError: (error) => setProblem(toProblemDetail(error)),
   })
   const credentialOp = useAuthorizationMutation({
-    mutationFn: (op: { kind: 'create' | 'rotate' | 'revoke'; credentialId?: number }) => {
-      if (op.kind === 'revoke' && op.credentialId !== undefined) return providerHubApi.revokeCredential(id, op.credentialId)
-      if (op.kind === 'rotate') return providerHubApi.rotateCredential(id, secret, safeLabel || 'rotated')
-      return providerHubApi.createCredential(id, secret, safeLabel || 'primary')
+    mutationFn: async (op: { kind: 'create' | 'rotate' | 'revoke'; credentialId?: number }) => {
+      if (op.kind === 'revoke' && op.credentialId !== undefined) { await providerHubApi.revokeCredential(id, op.credentialId); return }
+      if (op.kind === 'rotate') { await providerHubApi.rotateCredential(id, secret, safeLabel || 'rotated'); return }
+      await providerHubApi.createCredential(id, secret, safeLabel || 'primary')
     },
     onSuccess: () => { setProblem(null); setSecret(''); invalidate() },
     onError: (error) => setProblem(toProblemDetail(error)),

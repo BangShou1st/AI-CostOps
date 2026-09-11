@@ -26,7 +26,7 @@ export function V3ConnectionsBenchmark() {
 }
 
 export function V3ConnectionDetailBenchmark() {
-      <ConnectionDetailPage preview={{ connection: connectionFixture[0], revisions: [connectionFixture[0], { ...connectionFixture[0], id: 10, version: 2, status: 'RETIRED', retiredAt: '2026-08-20T00:00:00Z' }] }} />
+  return <Shell><ConnectionDetailPage preview={{ connection: connectionFixture[0], revisions: [connectionFixture[0], { ...connectionFixture[0], id: 10, version: 2, status: 'RETIRED', retiredAt: '2026-08-20T00:00:00Z' }] }} /></Shell>
 }
 
 export function V3ModelsBenchmark() {

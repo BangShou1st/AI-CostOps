@@ -6,7 +6,7 @@
   --v3-border-strong: #cbd4e3;
   --v3-text: #172033;
   --v3-text-secondary: #475569;
-  --v3-text-muted: #8494ab;
+  --v3-text-muted: #67788f;
   --v3-success: #1a7f4b;
   --v3-success-bg: #eaf6ef;
   --v3-warning: #b45309;
@@ -17,7 +17,7 @@
   --v3-info-bg: #e9f0fd;
   --v3-neutral-bg: #eef1f6;
   --v3-actual: #1d4ed8;
-  --v3-forecast: #8494ab;
+  --v3-forecast: #67788f;
   --v3-budget: #172033;
   --v3-threshold: #b45309;
   --v3-savings: #1a7f4b;
@@ -257,3 +257,5 @@
 @media (max-width: 639px) {
   .v3-row-action { align-self: flex-start; }
 }
+
+.v3-govern-actions button:focus-visible { outline: 2px solid var(--v3-info); outline-offset: 2px; }
