@@ -42,13 +42,13 @@ export const overviewFixture = {
       id: 7, grainType: 'LOGICAL_MODEL', grainKey: 'gpt-5-class', currency: 'USD',
       observedAmount: '1215.33', baselineAmount: '905.20', deltaAmount: '310.13',
       deltaPercent: '34.3', robustZScore: 4.1,
-      driversJson: JSON.stringify([{ scope: 'project:atlas', share: 0.72 }]),
+      driversJson: JSON.stringify([{ dimension: 'PROJECT', key: 'project:atlas', delta: '223.45' }, { dimension: 'TEAM', key: 'team:core', delta: '86.68' }]),
     },
     {
       id: 8, grainType: 'PROVIDER', grainKey: 'opencode-zen', currency: 'USD',
       observedAmount: '1180.60', baselineAmount: '890.00', deltaAmount: '290.60',
       deltaPercent: '32.7', robustZScore: 3.6,
-      driversJson: JSON.stringify([{ scope: 'team:core', share: 0.58 }]),
+      driversJson: JSON.stringify([{ dimension: 'PROJECT', key: 'project:mercury', delta: '201.10' }, { dimension: 'TEAM', key: 'team:core', delta: '89.50' }]),
     },
   ] satisfies CostAnomaly[],
   forecast: {

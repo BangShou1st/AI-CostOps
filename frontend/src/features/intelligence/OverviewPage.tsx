@@ -9,6 +9,7 @@ import { intelligenceKeys } from './api/intelligenceKeys'
 import type { BudgetRisk, CostAnomaly, CostForecast, IntelligenceSummary, SavingRecommendation } from './api/intelligenceTypes'
 import { formatDateTime } from './format'
 import { AdvisorBand, AnomalySection, AnswerStrip, ExposureSection, OverviewSkeleton, SavingsSection } from './OverviewSections'
+import { TopDriversSection } from './TopDriversSection'
 import './v3-tokens.css'
 
 export interface OverviewPreviewData {
@@ -123,6 +124,7 @@ export function OverviewPage(props: OverviewPageProps) {
           )}
           <AnswerStrip summary={summary} anomalies={anomalies} forecast={orgForecast} recommendations={recommendations} currency={activeCurrency} />
           <AnomalySection anomalies={anomalies} currency={activeCurrency} />
+          <TopDriversSection anomalies={anomalies} currency={activeCurrency} />
           <ExposureSection
             previewRisk={preview?.budgetRisk ?? undefined}
             previewMode={Boolean(preview)}

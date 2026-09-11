@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom'
 import { toProblemDetail } from '../../api/problem'
 import { intelligenceApi } from './api/intelligenceApi'
 import type { BudgetRisk, CostAnomaly, CostForecast, IntelligenceSummary, SavingRecommendation } from './api/intelligenceTypes'
+import { absDecimal, compareDecimal, sortByAmountDesc } from './decimal';
 import { formatMoney, formatPercent } from './format'
 import { TrendFigure } from './TrendFigure'
 
@@ -49,9 +50,9 @@ export function AnswerStrip(props: {
   currency: string
 }) {
   const { summary, anomalies, forecast, recommendations, currency } = props
-  const topAnomaly = [...anomalies].sort((a, b) => Math.abs(Number(b.deltaAmount)) - Math.abs(Number(a.deltaAmount)))[0]
+  const topAnomaly = sortByAmountDesc(anomalies, (a) => absDecimal(a.deltaAmount))[0]
   const openRecs = recommendations.filter((r) => r.status === 'OPEN')
-  const topSaving = [...openRecs].sort((a, b) => Number(b.potentialSaving) - Number(a.potentialSaving))[0]
+  const topSaving = sortByAmountDesc(openRecs, (a) => a.potentialSaving)[0]
   const answers: Array<{ key: string; question: string; tone: string; icon: ReactNode; body: ReactNode }> = [
     {
       key: 'ok',
@@ -184,15 +185,15 @@ export function ExposureSection(props: {
 
 function severityOf(a: CostAnomaly): { text: string; pill: string; icon: ReactNode } {
   const z = Math.abs(a.robustZScore)
-  const pct = Math.abs(Number(a.deltaPercent))
-  if (z >= 5 || pct >= 50) return { text: '严重', pill: 'v3-pill-risk', icon: <ExclamationCircleOutlined /> }
-  if (z >= 3 || pct >= 20) return { text: '需关注', pill: 'v3-pill-watch', icon: <WarningOutlined /> }
+  const pct = absDecimal(a.deltaPercent)
+  if (z >= 5 || compareDecimal(pct, '50') >= 0) return { text: '严重', pill: 'v3-pill-risk', icon: <ExclamationCircleOutlined /> }
+  if (z >= 3 || compareDecimal(pct, '20') >= 0) return { text: '需关注', pill: 'v3-pill-watch', icon: <WarningOutlined /> }
   return { text: '一般', pill: 'v3-pill-info', icon: <InfoCircleOutlined /> }
 }
 
 export function AnomalySection(props: { anomalies: CostAnomaly[]; currency: string }) {
   const { anomalies, currency } = props
-  const top = [...anomalies].sort((a, b) => Math.abs(Number(b.deltaAmount)) - Math.abs(Number(a.deltaAmount))).slice(0, 3)
+  const top = sortByAmountDesc(anomalies, (a) => absDecimal(a.deltaAmount)).slice(0, 3)
   return (
     <section className="v3-section" aria-labelledby="v3-what-changed">
       <div className="v3-section-head">
@@ -273,10 +274,10 @@ export function AdvisorBand() {
     <section className="v3-section" aria-labelledby="v3-advisor">
       <div className="v3-section-head">
         <span className="v3-eyebrow">Advisor</span>
-        <h2 id="v3-advisor">需要解释吗？</h2>
-        <p>AI Advisor 只解释已计算的确定性事实，不计算金钱。</p>
+        <h2 id="v3-advisor">从证据到解释</h2>
+        <p>AI Advisor 只解释后端已经计算的事实，不计算金额。</p>
       </div>
-      <div className="v3-actions"><Link to="/advisor">用 AI Advisor 解释本页 <RightOutlined aria-hidden="true" /></Link></div>
+      <div className="v3-advisor-flow"><div className="v3-advisor-facts"><span className="v3-pill v3-pill-info">Verified financial facts</span><p>异常、预测、敞口与节约建议全部来自后端确定性计算。</p></div><span className="v3-advisor-arrow" aria-hidden="true">→</span><div className="v3-advisor-ai"><span className="v3-pill v3-pill-neutral">AI-generated explanation</span><p>AI 只把事实讲清楚：原因、影响与可做事项。</p></div></div>      <div className="v3-actions"><Link to="/advisor">用 AI Advisor 解释本页 <RightOutlined aria-hidden="true" /></Link></div>
     </section>
   )
 }

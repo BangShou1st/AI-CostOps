@@ -208,3 +208,24 @@
 @media (prefers-reduced-motion: reduce) {
   .v3-page * { transition: none !important; animation: none !important; }
 }
+
+
+.v3-h3 { font-size: 14px; font-weight: 750; margin: 0 0 4px; letter-spacing: -0.01em; }
+.v3-row-slim { padding-top: 10px; padding-bottom: 10px; }
+.v3-fig-mobile { display: none; }
+.v3-advisor-flow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; align-items: stretch; margin-top: 14px; }
+.v3-advisor-facts, .v3-advisor-ai { border: 1px solid var(--v3-border); border-radius: var(--v3-radius-card); background: var(--v3-sunken); padding: 12px 16px; }
+.v3-advisor-facts p, .v3-advisor-ai p { margin: 8px 0 0; font-size: 12.5px; color: var(--v3-text-secondary); line-height: 1.55; }
+.v3-advisor-arrow { align-self: center; color: var(--v3-text-muted); font-size: 18px; font-weight: 800; }
+.v3-fig-mobile > div { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.v3-fig-mobile span { color: var(--v3-text-secondary); }
+.v3-fig-mobile strong { font-variant-numeric: tabular-nums; }
+.v3-fig-mobile-scale { font-weight: 750; }
+.v3-fig-mobile-method { color: var(--v3-text-muted); font-size: 12.5px; }
+
+@media (max-width: 639px) {
+  .v3-figure svg .v3-fig-detail { display: none; }
+  .v3-fig-mobile { display: grid; gap: 8px; margin-top: 12px; border-top: 1px solid var(--v3-border); padding-top: 12px; }
+  .v3-advisor-flow { grid-template-columns: minmax(0, 1fr); }
+  .v3-advisor-arrow { transform: rotate(90deg); justify-self: center; }
+}
