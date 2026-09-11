@@ -44,3 +44,16 @@ export function visibleBusinessNav(permissions: readonly string[] | undefined): 
     ? hasWorkbenchAccess(permissions)
     : permissions?.includes(entry.readPermission) ?? false)
 }
+
+/** M19 V3 Cost Intelligence + AI Advisor navigation (frozen IA). */
+export const INTELLIGENCE_NAV: readonly AppNavEntry[] = [
+  { path: '/intelligence/overview', label: '智能总览', readPermission: 'COST_READ' },
+  { path: '/intelligence/anomalies', label: '异常', readPermission: 'COST_READ' },
+  { path: '/intelligence/forecasts', label: '预测', readPermission: 'COST_READ' },
+  { path: '/intelligence/savings', label: '节约建议', readPermission: 'COST_READ' },
+  { path: '/advisor', label: 'AI Advisor', readPermission: 'AI_ADVISOR_USE' },
+]
+
+export function visibleIntelligenceNav(permissions: readonly string[] | undefined): readonly AppNavEntry[] {
+  return INTELLIGENCE_NAV.filter((entry) => permissions?.includes(entry.readPermission) ?? false)
+}

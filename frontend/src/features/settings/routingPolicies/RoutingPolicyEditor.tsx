@@ -1,4 +1,4 @@
-import { Alert, Button, Input, InputNumber, Select, Space, Table, Typography } from 'antd'
+import { Alert, Button, Input, InputNumber, Select, Space, Table, Tag, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import type { RoutingCandidateInput, RoutingOption, RoutingPolicy } from './types'
 
@@ -132,9 +132,11 @@ export function RoutingPolicyEditor({
             title: '就绪状态', key: 'readiness',
             render: (_: unknown, candidate: DraftCandidate) => {
               const option = optionMap.get(candidate.providerAccountId + ':' + candidate.providerModelId)
-              if (!option) return <Typography.Text type="danger">候选不可用</Typography.Text>
-              if (!option.credentialReady || !option.pricingReady) return <Typography.Text type="warning">凭证或定价未就绪</Typography.Text>
-              return <Typography.Text type="success">可路由</Typography.Text>
+              if (!option) return <Tag color="red">候选不可用</Tag>
+              return (<Space size={4}>
+                <Tag color={option.credentialReady ? "green" : "red"}>{option.credentialReady ? "凭证就绪" : "凭证缺失"}</Tag>
+                <Tag color={option.pricingReady ? "green" : "red"}>{option.pricingReady ? "定价就绪" : "定价缺失"}</Tag>
+              </Space>)
             },
           },
           {

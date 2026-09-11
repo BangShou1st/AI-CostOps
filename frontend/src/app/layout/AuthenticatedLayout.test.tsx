@@ -10,7 +10,7 @@ vi.mock('../../features/auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
 const mockedUseAuth = vi.mocked(useAuth)
 
 const ALL_PERMISSIONS = ['USER_READ', 'ROLE_READ', 'PROJECT_READ', 'TEAM_READ', 'COST_CENTER_READ', 'PROVIDER_ACCOUNT_READ']
-const NAV_LABELS = ['用户管理', '角色与权限', '项目管理', '团队管理', '成本中心', '云账号', '路由策略', '服务身份', '网关凭证', '模型与定价']
+const NAV_LABELS = ['用户管理', '角色与权限', '项目管理', '团队管理', '成本中心', '云账号', '服务商总览', '连接配置', '模型目录', '路由策略', '服务身份', '网关凭证', '模型与定价']
 const BUSINESS_LABELS = ['证据', '导入']
 
 function renderLayout(permissions: string[]) {
