@@ -183,7 +183,7 @@ export function ExposureSection(props: {
   )
 }
 
-function severityOf(a: CostAnomaly): { text: string; pill: string; icon: ReactNode } {
+export function severityOf(a: CostAnomaly): { text: string; pill: string; icon: ReactNode } {
   const z = Math.abs(a.robustZScore)
   const pct = absDecimal(a.deltaPercent)
   if (z >= 5 || compareDecimal(pct, '50') >= 0) return { text: '严重', pill: 'v3-pill-risk', icon: <ExclamationCircleOutlined /> }
@@ -223,7 +223,7 @@ export function AnomalySection(props: { anomalies: CostAnomaly[]; currency: stri
   )
 }
 
-const REC_STATUS: Record<string, { text: string; pill: string }> = {
+export const REC_STATUS: Record<string, { text: string; pill: string }> = {
   OPEN: { text: '待处理', pill: 'v3-pill-info' },
   ACKNOWLEDGED: { text: '已确认', pill: 'v3-pill-neutral' },
   DISMISSED: { text: '已忽略', pill: 'v3-pill-neutral' },

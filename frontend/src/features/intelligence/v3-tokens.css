@@ -229,3 +229,31 @@
   .v3-advisor-flow { grid-template-columns: minmax(0, 1fr); }
   .v3-advisor-arrow { transform: rotate(90deg); justify-self: center; }
 }
+
+
+.v3-filters { display: flex; flex-wrap: wrap; gap: 12px 20px; }
+.v3-filters label { display: grid; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--v3-text-secondary); }
+.v3-row-action { align-self: center; }
+.v3-link-button { background: none; border: 0; padding: 4px 2px; color: var(--v3-info); font: inherit; font-weight: 700; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.v3-link-button:hover { text-decoration: underline; }
+.v3-link-button:focus-visible { outline: 2px solid var(--v3-info); outline-offset: 2px; border-radius: 4px; }
+.v3-evidence { margin: 0; display: grid; gap: 12px; }
+.v3-evidence > div { display: grid; gap: 4px; border-bottom: 1px solid var(--v3-border); padding-bottom: 10px; }
+.v3-evidence dt { font-size: 12px; font-weight: 700; color: var(--v3-text-muted); }
+.v3-evidence dd { margin: 0; font-size: 13.5px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.v3-evidence-drivers { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.v3-hero-figure { border: 1px solid var(--v3-border); border-radius: var(--v3-radius-card); background: var(--v3-sunken); padding: 18px 20px; margin-top: 16px; }
+.v3-hero-figure .k { font-size: 12px; font-weight: 700; color: var(--v3-text-muted); }
+.v3-hero-figure .v { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 4px 0; }
+.v3-hero-figure .s { font-size: 12.5px; color: var(--v3-text-secondary); }
+.v3-footnote { margin-top: 20px; font-size: 12.5px; color: var(--v3-text-muted); line-height: 1.6; }
+.v3-govern-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.v3-govern-actions button { border: 1px solid var(--v3-border-strong); border-radius: var(--v3-radius-control); background: var(--v3-surface); color: var(--v3-text); font: inherit; font-size: 13px; font-weight: 700; padding: 8px 14px; cursor: pointer; }
+.v3-govern-actions button:hover:not(:disabled) { border-color: var(--v3-info); color: var(--v3-info); }
+.v3-govern-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+.v3-govern-route { display: grid; gap: 6px; margin-top: 10px; font-size: 12.5px; font-weight: 700; color: var(--v3-text-secondary); }
+
+
+@media (max-width: 639px) {
+  .v3-row-action { align-self: flex-start; }
+}

@@ -43,10 +43,22 @@ import { ServiceIdentitiesPage } from '../../features/gateway/ServiceIdentitiesP
 import { GatewayCredentialsPage } from '../../features/gateway/GatewayCredentialsPage'
 import { ModelPricingPage } from '../../features/gateway/ModelPricingPage'
 import { OverviewPage } from '../../features/intelligence/OverviewPage'
+import { AnomaliesPage } from '../../features/intelligence/AnomaliesPage'
+import { ForecastsPage } from '../../features/intelligence/ForecastsPage'
+import { SavingsPage } from '../../features/intelligence/SavingsPage'
 import { V3ComingSoon } from '../../features/intelligence/V3ComingSoon'
 
 const DevV3Overview = import.meta.env.DEV
   ? lazy(() => import('../../features/intelligence/benchmark/V3OverviewBenchmark').then((m) => ({ default: m.V3OverviewBenchmark })))
+  : null
+const DevV3Anomalies = import.meta.env.DEV
+  ? lazy(() => import('../../features/intelligence/benchmark/V3WorkspaceBenchmark').then((m) => ({ default: m.V3AnomaliesBenchmark })))
+  : null
+const DevV3Forecasts = import.meta.env.DEV
+  ? lazy(() => import('../../features/intelligence/benchmark/V3WorkspaceBenchmark').then((m) => ({ default: m.V3ForecastsBenchmark })))
+  : null
+const DevV3Savings = import.meta.env.DEV
+  ? lazy(() => import('../../features/intelligence/benchmark/V3WorkspaceBenchmark').then((m) => ({ default: m.V3SavingsBenchmark })))
   : null
 
 export function AppRouter() {
@@ -58,24 +70,17 @@ export function AppRouter() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} /><Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/invite/:token" element={<InvitationPage />} />
     </Route>
-    {DevV3Overview && (
-      <Route path="/dev/v3-overview" element={<Suspense fallback={<main className="auth-page" role="status">正在加载预览…</main>}><DevV3Overview /></Suspense>} />
-    )}
+    {DevV3Overview && <Route path="/dev/v3-overview" element={<Suspense fallback={<main className="auth-page" role="status">正在加载预览…</main>}><DevV3Overview /></Suspense>} />}
+    {DevV3Anomalies && <Route path="/dev/v3-anomalies" element={<Suspense fallback={null}><DevV3Anomalies /></Suspense>} />}
+    {DevV3Forecasts && <Route path="/dev/v3-forecasts" element={<Suspense fallback={null}><DevV3Forecasts /></Suspense>} />}
+    {DevV3Savings && <Route path="/dev/v3-savings" element={<Suspense fallback={null}><DevV3Savings /></Suspense>} />}
     <Route element={<ProtectedRoute isAuthenticated={auth.status === 'authenticated'} />}>
       <Route element={<AuthenticatedLayout />}>
         <Route path="/workbench" element={<WorkbenchPage />} />
-        <Route path="/intelligence/overview" element={<PermissionRoute permission="COST_READ" />}>
-          <Route index element={<OverviewPage />} />
-        </Route>
-        <Route path="/intelligence/anomalies" element={<PermissionRoute permission="COST_READ" />}>
-          <Route index element={<V3ComingSoon eyebrow="Cost Intelligence · 成本智能" title="异常" description="异常 drill-down 随 M19 第二批交付：severity、材料性、基线、证据链。" />} />
-        </Route>
-        <Route path="/intelligence/forecasts" element={<PermissionRoute permission="COST_READ" />}>
-          <Route index element={<V3ComingSoon eyebrow="Cost Intelligence · 成本智能" title="预测" description="actual vs forecast、置信度与方法学上下文随 M19 第二批交付。" />} />
-        </Route>
-        <Route path="/intelligence/savings" element={<PermissionRoute permission="COST_READ" />}>
-          <Route index element={<V3ComingSoon eyebrow="Cost Intelligence · 成本智能" title="节约建议" description="推荐生命周期 Review／Acknowledge／Dismiss／Mark Applied 随 M19 第二批交付。" />} />
-        </Route>
+        <Route path="/intelligence/overview" element={<PermissionRoute permission="COST_READ" />}><Route index element={<OverviewPage />} /></Route>
+        <Route path="/intelligence/anomalies" element={<PermissionRoute permission="COST_READ" />}><Route index element={<AnomaliesPage />} /></Route>
+        <Route path="/intelligence/forecasts" element={<PermissionRoute permission="COST_READ" />}><Route index element={<ForecastsPage />} /></Route>
+        <Route path="/intelligence/savings" element={<PermissionRoute permission="COST_READ" />}><Route index element={<SavingsPage />} /></Route>
         <Route path="/advisor" element={<PermissionRoute permission="AI_ADVISOR_USE" />}>
           <Route index element={<V3ComingSoon eyebrow="AI Advisor" title="AI Advisor" description="受治理的解释体验随 M19 第三批交付：确定性证据＋AI 叙事，绝不做聊天克隆。" />} />
         </Route>
@@ -127,36 +132,16 @@ export function AppRouter() {
           <Route index element={<PeriodClosePage />} />
           <Route path=":periodId" element={<PeriodClosePage />} />
         </Route>
-        <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}>
-          <Route index element={<UsersPage />} />
-        </Route>
-        <Route path="/settings/roles" element={<PermissionRoute permission="ROLE_READ" />}>
-          <Route index element={<RolesPage />} />
-        </Route>
-        <Route path="/settings/projects" element={<PermissionRoute permission="PROJECT_READ" />}>
-          <Route index element={<ProjectsPage />} />
-        </Route>
-        <Route path="/settings/teams" element={<PermissionRoute permission="TEAM_READ" />}>
-          <Route index element={<TeamsPage />} />
-        </Route>
-        <Route path="/settings/cost-centers" element={<PermissionRoute permission="COST_CENTER_READ" />}>
-          <Route index element={<CostCentersPage />} />
-        </Route>
-        <Route path="/settings/provider-accounts" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
-          <Route index element={<ProviderAccountsPage />} />
-        </Route>
-        <Route path="/settings/routing-policies" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
-          <Route index element={<RoutingPoliciesPage />} />
-        </Route>
-        <Route path="/settings/service-identities" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
-          <Route index element={<ServiceIdentitiesPage />} />
-        </Route>
-        <Route path="/settings/gateway-credentials" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
-          <Route index element={<GatewayCredentialsPage />} />
-        </Route>
-        <Route path="/settings/model-pricing" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}>
-          <Route index element={<ModelPricingPage />} />
-        </Route>
+        <Route path="/settings/users" element={<PermissionRoute permission="USER_READ" />}><Route index element={<UsersPage />} /></Route>
+        <Route path="/settings/roles" element={<PermissionRoute permission="ROLE_READ" />}><Route index element={<RolesPage />} /></Route>
+        <Route path="/settings/projects" element={<PermissionRoute permission="PROJECT_READ" />}><Route index element={<ProjectsPage />} /></Route>
+        <Route path="/settings/teams" element={<PermissionRoute permission="TEAM_READ" />}><Route index element={<TeamsPage />} /></Route>
+        <Route path="/settings/cost-centers" element={<PermissionRoute permission="COST_CENTER_READ" />}><Route index element={<CostCentersPage />} /></Route>
+        <Route path="/settings/provider-accounts" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ProviderAccountsPage />} /></Route>
+        <Route path="/settings/routing-policies" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<RoutingPoliciesPage />} /></Route>
+        <Route path="/settings/service-identities" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ServiceIdentitiesPage />} /></Route>
+        <Route path="/settings/gateway-credentials" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<GatewayCredentialsPage />} /></Route>
+        <Route path="/settings/model-pricing" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ModelPricingPage />} /></Route>
         <Route path="/settings" element={<SettingsRedirect />} />
       </Route>
       <Route path="/app" element={<ApplicationLanding />} />
