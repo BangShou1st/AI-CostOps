@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd'
+import { formatDateTime, formatMoney } from '../intelligence/format'
 import { useMemo, useState } from 'react'
 import { problemDetail, problemTitle, toProblemDetail, type ProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
@@ -71,6 +72,7 @@ export function ModelPricingPage() {
         <div><h1>模型与定价</h1><Typography.Text type="secondary">查看全局模型目录与服务商模型，维护组织定价版本。</Typography.Text></div>
         {canManage && <Button type="primary" onClick={() => { setProblem(null); setCreateOpen(true) }}>创建定价版本</Button>}
       </div>
+      <Alert style={{ marginBottom: 16 }} type="info" showIcon message="金融治理口径" description="只有 ACTIVE 定价版本才是 Financial Truth；manifest 的 VERIFIED_FREE 只是价格分类元数据，有 ACTIVE 零价格版本才是零价格。" />
       {problem && <div role="alert"><Typography.Text type="danger">{errorText(problem)}</Typography.Text></div>}
       <section className="settings-card" aria-label="模型目录">
         <Typography.Title level={4} style={{ marginTop: 0 }}>模型目录</Typography.Title>
@@ -97,14 +99,15 @@ export function ModelPricingPage() {
       <section className="settings-card" aria-label="定价版本">
         <Typography.Title level={4} style={{ marginTop: 0 }}>定价版本</Typography.Title>
         <Table
-          rowKey="id" pagination={false} size="small" dataSource={versions} loading={pricingQuery.isLoading}
+          rowKey="id" pagination={false} size="small" scroll={{ x: 900 }} dataSource={versions} loading={pricingQuery.isLoading}
           locale={{ emptyText: '该组织暂无定价版本。' }}
           columns={[
             { title: '账号 / 模型', key: 'scope', render: (_: unknown, version) => `账号 ${version.providerAccountId} / 模型 ${version.providerModelId}` },
             { title: '版本', dataIndex: 'version', key: 'version', width: 80 },
             { title: '币种', dataIndex: 'currency', key: 'currency', width: 80 },
-            { title: '状态', key: 'status', width: 110, render: (_: unknown, version) => <Tag color={version.status === 'ACTIVE' ? 'green' : version.status === 'DRAFT' ? 'blue' : 'default'}>{version.status}</Tag> },
-            { title: '费率', key: 'rates', render: (_: unknown, version) => rateSummary(version.rates) },
+            { title: '状态', key: 'status', width: 110, render: (_: unknown, version) => <Tag color={version.status === 'ACTIVE' ? 'green' : version.status === 'DRAFT' ? 'blue' : 'default'}>{version.status === 'ACTIVE' ? '已启用' : version.status === 'DRAFT' ? '草稿' : '已退役'}</Tag> },
+            { title: '费率', key: 'rates', width: 280, render: (_: unknown, version) => version.rates.map((rate: PricingRate) => `${rate.dimensionCode} ${formatMoney(String(rate.unitPrice), version.currency)}/${rate.unitQuantity}`).join('；') },
+            { title: '有效期', key: 'effective', width: 220, render: (_: unknown, version) => `${formatDateTime(version.effectiveFrom)} → ${version.effectiveTo ? formatDateTime(version.effectiveTo) : '长期'}` },
             { title: '操作', key: 'actions', width: 100, render: (_: unknown, version) => canManage && version.status === 'DRAFT'
               ? <Button size="small" type="primary" loading={activate.isPending} onClick={() => activate.mutate(version.id)}>启用版本</Button>
               : null },
@@ -155,9 +158,7 @@ function CreatePricingVersionModal({ saving, onCancel, onCreate }: { saving: boo
   </Modal>
 }
 
-function rateSummary(rates: PricingRate[]) {
-  return rates.map((rate) => `${rate.dimensionCode} ${rate.unitPrice}`).join('；')
-}
+// rateSummary retired: rates render inline with exact decimal formatting.
 
 function errorText(value: ProblemDetail | null) {
   return value ? problemDetail(value) || problemTitle(value) : null

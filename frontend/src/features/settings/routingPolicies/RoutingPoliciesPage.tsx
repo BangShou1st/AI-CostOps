@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Input, InputNumber, Modal, Space, Table, Tag, Typography } from 'antd'
+import { Link } from 'react-router-dom'
 import { useMemo, useState } from 'react'
 import { problemDetail, problemTitle, toProblemDetail, type ProblemDetail } from '../../../api/problem'
 import { useAuth } from '../../auth/AuthSessionProvider'
@@ -19,6 +20,7 @@ export function RoutingPoliciesPage() {
   const [editor, setEditor] = useState<RoutingPolicy | null>(null)
   const [problem, setProblem] = useState<ProblemDetail | null>(null)
   const [newPolicyOpen, setNewPolicyOpen] = useState(false)
+  const fromRecommendation = useMemo(() => new URLSearchParams(window.location.search).get('recommendationId'), [])
 
   const policiesQuery = useQuery({ queryKey: settingsKeys.routingPolicies(0, 100), queryFn: () => settingsApi.listRoutingPolicies(0, 100) })
   const selectedModelId = editor?.modelId
@@ -66,6 +68,9 @@ export function RoutingPoliciesPage() {
       {policiesQuery.isLoading && <div role="status">正在加载路由策略…</div>}
       {policiesQuery.isError && <Alert type="error" role="alert" message={problemTitle(toProblemDetail(policiesQuery.error))} description={problemDetail(toProblemDetail(policiesQuery.error))} showIcon />}
       {problem && <Alert type="error" role="alert" message={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
+      <div style={{ marginBottom: 16 }}><Typography.Text type="secondary">人工治理：路由变更只发生于人类明确操作：节约建议不会自动修改路由，Advisor 不会自动路由。</Typography.Text></div>
+      {fromRecommendation && <Alert style={{ marginBottom: 16 }} type="warning" showIcon message={`来自节约建议 #${fromRecommendation} 的检查`} description="复核其路由变更需求后再做治理动作。" />}
+      {fromRecommendation && <div style={{ marginBottom: 16 }}><Link to="/intelligence/savings">回节约建议</Link></div>}
       {policiesQuery.data && sortedPolicies.length === 0 && <div className="settings-empty">该组织暂无路由策略。</div>}
       {sortedPolicies.length > 0 && <Table<RoutingPolicy>
         rowKey="id"
