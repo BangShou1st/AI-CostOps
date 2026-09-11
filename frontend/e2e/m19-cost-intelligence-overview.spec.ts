@@ -13,10 +13,14 @@ test('cost intelligence overview renders briefing spine or governed empty state'
   await expect(emptyState.or(answerStrip)).toBeVisible({ timeout: 20_000 })
 
   if (await answerStrip.isVisible()) {
-    await expect(page.getByText('What changed?')).toBeVisible()
-    await expect(page.getByText('What will happen?')).toBeVisible()
-    await expect(page.getByText('What can I do?')).toBeVisible()
+    // Playwright getByText defaults to substring matching: each briefing question
+    // also appears in its detail-section eyebrow (e.g. "02 · What changed?").
+    // Use exact text so the assertion targets the four-question answer strip.
+    await expect(page.getByText('What changed?', { exact: true })).toBeVisible()
+    await expect(page.getByText('What will happen?', { exact: true })).toBeVisible()
+    await expect(page.getByText('What can I do?', { exact: true })).toBeVisible()
   }
 
-  await expect(page.getByRole('link', { name: '智能总览' })).toBeVisible()
+  // Sidebar uses Ant Design Menu semantics (role=menuitem, not link).
+  await expect(page.getByRole('menuitem', { name: '智能总览' })).toBeVisible()
 })
