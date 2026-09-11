@@ -1,11 +1,13 @@
 import {
   AccountBookOutlined,
   AlertOutlined,
+  ApiOutlined,
   AppstoreOutlined,
   AuditOutlined,
   BookOutlined,
   CloudOutlined,
   DashboardOutlined,
+  DatabaseOutlined,
   DeploymentUnitOutlined,
   FileDoneOutlined,
   FileTextOutlined,
@@ -59,6 +61,9 @@ export const NAV_ICONS: Record<string, ReactNode> = {
   '/settings/teams': <TeamOutlined />,
   '/settings/cost-centers': <AccountBookOutlined />,
   '/settings/provider-accounts': <CloudOutlined />,
+  '/settings/providers': <AppstoreOutlined />, 
+  '/settings/provider-connections': <ApiOutlined />, 
+  '/settings/provider-models': <DatabaseOutlined />, 
   '/settings/routing-policies': <DeploymentUnitOutlined />,
 }
 

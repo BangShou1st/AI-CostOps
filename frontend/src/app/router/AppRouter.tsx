@@ -15,6 +15,10 @@ import { ProjectsPage } from '../../features/settings/projects/ProjectsPage'
 import { TeamsPage } from '../../features/settings/teams/TeamsPage'
 import { CostCentersPage } from '../../features/settings/costCenters/CostCentersPage'
 import { ProviderAccountsPage } from '../../features/settings/providerAccounts/ProviderAccountsPage'
+import { ProviderGalleryPage } from '../../features/provider/ProviderGalleryPage'
+import { ProviderConnectionsPage } from '../../features/provider/ProviderConnectionsPage'
+import { ConnectionDetailPage } from '../../features/provider/ConnectionDetailPage'
+import { ProviderModelsPage } from '../../features/provider/ProviderModelsPage'
 import { UsersPage } from '../../features/settings/users/UsersPage'
 import { ExpensesListPage } from '../../features/expenses/ExpensesListPage'
 import { ExpensesNewPage } from '../../features/expenses/ExpensesNewPage'
@@ -60,6 +64,15 @@ const DevV3Forecasts = import.meta.env.DEV
 const DevV3Savings = import.meta.env.DEV
   ? lazy(() => import('../../features/intelligence/benchmark/V3WorkspaceBenchmark').then((m) => ({ default: m.V3SavingsBenchmark })))
   : null
+const DevV3Gallery = import.meta.env.DEV
+  ? lazy(() => import('../../features/provider/benchmark/V3ProviderBenchmark').then((m) => ({ default: m.V3GalleryBenchmark })))
+  : null
+const DevV3Detail = import.meta.env.DEV
+  ? lazy(() => import('../../features/provider/benchmark/V3ProviderBenchmark').then((m) => ({ default: m.V3ConnectionDetailBenchmark })))
+  : null
+const DevV3Models = import.meta.env.DEV
+  ? lazy(() => import('../../features/provider/benchmark/V3ProviderBenchmark').then((m) => ({ default: m.V3ModelsBenchmark })))
+  : null
 const DevV3AdvisorCompleted = import.meta.env.DEV
   ? lazy(() => import('../../features/advisor/benchmark/V3AdvisorBenchmark').then((m) => ({ default: m.V3AdvisorCompletedBenchmark })))
   : null
@@ -83,6 +96,9 @@ export function AppRouter() {
     {DevV3Anomalies && <Route path="/dev/v3-anomalies" element={<Suspense fallback={null}><DevV3Anomalies /></Suspense>} />}
     {DevV3Forecasts && <Route path="/dev/v3-forecasts" element={<Suspense fallback={null}><DevV3Forecasts /></Suspense>} />}
     {DevV3Savings && <Route path="/dev/v3-savings" element={<Suspense fallback={null}><DevV3Savings /></Suspense>} />}
+    {DevV3Gallery && <Route path="/dev/v3-gallery" element={<Suspense fallback={null}><DevV3Gallery /></Suspense>} />}
+    {DevV3Detail && <Route path="/dev/v3-connection-detail" element={<Suspense fallback={null}><DevV3Detail /></Suspense>} />}
+    {DevV3Models && <Route path="/dev/v3-models" element={<Suspense fallback={null}><DevV3Models /></Suspense>} />}
     {DevV3AdvisorCompleted && <Route path="/dev/v3-advisor-completed" element={<Suspense fallback={null}><DevV3AdvisorCompleted /></Suspense>} />}
     {DevV3AdvisorRunning && <Route path="/dev/v3-advisor-running" element={<Suspense fallback={null}><DevV3AdvisorRunning /></Suspense>} />}
     {DevV3AdvisorFailed && <Route path="/dev/v3-advisor-failed" element={<Suspense fallback={null}><DevV3AdvisorFailed /></Suspense>} />}
@@ -148,6 +164,10 @@ export function AppRouter() {
         <Route path="/settings/teams" element={<PermissionRoute permission="TEAM_READ" />}><Route index element={<TeamsPage />} /></Route>
         <Route path="/settings/cost-centers" element={<PermissionRoute permission="COST_CENTER_READ" />}><Route index element={<CostCentersPage />} /></Route>
         <Route path="/settings/provider-accounts" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ProviderAccountsPage />} /></Route>
+        <Route path="/settings/providers" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ProviderGalleryPage />} /></Route>
+        <Route path="/settings/provider-connections" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ProviderConnectionsPage />} /></Route>
+        <Route path="/settings/provider-connections/:id" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ConnectionDetailPage />} /></Route>
+        <Route path="/settings/provider-models" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ProviderModelsPage />} /></Route>
         <Route path="/settings/routing-policies" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<RoutingPoliciesPage />} /></Route>
         <Route path="/settings/service-identities" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<ServiceIdentitiesPage />} /></Route>
         <Route path="/settings/gateway-credentials" element={<PermissionRoute permission="PROVIDER_ACCOUNT_READ" />}><Route index element={<GatewayCredentialsPage />} /></Route>
