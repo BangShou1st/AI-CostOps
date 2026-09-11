@@ -38,12 +38,20 @@ public interface RoutingPolicyMapper {
                    pm.provider_model_name,
                    pv.id AS pricing_version_id,
                    pv.currency,
-                   pc.base_url,
+                   pcp.id AS provider_connection_profile_id,
+                   pcp.base_url,
+                   pcp.completion_path,
+                   pcp.protocol_code,
+                   pcp.network_policy,
                    pc.adapter_code,
-                   (pa.status='ACTIVE' AND EXISTS(SELECT 1 FROM provider_credential pcred
+                   ((pa.status='ACTIVE' AND EXISTS(SELECT 1 FROM provider_credential pcred
                           WHERE pcred.org_id=rpc.org_id
                             AND pcred.provider_account_id=rpc.provider_account_id
-                            AND pcred.status='ACTIVE')) AS credential_ready,
+                            AND pcred.status='ACTIVE'))
+                     OR pcp.auth_type='NONE') AS credential_ready,
+                   (pm.owner_org_id IS NULL
+                     OR (pm.owner_org_id=rpc.org_id
+                         AND pm.provider_account_id=rpc.provider_account_id)) AS provider_model_pair_valid,
                    (pm.status='ACTIVE' AND COALESCE(pm.routing_eligible,FALSE)) AS routing_eligible,
                    JSON_CONTAINS(pm.capabilities_json, JSON_QUOTE('CHAT_COMPLETIONS'), '$.capabilities') AS chat_capable,
                    JSON_CONTAINS(pm.capabilities_json, JSON_QUOTE('SSE_STREAMING'), '$.capabilities') AS stream_capable
@@ -54,6 +62,9 @@ public interface RoutingPolicyMapper {
               ON pm.id=rpc.provider_model_id
             LEFT JOIN provider_catalog pc
               ON pc.provider_code=pa.provider_code AND pc.status='ACTIVE'
+            INNER JOIN provider_connection_profile pcp
+              ON pcp.provider_account_id=rpc.provider_account_id
+             AND pcp.org_id=rpc.org_id AND pcp.status='ACTIVE'
             LEFT JOIN pricing_version pv
               ON pv.id=(
                 SELECT pv2.id FROM pricing_version pv2
@@ -94,8 +105,10 @@ public interface RoutingPolicyMapper {
 
     record CandidateRow(long id, int priority, Long providerAccountId, String providerCode,
             Long providerModelId, Long providerModelLogicalModelId, String providerModelProviderCode,
-            String providerModelName, Long pricingVersionId, String currency, String baseUrl,
-            String adapterCode, boolean credentialReady, boolean routingEligible,
+            String providerModelName, Long pricingVersionId, String currency,
+            Long providerConnectionProfileId, String baseUrl, String completionPath,
+            String protocolCode, String networkPolicy, String adapterCode,
+            boolean credentialReady, boolean providerModelPairValid, boolean routingEligible,
             boolean chatCapable, boolean streamCapable) {
     }
 

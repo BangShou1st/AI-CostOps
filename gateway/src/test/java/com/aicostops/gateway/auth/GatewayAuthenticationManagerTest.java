@@ -101,7 +101,7 @@ class GatewayAuthenticationManagerTest {
     void expiredCredentialIsRejected() {
         var row = new GatewayReadMapper.CredentialRow(
                 CREDENTIAL_ID, ORG_ID, "0123456789ab", digest(key().secret()), (short) 1,
-                "SERVICE", null, SERVICE_ID, PROJECT_ID, "PROJECT", PROJECT_ID,
+                "SERVICE", "USER_ISSUED", null, SERVICE_ID, PROJECT_ID, "PROJECT", PROJECT_ID,
                 "OPTIONAL", "ACTIVE", Instant.parse("2020-01-01T00:00:00Z"));
         when(readMapper.findCredentialByPrefix("0123456789ab")).thenReturn(row);
 
@@ -146,10 +146,25 @@ class GatewayAuthenticationManagerTest {
                         .isEqualTo(GatewayErrorCode.GATEWAY_AUTH_INVALID));
     }
 
+    @Test
+    void internalSystemCredentialCannotAuthenticateExternally() {
+        var row = new GatewayReadMapper.CredentialRow(
+                CREDENTIAL_ID, ORG_ID, "0123456789ab", digest(key().secret()), (short) 1,
+                "SERVICE", "INTERNAL_SYSTEM", null, SERVICE_ID, PROJECT_ID, "PROJECT", PROJECT_ID,
+                "OPTIONAL", "ACTIVE", null);
+        when(readMapper.findCredentialByPrefix("0123456789ab")).thenReturn(row);
+
+        assertThatThrownBy(() -> manager.authenticate(
+                new UsernamePasswordAuthenticationToken(key().raw(), key().raw())).block())
+                .isInstanceOf(GatewayErrorException.class)
+                .satisfies(ex -> assertThat(((GatewayErrorException) ex).code())
+                        .isEqualTo(GatewayErrorCode.GATEWAY_AUTH_INVALID));
+    }
+
     private GatewayReadMapper.CredentialRow validCredentialRow() {
         return new GatewayReadMapper.CredentialRow(
                 CREDENTIAL_ID, ORG_ID, "0123456789ab", digest(key().secret()), (short) 1,
-                "SERVICE", null, SERVICE_ID, PROJECT_ID, "PROJECT", PROJECT_ID,
+                "SERVICE", "USER_ISSUED", null, SERVICE_ID, PROJECT_ID, "PROJECT", PROJECT_ID,
                 "OPTIONAL", "ACTIVE", null);
     }
 

@@ -31,7 +31,12 @@ public record ResolvedRoutingPolicy(
             boolean chatCapable,
             boolean streamCapable,
             long providerModelLogicalModelId,
-            String providerModelProviderCode) {
+            String providerModelProviderCode,
+            long providerConnectionProfileId,
+            String completionPath,
+            String protocolCode,
+            String networkPolicy,
+            boolean providerModelPairValid) {
 
         /** Backward-compatible constructor for pure routing tests and legacy callers. */
         public Candidate(long id, int priority, long providerAccountId, String providerCode,
@@ -40,7 +45,8 @@ public record ResolvedRoutingPolicy(
                 boolean routingEligible, boolean chatCapable, boolean streamCapable) {
             this(id, priority, providerAccountId, providerCode, providerModelId, providerModelName,
                     pricingVersionId, currency, baseUrl, adapterCode, credentialReady,
-                    routingEligible, chatCapable, streamCapable, -1L, null);
+                    routingEligible, chatCapable, streamCapable, -1L, null,
+                    -1L, "/chat/completions", "OPENAI_CHAT_COMPLETIONS", "DIRECT_PUBLIC_ONLY", true);
         }
 
         public RouteIdentity identity() {
@@ -51,7 +57,9 @@ public record ResolvedRoutingPolicy(
             return new Candidate(id, priority, providerAccountId, providerCode, providerModelId,
                     providerModelName, newPricingVersionId, newCurrency, baseUrl, adapterCode,
                     credentialReady, routingEligible, chatCapable, streamCapable,
-                    providerModelLogicalModelId, providerModelProviderCode);
+                    providerModelLogicalModelId, providerModelProviderCode,
+                    providerConnectionProfileId, completionPath, protocolCode, networkPolicy,
+                    providerModelPairValid);
         }
     }
 

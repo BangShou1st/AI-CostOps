@@ -75,12 +75,24 @@ public final class M2DatabaseCleaner {
         // convenience pointer is cleared before either table is deleted.
         jdbc.update("UPDATE gateway_request SET current_route_attempt_id = NULL");
         jdbc.update("UPDATE gateway_route_attempt SET routing_policy_id = NULL");
+        jdbc.update("DELETE FROM advisor_evidence_snapshot");
+        jdbc.update("DELETE FROM advisor_explanation");
+        jdbc.update("DELETE FROM advisor_inference_attempt");
+        jdbc.update("DELETE FROM advisor_inference_job");
+        jdbc.update("DELETE FROM savings_recommendation");
+        jdbc.update("DELETE FROM cost_forecast_snapshot");
+        jdbc.update("DELETE FROM cost_anomaly");
+        jdbc.update("DELETE FROM cost_intelligence_run");
+        jdbc.update("DELETE FROM provider_model_discovery");
+        jdbc.update("DELETE FROM provider_connection_profile");
         jdbc.update("DELETE FROM gateway_route_attempt");
         jdbc.update("DELETE FROM gateway_request");
         jdbc.update("DELETE FROM routing_policy_candidate");
         jdbc.update("DELETE FROM routing_policy");
+        jdbc.update("UPDATE gateway_credential SET predecessor_credential_id=NULL, advisor_profile_id=NULL");
         jdbc.update("DELETE FROM gateway_credential_model");
         jdbc.update("DELETE FROM gateway_credential");
+        jdbc.update("DELETE FROM advisor_profile");
         jdbc.update("DELETE FROM provider_credential");
         jdbc.update("DELETE FROM pricing_rate");
         jdbc.update("DELETE FROM pricing_version");

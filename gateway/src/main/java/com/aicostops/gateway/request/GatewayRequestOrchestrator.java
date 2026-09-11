@@ -126,6 +126,7 @@ public class GatewayRequestOrchestrator {
                             planned = attempts.plan(authorized.principal().organizationId(),
                                     authorized.requestId(), policy.id(), routeReason,
                                     candidate.providerAccountId(), candidate.providerModelId(),
+                                    candidate.providerConnectionProfileId(),
                                     candidate.pricingVersionId());
                         } catch (RouteAttemptCoordinator.PlanRejectedException ex) {
                             if (ex.rejection() == RouteAttemptCoordinator.PlanRejection.CANDIDATE_ALREADY_ATTEMPTED) {
@@ -192,7 +193,9 @@ public class GatewayRequestOrchestrator {
                 policy.id(), candidate.providerAccountId(), candidate.providerModelId(),
                 candidate.pricingVersionId(), candidate.currency(), candidate.baseUrl(), candidate.adapterCode(),
                 candidate.providerModelName(), authorized.logicalModelId(), authorized.maxOutputTokens(),
-                authorized.defaultMaxOutputTokens(), authorized.billingPeriodId());
+                authorized.defaultMaxOutputTokens(), authorized.billingPeriodId(),
+                candidate.providerConnectionProfileId(), candidate.completionPath(),
+                candidate.protocolCode(), candidate.networkPolicy());
     }
 
     private record InitialCandidateResult(PreparedDispatch dispatch, boolean budgetRejected,
@@ -296,7 +299,8 @@ public class GatewayRequestOrchestrator {
                         try {
                             planned = attempts.plan(previous.principal().organizationId(), previous.requestId(),
                                     previous.dispatch().routingPolicyId(), "SAFE_FAILOVER", freshCandidate.providerAccountId(),
-                                    freshCandidate.providerModelId(), freshCandidate.pricingVersionId());
+                                    freshCandidate.providerModelId(), freshCandidate.providerConnectionProfileId(),
+                                    freshCandidate.pricingVersionId());
                         } catch (RouteAttemptCoordinator.PlanRejectedException ex) {
                             if (ex.rejection() == RouteAttemptCoordinator.PlanRejection.CANDIDATE_ALREADY_ATTEMPTED) {
                                 return NextCandidateResult.skipped();
@@ -379,7 +383,9 @@ public class GatewayRequestOrchestrator {
                 candidate.providerAccountId(), candidate.providerModelId(), candidate.pricingVersionId(),
                 candidate.currency(), candidate.baseUrl(), candidate.adapterCode(), candidate.providerModelName(),
                 previous.logicalModelId(), previous.dispatch().maxOutputTokens(),
-                previous.dispatch().defaultMaxOutputTokens(), previous.billingPeriodId());
+                previous.dispatch().defaultMaxOutputTokens(), previous.billingPeriodId(),
+                candidate.providerConnectionProfileId(), candidate.completionPath(),
+                candidate.protocolCode(), candidate.networkPolicy());
         var attempted = new HashSet<>(previous.attempted());
         attempted.add(candidate.identity());
         return new PreparedDispatch(result, previous.principal(), previous.command(), policy, Set.copyOf(attempted));

@@ -128,6 +128,18 @@ public final class GatewayTestFixture {
                   UTC_TIMESTAMP(6),NULL,NULL)
                 """, orgId, providerAccountId, encrypted.ciphertext(), encrypted.nonce());
         jdbc.update("""
+                INSERT INTO provider_connection_profile(
+                  org_id,provider_account_id,version,connection_kind,template_code,protocol_code,
+                  base_url,completion_path,models_path,auth_type,auth_header_name,network_policy,
+                  user_agent,connect_timeout_ms,response_timeout_ms,status,created_by,created_at,
+                  activated_at,retired_at)
+                SELECT ?,?,1,'CUSTOM',NULL,
+                  CASE WHEN pc.provider_code='MIMO' THEN 'MIMO_CHAT_COMPLETIONS' ELSE 'OPENAI_CHAT_COMPLETIONS' END,
+                  pc.base_url,'/chat/completions','/models','API_KEY_HEADER','X-API-Key',
+                  'DIRECT_PUBLIC_ONLY',NULL,5000,60000,'ACTIVE',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL
+                FROM provider_catalog pc WHERE pc.provider_code=?
+                """, orgId, providerAccountId, PROVIDER_CODE);
+        jdbc.update("""
                 INSERT INTO pricing_version(
                   org_id,provider_account_id,provider_model_id,version,currency,
                   effective_from,effective_to,status,created_at,activated_at,retired_at)
@@ -193,6 +205,15 @@ public final class GatewayTestFixture {
 
     /** FK-safe cleanup of all M11/M12 rows for tests sharing one container. */
     public static void clean(JdbcTemplate jdbc) {
+        jdbc.update("DELETE FROM advisor_explanation");
+        jdbc.update("DELETE FROM advisor_inference_attempt");
+        jdbc.update("DELETE FROM advisor_inference_job");
+        jdbc.update("DELETE FROM advisor_profile");
+        jdbc.update("DELETE FROM savings_recommendation");
+        jdbc.update("DELETE FROM cost_forecast_snapshot");
+        jdbc.update("DELETE FROM cost_anomaly");
+        jdbc.update("DELETE FROM cost_intelligence_run");
+        jdbc.update("DELETE FROM provider_model_discovery");
         jdbc.update("UPDATE gateway_request SET current_usage_fact_id = NULL");
         jdbc.update("DELETE FROM gateway_usage_dimension");
         jdbc.update("UPDATE gateway_usage_fact SET supersedes_usage_fact_id = NULL");
@@ -207,6 +228,7 @@ public final class GatewayTestFixture {
         jdbc.update("DELETE FROM routing_policy");
         jdbc.update("DELETE FROM gateway_credential_model");
         jdbc.update("DELETE FROM gateway_credential");
+        jdbc.update("DELETE FROM provider_connection_profile");
         jdbc.update("DELETE FROM provider_credential");
         jdbc.update("DELETE FROM pricing_rate");
         jdbc.update("DELETE FROM pricing_version");
@@ -250,6 +272,16 @@ public final class GatewayTestFixture {
                   safe_label,status,predecessor_credential_id,created_at,rotated_at,revoked_at)
                 VALUES (?,?,'API_KEY',?,?,1,'gw-test-failover','ACTIVE',NULL,UTC_TIMESTAMP(6),NULL,NULL)
                 """, env.orgId(), accountId, encrypted.ciphertext(), encrypted.nonce());
+        jdbc.update("""
+                INSERT INTO provider_connection_profile(
+                  org_id,provider_account_id,version,connection_kind,template_code,protocol_code,
+                  base_url,completion_path,models_path,auth_type,auth_header_name,network_policy,
+                  user_agent,connect_timeout_ms,response_timeout_ms,status,created_by,created_at,
+                  activated_at,retired_at)
+                VALUES (?,?,1,'CUSTOM',NULL,'MIMO_CHAT_COMPLETIONS',?,'/chat/completions','/models',
+                  'API_KEY_HEADER','X-API-Key','DIRECT_PUBLIC_ONLY',NULL,5000,60000,'ACTIVE',NULL,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL)
+                """, env.orgId(), accountId, baseUrl);
         jdbc.update("""
                 INSERT INTO pricing_version(
                   org_id,provider_account_id,provider_model_id,version,currency,effective_from,effective_to,

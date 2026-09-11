@@ -49,8 +49,13 @@ public class CandidateEligibilityEvaluator {
                 || (logicalModelId != null
                     && candidate.providerModelLogicalModelId() != logicalModelId)
                 || (logicalModelId != null
-                    && !Objects.equals(candidate.providerCode(), candidate.providerModelProviderCode()))) {
+                    && !Objects.equals(candidate.providerCode(), candidate.providerModelProviderCode()))
+                || !candidate.providerModelPairValid()) {
             return CandidateEligibility.rejected(EligibilityReason.LOGICAL_MODEL_MISMATCH);
+        }
+        if (candidate.providerConnectionProfileId() < 0 || candidate.baseUrl() == null
+                || candidate.baseUrl().isBlank()) {
+            return CandidateEligibility.rejected(EligibilityReason.CONNECTION_PROFILE_MISSING);
         }
         if (candidate.adapterCode() == null || candidate.adapterCode().isBlank()) {
             return CandidateEligibility.rejected(EligibilityReason.ADAPTER_UNAVAILABLE);
@@ -88,6 +93,7 @@ public class CandidateEligibilityEvaluator {
         CHAT_CAPABILITY_MISMATCH,
         STREAM_CAPABILITY_MISMATCH,
         PRICING_UNAVAILABLE,
-        ALREADY_ATTEMPTED
+        ALREADY_ATTEMPTED,
+        CONNECTION_PROFILE_MISSING
     }
 }

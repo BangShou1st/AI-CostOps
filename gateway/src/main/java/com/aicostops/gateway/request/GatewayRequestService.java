@@ -187,7 +187,8 @@ public class GatewayRequestService {
             try {
                 requestMapper.insertRouteAttempt(new GatewayRequestMapper.RouteAttemptInsert(
                         principal.organizationId(), requestId, 1, routeDecisionId,
-                        policy.id(), route.providerAccountId(), route.providerModelId(), route.pricingVersionId(),
+                        policy.id(), route.providerAccountId(), route.providerModelId(),
+                        route.providerConnectionProfileId(), route.pricingVersionId(),
                         routeReasonCode));
             } catch (DuplicateKeyException ex) {
                 // A concurrent identical call created the attempt between our
@@ -250,7 +251,11 @@ public class GatewayRequestService {
                 command.logicalModelId(),
                 model.maxOutputTokens(),
                 model.defaultMaxOutputTokens(),
-                periodId);
+                periodId,
+                route.providerConnectionProfileId(),
+                route.completionPath(),
+                route.protocolCode(),
+                route.networkPolicy());
     }
 
     private RequestState convergeExistingOrCreate(GatewayPrincipal principal,
@@ -348,7 +353,11 @@ public class GatewayRequestService {
             long logicalModelId,
             int maxOutputTokens,
             Integer defaultMaxOutputTokens,
-            long billingPeriodId) {
+            long billingPeriodId,
+            long providerConnectionProfileId,
+            String completionPath,
+            String protocolCode,
+            String networkPolicy) {
     }
 
     public record AuthorizedRequest(

@@ -139,7 +139,7 @@ public class ChatCompletionController {
             ServerWebExchange exchange) {
         return principal(exchange)
                 .flatMap(principal -> readBoundedBody(exchange)
-                        .flatMap(rawBody -> resolveCatalog(rawBody)
+                        .flatMap(rawBody -> resolveCatalog(principal, rawBody)
                                 .flatMap(catalog -> handleRequest(
                                         exchange, principal, rawBody, catalog))));
     }
@@ -236,13 +236,15 @@ public class ChatCompletionController {
                 .doFinally(ignored -> releasePermit.run());
     }
 
-    private Mono<ResolvedCatalogModel> resolveCatalog(byte[] rawBody) {
+    private Mono<ResolvedCatalogModel> resolveCatalog(GatewayPrincipal principal, byte[] rawBody) {
         var request = ChatCompletionRequestParser.parse(rawBody, objectMapper);
         var modelKey = request.model();
         // Synchronous JDBC/MyBatis catalog reads run strictly on the dedicated
         // gateway-db scheduler, never the Reactor Netty event loop.
         return blockingIo.call(() -> {
-            var modelId = readMapper.findModelIdByKey(modelKey);
+            // Organization-private keys resolve before global keys; a private
+            // key never shadows across organizations.
+            var modelId = readMapper.findVisibleModelId(principal.organizationId(), modelKey);
             if (modelId == null) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_INVALID,
                         "Unknown model");
@@ -586,7 +588,19 @@ public class ChatCompletionController {
     private Mono<ProviderCallContext> buildProviderContext(
             GatewayPrincipal principal, DispatchResult result) {
         return blockingIo.call(() -> {
-            var credential = credentialDecryptor.decrypt(principal.organizationId(), result.providerAccountId());
+            var profile = readMapper.findActiveConnectionProfile(
+                    principal.organizationId(), result.providerAccountId());
+            final String credentialType;
+            final byte[] secret;
+            if (profile != null && "NONE".equals(profile.authType())) {
+                credentialType = "NONE";
+                secret = null;
+            } else {
+                var credential = credentialDecryptor.decrypt(
+                        principal.organizationId(), result.providerAccountId());
+                credentialType = credential.credentialType();
+                secret = credential.secret();
+            }
             return new ProviderCallContext(
                     result.adapterCode(),
                     result.providerAccountId(),
@@ -595,9 +609,14 @@ public class ChatCompletionController {
                     result.pricingVersionId(),
                     result.currency(),
                     result.baseUrl(),
-                    credential.credentialType(),
-                    credential.secret(),
-                    result.routeDecisionId());
+                    credentialType,
+                    secret,
+                    result.routeDecisionId(),
+                    result.providerConnectionProfileId(),
+                    result.completionPath(),
+                    result.protocolCode(),
+                    result.networkPolicy(),
+                    profile == null ? null : profile.authHeaderName());
         });
     }
 

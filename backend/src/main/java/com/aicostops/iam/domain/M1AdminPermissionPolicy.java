@@ -42,6 +42,10 @@ public final class M1AdminPermissionPolicy {
             Map.entry("BUDGET_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                     ScopeType.TEAM, ScopeType.COST_CENTER)),
             Map.entry("BUDGET_MANAGE", Set.of(ScopeType.ORG)),
+            // M18 advisor: seeded for SYSTEM_ADMIN/FINANCE_ADMIN but missing here, which made every
+            // AI_ADVISOR_USE/MANAGE check deny unconditionally. Organization-scoped like its peers.
+            Map.entry("AI_ADVISOR_USE", Set.of(ScopeType.ORG)),
+            Map.entry("AI_ADVISOR_MANAGE", Set.of(ScopeType.ORG)),
             Map.entry("LEDGER_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT,
                     ScopeType.TEAM, ScopeType.COST_CENTER)),
             Map.entry("LEDGER_POST", Set.of(ScopeType.ORG)),
