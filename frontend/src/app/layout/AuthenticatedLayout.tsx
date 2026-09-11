@@ -1,21 +1,26 @@
 import {
   AccountBookOutlined,
+  AlertOutlined,
   AppstoreOutlined,
-  BookOutlined,
   AuditOutlined,
+  BookOutlined,
   CloudOutlined,
+  DashboardOutlined,
   DeploymentUnitOutlined,
+  FileDoneOutlined,
   FileTextOutlined,
   FolderOutlined,
   ImportOutlined,
   LeftOutlined,
+  LineChartOutlined,
   LogoutOutlined,
   MenuOutlined,
   PayCircleOutlined,
-  FileDoneOutlined,
   RightOutlined,
+  RobotOutlined,
   SafetyOutlined,
   TeamOutlined,
+  TrophyOutlined,
   UserOutlined,
   WalletOutlined,
 } from '@ant-design/icons'
@@ -24,7 +29,7 @@ import { useState, type ReactNode } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { visibleSettingsNav } from '../../features/settings/permissions'
-import { FINANCE_NAV_PATHS, visibleBusinessNav } from './appNavigation'
+import { FINANCE_NAV_PATHS, visibleBusinessNav, visibleIntelligenceNav } from './appNavigation'
 import { SETTINGS_COPY } from '../../features/settings/presentation'
 import { useMediaQuery } from './useMediaQuery'
 
@@ -43,6 +48,11 @@ export const NAV_ICONS: Record<string, ReactNode> = {
   '/ledger': <BookOutlined />,
   '/reconciliation': <AuditOutlined />,
   '/period-close': <AccountBookOutlined />,
+  '/intelligence/overview': <DashboardOutlined />,
+  '/intelligence/anomalies': <AlertOutlined />,
+  '/intelligence/forecasts': <LineChartOutlined />,
+  '/intelligence/savings': <TrophyOutlined />,
+  '/advisor': <RobotOutlined />,
   '/settings/users': <UserOutlined />,
   '/settings/roles': <SafetyOutlined />,
   '/settings/projects': <FolderOutlined />,
@@ -78,8 +88,9 @@ export function AuthenticatedLayout() {
   if (!auth.user) return null
 
   const businessEntries = visibleBusinessNav(auth.user.permissions)
+  const intelligenceEntries = visibleIntelligenceNav(auth.user.permissions)
   const settingsEntries = visibleSettingsNav(auth.user.permissions)
-  const entries = [...businessEntries, ...settingsEntries]
+  const entries = [...businessEntries, ...intelligenceEntries, ...settingsEntries]
   const selectedKey = entries.find((entry) => location.pathname.startsWith(entry.path))?.path
   const currentLabel = entries.find((entry) => entry.path === selectedKey)?.label ?? ''
 
@@ -101,9 +112,16 @@ export function AuthenticatedLayout() {
       ? [{ type: 'group' as const, key: 'finance-group', label: '财务', children: financeEntries.map(menuEntry) }]
       : []),
   ]
+  const intelligenceMenuItems = intelligenceEntries.length > 0
+    ? [{ type: 'group' as const, key: 'intelligence-group', label: '智能', children: intelligenceEntries.map(menuEntry) }]
+    : []
   const menuItems = [
     ...businessMenuItems,
-    ...(businessEntries.length > 0 && settingsEntries.length > 0
+    ...(businessEntries.length > 0 && intelligenceEntries.length > 0
+      ? [{ type: 'divider' as const, key: 'intelligence-divider' }]
+      : []),
+    ...intelligenceMenuItems,
+    ...((businessEntries.length > 0 || intelligenceEntries.length > 0) && settingsEntries.length > 0
       ? [{ type: 'divider' as const, key: 'nav-divider' }]
       : []),
     ...settingsEntries.map(menuEntry),

@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { ForgotPasswordPage, InvitationPage, LoginPage, RegisterPage, ResetPasswordPage } from '../../features/auth/AuthPages'
@@ -41,6 +42,12 @@ import { RoutingPoliciesPage } from '../../features/settings/routingPolicies/Rou
 import { ServiceIdentitiesPage } from '../../features/gateway/ServiceIdentitiesPage'
 import { GatewayCredentialsPage } from '../../features/gateway/GatewayCredentialsPage'
 import { ModelPricingPage } from '../../features/gateway/ModelPricingPage'
+import { OverviewPage } from '../../features/intelligence/OverviewPage'
+import { V3ComingSoon } from '../../features/intelligence/V3ComingSoon'
+
+const DevV3Overview = import.meta.env.DEV
+  ? lazy(() => import('../../features/intelligence/benchmark/V3OverviewBenchmark').then((m) => ({ default: m.V3OverviewBenchmark })))
+  : null
 
 export function AppRouter() {
   const auth = useAuth()
@@ -51,9 +58,27 @@ export function AppRouter() {
       <Route path="/forgot-password" element={<ForgotPasswordPage />} /><Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/invite/:token" element={<InvitationPage />} />
     </Route>
+    {DevV3Overview && (
+      <Route path="/dev/v3-overview" element={<Suspense fallback={<main className="auth-page" role="status">正在加载预览…</main>}><DevV3Overview /></Suspense>} />
+    )}
     <Route element={<ProtectedRoute isAuthenticated={auth.status === 'authenticated'} />}>
       <Route element={<AuthenticatedLayout />}>
         <Route path="/workbench" element={<WorkbenchPage />} />
+        <Route path="/intelligence/overview" element={<PermissionRoute permission="COST_READ" />}>
+          <Route index element={<OverviewPage />} />
+        </Route>
+        <Route path="/intelligence/anomalies" element={<PermissionRoute permission="COST_READ" />}>
+          <Route index element={<V3ComingSoon eyebrow="Cost Intelligence · 成本智能" title="异常" description="异常 drill-down 随 M19 第二批交付：severity、材料性、基线、证据链。" />} />
+        </Route>
+        <Route path="/intelligence/forecasts" element={<PermissionRoute permission="COST_READ" />}>
+          <Route index element={<V3ComingSoon eyebrow="Cost Intelligence · 成本智能" title="预测" description="actual vs forecast、置信度与方法学上下文随 M19 第二批交付。" />} />
+        </Route>
+        <Route path="/intelligence/savings" element={<PermissionRoute permission="COST_READ" />}>
+          <Route index element={<V3ComingSoon eyebrow="Cost Intelligence · 成本智能" title="节约建议" description="推荐生命周期 Review／Acknowledge／Dismiss／Mark Applied 随 M19 第二批交付。" />} />
+        </Route>
+        <Route path="/advisor" element={<PermissionRoute permission="AI_ADVISOR_USE" />}>
+          <Route index element={<V3ComingSoon eyebrow="AI Advisor" title="AI Advisor" description="受治理的解释体验随 M19 第三批交付：确定性证据＋AI 叙事，绝不做聊天克隆。" />} />
+        </Route>
         <Route path="/evidence" element={<PermissionRoute permission="EVIDENCE_READ" />}>
           <Route index element={<EvidenceListPage />} />
           <Route path=":id" element={<EvidenceDetailPage />} />
