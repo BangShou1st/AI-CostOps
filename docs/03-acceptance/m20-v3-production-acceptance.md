@@ -198,8 +198,22 @@ Carried forward pages (no re-test needed, source-identical):
 | Gate | Status |
 |---|---|
 | Branch pushed | feat/m20-v3-production-acceptance |
-| CI | Pending (awaiting push trigger) |
-| Security / GHAS | Pending |
+| backend-unit | PASS |
+| backend-integration | PASS |
+| backend-architecture | PASS |
+| gateway-unit | PASS |
+| gateway-integration | PASS |
+| gateway-architecture | PASS |
+| frontend-test | PASS |
+| frontend-lint | PASS |
+| frontend-build | PASS |
+| browser-e2e | PASS |
+| docker-build | PASS |
+| codeql (java-kotlin) | PASS |
+| codeql (javascript-typescript) | PASS |
+| trivy | PASS |
+| **failure** | **0** |
+| **pending** | **0** |
 
 ---
 
@@ -209,10 +223,11 @@ Carried forward pages (no re-test needed, source-identical):
 |---|---|
 | Starting baseline | `main@6549296e21c31371bf69aaee00c20ffca3e7aef8` |
 | Branch | `feat/m20-v3-production-acceptance` |
-| Commits | 1 (this reseal doc + gitignore fix) |
+| Final HEAD | `f75a140` |
+| Commits | 1 (reseal doc + gitignore fix) |
 | `git diff --check` | PASS |
-| PR | NOT YET CREATED |
-| Issue | NOT YET CREATED |
+| PR | [#160](https://github.com/BangShou1st/AI-CostOps/pull/160) |
+| Issue | [#159](https://github.com/BangShou1st/AI-CostOps/issues/159) |
 | Merge | NOT PERFORMED |
 | Tag | NOT CREATED |
 | Release | NOT CREATED |
@@ -229,6 +244,9 @@ main@6549296e21c31371bf69aaee00c20ffca3e7aef8
 
 Branch:
 feat/m20-v3-production-acceptance
+
+Final HEAD:
+f75a140
 
 === Clean Migration ===
 Fresh MySQL:            YES (Testcontainers)
@@ -275,10 +293,10 @@ Org Isolation Browser:
   DEFERRED
 
 === Security ===
-Trivy:                  PASS (M19 CI)
-CodeQL Java:            PASS (M19 CI)
-CodeQL JS:              PASS (M19 CI)
-GHAS:                   PASS (M19 CI)
+Trivy:                  PASS
+CodeQL Java/Kotlin:     PASS
+CodeQL JS/TS:           PASS
+GHAS:                   PASS
 
 === Deferred ===
 Literal poison proxy:   DEFERRED
@@ -292,11 +310,19 @@ P2: 0
 P3: 0
 
 === Hosted Exact-Head ===
-CI:                     Pending (awaiting push)
-Security:               Pending
-GHAS:                   Pending
-failure:                0 (local verification)
-pending:                3 (hosted)
+CI:                     14/14 ALL GREEN
+Security:               PASS
+GHAS:                   PASS
+failure:                0
+pending:                0
+
+=== Git ===
+commits:                f75a140
+PR:                     #160
+Issue:                  #159
+Merge:                  NOT PERFORMED
+Tag:                    NOT CREATED
+Release:                NOT CREATED
 
 === Candidate Decision ===
 M20_ACCEPTANCE_CANDIDATE
