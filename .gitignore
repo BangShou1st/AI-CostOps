@@ -103,3 +103,4 @@ Thumbs.db
 # =========================
 .local-provider-certification/
 .e2e-local.env
+frontend/playwright-results.xml
