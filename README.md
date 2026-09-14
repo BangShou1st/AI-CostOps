@@ -2,7 +2,7 @@
 
 面向研发团队的多 AI Provider 成本归集、费用核算、预算治理、对账与账期管理平台。
 
-当前稳定版本：**v1.1.0（M9 Production Foundation）**。V1 已完成并冻结：M0–M8、AIC-001～AIC-073、AIC-073 Final Human Acceptance / Release Sign-off、`v1.0.0` 与后续补丁 `v1.0.1` 均已完成。M9 已完成：AIC-074～AIC-083 全部验收（审计收口、生产配置加固、Metrics/Observability、Browser E2E、Security CI、Backup/Restore drill、Import/Reporting scale evidence、真实 Provider 认证），最终判决见 `docs/03-acceptance/aic-083-m9-final-acceptance.md`。`v1.1.0` 已正式发布。M10 V2 Detailed Design 也已完成并冻结，AIC-084～AIC-093 全部通过，主设计经 PR #129 squash merge 至 `main@1ed62c68c09458570c5cd04f812a2525028db7a2`。仓库当前不声称生产环境验证、完整 Provider 覆盖、FOCUS Compliance 或未实测的规模能力。
+当前稳定版本：**v3.0.0**。V3 在 V2 实时 AI 成本治理平台之上引入了 Model Provider Hub、确定性 Cost Intelligence 和受治理的 AI Advisor。
 
 发布记录：
 
@@ -10,27 +10,31 @@
 v1.0.0 → 982d06a0e9ec844ea687ed746d6b9d8f39d86686
 v1.0.1 → b96be614e2d843c101add49fe6daffb9d2343a56
 v1.1.0 → 102f287da9bfc922ffaabb1b7244a973a0f813eb
+v3.0.0 → 9c55125c1b857e3ccf301875d8886131a9d1d9b0
 ```
 
-`v1.0.1` 通过 PR #103 加固 Import lease recovery 在 MySQL deadlock race 下的 bounded retry；不改变 API、Schema 或 V1 产品范围。
+### V3 Highlights
+
+- **Model Provider Hub**: 版本化连接档案、凭证、模型、定价与路由治理
+- **Cost Intelligence**: 确定性异常检测 (median/MAD/robust-z)、DAMPED_HOLT 预测、反事实节约建议
+- **AI Advisor**: 受治理的金融事实解释，不计算金额
+- **OpenCode Zen 集成**: 内置 governed networking
+- **Custom OpenAI-Compatible Providers**: 有界配置与 SSRF 防护
+- 完整 V3 前端体验：Cost Intelligence、AI Advisor、Provider Hub、Pricing、Routing
 
 ## 当前里程碑状态
 
 ```text
 V1 = COMPLETE / FROZEN
-M9 PRODUCTION FOUNDATION = COMPLETE / ACCEPTED (see AIC-083)
-AIC-074 ~ AIC-083 = PASS (082 = REAL_PROVIDER_CERTIFICATION_PASS, MiMo real export)
-Current stable (published) = v1.1.0
-v1.1.0 = RELEASED
-M10 V2 DETAILED DESIGN = COMPLETE / FROZEN
-AIC-084 ~ AIC-093 = PASS / FROZEN
-M10 design merge = PR #129 / main@1ed62c68c09458570c5cd04f812a2525028db7a2
-M11 GATEWAY EDGE MVP = COMPLETE / ACCEPTED
-M12 IDENTITY / ATTRIBUTION / BUDGET RESERVATION = COMPLETE / ACCEPTED
-M13 REALTIME METERING / SETTLEMENT = COMPLETE / ACCEPTED
-M14 MULTI-PROVIDER ROUTING / RESILIENCE = COMPLETE / ACCEPTED
-M14 merge baseline = PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b (feat(m14): deliver multi-provider routing and resilience)
-M15 HYBRID RECONCILIATION = IMPLEMENTATION IN DELIVERY (feat/m15-hybrid-reconciliation; pending independent review + user merge)
+V2 = COMPLETE / FROZEN
+V3 = RELEASED / FROZEN
+Current stable (published) = v3.0.0
+v3.0.0 = RELEASED (9c55125)
+M17 V3 MODEL PROVIDER HUB & COST INTELLIGENCE DESIGN = FROZEN
+M18 V3 BACKEND & API CONTRACT = FROZEN
+M19 V3 FRONTEND EXPERIENCE = COMPLETE / ACCEPTED
+M20 V3 PRODUCTION ACCEPTANCE = COMPLETE / ACCEPTED
+M21 V3 POST-RELEASE OPERATIONAL READINESS = COMPLETE
 ```
 
 M10 冻结入口：
@@ -192,7 +196,20 @@ docker compose --env-file .env up -d
 docker compose --env-file .env ps
 ~~~
 
-默认浏览器入口为 `http://localhost:8080`，后端通过 Nginx 的同源 `/api/v1` 反向代理访问。健康检查：
+默认浏览器入口为 `http://localhost:8080`，后端通过 Nginx 的同源 `/api/v1` 反向代理访问。
+
+### 默认登录凭据（仅限开发环境）
+
+`.env.example` 中的 `AICOSTOPS_DEV_BOOTSTRAP_ENABLED=true` 会在首次启动时自动创建管理员账号：
+
+```text
+邮箱:     admin@example.test
+密码:     change-me-local-only
+```
+
+生产环境必须设置 `AICOSTOPS_DEV_BOOTSTRAP_ENABLED=false` 并使用正式身份。
+
+健康检查：
 
 ~~~powershell
 Invoke-WebRequest http://localhost:8080 -UseBasicParsing
@@ -331,9 +348,9 @@ V1 的 RC、验收与 benchmark 文档作为冻结历史证据保留；后续不
 
 M10 最终设计验收见 [m10-design-freeze-matrix.md](docs/03-acceptance/m10-design-freeze-matrix.md)。
 
-## V2 方向
+## V3 方向
 
-V1 已关闭，M10 V2 Detailed Design 已冻结，M11–M14 已全部完成并验收。当前进入 **M15 — Hybrid Reconciliation** 实施规划与开发阶段。
+V3.0.0 已正式发布。详细运维指南见 [docs/04-operations/v3-operational-runbook.md](docs/04-operations/v3-operational-runbook.md)。
 
 现有产品/设计入口：
 
@@ -350,4 +367,4 @@ M11–M14 已按 M10 冻结契约分里程碑交付（各自验收证据见 [doc
 Issue → Short-lived Branch → Pull Request → CI → Human Acceptance → Squash Merge → main
 ~~~
 
-当前 V1 状态：`COMPLETE / FROZEN`。M9 状态：`COMPLETE / ACCEPTED`。M10 状态：`COMPLETE / FROZEN`。M11–M14 状态：`COMPLETE / ACCEPTED`。当前稳定（已发布）版本：`v1.1.0`。M14 merge baseline：`PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b`。下一实现里程碑：`M15 — Hybrid Reconciliation`。
+当前稳定（已发布）版本：`v3.0.0`。M20 production acceptance 完成。详见 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。
