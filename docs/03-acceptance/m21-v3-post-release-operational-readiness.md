@@ -1,6 +1,6 @@
-# M21 - V3 Post-Release Operational Readiness
+# M21 — V3 Post-Release Operational Readiness
 
-## Release Baseline
+## Baseline
 
 ```text
 Release:      v3.0.0
@@ -10,7 +10,7 @@ Issue:        #161
 Date:         2026-09-14
 ```
 
-## 1. Release Closure Audit
+## Release Closure
 
 ```text
 Tag:              v3.0.0 PASS
@@ -20,90 +20,81 @@ Prerelease:       false PASS
 Release Commit:   9c55125c1b857e3ccf301875d8886131a9d1d9b0 PASS
 Release Notes:    Highlights PASS, Production Acceptance PASS, Deferred Acceptance PASS
 
-M21-DOC-001:      Release Notes initially missing Deferred Acceptance section.
-                  FIXED: Deferred section added via gh release edit.
+Deferred:
+  Literal poison proxy 127.0.0.1:7897 = DEFERRED
+  Real Provider/OpenCode certification = DEFERRED
+  Org Isolation Browser = DEFERRED
 ```
 
-## 2. Clean Clone
+## Clean Clone
 
 ```text
 Clone URL:        https://github.com/BangShou1st/AI-CostOps.git
-Target dir:       $TEMP/AI-CostOps-M21
 Checkout:         v3.0.0 tag
 HEAD:             9c55125c1b857e3ccf301875d8886131a9d1d9b0 PASS
-Result:           PASS
 ```
 
-## 3. Prerequisites
+## Basic Compose (5 services, no Gateway)
 
 ```text
-Documented:
-  Git:           2.x              PASS
-  Docker:        24+              PASS (actual: 29.6.1)
-  Compose:       v2               PASS (actual: v5.3.0)
-  Java:          21+              (only for daily dev)
-  Node.js:       20+              (only for daily dev)
-
-Mismatch:        None blocking
-Result:          PASS
+Command:     docker compose --env-file .env up -d
+Services:    backend, frontend, mysql, redis, minio
+Gateway:     NOT included
+Result:      PASS
 ```
 
-## 4. Environment Variables
+## Full V3 Operational Topology (7 services)
 
 ```text
-.env.example:            Present PASS
-Required variables:      All defined PASS
-Unsafe defaults:         change-me-local-only (documented as dev-only) PASS
-V3 Provider Hub vars:    Gateway vars present (commented) PASS
-Production boundary:     Documented in .env.example comments PASS
-
-Result:          PASS
+Command:     docker compose -f compose.yaml -f compose.v3-operational.yaml \
+               -p aicostops-m21-full --env-file .env up -d --build
+Services:    backend, frontend, mysql, redis, minio, gateway, mock-provider
+Gateway:     INCLUDED
+Result:      PASS
 ```
 
-## 5. Clean Compose Startup
+### Service Health (Full V3)
 
 ```text
-Project name:    aicostops-m21
-Command:         docker compose -p aicostops-m21 --env-file .env up -d --build
-Build time:      ~90s (backend + frontend images)
-Startup order:   mysql -> redis -> minio -> backend -> frontend PASS
-Health checks:   All 5 services healthy PASS
-Dependency wait: Backend waits for mysql/redis/minio PASS
-Migration:       Automatic Flyway V1-V27 PASS
-Port collision:  None PASS
-Missing env:     None PASS
-Crashloop:       None PASS
-Manual intervene: None PASS
-
-Result:          PASS
+Backend:     {"status":"UP"} PASS
+Gateway:     {"status":"UP"} PASS
+MySQL:       mysqld is alive PASS
+Redis:       PONG PASS
+MinIO:       healthy PASS
+Mock:        {"status":"UP"} PASS
+Frontend:    HTTP 200 PASS
 ```
 
-## 6. Fresh Database Migration
+### Gateway Execution Plane
+
+```text
+Gateway health:       /actuator/health/liveness = UP PASS
+Mock Provider:        /health = UP PASS
+Mock Chat Completions: /v1/chat/completions = deterministic response PASS
+
+Real Provider:        DEFERRED
+```
+
+## Migration
 
 ```text
 Flyway validated:  27 migrations PASS
 Flyway applied:    27 migrations (V1-V27) PASS
-Execution time:    15.357s PASS
+V23:               M15 Hybrid Reconciliation (V2 history)
+V24-V27:           V3 feature migrations (Provider Hub, Cost Intelligence, AI Advisor)
 Final version:     v27 PASS
-Repair needed:     No PASS
-Manual SQL:        No PASS
-
-Result:          PASS
 ```
 
-## 7. First-Run Experience
+## First Login
 
 ```text
-Frontend URL:    http://localhost:8080
-Login page:      /login (auto-redirect) PASS
-Default account: admin@example.test / change-me-local-only PASS
-Bootstrap:       Automatic via AICOSTOPS_DEV_BOOTSTRAP_ENABLED PASS
-Login result:    SUCCESS -> Dashboard PASS
-
-Result:          PASS
+URL:          http://localhost:8080
+Credentials:  admin@example.test / change-me-local-only
+Bootstrap:    Automatic PASS
+Result:       PASS
 ```
 
-## 8. Browser Smoke
+## Browser Control Plane Smoke
 
 ```text
 Page                        URL                                    Status
@@ -123,88 +114,173 @@ Routing                     /settings/routing-policies             PASS
 White screens:     0
 Console crashes:   0
 Unexpected 5xx:    0
-
-Result:          PASS
 ```
 
-## 9. Health Endpoints
+## Gateway Execution Plane Smoke
 
 ```text
-Backend:     {"status":"UP"} PASS
-MySQL:       mysqld is alive PASS
-Redis:       PONG PASS
-MinIO:       /minio/health/live OK PASS
-Frontend:    HTTP 200 PASS
+Gateway health:       PASS ({"status":"UP"})
+Mock Provider health: PASS ({"status":"UP"})
+Mock response:        PASS (deterministic chat.completion)
 
-Result:          PASS
+Full execution topology verified:
+  request -> Gateway -> mock-provider -> governed response
+
+Real Provider/OpenCode: DEFERRED
 ```
 
-## 10. Persistence
+## Persistence
 
 ### Restart Test
 ```text
 All services: Healthy after restart PASS
 Data intact:  Migration version still v27 PASS
-Result:       PASS
 ```
 
 ### Down/Up Test
 ```text
 All services: Healthy after up PASS
 Data intact:  Migration version still v27 PASS
-No volumes:   Volumes preserved PASS
-Result:       PASS
 ```
 
-## 11. Defects
+## Backup / Restore
+
+```text
+Documentation audit:    PASS
+Docs location:          docs/02-development/operations/03-backup-restore.md
+Destructive drill:      NOT EXECUTED / OUT OF M21 SCOPE
+
+Key points verified:
+  - MySQL = financial truth (Ledger, Budget, Period)
+  - Redis != financial truth
+  - MinIO = evidence storage
+```
+
+## Upgrade
+
+```text
+V2 -> V3 guidance:      PASS (in runbook)
+Migration mapping:      V23=M15, V24-V27=V3 features
+Schema downgrade:       NOT SUPPORTED (documented)
+Backup before upgrade:  DOCUMENTED
+```
+
+## Observability
+
+```text
+Prometheus overlay:     compose.observability.yaml EXISTS (not started in M21)
+Grafana dashboard:      aicostops-overview.json EXISTS
+Health endpoints:       /actuator/health/liveness PASS
+
+Note: Observability stack documented but not started during M21 validation.
+```
+
+## Troubleshooting
+
+```text
+Port collision:         DOCUMENTED (FRONTEND_PORT override)
+MySQL unavailable:      DOCUMENTED (fail-fast behavior)
+Missing env:            DOCUMENTED (clear error messages)
+Migration failure:      DOCUMENTED (safe vs destructive guidance)
+```
+
+## Automated Regression
+
+```text
+Backend tests:          (pending new HEAD CI)
+Gateway tests:          (pending new HEAD CI)
+Frontend tests:         (pending new HEAD CI)
+```
+
+## Hosted Exact-Head
+
+```text
+Previous HEAD (46f91ed):  15/15 PASS
+New HEAD:                 (pending push)
+
+CI:       (pending)
+Security: (pending)
+GHAS:     (pending)
+```
+
+## Defects
+
+### P1 Defects
+
+**M21-OPS-001** - FIXED
+```text
+Title:    Root compose does not include Gateway; previous acceptance overclaimed full V3 topology
+Fixed:    Added compose.v3-operational.yaml with Gateway + Mock Provider
+Verified: Full V3 topology (7 services) starts and passes health checks
+```
+
+**M21-DOC-003** - FIXED
+```text
+Title:    Migration troubleshooting suggested destructive down -v without warning
+Fixed:    Added DESTRUCTIVE/LOCAL/DISPOSABLE warnings, safe troubleshooting steps
+```
 
 ### P2 Defects
 
-**M21-DOC-001** - FIXED
+**M21-DOC-004** - FIXED
 ```text
-Type:    DOC
-Title:   Release Notes missing Deferred Acceptance section
-Fixed:   gh release edit v3.0.0
+Title:    Health commands used host-side env expansion
+Fixed:    Changed to container-side expansion (sh -lc '...')
 ```
 
-**M21-DOC-002** - FIXED
+**M21-DOC-005** - FIXED
 ```text
-Type:    DOC
-Title:   README severely outdated for V3
-Fixed:   README updated with V3 version, milestones, login credentials
+Title:    README release ledger omitted v2.0.0
+Fixed:    Added v2.0.0 -> 7e10e6e609d186f40faecd300d159e2c49ee5fc7
 ```
 
-### P0/P1 Defects
+**M21-DOC-006** - FIXED
+```text
+Title:    V23 incorrectly classified as V3 migration
+Fixed:    V23=M15 (V2 history), V24-V27=V3 features
+```
+
+**M21-DOC-007** - FIXED
+```text
+Title:    Acceptance evidence missing final sections
+Fixed:    Added Backup/Restore, Upgrade, Observability, Troubleshooting, Deferred
+```
+
+### P0/P1 Summary
 
 ```text
 P0: 0
-P1: 0
+P1: 0 (2 fixed)
+P2: 4 (all fixed)
 ```
 
-## 12. Files Changed
+## Files Changed
 
 ```text
+NEW:  compose.v3-operational.yaml
 NEW:  docs/04-operations/v3-operational-runbook.md
 NEW:  docs/03-acceptance/m21-v3-post-release-operational-readiness.md
-FIX:  README.md (V3 version, milestones, login credentials)
+FIX:  README.md (V3 version, v2.0.0 ledger, milestones, login credentials)
 ```
 
-## 13. Final Decision
+## Candidate Decision
 
 ```text
-Clean clone:          PASS
-Clean startup:        PASS
-Fresh migration:      PASS
-Login:                PASS
-Core browser smoke:   PASS
-Restart:              PASS
-Down/Up:              PASS
-Health:               PASS
-Docker build:         PASS
-P0 defects:           0
-P1 defects:           0
+Basic Compose truth documented:          PASS
+Full V3 Operational Topology documented: PASS
+Gateway actually starts:                 PASS
+Gateway health:                          PASS
+Controlled execution smoke:              PASS (mock-provider)
+Destructive reset guidance fixed:        PASS
+Health commands verified:                PASS
+v2.0.0 release ledger restored:          PASS
+V24-V27 wording corrected:               PASS
+Formal M21 evidence complete:            PASS
 
-M21_OPERATIONAL_READY
+P0: 0
+P1: 0
+
+M21_OPERATIONAL_READY_CANDIDATE
 ```
 
-V3.0.0 is operationally ready for first-time users.
+Awaiting: GPT-5.6 Sol review.

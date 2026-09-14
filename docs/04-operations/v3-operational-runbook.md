@@ -23,12 +23,68 @@ Required ports (defaults):
 | Service | Port | Notes |
 |---|---|---|
 | Frontend (Nginx) | 8080 | Configurable via `FRONTEND_PORT` |
+| Gateway | 8081 | Only in Full V3 Topology |
 | MySQL | 3306 (internal) | Not host-exposed in Compose |
 | Redis | 6379 (internal) | Not host-exposed in Compose |
 | MinIO API | 9000 (internal) | Not host-exposed in Compose |
 | MinIO Console | 9001 (internal) | Not host-exposed in Compose |
+| Mock Provider | 8089 | Only in Full V3 Topology |
 
-## First Start
+---
+
+## Running Modes
+
+### A. Daily Development (Default)
+
+Docker runs infrastructure only (MySQL / Redis / MinIO). Application processes run natively.
+
+```text
+Docker:
+  MySQL / Redis / MinIO
+
+Native:
+  Backend / Gateway / Frontend
+```
+
+**Does NOT include Gateway in Compose.** Gateway runs as native process.
+
+See: `docs/02-development/implementation/05-bootstrap-local-development-runbook.md`
+
+### B. Basic UI / Control-Plane Compose
+
+Root `compose.yaml` starts 5 services: backend, frontend, mysql, redis, minio.
+
+```text
+docker compose --env-file .env up -d
+```
+
+**Does NOT include Gateway.** Not complete V3 execution topology.
+
+Use for: UI development, control-plane testing, database work.
+
+### C. Full V3 Operational Validation (Recommended for M21)
+
+Complete V3 topology including Gateway + deterministic mock Provider.
+
+```text
+docker compose -f compose.yaml -f compose.v3-operational.yaml \
+  -p aicostops-m21-full --env-file .env up -d --build
+```
+
+Services:
+- backend (control plane)
+- frontend (UI)
+- mysql (financial truth)
+- redis (cache)
+- minio (evidence storage)
+- **gateway (execution data plane)**
+- **mock-provider (deterministic, zero-cost test provider)**
+
+Gateway binds to 127.0.0.1 only. Mock Provider is internal network only.
+
+---
+
+## First Start (Basic Compose)
 
 ```bash
 git clone https://github.com/BangShou1st/AI-CostOps.git
@@ -39,7 +95,26 @@ docker compose --env-file .env build
 docker compose --env-file .env up -d
 ```
 
-All five services (backend, frontend, mysql, redis, minio) will start. Database migrations (V1-V27) run automatically on first backend startup.
+Five services start. Database migrations (V1-V27) run automatically on first backend startup.
+
+## First Start (Full V3 Topology)
+
+```bash
+git clone https://github.com/BangShou1st/AI-CostOps.git
+cd AI-CostOps
+git checkout v3.0.0
+cp .env.example .env
+
+# Generate Gateway keys (required for Full V3)
+# Add to .env:
+#   AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED=true
+#   AICOSTOPS_GATEWAY_DEV_RAW_KEY=aic_<12 Crockford-Base32>_<43 Base64URL>
+
+docker compose -f compose.yaml -f compose.v3-operational.yaml \
+  -p aicostops-m21-full --env-file .env up -d --build
+```
+
+Seven services start. Gateway health check: `http://localhost:8081/actuator/health/liveness`
 
 ## Default Login (Development Only)
 
@@ -53,6 +128,8 @@ Password: change-me-local-only
 Open http://localhost:8080 and log in with these credentials.
 
 **Production**: Set `AICOSTOPS_DEV_BOOTSTRAP_ENABLED=false` and use real identity.
+
+---
 
 ## Environment Variables
 
@@ -72,32 +149,62 @@ Copy `.env.example` to `.env` and customize. Key variables:
 | `AICOSTOPS_DEV_BOOTSTRAP_EMAIL` | `admin@example.test` | Dev admin email |
 | `AICOSTOPS_DEV_BOOTSTRAP_PASSWORD` | `change-me-local-only` | Dev admin password |
 | `FRONTEND_PORT` | `8080` | Host port for frontend |
+| `GATEWAY_PORT` | `8081` | Host port for gateway (Full V3 only) |
+| `AICOSTOPS_GATEWAY_DEV_RAW_KEY` | (required for Full V3) | Gateway auth key |
+
+---
 
 ## Service URLs
 
 | Service | URL | Notes |
 |---|---|---|
-| Application | http://localhost:8080 | Frontend + API proxy |
+| Application | http://localhost:8080 | Frontend + API proxy (Basic Compose) |
+| Application | http://localhost:18080 | Frontend (Full V3 with custom port) |
 | Login | http://localhost:8080/login | Dev: `admin@example.test` |
+| Gateway Health | http://localhost:8081/actuator/health/liveness | Full V3 only |
+
+---
 
 ## Health Checks
 
+### Backend (container-side)
+
 ```bash
-# Backend
 docker compose exec backend curl -fsS http://localhost:8080/actuator/health/liveness
+```
 
-# MySQL
-docker compose exec mysql mysqladmin ping -h localhost -u root -p$MYSQL_ROOT_PASSWORD
+### Gateway (container-side)
 
-# Redis
-docker compose exec redis redis-cli -a $REDIS_PASSWORD ping
+```bash
+docker compose -f compose.yaml -f compose.v3-operational.yaml \
+  -p aicostops-m21-full exec gateway curl -fsS http://localhost:8081/actuator/health/liveness
+```
 
-# MinIO
+### MySQL (container-side expansion)
+
+```bash
+docker compose exec mysql sh -lc 'mysqladmin ping -h localhost -u root -p"$MYSQL_ROOT_PASSWORD" --silent'
+```
+
+### Redis (container-side expansion)
+
+```bash
+docker compose exec redis sh -lc 'redis-cli -a "$REDIS_PASSWORD" ping'
+```
+
+### MinIO (container-side)
+
+```bash
 docker compose exec minio curl -fsS http://localhost:9000/minio/health/live
+```
 
-# Frontend
+### Frontend (host-side)
+
+```bash
 curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/
 ```
+
+---
 
 ## Stop / Start
 
@@ -109,12 +216,32 @@ docker compose --env-file .env down
 docker compose --env-file .env up -d
 ```
 
-## Full Reset (destroys data)
+For Full V3 Topology:
+
+```bash
+# Stop (preserves data)
+docker compose -f compose.yaml -f compose.v3-operational.yaml \
+  -p aicostops-m21-full --env-file .env down
+
+# Start again
+docker compose -f compose.yaml -f compose.v3-operational.yaml \
+  -p aicostops-m21-full --env-file .env up -d
+```
+
+---
+
+## Full Reset (DESTRUCTIVE - LOCAL/DEV ONLY)
+
+**WARNING**: This destroys ALL data in MySQL, Redis, and MinIO.
+
+Only use on disposable local/dev environments. Never use on production or persistent data.
 
 ```bash
 docker compose --env-file .env down -v
 docker compose --env-file .env up -d --build
 ```
+
+---
 
 ## Backup / Restore
 
@@ -125,6 +252,8 @@ Key points:
 - Redis is NOT financial truth; it caches runtime state only
 - MinIO stores evidence files
 - Backup scripts: `scripts/ops/backup-mysql.ps1`, `scripts/ops/backup-evidence.ps1`
+
+---
 
 ## Logs
 
@@ -139,6 +268,8 @@ docker compose --env-file .env logs backend
 docker compose --env-file .env logs -f backend
 ```
 
+---
+
 ## Troubleshooting
 
 ### Port already in use
@@ -151,54 +282,19 @@ FRONTEND_PORT=18080
 
 ### MySQL unavailable
 
-Backend will fail-fast. Check MySQL health:
+Backend will fail-fast. Check MySQL health (container-side):
 
 ```bash
-docker compose exec mysql mysqladmin ping -u root -p$MYSQL_ROOT_PASSWORD
+docker compose exec mysql sh -lc 'mysqladmin ping -h localhost -u root -p"$MYSQL_ROOT_PASSWORD" --silent'
 ```
 
 ### Migration failures
 
-If schema is corrupt, destroy and re-migrate:
+**Do NOT blindly run `docker compose down -v`**. MySQL contains financial truth.
 
-```bash
-docker compose --env-file .env down -v
-docker compose --env-file .env up -d
-```
-
-## V3 Features
-
-### Model Provider Hub
-- **Gallery**: `/settings/providers` - Connection templates (OpenCode Zen, Custom OpenAI-Compatible)
-- **Connections**: `/settings/provider-connections` - Versioned connection profiles
-- **Models**: `/settings/provider-models` - Model discovery and promotion
-- **Pricing**: `/settings/model-pricing` - Pricing version management
-- **Routing**: `/settings/routing-policies` - Multi-provider routing strategies
-
-### Cost Intelligence
-- **Overview**: `/cost-intelligence/overview` - Four key judgments dashboard
-- **Anomalies**: `/intelligence/anomalies` - Deterministic anomaly detection
-- **Forecasts**: `/intelligence/forecasts` - DAMPED_HOLT time series
-- **Savings**: `/intelligence/savings` - Counterfactual savings recommendations
-
-### AI Advisor
-- **Advisor**: `/advisor` - Governed explanation of financial facts
-- Requires Gateway execution configuration for real provider calls
-
-## Upgrade Notes (V2 to V3)
-
-V3 is a major release:
-- New database migrations (V23-V27) add Provider Hub, Cost Intelligence, AI Advisor tables
-- New environment variables for Gateway (HMAC keys, KEK, rate limiting)
-- Gateway is now a separate deployable (Spring WebFlux data plane)
-- Frontend includes new V3 pages
-
-**Rollback**: V3 does not support schema downgrade. Restore from backup taken before V3 migration.
-
-## Security Reminders
-
-- Never commit `.env` with real secrets
-- Change `AICOSTOPS_JWT_SIGNING_KEY` before production
-- Set `AICOSTOPS_ALLOW_PUBLIC_REGISTRATION=false` in production
-- Enable `AICOSTOPS_REFRESH_COOKIE_SECURE=true` in production
-- Disable `AICOSTOPS_DEV_BOOTSTRAP_ENABLED` in production
+Correct approach:
+1. **STOP** the backend container
+2. **INSPECT** Flyway error in backend logs: `docker compose logs backend | grep -i flyway`
+3. **DO NOT** run Flyway repair as normal fix
+4. **DO NOT** modify historical migrations
+5. **VERIFY** you have a backup: `d
