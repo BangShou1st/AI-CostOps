@@ -5,7 +5,7 @@
 .DESCRIPTION
     Sends a controlled request through the real Gateway to the mock provider.
     Verifies: HTTP 200, deterministic response, provider invocation count +1,
-    route_attempt.connection_profile_id exact match with seeded profile.
+    route_attempt.connection_profile_id EXACT MATCH with seeded profile.
 
 .PARAMETER GatewayBase
     Gateway base URL. Default: http://127.0.0.1:8081
@@ -25,7 +25,8 @@ param(
     [string]$MockBase = "http://127.0.0.1:8089",
     [string]$ComposeProject = "aicostops-m21-reseal",
     [string]$ComposeFile = "compose.yaml,compose.v3-operational.yaml",
-    [string]$IdempotencyKey = ""
+    [string]$IdempotencyKey = "",
+    [string]$StateFile = ".m21-operational-state.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,6 +55,16 @@ if ($envContent -match 'AICOSTOPS_GATEWAY_DEV_RAW_KEY=(.+)') {
     Write-Error "[M21-SMOKE] AICOSTOPS_GATEWAY_DEV_RAW_KEY not found in $envFile"
     exit 1
 }
+
+# Step 0b: Read expected profile id from seed state file
+$statePath = Join-Path (Split-Path -Parent $PSScriptRoot) $StateFile
+if (-not (Test-Path $statePath)) {
+    Write-Error "[M21-SMOKE] State file not found. Run scripts/m21/seed-v3-operational.ps1 first."
+    exit 1
+}
+$state = Get-Content $statePath -Raw | ConvertFrom-Json
+$expectedProfileId = $state.connection_profile_id
+Write-Output "[M21-SMOKE] Expected profile from seed: $expectedProfileId"
 
 # Step 1: Check Gateway health
 Write-Output "[M21-SMOKE] Checking Gateway health..."
@@ -91,7 +102,7 @@ $headers = @{
 }
 
 try {
-    $response = Invoke-RestMethod -Uri "$GatewayBase/v1/chat/completions" -Method POST -Headers $headers -Body $body -ErrorAction Stop
+    $response = Invoke-RestMethod -Uri "$GatewayBase/v1/chat/completions" -Method POST -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ErrorAction Stop
     Write-Output "[M21-SMOKE] HTTP request succeeded (200)"
 } catch {
     Write-Error "[M21-SMOKE] FAILED: HTTP request failed: $_"
@@ -118,7 +129,7 @@ if ($response.choices[0].message.content -ne "Hello from M16 mock") {
 Write-Output "[M21-SMOKE] Response shape VALID (deterministic content matched)"
 
 # Step 6: Verify mock invocation count increased by exactly 1
-Start-Sleep -Seconds 1
+Start-Sleep -Seconds 2
 $finalStats = Invoke-RestMethod -Uri "$MockBase/stats" -Method GET
 $finalCount = $finalStats.post_chat_completions
 $delta = $finalCount - $initialCount
@@ -131,8 +142,8 @@ if ($delta -ne 1) {
 }
 Write-Output "[M21-SMOKE] Mock invocation count VERIFIED (+1)"
 
-# Step 7: Query latest gateway_route_attempt and verify connection_profile_id
-Write-Output "[M21-SMOKE] Verifying route_attempt lineage..."
+# Step 7: Query route_attempt bound to THIS request via idempotency key
+Write-Output "[M21-SMOKE] Verifying route_attempt lineage for request $IdempotencyKey..."
 
 $composeArgs = @()
 foreach ($file in $ComposeFile.Split(',')) {
@@ -146,26 +157,64 @@ $composeArgs += ".env.m21.local"
 
 function Invoke-Mysql([string]$Sql) {
     $escapedSql = $Sql -replace '"', '\\"'
-    $result = docker compose @composeArgs exec -T mysql sh -lc "echo `"$escapedSql`" | mysql -u $($env:MYSQL_GATEWAY_USER) -p`"$($env:MYSQL_GATEWAY_PASSWORD)`" aicostops -N -B 2>&1"
-    $filtered = ($result | Where-Object { $_ -notmatch "Warning" }) -join "`n"
-    return $filtered.Trim()
+    $result = docker compose @composeArgs exec -T mysql sh -lc "echo `"$escapedSql`" | mysql -u $($env:MYSQL_GATEWAY_USER) -p`"$($env:MYSQL_GATEWAY_PASSWORD)`" aicostops 2>&1"
+    return ($result | Out-String).Trim()
 }
 
-# Get latest attempt
-$latestAttempt = Invoke-Mysql "SELECT id, provider_connection_profile_id, routing_policy_id, provider_account_id FROM gateway_route_attempt ORDER BY id DESC LIMIT 1;"
-Write-Output "[M21-SMOKE] Latest route_attempt: $latestAttempt"
+# Step 7a: Find gateway_request by idempotency key digest
+$idemDigest = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes($IdempotencyKey))).ToLower()
+$requestResult = Invoke-Mysql "SELECT id, public_request_id FROM gateway_request WHERE idempotency_key_digest=UNHEX('$idemDigest') AND org_id=$($state.org_id);"
 
-if ($latestAttempt -match "NULL" -or [string]::IsNullOrWhiteSpace($latestAttempt)) {
-    Write-Error "[M21-SMOKE] FAILED: No route_attempt found or provider_connection_profile_id is NULL"
+if ([string]::IsNullOrWhiteSpace($requestResult)) {
+    Write-Error "[M21-SMOKE] FAILED: No gateway_request found for idempotency key digest"
     exit 1
 }
 
-# Verify profile is not null
-$profileId = ($latestAttempt -split "`t")[1]
-if ($profileId -eq "NULL" -or [string]::IsNullOrWhiteSpace($profileId)) {
-    Write-Error "[M21-SMOKE] FAILED: provider_connection_profile_id is NULL"
+$requestId = ($requestResult -split "`t")[0]
+Write-Output "[M21-SMOKE] Found request: $requestId"
+
+# Step 7b: Find route_attempt for this request
+$attemptResult = Invoke-Mysql "SELECT id, provider_connection_profile_id, routing_policy_id, provider_account_id, provider_model_id FROM gateway_route_attempt WHERE request_id=$requestId AND org_id=$($state.org_id) ORDER BY attempt_no DESC LIMIT 1;"
+
+if ([string]::IsNullOrWhiteSpace($attemptResult)) {
+    Write-Error "[M21-SMOKE] FAILED: No route_attempt found for request $requestId"
     exit 1
 }
-Write-Output "[M21-SMOKE] Route attempt uses connection_profile_id: $profileId"
+
+$attemptFields = $attemptResult -split "`t"
+$attemptProfileId = $attemptFields[1]
+$attemptPolicyId = $attemptFields[2]
+$attemptAccountId = $attemptFields[3]
+$attemptModelId = $attemptFields[4]
+
+Write-Output "[M21-SMOKE] Route attempt profile: $attemptProfileId"
+Write-Output "[M21-SMOKE] Route attempt policy: $attemptPolicyId"
+Write-Output "[M21-SMOKE] Route attempt account: $attemptAccountId"
+
+# Step 7c: EXACT profile equality assertion
+if ($attemptProfileId -ne $expectedProfileId) {
+    Write-Error "[M21-SMOKE] FAILED: Profile mismatch! Expected $expectedProfileId, got $attemptProfileId"
+    exit 1
+}
+Write-Output "[M21-SMOKE] PROFILE_LINEAGE_EXACT_MATCH_PASS (expected=$expectedProfileId, actual=$attemptProfileId)"
+
+# Step 7d: Verify lineage fields match seed state
+if ($attemptPolicyId -ne $state.routing_policy_id) {
+    Write-Warning "[M21-SMOKE] Policy mismatch: expected $($state.routing_policy_id), got $attemptPolicyId"
+}
+if ($attemptAccountId -ne $state.provider_account_id) {
+    Write-Warning "[M21-SMOKE] Account mismatch: expected $($state.provider_account_id), got $attemptAccountId"
+}
+if ($attemptModelId -ne $state.provider_model_id) {
+    Write-Warning "[M21-SMOKE] Model mismatch: expected $($state.provider_model_id), got $attemptModelId"
+}
+
+# Step 8: Verify provider_catalog legacy URL is NOT used for dispatch
+$catalogUrl = Invoke-Mysql "SELECT base_url FROM provider_catalog WHERE provider_code='MIMO' AND status='ACTIVE' LIMIT 1;"
+if (-not [string]::IsNullOrWhiteSpace($catalogUrl) -and $catalogUrl -eq $state.mock_base_url) {
+    Write-Warning "[M21-SMOKE] Catalog base_url matches mock URL — legacy URL may have authority"
+} else {
+    Write-Output "[M21-SMOKE] Catalog legacy base_url differs from mock endpoint — ACTIVE profile is authority"
+}
 
 Write-Output "[M21-SMOKE] M21_V3_GOVERNED_SMOKE_PASS"

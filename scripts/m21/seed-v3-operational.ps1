@@ -9,7 +9,7 @@
     pricing version, pricing rate, routing policy, routing policy candidate.
 
     This script creates the one thing DevGatewayBootstrap does NOT create:
-    - provider_connection_profile (V24+ endpoint authority) — with auth_type=API_KEY
+    - provider_connection_profile (V24+ endpoint authority) — with auth_type=API_KEY_HEADER
 
     Idempotent: safe to run multiple times.
 
@@ -26,7 +26,8 @@
 [CmdletBinding()]
 param(
     [string]$ComposeProject = "aicostops-m21-reseal",
-    [string]$MockBaseUrl = "http://mock-provider:8089/v1"
+    [string]$MockBaseUrl = "http://mock-provider:8089/v1",
+    [string]$StateFile = ".m21-operational-state.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,50 +66,75 @@ Write-Output "[M21-SEED] Provider Account: $acctId (MIMO)"
 $orgId = Invoke-Mysql "SELECT org_id FROM provider_account WHERE id=$acctId;"
 Write-Output "[M21-SEED] Organization: $orgId"
 
-# Step 3: Create provider_connection_profile if missing (V24+ endpoint authority)
+# Step 3: Find provider_model_id for this account
+$providerModelId = Invoke-Mysql "SELECT id FROM provider_model WHERE provider_account_id=$acctId AND status='ACTIVE' AND routing_eligible=TRUE LIMIT 1;"
+if ([string]::IsNullOrEmpty($providerModelId)) {
+    Write-Error "[M21-SEED] No eligible provider_model found for MIMO account."
+    exit 1
+}
+
+# Step 4: Find pricing_version_id
+$pricingVersionId = Invoke-Mysql "SELECT id FROM pricing_version WHERE org_id=$orgId AND provider_account_id=$acctId AND status='ACTIVE' LIMIT 1;"
+if ([string]::IsNullOrEmpty($pricingVersionId)) {
+    Write-Error "[M21-SEED] No ACTIVE pricing_version found for MIMO account."
+    exit 1
+}
+
+# Step 5: Create provider_connection_profile if missing (V24+ endpoint authority)
 $existingProfile = Invoke-Mysql "SELECT id FROM provider_connection_profile WHERE provider_account_id=$acctId AND status='ACTIVE' LIMIT 1;"
 if ([string]::IsNullOrEmpty($existingProfile)) {
     $insertSql = @"
 INSERT INTO provider_connection_profile(
     org_id, provider_account_id, version, connection_kind, protocol_code,
-    base_url, completion_path, models_path, auth_type, network_policy,
+    base_url, completion_path, models_path, auth_type, auth_header_name, network_policy,
     connect_timeout_ms, response_timeout_ms, status, created_at, activated_at
 ) VALUES(
     $orgId, $acctId, 1, 'CUSTOM', 'OPENAI_CHAT_COMPLETIONS',
-    '$MockBaseUrl', '/chat/completions', '/models', 'API_KEY', 'DIRECT_ONLY',
+    '$MockBaseUrl', '/chat/completions', '/models', 'API_KEY_HEADER', 'X-API-Key', 'DIRECT_ONLY',
     5000, 60000, 'ACTIVE', UTC_TIMESTAMP(6), UTC_TIMESTAMP(6)
 );
 SELECT LAST_INSERT_ID();
 "@
     $profileId = Invoke-Mysql $insertSql | Out-String
     $profileId = $profileId.Trim()
-    Write-Output "[M21-SEED] Created Connection Profile: $profileId (endpoint: $MockBaseUrl, auth: API_KEY)"
+    Write-Output "[M21-SEED] Created Connection Profile: $profileId (endpoint: $MockBaseUrl, auth: API_KEY_HEADER, header: X-API-Key)"
 } else {
     $profileId = $existingProfile.Trim()
-    # Ensure auth_type is API_KEY (not NONE) so credential lookup triggers
+    # Ensure auth_type is API_KEY_HEADER (not NONE) so credential lookup triggers
     $currentAuth = Invoke-Mysql "SELECT auth_type FROM provider_connection_profile WHERE id=$profileId;"
-    if ($currentAuth -ne "API_KEY") {
-        Invoke-Mysql "UPDATE provider_connection_profile SET auth_type='API_KEY' WHERE id=$profileId;" | Out-Null
-        Write-Output "[M21-SEED] Updated Connection Profile $profileId auth_type: $currentAuth -> API_KEY"
+    if ($currentAuth -ne "API_KEY_HEADER") {
+        Invoke-Mysql "UPDATE provider_connection_profile SET auth_type='API_KEY_HEADER', auth_header_name='X-API-Key' WHERE id=$profileId;" | Out-Null
+        Write-Output "[M21-SEED] Updated Connection Profile $profileId auth_type: $currentAuth -> API_KEY_HEADER"
     } else {
         Write-Output "[M21-SEED] Connection Profile already exists: $profileId"
     }
 }
 
-# Step 4: Ensure provider_credential exists (created by DevGatewayBootstrap when AICOSTOPS_MIMO_API_KEY is set)
+# Step 6: Ensure provider_credential exists (created by DevGatewayBootstrap when AICOSTOPS_MIMO_API_KEY is set)
 $credCount = Invoke-Mysql "SELECT COUNT(*) FROM provider_credential WHERE provider_account_id=$acctId AND status='ACTIVE';"
 if ($credCount -eq "0") {
-    Write-Warning "[M21-SEED] No ACTIVE provider_credential found. DevGatewayBootstrap should have created one with AICOSTOPS_MIMO_API_KEY."
-    Write-Warning "[M21-SEED] Gateway dispatch will fail without a decryptable credential."
-} else {
-    Write-Output "[M21-SEED] Provider Credential: $credCount ACTIVE credential(s) found"
+    Write-Error "[M21-SEED] No ACTIVE provider_credential found. DevGatewayBootstrap should have created one with AICOSTOPS_MIMO_API_KEY. Gateway dispatch will fail without a decryptable credential."
+    exit 1
 }
+Write-Output "[M21-SEED] Provider Credential: $credCount ACTIVE credential(s) found"
 
-# Step 5: Verify routing chain exists
+# Step 7: Verify routing chain exists
 $policyId = Invoke-Mysql "SELECT id FROM routing_policy WHERE org_id=$orgId AND status='ACTIVE' LIMIT 1;"
+if ([string]::IsNullOrEmpty($policyId)) {
+    Write-Error "[M21-SEED] No ACTIVE routing_policy found for org $orgId."
+    exit 1
+}
 $candidateCount = Invoke-Mysql "SELECT COUNT(*) FROM routing_policy_candidate WHERE routing_policy_id=$policyId AND status='ACTIVE';"
+if ($candidateCount -eq "0") {
+    Write-Error "[M21-SEED] No ACTIVE routing_policy_candidate found for policy $policyId."
+    exit 1
+}
 $modelId = Invoke-Mysql "SELECT model_id FROM routing_policy WHERE id=$policyId;"
 $pricingCount = Invoke-Mysql "SELECT COUNT(*) FROM pricing_version WHERE org_id=$orgId AND provider_account_id=$acctId AND status='ACTIVE';"
+if ($pricingCount -eq "0") {
+    Write-Error "[M21-SEED] No ACTIVE pricing_version found."
+    exit 1
+}
 
 Write-Output "[M21-SEED] Routing Policy: $policyId ($candidateCount candidate(s))"
 Write-Output "[M21-SEED] Model: $modelId"
@@ -116,14 +142,23 @@ Write-Output "[M21-SEED] Pricing: $pricingCount ACTIVE version(s)"
 
 Write-Output "[M21-SEED] M21_SEED_PASS"
 
-# Output summary
+# Output machine-readable state
 $summary = @{
     org_id = [long]$orgId
     provider_account_id = [long]$acctId
+    provider_model_id = [long]$providerModelId
     connection_profile_id = [long]$profileId
     routing_policy_id = [long]$policyId
+    pricing_version_id = [long]$pricingVersionId
     mock_base_url = $MockBaseUrl
+    auth_type = "API_KEY_HEADER"
+    auth_header_name = "X-API-Key"
 } | ConvertTo-Json -Depth 3
 
-Write-Output "`n[M21-SEED] Summary:"
+Write-Output "`n[M21-SEED] State:"
 Write-Output $summary
+
+# Write state file for smoke script
+$statePath = Join-Path (Split-Path -Parent $PSScriptRoot) $StateFile
+[System.IO.File]::WriteAllText($statePath, $summary)
+Write-Output "[M21-SEED] State written to $StateFile"

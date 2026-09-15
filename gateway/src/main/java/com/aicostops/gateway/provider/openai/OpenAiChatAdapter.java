@@ -34,9 +34,7 @@ import tools.jackson.databind.ObjectMapper;
  * OpenAI Chat Completions adapter with non-stream and include-usage SSE support.
  *
  * <p>M21 post-release security fix (M18 DNS-rebinding contract): production
- * dispatch now uses {@link PublicOnlyAddressResolverGroup} to enforce
- * transport-level public-only DNS resolution. Non-production profiles
- * (dev/test) use the default JVM resolver to allow local mock validation.
+ * dispatch now uses {@link PublicOnlyAddressResolverGroup}.
  */
 @Component
 public class OpenAiChatAdapter implements ProviderChatAdapter {
@@ -48,6 +46,7 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
     private final ObjectMapper objectMapper;
     private final GatewayProperties properties;
     private final boolean enforceProductionEndpoint;
+    private final boolean publicOnlyResolverActive;
 
     public OpenAiChatAdapter(WebClient.Builder builder, ObjectMapper objectMapper,
             GatewayProperties properties, Environment environment) {
@@ -59,6 +58,9 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
         if (enforceProductionEndpoint) {
             httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
+            publicOnlyResolverActive = true;
+        } else {
+            publicOnlyResolverActive = false;
         }
         this.webClient = builder.clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()
@@ -66,10 +68,16 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
                 .build();
     }
 
-    @Override
-    public String adapterCode() {
-        return "OPENAI";
+    /**
+     * Test-only seam: whether the public-only resolver is active.
+     * Package-private to prevent production use.
+     */
+    /* package-private */ boolean isPublicOnlyResolverActive() {
+        return publicOnlyResolverActive;
     }
+
+    @Override
+    public String adapterCode() { return "OPENAI"; }
 
     @Override
     public Mono<ProviderChatCompletion> complete(ProviderCallContext context,
@@ -243,12 +251,6 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
             boolean responseStarted) {
         return new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE, reason,
                 ProviderHealthSignal.QUALIFYING_FAILURE, null, null, responseStarted, cause);
-    }
-
-    private static Throwable rootCause(Throwable ex) {
-        var current = reactor.core.Exceptions.unwrap(ex);
-        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
-        return current;
     }
 
     private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {

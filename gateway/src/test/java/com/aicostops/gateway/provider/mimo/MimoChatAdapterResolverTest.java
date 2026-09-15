@@ -9,46 +9,52 @@ import org.springframework.web.reactive.function.client.WebClient;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Regression test for M21 post-release security fix: MiMo adapter must
- * enforce PublicOnlyAddressResolverGroup in production profile.
+ * M21 post-release SSRF regression test for MiMo adapter.
+ *
+ * <p>Verifies that the MiMo adapter wires PublicOnlyAddressResolverGroup
+ * into its HttpClient when the production profile is active, enforcing the
+ * frozen M18 DNS-rebinding / SSRF contract.
+ *
+ * <p>Mutation proof: if the resolver wiring line is removed from
+ * MimoChatAdapter, this test FAILS because the boolean flag flips to false.
  */
 class MimoChatAdapterResolverTest {
 
     @Test
-    void mimoAdapterConstructsWithPublicOnlyResolverInProdProfile() {
-        // Given: prod profile active
-        var properties = new GatewayProperties();
-        properties.setConnectTimeoutMs(5000);
-        properties.setHeaderTimeoutMs(60000);
-        properties.setMaxInMemoryBytes(16777216);
-
-        MockEnvironment env = new MockEnvironment();
-        env.addActiveProfile("prod");
-
-        // When: adapter is constructed
-        var adapter = new MimoChatAdapter(WebClient.builder(), new ObjectMapper(), properties, env);
-
-        // Then: adapter is non-null and reports correct code
-        assertNotNull(adapter);
-        assertEquals("MIMO", adapter.adapterCode());
+    void mimoAdapterUsesPublicOnlyResolverInProdProfile() {
+        var adapter = createAdapter(true);
+        assertTrue(
+            adapter.isPublicOnlyResolverActive(),
+            "Production MiMo dispatch MUST use PublicOnlyAddressResolverGroup (M18 DNS-rebinding contract)"
+        );
     }
 
     @Test
-    void mimoAdapterConstructsWithoutPublicOnlyResolverInDevProfile() {
-        // Given: prod profile NOT active
+    void mimoAdapterDoesNotUsePublicOnlyResolverInNonProdProfile() {
+        var adapter = createAdapter(false);
+        assertFalse(
+            adapter.isPublicOnlyResolverActive(),
+            "Non-production MiMo dispatch MUST NOT use PublicOnlyAddressResolverGroup (allows local mock validation)"
+        );
+    }
+
+    @Test
+    void mimoAdapterReportsCorrectCode() {
+        var adapter = createAdapter(true);
+        assertEquals("MIMO", adapter.adapterCode());
+    }
+
+    private MimoChatAdapter createAdapter(boolean prodProfile) {
         var properties = new GatewayProperties();
         properties.setConnectTimeoutMs(5000);
         properties.setHeaderTimeoutMs(60000);
         properties.setMaxInMemoryBytes(16777216);
 
         MockEnvironment env = new MockEnvironment();
-        // No prod profile active
+        if (prodProfile) {
+            env.addActiveProfile("prod");
+        }
 
-        // When: adapter is constructed in dev/test profile
-        var adapter = new MimoChatAdapter(WebClient.builder(), new ObjectMapper(), properties, env);
-
-        // Then: adapter works without public-only resolver (allows local mock validation)
-        assertNotNull(adapter);
-        assertEquals("MIMO", adapter.adapterCode());
+        return new MimoChatAdapter(WebClient.builder(), new ObjectMapper(), properties, env);
     }
 }

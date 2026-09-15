@@ -35,7 +35,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Set-StrictMode -Latest
+Set-StrictMode -Version Latest
 
 # Resolve Gateway password from env or param
 if ([string]::IsNullOrWhiteSpace($GatewayPassword)) {
