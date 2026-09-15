@@ -9,6 +9,7 @@ import com.aicostops.gateway.provider.ProviderExecutionException;
 import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
 import com.aicostops.gateway.provider.ProviderSafetyReason;
+import com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import io.netty.channel.ChannelOption;
 import java.nio.charset.StandardCharsets;
@@ -29,7 +30,12 @@ import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 import tools.jackson.databind.ObjectMapper;
 
-/** OpenAI Chat Completions adapter with non-stream and include-usage SSE support. */
+/**
+ * OpenAI Chat Completions adapter with non-stream and include-usage SSE support.
+ *
+ * <p>M21 post-release security fix (M18 DNS-rebinding contract): production
+ * dispatch now uses {@link PublicOnlyAddressResolverGroup}.
+ */
 @Component
 public class OpenAiChatAdapter implements ProviderChatAdapter {
 
@@ -40,25 +46,44 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
     private final ObjectMapper objectMapper;
     private final GatewayProperties properties;
     private final boolean enforceProductionEndpoint;
+    private final HttpClient httpClient;
 
     public OpenAiChatAdapter(WebClient.Builder builder, ObjectMapper objectMapper,
             GatewayProperties properties, Environment environment) {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.enforceProductionEndpoint = environment.acceptsProfiles(Profiles.of("prod"));
-        var httpClient = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
-                .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
-        this.webClient = builder.clientConnector(new ReactorClientHttpConnector(httpClient))
+        this.httpClient = buildHttpClient();
+        this.webClient = builder.clientConnector(new ReactorClientHttpConnector(this.httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()
                         .maxInMemorySize(properties.getMaxInMemoryBytes()))
                 .build();
     }
 
-    @Override
-    public String adapterCode() {
-        return "OPENAI";
+    /**
+     * Builds the HttpClient with production-appropriate resolver.
+     * This is the single source of truth for resolver wiring.
+     */
+    private HttpClient buildHttpClient() {
+        var httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
+                .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
+        if (enforceProductionEndpoint) {
+            httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
+        }
+        return httpClient;
     }
+
+    /**
+     * Test-only seam: exposes the configured HttpClient for resolver verification.
+     * Package-private to prevent production use.
+     */
+    /* package-private */ HttpClient httpClientForTest() {
+        return httpClient;
+    }
+
+    @Override
+    public String adapterCode() { return "OPENAI"; }
 
     @Override
     public Mono<ProviderChatCompletion> complete(ProviderCallContext context,
@@ -232,12 +257,6 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
             boolean responseStarted) {
         return new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE, reason,
                 ProviderHealthSignal.QUALIFYING_FAILURE, null, null, responseStarted, cause);
-    }
-
-    private static Throwable rootCause(Throwable ex) {
-        var current = reactor.core.Exceptions.unwrap(ex);
-        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
-        return current;
     }
 
     private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {

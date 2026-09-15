@@ -9,6 +9,7 @@ import com.aicostops.gateway.provider.ProviderExecutionException;
 import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
 import com.aicostops.gateway.provider.ProviderSafetyReason;
+import com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
@@ -37,6 +38,11 @@ import tools.jackson.databind.ObjectMapper;
  * DISPATCH_INTENT. Streaming parses/increments the upstream SSE without ever
  * aggregating the full completion, using configured connect/header/idle/hard
  * timeouts and no automatic retry.
+ *
+ * <p>M21 post-release security fix (M18 DNS-rebinding contract): production
+ * dispatch now uses {@link PublicOnlyAddressResolverGroup} to enforce
+ * transport-level public-only DNS resolution. Non-production profiles
+ * (dev/test) use the default JVM resolver to allow local mock validation.
  */
 @Component
 public class MimoChatAdapter implements ProviderChatAdapter {
@@ -48,6 +54,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     private final ObjectMapper objectMapper;
     private final GatewayProperties properties;
     private final boolean enforceProductionEndpoint;
+    private final HttpClient httpClient;
 
     public MimoChatAdapter(
             WebClient.Builder builder,
@@ -57,14 +64,34 @@ public class MimoChatAdapter implements ProviderChatAdapter {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.enforceProductionEndpoint = environment.acceptsProfiles(Profiles.of("prod"));
-        var httpClient = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
-                .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
+        this.httpClient = buildHttpClient();
         this.webClient = builder
-                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .clientConnector(new ReactorClientHttpConnector(this.httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()
                         .maxInMemorySize(properties.getMaxInMemoryBytes()))
                 .build();
+    }
+
+    /**
+     * Builds the HttpClient with production-appropriate resolver.
+     * This is the single source of truth for resolver wiring.
+     */
+    private HttpClient buildHttpClient() {
+        var httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
+                .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
+        if (enforceProductionEndpoint) {
+            httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
+        }
+        return httpClient;
+    }
+
+    /**
+     * Test-only seam: exposes the configured HttpClient for resolver verification.
+     * Package-private to prevent production use.
+     */
+    /* package-private */ HttpClient httpClientForTest() {
+        return httpClient;
     }
 
     @Override
@@ -154,11 +181,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                         return response.bodyToFlux(DataBuffer.class)
                                 .concatMap(buffer -> decodeEvents(decoder, buffer));
                     })
-                    // Stream idle timeout: maximum interval between upstream events.
                     .timeout(Duration.ofMillis(properties.getStreamIdleTimeoutMs()))
-                    // Hard deadline: maximum wall-clock lifetime of the whole stream,
-                    // checked as events keep arriving so a slow-but-active stream
-                    // cannot run past the configured deadline.
                     .map(chunk -> enforceHardDeadline(chunk, startNanos, hardTimeoutMs))
                     .onErrorResume(ex -> Flux.error(mapTransportError(ex)));
         });
@@ -289,12 +312,6 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                 ? ProviderHealthSignal.ROUTE_CONFIGURATION_FAILURE
                 : status >= 400 && status < 500 && status != 429
                         ? ProviderHealthSignal.NONE : ProviderHealthSignal.QUALIFYING_FAILURE;
-    }
-
-    private static Throwable rootCause(Throwable ex) {
-        Throwable current = reactor.core.Exceptions.unwrap(ex);
-        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
-        return current;
     }
 
     private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
