@@ -3,53 +3,79 @@ package com.aicostops.gateway.provider.openai;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.aicostops.gateway.config.GatewayProperties;
-import com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup;
-import io.netty.resolver.AddressResolverGroup;
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+import reactor.netty.DisposableServer;
 import reactor.netty.http.client.HttpClient;
+import reactor.netty.http.server.HttpServer;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * M21 post-release SSRF regression test for OpenAI adapter.
- *
- * <p>This test verifies the OpenAI adapter wires PublicOnlyAddressResolverGroup
- * into its HttpClient when the production profile is active, enforcing the
- * frozen M18 DNS-rebinding / SSRF contract.
- *
- * <p>Mutation proof: if the resolver wiring line is removed from
- * OpenAiChatAdapter.buildHttpClient(), this test FAILS because the resolver
- * type assertion no longer matches.
- */
 class OpenAiChatAdapterResolverTest {
 
-    @Test
-    void openAiAdapterUsesPublicOnlyResolverInProdProfile() {
-        var adapter = createAdapter(true);
+    private DisposableServer server;
+    private int serverPort;
+    private final AtomicInteger serverHits = new AtomicInteger();
 
-        HttpClient httpClient = adapter.httpClientForTest();
-        AddressResolverGroup<?> resolverGroup = httpClient.configuration().resolverGroup();
+    @BeforeEach
+    void setUp() {
+        server = HttpServer.create()
+                .host("127.0.0.1")
+                .port(0)
+                .route(routes -> routes.get("/health",
+                        (request, response) -> {
+                            serverHits.incrementAndGet();
+                            return response.sendString(Mono.just("ok"));
+                        }))
+                .bindNow();
+        serverPort = server.port();
+    }
 
-        assertNotNull(resolverGroup, "Resolver group must be configured");
-        assertTrue(
-            resolverGroup instanceof PublicOnlyAddressResolverGroup,
-            "Production OpenAI dispatch MUST use PublicOnlyAddressResolverGroup, but was: "
-                + resolverGroup.getClass().getName()
-        );
+    @AfterEach
+    void tearDown() {
+        if (server != null) {
+            server.disposeNow();
+        }
     }
 
     @Test
-    void openAiAdapterDoesNotUsePublicOnlyResolverInNonProdProfile() {
+    void openAiNonProdCanConnectToLocalhost() {
         var adapter = createAdapter(false);
 
         HttpClient httpClient = adapter.httpClientForTest();
-        AddressResolverGroup<?> resolverGroup = httpClient.configuration().resolverGroup();
+        Integer status = httpClient.get()
+                .uri("http://localhost:" + serverPort + "/health")
+                .responseSingle((response, body) ->
+                        Mono.just(response.status().code()))
+                .block(Duration.ofSeconds(5));
 
-        assertFalse(
-            resolverGroup instanceof PublicOnlyAddressResolverGroup,
-            "Non-production OpenAI dispatch MUST NOT use PublicOnlyAddressResolverGroup (allows local mock validation)"
-        );
+        assertEquals(200, status, "Non-prod OpenAI should connect to localhost");
+        assertEquals(1, serverHits.get(), "Non-prod request should reach server");
+    }
+
+    @Test
+    void openAiProdCannotConnectToLocalhost() {
+        var adapter = createAdapter(true);
+
+        HttpClient httpClient = adapter.httpClientForTest();
+        try {
+            httpClient.get()
+                    .uri("http://localhost:" + serverPort + "/health")
+                    .responseSingle((response, body) ->
+                            Mono.just(response.status().code()))
+                    .block(Duration.ofSeconds(5));
+            fail("Production OpenAI MUST NOT connect to loopback/private address");
+        } catch (Exception ex) {
+            // Expected: PublicOnlyAddressResolverGroup rejects loopback/private resolution
+        }
+
+        assertEquals(0, serverHits.get(),
+                "Production request MUST NOT reach loopback server (M18 DNS-rebinding contract)");
     }
 
     @Test
@@ -60,8 +86,8 @@ class OpenAiChatAdapterResolverTest {
 
     private OpenAiChatAdapter createAdapter(boolean prodProfile) {
         var properties = new GatewayProperties();
-        properties.setConnectTimeoutMs(5000);
-        properties.setHeaderTimeoutMs(60000);
+        properties.setConnectTimeoutMs(3000);
+        properties.setHeaderTimeoutMs(3000);
         properties.setMaxInMemoryBytes(16777216);
 
         MockEnvironment env = new MockEnvironment();
