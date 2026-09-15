@@ -9,6 +9,7 @@ import com.aicostops.gateway.provider.ProviderExecutionException;
 import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
 import com.aicostops.gateway.provider.ProviderSafetyReason;
+import com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
@@ -37,6 +38,11 @@ import tools.jackson.databind.ObjectMapper;
  * DISPATCH_INTENT. Streaming parses/increments the upstream SSE without ever
  * aggregating the full completion, using configured connect/header/idle/hard
  * timeouts and no automatic retry.
+ *
+ * <p>M21 post-release security fix (M18 DNS-rebinding contract): production
+ * dispatch now uses {@link PublicOnlyAddressResolverGroup} to enforce
+ * transport-level public-only DNS resolution. Non-production profiles
+ * (dev/test) use the default JVM resolver to allow local mock validation.
  */
 @Component
 public class MimoChatAdapter implements ProviderChatAdapter {
@@ -60,6 +66,9 @@ public class MimoChatAdapter implements ProviderChatAdapter {
         var httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
+        if (enforceProductionEndpoint) {
+            httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
+        }
         this.webClient = builder
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()

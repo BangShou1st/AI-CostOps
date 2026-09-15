@@ -9,6 +9,7 @@ import com.aicostops.gateway.provider.ProviderExecutionException;
 import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
 import com.aicostops.gateway.provider.ProviderSafetyReason;
+import com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import io.netty.channel.ChannelOption;
 import java.nio.charset.StandardCharsets;
@@ -29,7 +30,14 @@ import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 import tools.jackson.databind.ObjectMapper;
 
-/** OpenAI Chat Completions adapter with non-stream and include-usage SSE support. */
+/**
+ * OpenAI Chat Completions adapter with non-stream and include-usage SSE support.
+ *
+ * <p>M21 post-release security fix (M18 DNS-rebinding contract): production
+ * dispatch now uses {@link PublicOnlyAddressResolverGroup} to enforce
+ * transport-level public-only DNS resolution. Non-production profiles
+ * (dev/test) use the default JVM resolver to allow local mock validation.
+ */
 @Component
 public class OpenAiChatAdapter implements ProviderChatAdapter {
 
@@ -49,6 +57,9 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
         var httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
+        if (enforceProductionEndpoint) {
+            httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
+        }
         this.webClient = builder.clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()
                         .maxInMemorySize(properties.getMaxInMemoryBytes()))

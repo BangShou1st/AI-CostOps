@@ -7,350 +7,167 @@ Release:      v3.0.0
 Commit:       9c55125c1b857e3ccf301875d8886131a9d1d9b0
 Branch:       chore/m21-v3-operational-readiness
 Issue:        #161
+PR:           #162
 Date:         2026-09-15
-Final HEAD:   f6606c8 (fix(m21): Gateway execution smoke)
+Final HEAD:   8ecde8299c3497c0aa9972fd25562e4274fcfe86
 ```
 
-## Release Closure
+## Product Baseline vs Operational Harness
 
 ```text
-Tag:              v3.0.0 PASS
-Release:          Published PASS
-Draft:            false PASS
-Prerelease:       false PASS
-Release Commit:   9c55125c1b857e3ccf301875d8886131a9d1d9b0 PASS
-Release Notes:    Highlights PASS, Production Acceptance PASS, Deferred Acceptance PASS
-
-Deferred:
-  Literal poison proxy 127.0.0.1:7897 = DEFERRED
-  Real Provider/OpenCode certification = DEFERRED
-  Org Isolation Browser = DEFERRED
+Product baseline:     v3.0.0 / 9c55125c1b857e3ccf301875d8886131a9d1d9b0
+Operational harness:  PR #162 final HEAD (resolved externally by GitHub CI)
 ```
 
-## Clean Clone
+## M21 Post-Release Security Fix
 
-```text
-Clone URL:        https://github.com/BangShou1st/AI-CostOps.git
-Checkout:         v3.0.0 tag
-HEAD:             9c55125c1b857e3ccf301875d8886131a9d1d9b0 PASS
-```
+### Issue
 
-## Basic Compose (5 services, no Gateway)
+The frozen M18 security contract requires transport-level public-only DNS rebinding defense for all Gateway Provider dispatch. Investigation confirmed:
 
-```text
-Command:     docker compose --env-file .env up -d
-Services:    backend, frontend, mysql, redis, minio
-Gateway:     NOT included
-Result:      PASS
-```
+| Adapter | PublicOnlyAddressResolverGroup (prod) | Status |
+|---|---|---|
+| GenericOpenAiCompatibleChatAdapter | YES | FROZEN M18 |
+| OpenCodeZenChatAdapter | YES | FROZEN M18 |
+| MimoChatAdapter | NO → FIXED | M21 FIX |
+| OpenAiChatAdapter | NO → FIXED | M21 FIX |
 
-## Full V3 Operational Topology (7 services)
+### Fix
 
-```text
-Command:     docker compose -f compose.yaml -f compose.v3-operational.yaml \
-               -p aicostops-m21-full --env-file .env up -d --build
-Services:    backend, frontend, mysql, redis, minio, gateway, mock-provider
-Gateway:     INCLUDED
-Result:      PASS
-```
+- `MimoChatAdapter`: Now uses `PublicOnlyAddressResolverGroup` when `prod` profile is active
+- `OpenAiChatAdapter`: Now uses `PublicOnlyAddressResolverGroup` when `prod` profile is active
 
-### Service Health (Full V3)
+Non-production profiles (dev/test) use the default JVM resolver to allow local mock validation.
 
-```text
-Backend:     {"status":"UP"} PASS
-Gateway:     {"status":"UP"} PASS
-MySQL:       mysqld is alive PASS
-Redis:       PONG PASS
-MinIO:       healthy PASS
-Mock:        {"status":"UP"} PASS
-Frontend:    HTTP 200 PASS
-```
+### Regression Tests Added
 
-### Gateway Execution Plane
+- `MimoChatAdapterResolverTest.java`: Verifies adapter wiring for prod/non-prod profiles
+- `OpenAiChatAdapterResolverTest.java`: Verifies adapter wiring for prod/non-prod profiles
 
-```text
-Gateway health:       /actuator/health/liveness = UP PASS
-Mock Provider:        /health = UP PASS
-Mock Chat Completions: /v1/chat/completions = deterministic response PASS
+## Runtime Environment Bootstrap
 
-Real Provider:        DEFERRED
-```
+### Script
 
-## Migration
+`scripts/m21/new-v3-operational-env.ps1`
 
-```text
-Flyway validated:  27 migrations PASS
-Flyway applied:    27 migrations (V1-V27) PASS
-V23:               M15 Hybrid Reconciliation (V2 history)
-V24-V27:           V3 feature migrations (Provider Hub, Cost Intelligence, AI Advisor)
-Final version:     v27 PASS
-```
+Uses .NET `System.Security.Cryptography.RandomNumberGenerator` for all cryptographic values.
 
-## First Login
+### Generated Values
 
-```text
-URL:          http://localhost:8080
-Credentials:  admin@example.test / change-me-local-only
-Bootstrap:    Automatic PASS
-Result:       PASS
-```
+- `AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1` (32 random bytes, Base64)
+- `AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1` (32 random bytes, Base64)
+- `AICOSTOPS_PROVIDER_KEK_V1` (32 random bytes, Base64)
+- `AICOSTOPS_GATEWAY_DEV_RAW_KEY` (valid `aic_<12 Crockford-Base32>_<43 Base64URL>` shape)
+- `AICOSTOPS_MIMO_API_KEY` (synthetic, local-only)
+- `MYSQL_GATEWAY_USER` / `MYSQL_GATEWAY_PASSWORD` (Gateway DB identity)
 
-## Browser Control Plane Smoke
+All values written to `.env.m21.local` (gitignored). Never committed.
 
-```text
-Page                        URL                                    Status
---------------------------  -------------------------------------  ------
-Dashboard                   /                                      PASS
-Cost Intelligence Overview  /cost-intelligence/overview            PASS
-Anomalies                   /intelligence/anomalies                PASS
-Forecasts                   /intelligence/forecasts                PASS
-Savings                     /intelligence/savings                  PASS
-AI Advisor                  /advisor                               PASS
-Provider Gallery            /settings/providers                    PASS
-Connections                 /settings/provider-connections         PASS
-Models                      /settings/provider-models              PASS
-Pricing                     /settings/model-pricing                PASS
-Routing                     /settings/routing-policies             PASS
+## Gateway DB Least Privilege
 
-White screens:     0
-Console crashes:   0
-Unexpected 5xx:    0
-```
+### Script
 
-## Gateway Execution Plane Smoke
+`scripts/m21/provision-gateway-db.ps1`
 
-### Health
+### Privilege Contract
 
-```text
-Gateway health:       PASS ({"status":"UP"})
-Mock Provider health: PASS ({"status":"UP"})
-```
+Frost M16 contract + V3 runtime reads derived from Gateway mappers:
 
-### Execution Smoke
+**Runtime SELECTs**: billing_period, budget, ledger_posting, ledger_entry, organization, organization_member, project, team, cost_center, model_catalog, provider_account, provider_model, provider_catalog, provider_connection_profile, provider_credential, pricing_version, pricing_rate, routing_policy, routing_policy_candidate, gateway_credential, gateway_credential_model, service_identity, gateway_settlement
 
-```text
-Request:    POST /v1/chat/completions
-Model:      default-chat
-Auth:       Bearer <gateway-dev-raw-key>
-Idempotency: <unique>
+**Gateway-owned writes**: gateway_request, gateway_route_attempt, gateway_usage_fact, gateway_usage_dimension, budget_reservation
 
-Result:     HTTP 200 PASS
-Response:   {"choices":[{"message":{"content":"Hello from M16 mock"}}],
-             "usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}
-Mock stats: post_chat_completions = 1 (delta +1) PASS
+**Never granted**: ALL PRIVILEGES, GRANT OPTION, DELETE, DROP, DDL, control-plane UPDATE, provider_credential UPDATE, ledger mutation outside frozen contract
 
-Full execution topology verified:
-  client -> Gateway -> mock-provider -> deterministic response -> client
-```
+### Verification Matrix
 
-### Root Causes Found and Fixed
+`scripts/m21/verify-v3-gateway-privileges.ps1`
 
-Three data-layer issues prevented Gateway dispatch (all fixed):
+Positive: runtime SELECTs, SELECT ... FOR UPDATE, Gateway-owned INSERT/UPDATE (rolled back)
+Negative: budget UPDATE, billing_period close, ledger INSERT, provider_credential UPDATE, DDL, DELETE, GRANT
 
-**M21-GW-001** - FIXED
-```text
-Title:    provider_catalog CUSTOM_OPENAI_COMPATIBLE status was DISABLED
-Impact:   CandidateEligibilityEvaluator rejected adapter lookup
-Fix:      UPDATE provider_catalog SET status='ACTIVE' WHERE provider_code='CUSTOM_OPENAI_COMPATIBLE'
-```
+Output: `M21_GATEWAY_PRIVILEGE_GREEN`
 
-**M21-GW-002** - FIXED
-```text
-Title:    provider_connection_profile.auth_type='NONE' skipped credential lookup
-Impact:   buildProviderContext set credentialType='NONE', MIMO adapter requires 'API_KEY'
-Root:     Line 595: if ("NONE".equals(profile.authType())) credentialType = "NONE"
-Fix:      UPDATE provider_connection_profile SET auth_type='BEARER' WHERE id=1
-Note:     auth_type must be BEARER/API_KEY_HEADER to trigger provider_credential decryption
-```
+## Synthetic V3 Seed
 
-**M21-GW-003** - FIXED
-```text
-Title:    provider_credential missing for MIMO provider account
-Impact:   No decryptable credential available for MIMO adapter
-Fix:      DevGatewayBootstrap creates credential when AICOSTOPS_MIMO_API_KEY is set
-Verified: provider_credential row exists with credential_type='API_KEY', status='ACTIVE'
-```
+### Script
 
-### Key Architectural Insight
+`scripts/m21/seed-v3-operational.ps1`
 
-The MIMO adapter (`MimoChatAdapter`) does NOT use `PublicOnlyAddressResolverGroup`,
-making it the only adapter that can reach Docker-internal mock providers. The
-`GenericOpenAiCompatibleChatAdapter` uses `PublicOnlyAddressResolverGroup` which
-blocks all private/link-local IPs — this is by design (DNS rebinding defense) and
-cannot be bypassed in non-prod profiles.
+Creates ACTIVE `provider_connection_profile` with endpoint `http://mock-provider:8089/v1` and `auth_type=API_KEY`.
 
-## Persistence
+Removes unrelated CUSTOM_OPENAI_COMPATIBLE mutation (debugging observation, not root cause).
 
-### Restart Test
-```text
-All services: Healthy after restart PASS
-Data intact:  Migration version still v27 PASS
-```
+## Gateway Execution Smoke
 
-### Down/Up Test
-```text
-All services: Healthy after up PASS
-Data intact:  Migration version still v27 PASS
-```
+### Script
 
-## Backup / Restore
+`scripts/m21/invoke-v3-operational-smoke.ps1`
 
-```text
-Documentation audit:    PASS
-Docs location:          docs/02-development/operations/03-backup-restore.md
-Destructive drill:      NOT EXECUTED / OUT OF M21 SCOPE
+Validates:
+1. Gateway health
+2. HTTP 200 from `POST /v1/chat/completions`
+3. Deterministic mock response ("Hello from M16 mock")
+4. Mock invocation delta exactly +1
+5. `route_attempt.provider_connection_profile_id` IS NOT NULL
 
-Key points verified:
-  - MySQL = financial truth (Ledger, Budget, Period)
-  - Redis != financial truth
-  - MinIO = evidence storage
-```
-
-## Upgrade
-
-```text
-V2 -> V3 guidance:      PASS (in runbook)
-Migration mapping:      V23=M15, V24-V27=V3 features
-Schema downgrade:       NOT SUPPORTED (documented)
-Backup before upgrade:  DOCUMENTED
-```
-
-## Observability
-
-```text
-Prometheus overlay:     compose.observability.yaml EXISTS (not started in M21)
-Grafana dashboard:      aicostops-overview.json EXISTS
-Health endpoints:       /actuator/health/liveness PASS
-
-Note: Observability stack documented but not started during M21 validation.
-```
-
-## Troubleshooting
-
-```text
-Port collision:         DOCUMENTED (FRONTEND_PORT override)
-MySQL unavailable:      DOCUMENTED (fail-fast behavior)
-Missing env:            DOCUMENTED (clear error messages)
-Migration failure:      DOCUMENTED (safe vs destructive guidance)
-```
-
-## Automated Regression
-
-```text
-Backend unit:           PASS (f6606c8)
-Backend architecture:   PASS
-Backend integration:    PASS
-Gateway unit:           PASS
-Gateway architecture:   PASS
-Gateway integration:    PASS
-Frontend lint:          PASS
-Frontend build:         PASS
-Frontend test:          PASS
-Docker build:           PASS
-Browser E2E:            PASS
-Security:               PASS
-```
-
-## Hosted Exact-Head
-
-```text
-Previous HEAD (46f91ed):  15/15 PASS
-Final HEAD (f6606c8):     15/15 PASS
-
-CI Jobs (11/11 PASS):
-  backend-unit, backend-architecture, backend-integration,
-  gateway-unit, gateway-architecture, gateway-integration,
-  frontend-lint, frontend-build, frontend-test,
-  docker-build, browser-e2e
-
-Security: 1/1 PASS
-```
+Output: `M21_V3_GOVERNED_SMOKE_PASS`
 
 ## Defects
 
-### P1 Defects
+### P1 Security Defect (M21 Discovery)
 
-**M21-OPS-001** - FIXED
+**M21-SEC-001** — FIXED
 ```text
-Title:    Root compose does not include Gateway; previous acceptance overclaimed full V3 topology
-Fixed:    Added compose.v3-operational.yaml with Gateway + Mock Provider
-Verified: Full V3 topology (7 services) starts and passes health checks
+Title:    MiMo and OpenAI adapters lacked PublicOnlyAddressResolverGroup in production
+Impact:   Violates frozen M18 DNS-rebinding / SSRF contract
+Fix:      Conditional resolver wiring: prod profile → PublicOnlyAddressResolverGroup
+Tests:    MimoChatAdapterResolverTest, OpenAiChatAdapterResolverTest
+Severity: P1 Security
 ```
 
-**M21-DOC-003** - FIXED
-```text
-Title:    Migration troubleshooting suggested destructive down -v without warning
-Fixed:    Added DESTRUCTIVE/LOCAL/DISPOSABLE warnings, safe troubleshooting steps
-```
+### P2 Documentation Defects
 
-### P2 Defects
-
-**M21-DOC-004** - FIXED
-```text
-Title:    Health commands used host-side env expansion
-Fixed:    Changed to container-side expansion (sh -lc '...')
-```
-
-**M21-DOC-005** - FIXED
-```text
-Title:    README release ledger omitted v2.0.0
-Fixed:    Added v2.0.0 -> 7e10e6e609d186f40faecd300d159e2c49ee5fc7
-```
-
-**M21-DOC-006** - FIXED
-```text
-Title:    V23 incorrectly classified as V3 migration
-Fixed:    V23=M15 (V2 history), V24-V27=V3 features
-```
-
-**M21-DOC-007** - FIXED
-```text
-Title:    Acceptance evidence missing final sections
-Fixed:    Added Backup/Restore, Upgrade, Observability, Troubleshooting, Deferred
-```
-
-### P0/P1 Summary
-
-```text
-P0: 0
-P1: 0 (2 fixed)
-P2: 4 (all fixed)
-```
+All previous P2 defects (DOC-004 through DOC-007) addressed.
 
 ## Files Changed
 
 ```text
-NEW:  compose.v3-operational.yaml (Gateway + Mock Provider overlay, health check fix)
-NEW:  docs/04-operations/v3-operational-runbook.md (complete operational reference)
-NEW:  docs/03-acceptance/m21-v3-post-release-operational-readiness.md
-NEW:  scripts/m21/seed-v3-operational.ps1 (V24+ data gap fixes)
-NEW:  scripts/m21/invoke-v3-operational-smoke.ps1 (Gateway execution smoke)
-NEW:  scripts/m21/provision-gateway-db.ps1 (gw_m21 least-privilege)
-FIX:  README.md (V3 version, v2.0.0 ledger, milestones, login credentials)
+NEW:  scripts/m21/new-v3-operational-env.ps1 (CSPRNG environment bootstrap)
+NEW:  scripts/m21/verify-v3-gateway-privileges.ps1 (complete privilege matrix)
+NEW:  scripts/m21/bootstrap-v3-operational.ps1 (convenience wrapper)
+FIX:  scripts/m21/seed-v3-operational.ps1 (self-contained, no hardcoded values, no CUSTOM_OPENAI_COMPATIBLE mutation)
+FIX:  scripts/m21/provision-gateway-db.ps1 (container-side password handling)
+FIX:  scripts/m21/invoke-v3-operational-smoke.ps1 (lineage verification)
+FIX:  gateway/src/main/java/.../MimoChatAdapter.java (prod DNS rebinding fix)
+FIX:  gateway/src/main/java/.../OpenAiChatAdapter.java (prod DNS rebinding fix)
+NEW:  gateway/src/test/java/.../MimoChatAdapterResolverTest.java (regression test)
+NEW:  gateway/src/test/java/.../OpenAiChatAdapterResolverTest.java (regression test)
+FIX:  docs/04-operations/v3-operational-runbook.md (self-contained PowerShell flow)
 ```
 
 ## Candidate Decision
 
 ```text
-Basic Compose truth documented:          PASS
-Full V3 Operational Topology documented: PASS
-Gateway actually starts:                 PASS
-Gateway health:                          PASS
-Gateway DB least-privilege (gw_m21):     PASS
-V24+ synthetic seed reproducible:        PASS
-Controlled execution smoke:              PASS (request -> Gateway -> mock-provider -> 200)
-Mock provider invocation count +1:       PASS
-Destructive reset guidance fixed:        PASS
-Health commands verified:                PASS
-v2.0.0 release ledger restored:          PASS
-V24-V27 wording corrected:               PASS
-Restart smoke:                           PASS
-Formal M21 evidence complete:            PASS
+Bootstrap self-contained (CSPRNG) = PASS
+Gateway raw key generated reproducibly = PASS
+Synthetic Provider credential generated reproducibly = PASS
+Gateway DB identity separate = PASS
+Complete positive/negative privilege matrix = PASS
+All V3 runtime SELECTs granted = PASS
+Synthetic V24+ seed = PASS
+ACTIVE connection profile = PASS
+Gateway request reaches controlled mock = PASS
+Mock delta exactly +1 = PASS
+route_attempt.profile_id NOT NULL = PASS
+MIMO SSRF/security contract reconciled = PASS
+Production code fix with TDD regression tests = PASS
+Documentation self-contained = PASS
 
 P0: 0
-P1: 0
+P1: 0 (1 fixed)
 
 M21_OPERATIONAL_READY_CANDIDATE
 ```
 
-Awaiting: GPT-5.6 Sol review.
+Awaiting: GPT-5.6 Sol final review.
