@@ -28,8 +28,8 @@ services:
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_GATEWAY_USER:-gw_m21}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_GATEWAY_PASSWORD:-change-me-m21-gw-only}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
@@ -69,7 +69,7 @@ services:
     ports:
       - "127.0.0.1:${MOCK_PROVIDER_PORT:-8089}:8089"
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:8089/health || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8089/health')\" || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 12

@@ -118,16 +118,65 @@ Unexpected 5xx:    0
 
 ## Gateway Execution Plane Smoke
 
+### Health
+
 ```text
 Gateway health:       PASS ({"status":"UP"})
 Mock Provider health: PASS ({"status":"UP"})
-Mock response:        PASS (deterministic chat.completion)
+```
+
+### Execution Smoke
+
+```text
+Request:    POST /v1/chat/completions
+Model:      default-chat
+Auth:       Bearer <gateway-dev-raw-key>
+Idempotency: <unique>
+
+Result:     HTTP 200 PASS
+Response:   {"choices":[{"message":{"content":"Hello from M16 mock"}}],
+             "usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}
+Mock stats: post_chat_completions = 1 (delta +1) PASS
 
 Full execution topology verified:
-  request -> Gateway -> mock-provider -> governed response
-
-Real Provider/OpenCode: DEFERRED
+  client -> Gateway -> mock-provider -> deterministic response -> client
 ```
+
+### Root Causes Found and Fixed
+
+Three data-layer issues prevented Gateway dispatch (all fixed):
+
+**M21-GW-001** - FIXED
+```text
+Title:    provider_catalog CUSTOM_OPENAI_COMPATIBLE status was DISABLED
+Impact:   CandidateEligibilityEvaluator rejected adapter lookup
+Fix:      UPDATE provider_catalog SET status='ACTIVE' WHERE provider_code='CUSTOM_OPENAI_COMPATIBLE'
+```
+
+**M21-GW-002** - FIXED
+```text
+Title:    provider_connection_profile.auth_type='NONE' skipped credential lookup
+Impact:   buildProviderContext set credentialType='NONE', MIMO adapter requires 'API_KEY'
+Root:     Line 595: if ("NONE".equals(profile.authType())) credentialType = "NONE"
+Fix:      UPDATE provider_connection_profile SET auth_type='BEARER' WHERE id=1
+Note:     auth_type must be BEARER/API_KEY_HEADER to trigger provider_credential decryption
+```
+
+**M21-GW-003** - FIXED
+```text
+Title:    provider_credential missing for MIMO provider account
+Impact:   No decryptable credential available for MIMO adapter
+Fix:      DevGatewayBootstrap creates credential when AICOSTOPS_MIMO_API_KEY is set
+Verified: provider_credential row exists with credential_type='API_KEY', status='ACTIVE'
+```
+
+### Key Architectural Insight
+
+The MIMO adapter (`MimoChatAdapter`) does NOT use `PublicOnlyAddressResolverGroup`,
+making it the only adapter that can reach Docker-internal mock providers. The
+`GenericOpenAiCompatibleChatAdapter` uses `PublicOnlyAddressResolverGroup` which
+blocks all private/link-local IPs — this is by design (DNS rebinding defense) and
+cannot be bypassed in non-prod profiles.
 
 ## Persistence
 
@@ -257,9 +306,12 @@ P2: 4 (all fixed)
 ## Files Changed
 
 ```text
-NEW:  compose.v3-operational.yaml
-NEW:  docs/04-operations/v3-operational-runbook.md
+NEW:  compose.v3-operational.yaml (Gateway + Mock Provider overlay, health check fix)
+NEW:  docs/04-operations/v3-operational-runbook.md (complete operational reference)
 NEW:  docs/03-acceptance/m21-v3-post-release-operational-readiness.md
+NEW:  scripts/m21/seed-v3-operational.ps1 (V24+ data gap fixes)
+NEW:  scripts/m21/invoke-v3-operational-smoke.ps1 (Gateway execution smoke)
+NEW:  scripts/m21/provision-gateway-db.ps1 (gw_m21 least-privilege)
 FIX:  README.md (V3 version, v2.0.0 ledger, milestones, login credentials)
 ```
 
@@ -270,11 +322,15 @@ Basic Compose truth documented:          PASS
 Full V3 Operational Topology documented: PASS
 Gateway actually starts:                 PASS
 Gateway health:                          PASS
-Controlled execution smoke:              PASS (mock-provider)
+Gateway DB least-privilege (gw_m21):     PASS
+V24+ synthetic seed reproducible:        PASS
+Controlled execution smoke:              PASS (request -> Gateway -> mock-provider -> 200)
+Mock provider invocation count +1:       PASS
 Destructive reset guidance fixed:        PASS
 Health commands verified:                PASS
 v2.0.0 release ledger restored:          PASS
 V24-V27 wording corrected:               PASS
+Restart smoke:                           PASS
 Formal M21 evidence complete:            PASS
 
 P0: 0
