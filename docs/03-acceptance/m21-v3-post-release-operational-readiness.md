@@ -7,7 +7,8 @@ Release:      v3.0.0
 Commit:       9c55125c1b857e3ccf301875d8886131a9d1d9b0
 Branch:       chore/m21-v3-operational-readiness
 Issue:        #161
-Date:         2026-09-14
+Date:         2026-09-15
+Final HEAD:   f6606c8 (fix(m21): Gateway execution smoke)
 ```
 
 ## Release Closure
@@ -236,20 +237,33 @@ Migration failure:      DOCUMENTED (safe vs destructive guidance)
 ## Automated Regression
 
 ```text
-Backend tests:          (pending new HEAD CI)
-Gateway tests:          (pending new HEAD CI)
-Frontend tests:         (pending new HEAD CI)
+Backend unit:           PASS (f6606c8)
+Backend architecture:   PASS
+Backend integration:    PASS
+Gateway unit:           PASS
+Gateway architecture:   PASS
+Gateway integration:    PASS
+Frontend lint:          PASS
+Frontend build:         PASS
+Frontend test:          PASS
+Docker build:           PASS
+Browser E2E:            PASS
+Security:               PASS
 ```
 
 ## Hosted Exact-Head
 
 ```text
 Previous HEAD (46f91ed):  15/15 PASS
-New HEAD:                 (pending push)
+Final HEAD (f6606c8):     15/15 PASS
 
-CI:       (pending)
-Security: (pending)
-GHAS:     (pending)
+CI Jobs (11/11 PASS):
+  backend-unit, backend-architecture, backend-integration,
+  gateway-unit, gateway-architecture, gateway-integration,
+  frontend-lint, frontend-build, frontend-test,
+  docker-build, browser-e2e
+
+Security: 1/1 PASS
 ```
 
 ## Defects
