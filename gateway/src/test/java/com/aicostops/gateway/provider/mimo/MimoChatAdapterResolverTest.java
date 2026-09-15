@@ -3,37 +3,52 @@ package com.aicostops.gateway.provider.mimo;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.aicostops.gateway.config.GatewayProperties;
+import com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup;
+import io.netty.resolver.AddressResolverGroup;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
 import tools.jackson.databind.ObjectMapper;
 
 /**
  * M21 post-release SSRF regression test for MiMo adapter.
  *
- * <p>Verifies that the MiMo adapter wires PublicOnlyAddressResolverGroup
+ * <p>This test verifies the MiMo adapter wires PublicOnlyAddressResolverGroup
  * into its HttpClient when the production profile is active, enforcing the
  * frozen M18 DNS-rebinding / SSRF contract.
  *
  * <p>Mutation proof: if the resolver wiring line is removed from
- * MimoChatAdapter, this test FAILS because the boolean flag flips to false.
+ * MimoChatAdapter.buildHttpClient(), this test FAILS because the resolver
+ * type assertion no longer matches.
  */
 class MimoChatAdapterResolverTest {
 
     @Test
     void mimoAdapterUsesPublicOnlyResolverInProdProfile() {
         var adapter = createAdapter(true);
+
+        // Extract the actual resolver from the HttpClient
+        HttpClient httpClient = adapter.httpClientForTest();
+        AddressResolverGroup<?> resolverGroup = httpClient.configuration().resolverGroup();
+
+        assertNotNull(resolverGroup, "Resolver group must be configured");
         assertTrue(
-            adapter.isPublicOnlyResolverActive(),
-            "Production MiMo dispatch MUST use PublicOnlyAddressResolverGroup (M18 DNS-rebinding contract)"
+            resolverGroup instanceof PublicOnlyAddressResolverGroup,
+            "Production MiMo dispatch MUST use PublicOnlyAddressResolverGroup, but was: "
+                + resolverGroup.getClass().getName()
         );
     }
 
     @Test
     void mimoAdapterDoesNotUsePublicOnlyResolverInNonProdProfile() {
         var adapter = createAdapter(false);
+
+        HttpClient httpClient = adapter.httpClientForTest();
+        AddressResolverGroup<?> resolverGroup = httpClient.configuration().resolverGroup();
+
         assertFalse(
-            adapter.isPublicOnlyResolverActive(),
+            resolverGroup instanceof PublicOnlyAddressResolverGroup,
             "Non-production MiMo dispatch MUST NOT use PublicOnlyAddressResolverGroup (allows local mock validation)"
         );
     }

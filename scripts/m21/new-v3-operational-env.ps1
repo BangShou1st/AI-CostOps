@@ -24,7 +24,15 @@ Set-StrictMode -Version Latest
 
 Write-Output "[M21-ENV] Starting V3 operational environment generation..."
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
+# Resolve repo root: PSScriptRoot is <repo>/scripts/m21/, go up two levels
+$repoRoot = if ($PSScriptRoot) {
+    Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+} else {
+    # Fallback: use git root
+    $gitRoot = git rev-parse --show-toplevel 2>$null
+    if ($gitRoot) { $gitRoot } else { $PWD.Path }
+}
+
 $exampleFile = Join-Path $repoRoot ".env.example"
 
 if (-not (Test-Path $exampleFile)) {
@@ -130,11 +138,12 @@ AICOSTOPS_DEV_BOOTSTRAP_PASSWORD=$devBootstrapPassword
 
 $output = $output.TrimEnd() + "`n" + $m21Section
 
-# Step 7: Write output
-[System.IO.File]::WriteAllText((Join-Path $repoRoot $EnvFile), $output)
+# Step 7: Write output to repo root
+$outputPath = Join-Path $repoRoot $EnvFile
+[System.IO.File]::WriteAllText($outputPath, $output)
 
 # Step 8: Verify
-$written = Get-Content $EnvFile -Raw
+$written = Get-Content $outputPath -Raw
 $requiredVars = @(
     'MYSQL_DATABASE', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD',
     'REDIS_PASSWORD', 'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD', 'MINIO_BUCKET',
@@ -155,7 +164,8 @@ if ($missing.Count -gt 0) {
     exit 1
 }
 
-Write-Output "[M21-ENV] Runtime secrets generated and written to $EnvFile"
+Write-Output "[M21-ENV] Runtime secrets generated and written to $outputPath"
+Write-Output "[M21-ENV] Repo root: $repoRoot"
 Write-Output "[M21-ENV] Gateway DB user: $gwUser"
 Write-Output "[M21-ENV] Gateway raw key shape: aic_<12>_<43>"
 Write-Output "[M21-ENV] CSPRNG: .NET RandomNumberGenerator"

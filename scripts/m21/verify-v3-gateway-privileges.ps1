@@ -1,24 +1,10 @@
 <#
 .SYNOPSIS
     M21 V3 Gateway privilege verification matrix.
-
-.DESCRIPTION
-    Verifies the Gateway DB runtime identity is least-privilege enforced by
-    MySQL itself (not just Java architecture assertions).
-
-    Connects twice: as root (to read SHOW GRANTS) and as the Gateway runtime
-    identity (to attempt a positive/negative matrix).
-
-    Positive tests: runtime SELECTs, SELECT ... FOR UPDATE, Gateway-owned
-    write inside rolled-back transaction.
-
-    Negative tests: forbidden mutations denied by MySQL with ERROR 1142.
-
-    Outputs: M21_GATEWAY_PRIVILEGE_GREEN if matrix passes.
 #>
 [CmdletBinding()]
 param(
-    [string]$ComposeProject = "aicostops-m21-reseal",
+    [string]$ComposeProject = "aicostops-m21-final-r3",
     [string]$ComposeFile = "compose.yaml,compose.v3-operational.yaml",
     [string]$Database = "aicostops",
     [string]$GatewayUser = "gw_m21"
@@ -26,6 +12,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+# Self-import env
+$helperPath = Join-Path $PSScriptRoot "import-v3-operational-env.ps1"
+if (Test-Path $helperPath) {
+    . $helperPath
+    Import-M21OperationalEnv
+}
 
 $failures = [System.Collections.ArrayList]::new()
 $passed = [System.Collections.ArrayList]::new()
@@ -51,13 +44,23 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Root([string]$Sql) {
-    $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root -p`"$($env:MYSQL_ROOT_PASSWORD)`" $Database -e `"$Sql`" 2>&1"
-    return ($result | Out-String).Trim()
+    $env:MYSQL_PWD = $env:MYSQL_ROOT_PASSWORD
+    try {
+        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root $Database -e `"$Sql`" 2>&1"
+        return ($result | Out-String).Trim()
+    } finally {
+        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
+    }
 }
 
 function Invoke-Gateway([string]$Sql) {
-    $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u $($GatewayUser) -p`"$($env:MYSQL_GATEWAY_PASSWORD)`" $Database -e `"$Sql`" 2>&1"
-    return ($result | Out-String).Trim()
+    $env:MYSQL_PWD = $env:MYSQL_GATEWAY_PASSWORD
+    try {
+        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
+        return ($result | Out-String).Trim()
+    } finally {
+        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
+    }
 }
 
 Write-Output "[M21-PRIVILEGE] Verifying Gateway DB privileges..."
@@ -171,14 +174,12 @@ $negative = @(
     @{ Label = "GRANT OPTION attempt"; Sql = "GRANT SELECT ON $Database.budget TO '$GatewayUser'@'%';" }
 )
 
-$negativeOk = $true
 foreach ($case in $negative) {
     $out = Invoke-Gateway $case.Sql
     if ($out -match "ERROR 1142") {
         Add-Pass "Denied: $($case.Label)."
     } else {
         Add-Failure "Forbidden statement NOT denied [$($case.Label)]: $out"
-        $negativeOk = $false
     }
 }
 

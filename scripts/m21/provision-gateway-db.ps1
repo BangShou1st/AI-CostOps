@@ -4,30 +4,11 @@
 
 .DESCRIPTION
     Creates a dedicated Gateway DB user with frozen least-privilege grants.
-    Idempotent: safe to run multiple times.
-
-    Passwords are passed via container-side environment (stdin pipe to mysql)
-    to avoid host-side env exposure.
-
-.PARAMETER ComposeProject
-    Docker Compose project name.
-
-.PARAMETER GatewayUser
-    Gateway DB username. Default: gw_m21
-
-.PARAMETER GatewayPassword
-    Gateway DB password. If not set, reads from `$env:MYSQL_GATEWAY_PASSWORD`.
-
-.PARAMETER Database
-    Database name. Default: aicostops
-
-.EXAMPLE
-    .\scripts\m21\provision-gateway-db.ps1
-    .\scripts\m21\provision-gateway-db.ps1 -ComposeProject aicostops-m21-reseal
+    Self-imports .env.m21.local (no manual env required).
 #>
 [CmdletBinding()]
 param(
-    [string]$ComposeProject = "aicostops-m21-reseal",
+    [string]$ComposeProject = "aicostops-m21-final-r3",
     [string]$ComposeFile = "compose.yaml,compose.v3-operational.yaml",
     [string]$GatewayUser = "gw_m21",
     [string]$Database = "aicostops",
@@ -37,19 +18,28 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-# Resolve Gateway password from env or param
+# Self-import env (dot-source shared helper)
+$helperPath = Join-Path $PSScriptRoot "import-v3-operational-env.ps1"
+if (Test-Path $helperPath) {
+    . $helperPath
+    Import-M21OperationalEnv
+} else {
+    Write-Warning "[M21-DB] Helper not found; relying on existing env"
+}
+
+# Resolve Gateway password
 if ([string]::IsNullOrWhiteSpace($GatewayPassword)) {
     $GatewayPassword = $env:MYSQL_GATEWAY_PASSWORD
 }
 if ([string]::IsNullOrWhiteSpace($GatewayPassword)) {
-    Write-Error "[M21-DB] Gateway password not provided. Set MYSQL_GATEWAY_PASSWORD env var or -GatewayPassword param."
+    Write-Error "[M21-DB] Gateway password not available. Run scripts/m21/new-v3-operational-env.ps1 first."
     exit 1
 }
 
 # Resolve root password
 $rootPassword = $env:MYSQL_ROOT_PASSWORD
 if ([string]::IsNullOrWhiteSpace($rootPassword)) {
-    Write-Error "[M21-DB] MYSQL_ROOT_PASSWORD env var is not set."
+    Write-Error "[M21-DB] MYSQL_ROOT_PASSWORD not available. Run scripts/m21/new-v3-operational-env.ps1 first."
     exit 1
 }
 
@@ -67,16 +57,23 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Root([string]$Sql) {
-    # Use sh -lc to expand container-side env; pipe password via stdin
-    $escapedSql = $Sql -replace '"', '\\"'
-    $result = docker compose @composeArgs exec -T mysql sh -lc "echo `"$escapedSql`" | mysql -u root -p`"$rootPassword`" $Database 2>&1"
-    return ($result | Out-String).Trim()
+    $env:MYSQL_PWD = $rootPassword
+    try {
+        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root $Database -e `"$Sql`" 2>&1"
+        return ($result | Out-String).Trim()
+    } finally {
+        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
+    }
 }
 
 function Invoke-Gateway([string]$Sql) {
-    $escapedSql = $Sql -replace '"', '\\"'
-    $result = docker compose @composeArgs exec -T mysql sh -lc "echo `"$escapedSql`" | mysql -u $GatewayUser -p`"$GatewayPassword`" $Database 2>&1"
-    return ($result | Out-String).Trim()
+    $env:MYSQL_PWD = $GatewayPassword
+    try {
+        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
+        return ($result | Out-String).Trim()
+    } finally {
+        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
+    }
 }
 
 # Step 1: Create user if not exists
@@ -89,11 +86,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Output "[M21-DB] User $GatewayUser created/verified."
 
-# Step 2: Apply least-privilege grants (frozen contract from M16 + V3 runtime reads)
+# Step 2: Apply least-privilege grants
 Write-Output "[M21-DB] Applying least-privilege grants..."
 
 $grants = @(
-    # Runtime reads (frozen contract + V3 mappers)
     "GRANT SELECT ON $Database.billing_period TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.budget TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.ledger_posting TO '$GatewayUser'@'%';"
@@ -118,7 +114,6 @@ $grants = @(
     "GRANT SELECT ON $Database.service_identity TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.gateway_settlement TO '$GatewayUser'@'%';"
 
-    # Gateway-owned write tables
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_request TO '$GatewayUser'@'%';"
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_route_attempt TO '$GatewayUser'@'%';"
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_usage_fact TO '$GatewayUser'@'%';"

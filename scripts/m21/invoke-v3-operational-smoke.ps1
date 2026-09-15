@@ -1,29 +1,12 @@
 <#
 .SYNOPSIS
     M21 V3 governed execution smoke.
-
-.DESCRIPTION
-    Sends a controlled request through the real Gateway to the mock provider.
-    Verifies: HTTP 200, deterministic response, provider invocation count +1,
-    route_attempt.connection_profile_id EXACT MATCH with seeded profile.
-
-.PARAMETER GatewayBase
-    Gateway base URL. Default: http://127.0.0.1:8081
-
-.PARAMETER MockBase
-    Mock provider base URL for stats. Default: http://127.0.0.1:8089
-
-.PARAMETER ComposeProject
-    Docker Compose project name. Default: aicostops-m21-reseal
-
-.EXAMPLE
-    .\scripts\m21\invoke-v3-operational-smoke.ps1 -ComposeProject aicostops-m21-reseal
 #>
 [CmdletBinding()]
 param(
     [string]$GatewayBase = "http://127.0.0.1:8081",
     [string]$MockBase = "http://127.0.0.1:8089",
-    [string]$ComposeProject = "aicostops-m21-reseal",
+    [string]$ComposeProject = "aicostops-m21-final-r3",
     [string]$ComposeFile = "compose.yaml,compose.v3-operational.yaml",
     [string]$IdempotencyKey = "",
     [string]$StateFile = ".m21-operational-state.json"
@@ -31,6 +14,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+# Self-import env
+$helperPath = Join-Path $PSScriptRoot "import-v3-operational-env.ps1"
+if (Test-Path $helperPath) {
+    . $helperPath
+    Import-M21OperationalEnv
+}
+
+# Resolve repo root
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
 if ([string]::IsNullOrWhiteSpace($IdempotencyKey)) {
     $IdempotencyKey = "m21-smoke-" + [guid]::NewGuid().ToString("N").Substring(0, 12)
@@ -42,7 +35,7 @@ Write-Output "[M21-SMOKE] Mock: $MockBase"
 Write-Output "[M21-SMOKE] Idempotency: $IdempotencyKey"
 
 # Step 0: Read Gateway raw key from local env file (not printed)
-$envFile = ".env.m21.local"
+$envFile = Join-Path $repoRoot ".env.m21.local"
 if (-not (Test-Path $envFile)) {
     Write-Error "[M21-SMOKE] $envFile not found. Run scripts/m21/new-v3-operational-env.ps1 first."
     exit 1
@@ -57,7 +50,7 @@ if ($envContent -match 'AICOSTOPS_GATEWAY_DEV_RAW_KEY=(.+)') {
 }
 
 # Step 0b: Read expected profile id from seed state file
-$statePath = Join-Path (Split-Path -Parent $PSScriptRoot) $StateFile
+$statePath = Join-Path $repoRoot $StateFile
 if (-not (Test-Path $statePath)) {
     Write-Error "[M21-SMOKE] State file not found. Run scripts/m21/seed-v3-operational.ps1 first."
     exit 1
@@ -156,9 +149,13 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Mysql([string]$Sql) {
-    $escapedSql = $Sql -replace '"', '\\"'
-    $result = docker compose @composeArgs exec -T mysql sh -lc "echo `"$escapedSql`" | mysql -u $($env:MYSQL_GATEWAY_USER) -p`"$($env:MYSQL_GATEWAY_PASSWORD)`" aicostops 2>&1"
-    return ($result | Out-String).Trim()
+    $env:MYSQL_PWD = $env:MYSQL_GATEWAY_PASSWORD
+    try {
+        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u gw_m21 aicostops -e `"$Sql`" 2>&1"
+        return ($result | Out-String).Trim()
+    } finally {
+        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
+    }
 }
 
 # Step 7a: Find gateway_request by idempotency key digest

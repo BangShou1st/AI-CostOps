@@ -46,34 +46,40 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
     private final ObjectMapper objectMapper;
     private final GatewayProperties properties;
     private final boolean enforceProductionEndpoint;
-    private final boolean publicOnlyResolverActive;
+    private final HttpClient httpClient;
 
     public OpenAiChatAdapter(WebClient.Builder builder, ObjectMapper objectMapper,
             GatewayProperties properties, Environment environment) {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.enforceProductionEndpoint = environment.acceptsProfiles(Profiles.of("prod"));
-        var httpClient = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
-                .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
-        if (enforceProductionEndpoint) {
-            httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
-            publicOnlyResolverActive = true;
-        } else {
-            publicOnlyResolverActive = false;
-        }
-        this.webClient = builder.clientConnector(new ReactorClientHttpConnector(httpClient))
+        this.httpClient = buildHttpClient();
+        this.webClient = builder.clientConnector(new ReactorClientHttpConnector(this.httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()
                         .maxInMemorySize(properties.getMaxInMemoryBytes()))
                 .build();
     }
 
     /**
-     * Test-only seam: whether the public-only resolver is active.
+     * Builds the HttpClient with production-appropriate resolver.
+     * This is the single source of truth for resolver wiring.
+     */
+    private HttpClient buildHttpClient() {
+        var httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
+                .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
+        if (enforceProductionEndpoint) {
+            httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
+        }
+        return httpClient;
+    }
+
+    /**
+     * Test-only seam: exposes the configured HttpClient for resolver verification.
      * Package-private to prevent production use.
      */
-    /* package-private */ boolean isPublicOnlyResolverActive() {
-        return publicOnlyResolverActive;
+    /* package-private */ HttpClient httpClientForTest() {
+        return httpClient;
     }
 
     @Override

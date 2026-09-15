@@ -1,31 +1,10 @@
 <#
 .SYNOPSIS
     M21 V3 operational seed — creates V24+ endpoint authority state.
-
-.DESCRIPTION
-    DevGatewayBootstrap (backend, dev profile) creates most V24+ data:
-    org, billing period, project, service identity, gateway credential,
-    model catalog, provider account (MIMO), provider model, provider credential,
-    pricing version, pricing rate, routing policy, routing policy candidate.
-
-    This script creates the one thing DevGatewayBootstrap does NOT create:
-    - provider_connection_profile (V24+ endpoint authority) — with auth_type=API_KEY_HEADER
-
-    Idempotent: safe to run multiple times.
-
-.PARAMETER ComposeProject
-    Docker Compose project name. Default: aicostops-m21-reseal
-
-.PARAMETER MockBaseUrl
-    Mock provider base URL. Default: http://mock-provider:8089/v1
-
-.EXAMPLE
-    pwsh -File scripts/m21/seed-v3-operational.ps1
-    pwsh -File scripts/m21/seed-v3-operational.ps1 -ComposeProject aicostops-m21-reseal
 #>
 [CmdletBinding()]
 param(
-    [string]$ComposeProject = "aicostops-m21-reseal",
+    [string]$ComposeProject = "aicostops-m21-final-r3",
     [string]$MockBaseUrl = "http://mock-provider:8089/v1",
     [string]$StateFile = ".m21-operational-state.json"
 )
@@ -33,7 +12,18 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+# Self-import env
+$helperPath = Join-Path $PSScriptRoot "import-v3-operational-env.ps1"
+if (Test-Path $helperPath) {
+    . $helperPath
+    Import-M21OperationalEnv
+}
+
 Write-Output "[M21-SEED] Starting V3 operational seed..."
+
+# Resolve repo root for state file
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$statePath = Join-Path $repoRoot $StateFile
 
 # Build docker compose exec command prefix
 $composeArgs = @()
@@ -48,10 +38,14 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Mysql([string]$Sql) {
-    $escapedSql = $Sql -replace '"', '\\"'
-    $result = docker compose @composeArgs exec -T mysql sh -lc "echo `"$escapedSql`" | mysql -u root -p`"$($env:MYSQL_ROOT_PASSWORD)`" aicostops -N -B 2>&1"
-    $filtered = ($result | Where-Object { $_ -notmatch "Warning" }) -join "`n"
-    return $filtered.Trim()
+    $env:MYSQL_PWD = $env:MYSQL_ROOT_PASSWORD
+    try {
+        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root aicostops -N -B -e `"$Sql`" 2>&1"
+        $filtered = ($result | Where-Object { $_ -notmatch "Warning" }) -join "`n"
+        return $filtered.Trim()
+    } finally {
+        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
+    }
 }
 
 # Step 1: Find existing provider_account (created by DevGatewayBootstrap)
@@ -110,7 +104,7 @@ SELECT LAST_INSERT_ID();
     }
 }
 
-# Step 6: Ensure provider_credential exists (created by DevGatewayBootstrap when AICOSTOPS_MIMO_API_KEY is set)
+# Step 6: Ensure provider_credential exists
 $credCount = Invoke-Mysql "SELECT COUNT(*) FROM provider_credential WHERE provider_account_id=$acctId AND status='ACTIVE';"
 if ($credCount -eq "0") {
     Write-Error "[M21-SEED] No ACTIVE provider_credential found. DevGatewayBootstrap should have created one with AICOSTOPS_MIMO_API_KEY. Gateway dispatch will fail without a decryptable credential."
@@ -158,7 +152,6 @@ $summary = @{
 Write-Output "`n[M21-SEED] State:"
 Write-Output $summary
 
-# Write state file for smoke script
-$statePath = Join-Path (Split-Path -Parent $PSScriptRoot) $StateFile
+# Write state file
 [System.IO.File]::WriteAllText($statePath, $summary)
-Write-Output "[M21-SEED] State written to $StateFile"
+Write-Output "[M21-SEED] State written to $statePath"

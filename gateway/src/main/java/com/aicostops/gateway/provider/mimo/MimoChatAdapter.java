@@ -32,10 +32,17 @@ import reactor.netty.http.client.HttpClient;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * MiMo OpenAI-compatible Chat Completions adapter.
+ * MiMo OpenAI-compatible Chat Completions adapter. Only server-governed
+ * destinations are used; the Provider secret is injected per request and
+ * Provider error bodies are redacted. Never retries after a committed
+ * DISPATCH_INTENT. Streaming parses/increments the upstream SSE without ever
+ * aggregating the full completion, using configured connect/header/idle/hard
+ * timeouts and no automatic retry.
  *
  * <p>M21 post-release security fix (M18 DNS-rebinding contract): production
- * dispatch now uses {@link PublicOnlyAddressResolverGroup}.
+ * dispatch now uses {@link PublicOnlyAddressResolverGroup} to enforce
+ * transport-level public-only DNS resolution. Non-production profiles
+ * (dev/test) use the default JVM resolver to allow local mock validation.
  */
 @Component
 public class MimoChatAdapter implements ProviderChatAdapter {
@@ -47,7 +54,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     private final ObjectMapper objectMapper;
     private final GatewayProperties properties;
     private final boolean enforceProductionEndpoint;
-    private final boolean publicOnlyResolverActive;
+    private final HttpClient httpClient;
 
     public MimoChatAdapter(
             WebClient.Builder builder,
@@ -57,32 +64,40 @@ public class MimoChatAdapter implements ProviderChatAdapter {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.enforceProductionEndpoint = environment.acceptsProfiles(Profiles.of("prod"));
-        var httpClient = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
-                .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
-        if (enforceProductionEndpoint) {
-            httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
-            publicOnlyResolverActive = true;
-        } else {
-            publicOnlyResolverActive = false;
-        }
+        this.httpClient = buildHttpClient();
         this.webClient = builder
-                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .clientConnector(new ReactorClientHttpConnector(this.httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()
                         .maxInMemorySize(properties.getMaxInMemoryBytes()))
                 .build();
     }
 
     /**
-     * Test-only seam: whether the public-only resolver is active.
+     * Builds the HttpClient with production-appropriate resolver.
+     * This is the single source of truth for resolver wiring.
+     */
+    private HttpClient buildHttpClient() {
+        var httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
+                .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
+        if (enforceProductionEndpoint) {
+            httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
+        }
+        return httpClient;
+    }
+
+    /**
+     * Test-only seam: exposes the configured HttpClient for resolver verification.
      * Package-private to prevent production use.
      */
-    /* package-private */ boolean isPublicOnlyResolverActive() {
-        return publicOnlyResolverActive;
+    /* package-private */ HttpClient httpClientForTest() {
+        return httpClient;
     }
 
     @Override
-    public String adapterCode() { return "MIMO"; }
+    public String adapterCode() {
+        return "MIMO";
+    }
 
     @Override
     public Mono<ProviderChatCompletion> complete(
@@ -113,6 +128,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                             return response.bodyToMono(byte[].class)
                                 .map(body -> parseCompletion(context, body, providerRequestId(response)));
                     }
+                    // Bounded read then redact: never return the arbitrary body.
                     return response.bodyToMono(byte[].class)
                             .flatMap(body -> Mono.<ProviderChatCompletion>error(new ProviderExecutionException(
                                     ProviderSafetyOutcome.BILLABLE_POSSIBLE,
