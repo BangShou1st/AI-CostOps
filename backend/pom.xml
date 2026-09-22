@@ -26,6 +26,9 @@
     <commons-csv.version>1.14.1</commons-csv.version>
     <commons-compress.version>1.28.0</commons-compress.version>
     <poi.version>5.5.1</poi.version>
+    <!-- Security gate CVE-2026-8763 / CVE-2026-13506: Trivy reports
+         bcprov-jdk18on 1.84 as HIGH/CRITICAL; 1.85 contains the fixes. -->
+    <bouncycastle.version>1.85</bouncycastle.version>
     <!-- Security gate CVE-2026-75595: Spring Boot 4.1.0 manages Netty 4.2.15.Final
          (affected range >= 4.2.0.Final, <= 4.2.16.Final). Pin the aligned
          patch release via netty-bom; Spring Boot major/minor stays 4.1.0. -->
@@ -143,6 +146,12 @@
       <groupId>org.apache.poi</groupId>
       <artifactId>poi-ooxml</artifactId>
       <version>${poi.version}</version>
+    </dependency>
+    <!-- Explicit security override for the transitive Bouncy Castle provider. -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+      <version>${bouncycastle.version}</version>
     </dependency>
 
     <dependency>
