@@ -234,19 +234,37 @@ public class GatewayRequestOrchestrator {
             return Mono.error(new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
                     "Only positively safe Provider evidence can advance routing"));
         }
+        return markSafeAndRelease(previous, safeFailure)
+                .flatMap(released -> cancelled.getAsBoolean()
+                ? convergeSafeTerminal(released).thenReturn(released)
+                : findAndPrepareNext(released, cancelled, onDispatchCommitted));
+    }
+
+    /** Converges a route-context failure without treating it as Provider execution. */
+    public Mono<Void> failBeforeProviderIo(PreparedDispatch prepared,
+            ProviderExecutionException safeFailure) {
+        if (safeFailure == null
+                || safeFailure.safetyOutcome() != ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION) {
+            return Mono.error(new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_IN_PROGRESS,
+                    "Only positively safe Provider evidence can fail before Provider I/O"));
+        }
+        return markSafeAndRelease(prepared, safeFailure).flatMap(this::convergeSafeTerminal);
+    }
+
+    private Mono<PreparedDispatch> markSafeAndRelease(PreparedDispatch prepared,
+            ProviderExecutionException safeFailure) {
         return blockingIo.call(() -> {
-            attempts.markSafe(previous.principal().organizationId(), previous.routeAttemptId(), safeFailure.safetyReason());
-            var release = releases.releaseForSafeAttempt(previous.principal().organizationId(),
-                    previous.requestId(), previous.routeAttemptId(), previous.billingPeriodId());
+            attempts.markSafe(prepared.principal().organizationId(), prepared.routeAttemptId(),
+                    safeFailure.safetyReason());
+            var release = releases.releaseForSafeAttempt(prepared.principal().organizationId(),
+                    prepared.requestId(), prepared.routeAttemptId(), prepared.billingPeriodId());
             if (release.status() == SafeReservationReleaseService.ReleaseStatus.PENDING_HOLD
                     || release.status() == SafeReservationReleaseService.ReleaseStatus.SKIPPED) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                         "The safe route reservation could not be released");
             }
-            return previous;
-        }).flatMap(released -> cancelled.getAsBoolean()
-                ? convergeSafeTerminal(released).thenReturn(released)
-                : findAndPrepareNext(released, cancelled, onDispatchCommitted));
+            return prepared;
+        });
     }
 
     private Mono<PreparedDispatch> findAndPrepareNext(PreparedDispatch previous,
