@@ -15,22 +15,17 @@ V2 目标：
 ## 当前阶段
 
 ```text
-V1 = COMPLETE / FROZEN
-Current stable (published) release = v1.1.0
-M9 = COMPLETE / ACCEPTED (v1.1.0 RELEASED; AIC-074~AIC-083 all PASS)
-v1.1.0 = RELEASED
-M10 V2 Detailed Design = COMPLETE / FROZEN
-AIC-084 ~ AIC-093 = FROZEN / PASS
-M10 principal design merge = PR #129 / main@1ed62c68c09458570c5cd04f812a2525028db7a2
-V2 Gateway detailed design = FROZEN
-M11 Gateway Edge MVP = COMPLETE / ACCEPTED
-M12 Identity / Attribution / Budget Reservation = COMPLETE / ACCEPTED
-M13 Realtime Metering / Settlement = COMPLETE / ACCEPTED
-M14 Multi-provider Routing / Resilience = COMPLETE / ACCEPTED
-M14 merge baseline = PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b
-(feat(m14): deliver multi-provider routing and resilience)
-M15 Hybrid Reconciliation = IMPLEMENTATION IN DELIVERY (feat/m15-hybrid-reconciliation; pending independent review + user merge)
+Stable version = V3.0.0
+Development = COMPLETE
+Operational mode = MAINTENANCE_ONLY
+V4 = DEFERRED / FUTURE RESEARCH ONLY
+M20 Production Acceptance = COMPLETE
+M21 Operational Readiness = COMPLETE
+M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
+Known release-blocking defects = NONE
 ```
+
+V1 and V2 milestone details below are historical delivery records. They do not define an active feature backlog.
 
 M10 冻结入口：
 
@@ -259,7 +254,9 @@ reservation expiry wake-up hints / non-authoritative cache
 
 Redis 不承担 Final Ledger、Final Budget、Final Settlement History，也不能独立授权 monetary spend。
 
-## V2 Roadmap
+## V2 Roadmap (historical milestone plan)
+
+The sequence below records the original V2 plan and completion status. It is historical reference, not the current development plan.
 
 ```text
 M9  — V1.1 Production Foundation                COMPLETE / ACCEPTED
@@ -268,8 +265,8 @@ M11 — Gateway Edge MVP                          COMPLETE / ACCEPTED
 M12 — Identity / Attribution / Budget Reservation  COMPLETE / ACCEPTED
 M13 — Realtime Metering / Settlement            COMPLETE / ACCEPTED
 M14 — Multi-provider Routing / Resilience       COMPLETE / ACCEPTED
-M15 — Hybrid Reconciliation                     IN DELIVERY
-M16 — V2 Production Acceptance                  FUTURE
+M15 — Hybrid Reconciliation                     COMPLETE / ACCEPTED
+M16 — V2 Production Acceptance                  COMPLETE / ACCEPTED
 ```
 
 详细路线：
@@ -351,11 +348,10 @@ Issue
 
 Peer Review 按需，不作为全局 Merge Gate。
 
-## 当前下一步
+## 维护模式
 
 ```text
-1. Plan and execute M15 Hybrid Reconciliation from the frozen V2 architecture
-2. Preserve the existing financial truth / settlement / routing invariants from M10-M14
-3. Keep Daily Development native-app + Docker-infra only
-4. Continue Sol independent final review before milestone closure / merge
+Active development = CLOSED
+Allowed maintenance = security updates, defect fixes, operational fixes, CI / dependency maintenance, documentation maintenance
+V4 engineering unit economics = DEFERRED / FUTURE RESEARCH ONLY
 ```

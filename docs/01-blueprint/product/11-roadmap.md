@@ -1,21 +1,18 @@
-# 11. 版本路线图 — V1 → V2
+# 11. 历史版本路线图 — V1 → V2
 
-## 当前状态
+## 当前项目状态
 
 ```text
-V1 = COMPLETE / FROZEN
-Current stable (published) = v1.1.0
-V1.1 / M9 = COMPLETE / ACCEPTED (v1.1.0 RELEASED; AIC-074~AIC-083 all PASS)
-v1.1.0 = RELEASED
-M10 V2 Detailed Design = COMPLETE / FROZEN (AIC-084~AIC-093 PASS)
-M10 design merge = PR #129 / main@1ed62c68c09458570c5cd04f812a2525028db7a2
-M11 Gateway Edge MVP = COMPLETE / ACCEPTED
-M12 Identity / Attribution / Budget Reservation = COMPLETE / ACCEPTED
-M13 Realtime Metering / Settlement = COMPLETE / ACCEPTED
-M14 Multi-provider Routing / Resilience = COMPLETE / ACCEPTED (PR #146 / main@a9afc8aef64b9d66608ccc19c611b703e545610b)
-M15 Hybrid Reconciliation = IMPLEMENTATION IN DELIVERY (feat/m15-hybrid-reconciliation; complete after independent review + acceptance)
-M16 V2 Production Acceptance = NEXT AFTER M15 ACCEPTANCE
+Stable version = V3.0.0
+Development = COMPLETE
+Operational mode = MAINTENANCE_ONLY
+V4 = DEFERRED / OPTIONAL / FUTURE RESEARCH ONLY
+M20 Production Acceptance = COMPLETE
+M21 Operational Readiness = COMPLETE
+M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
 ```
+
+以下 V1 / V2 章节记录已完成版本的历史规划和交付，不构成当前 backlog。M16 不再是下一步；当前没有 active feature roadmap。
 
 V1 的冻结历史、AIC-001～AIC-073、M0～M8 与最终验收证据继续保留，不改写为当前待办。
 
@@ -300,12 +297,12 @@ Redis 不承担 Final Ledger、Final Budget、Final Settlement History，也不�
 
 ---
 
-# M11 — Gateway Edge MVP
+# M11 — Gateway Edge MVP (historical implementation plan)
 
 ## 状态
 
 ```text
-NEXT IMPLEMENTATION MILESTONE
+HISTORICAL IMPLEMENTATION PLAN — superseded by completed delivery
 ```
 
 只建立最小真实链路：
@@ -542,9 +539,9 @@ multi-region
 
 ---
 
-# V4 — 工程单位经济性（可选）
+# V4 — 工程单位经济性（DEFERRED / OPTIONAL / FUTURE RESEARCH ONLY）
 
-只有业务 outcome 定义可靠后再考虑：
+V4 不属于 active roadmap，也不是下一开发计划。只有业务 outcome 定义可靠、且未来明确重新启动产品研究时，才可重新评估以下方向：
 
 ```text
 Cost / successful agent task

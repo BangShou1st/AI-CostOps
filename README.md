@@ -28,15 +28,30 @@ v3.0.0 → 9c55125c1b857e3ccf301875d8886131a9d1d9b0
 ```text
 V1 = COMPLETE / FROZEN
 V2 = COMPLETE / FROZEN
-V3 = RELEASED / FROZEN
-Current stable (published) = v3.0.0
-v3.0.0 = RELEASED (9c55125)
+Stable version = V3.0.0
+Development = COMPLETE
+Operational mode = MAINTENANCE_ONLY
+V4 = DEFERRED / FUTURE RESEARCH ONLY
+V3 final stabilization = COMPLETE
 M17 V3 MODEL PROVIDER HUB & COST INTELLIGENCE DESIGN = FROZEN
 M18 V3 BACKEND & API CONTRACT = FROZEN
 M19 V3 FRONTEND EXPERIENCE = COMPLETE / ACCEPTED
-M20 V3 PRODUCTION ACCEPTANCE = COMPLETE / ACCEPTED
-M21 V3 POST-RELEASE OPERATIONAL READINESS = IN REVIEW
+M20 Production Acceptance = COMPLETE
+M21 Operational Readiness = COMPLETE
+M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
+Known release-blocking defects = NONE
 ```
+
+AI-CostOps V3 is feature-complete and has completed final stabilization. Active development is closed. The repository is in maintenance-only mode for security, defect, operational, CI, dependency, and documentation maintenance.
+
+V3 final stabilization preserves these execution invariants:
+
+```text
+Provider execution uses the exact frozen provider_connection_profile_id.
+auth_type=NONE performs zero credential lookup/decryption.
+```
+
+M22 retains two explicitly deferred, non-blocking gates: real-provider / OpenCode external credential validation and independent browser-context organization-isolation evidence. These are not marked PASS.
 
 M10 冻结入口：
 
@@ -349,18 +364,18 @@ V1 的 RC、验收与 benchmark 文档作为冻结历史证据保留；后续不
 
 M10 最终设计验收见 [m10-design-freeze-matrix.md](docs/03-acceptance/m10-design-freeze-matrix.md)。
 
-## V3 方向
+## V3 发布与维护
 
-V3.0.0 已正式发布。详细运维指南见 [docs/04-operations/v3-operational-runbook.md](docs/04-operations/v3-operational-runbook.md)。
+V3.0.0 已完成发布、production acceptance、operational readiness 与最终稳定性收尾。详细运维指南见 [docs/04-operations/v3-operational-runbook.md](docs/04-operations/v3-operational-runbook.md)。
 
 现有产品/设计入口：
 
 - [Product Scope](docs/01-blueprint/product/05-product-scope.md)
-- [V1 → V2 Roadmap](docs/01-blueprint/product/11-roadmap.md)
+- [Historical V1 → V2 Roadmap](docs/01-blueprint/product/11-roadmap.md)
 - [V2 Detailed Design](docs/02-development/v2-detailed-design/README.md)
 - [Gateway OpenAPI](docs/02-development/api/gateway-openapi.yaml)
 
-M11–M14 已按 M10 冻结契约分里程碑交付（各自验收证据见 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)）；M15 Hybrid Reconciliation 同样必须服从冻结设计的语义边界，不得越界实现。
+历史路线图仅用于理解已交付的 V1–V3 范围，不构成当前 backlog。V4 工程单位经济性保持 DEFERRED / OPTIONAL / FUTURE RESEARCH ONLY；只有 outcome 定义可靠且未来重新启动产品研究时才重新评估。
 
 ## Git 协作
 
@@ -368,4 +383,4 @@ M11–M14 已按 M10 冻结契约分里程碑交付（各自验收证据见 [doc
 Issue → Short-lived Branch → Pull Request → CI → Human Acceptance → Squash Merge → main
 ~~~
 
-当前稳定（已发布）版本：`v3.0.0`。M20 production acceptance 完成。详见 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。
+当前状态：`V3.0.0 / DEVELOPMENT_COMPLETE / MAINTENANCE_ONLY / V4_DEFERRED`。M20 与 M21 完成；M22 保留两个 deferred / non-blocking gates。详见 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。

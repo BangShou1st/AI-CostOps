@@ -2,17 +2,22 @@
 
 这部分回答：
 
-> “做完”到底怎么证明？什么时候可以 Merge？什么时候可以叫 V1 完成？
+> “做完”到底怎么证明？各版本与里程碑的验收证据在哪里？
 
-当前状态：
+当前项目状态：
 
 ```text
-V1 = COMPLETE / FROZEN
-AIC-073 = COMPLETED / ACCEPTED
-M9 = COMPLETE / ACCEPTED (AIC-074 ~ AIC-083, v1.1.0 release candidate)
-Current stable (published) release = v1.0.1
-v1.1.0 = PENDING RELEASE PR MERGE + FINAL MAIN GREEN
+Stable version = V3.0.0
+Development = COMPLETE
+Operational mode = MAINTENANCE_ONLY
+V4 = DEFERRED / FUTURE RESEARCH ONLY
+M20 Production Acceptance = COMPLETE
+M21 Operational Readiness = COMPLETE
+M22 = M22_CLOSED_WITH_DEFERRED_NON_BLOCKING_GATES
+Known release-blocking defects = NONE
 ```
+
+M22 的两个 gate 仍明确为 `DEFERRED / NON-BLOCKING`，不代表 PASS：real-provider / OpenCode external credential，以及 independent browser-context organization-isolation evidence。详见 [M20](m20-v3-production-acceptance.md)、[M21](m21-v3-post-release-operational-readiness.md) 与 [M22](m22-v3-production-certification.md)。下方 V1 / V1.1 条目是历史验收证据。
 
 M9 总入口：`m9-acceptance-matrix.md`；最终收敛报告：`aic-083-m9-final-acceptance.md`；逐项证据见本目录 `m9-*.md`。
 
