@@ -19,6 +19,7 @@ import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatAdapterRegistry;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
 import com.aicostops.gateway.provider.ProviderCredentialDecryptor;
+import com.aicostops.gateway.provider.ProviderExecutionContextResolver;
 import com.aicostops.gateway.provider.ProviderExecutionException;
 import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
@@ -34,6 +35,7 @@ import java.time.ZoneId;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -67,8 +69,9 @@ class AdvisorInferenceWorkerTest {
     private AdvisorInferenceWorker worker() {
         when(transactionManager.getTransaction(any()))
                 .thenReturn(new SimpleTransactionStatus());
-        return new AdvisorInferenceWorker(jobs, readMapper, orchestrator, lifecycleService,
-                adapterRegistry, credentialDecryptor, usageFinalization, new ObjectMapper(),
+        return new AdvisorInferenceWorker(jobs, orchestrator, lifecycleService,
+                adapterRegistry, new ProviderExecutionContextResolver(readMapper, credentialDecryptor),
+                usageFinalization, new ObjectMapper(),
                 clock, transactionManager);
     }
 
@@ -105,8 +108,9 @@ class AdvisorInferenceWorkerTest {
         when(jobs.completeAttempt(anyLong(), anyInt())).thenReturn(1);
         when(credentialDecryptor.decrypt(7L, 14L)).thenReturn(
                 new ProviderCredentialDecryptor.DecryptedCredential("BEARER_TOKEN", "s3cr3t".getBytes()));
-        when(readMapper.findActiveConnectionProfile(7L, 14L)).thenReturn(
-                new GatewayReadMapper.ConnectionProfileRow("BEARER", null, "DIRECT_PUBLIC_ONLY"));
+        when(readMapper.findConnectionProfileById(7L, 18L)).thenReturn(
+                new GatewayReadMapper.ConnectionProfileRow(18L, 7L, 14L,
+                        "BEARER", null, "DIRECT_PUBLIC_ONLY"));
         when(lifecycleService.beginUpstream(11L, 7L, 12L)).thenReturn(Mono.empty());
         var adapter = org.mockito.Mockito.mock(ProviderChatAdapter.class);
         when(adapterRegistry.require("CUSTOM_OPENAI_COMPATIBLE")).thenReturn(adapter);
@@ -125,6 +129,51 @@ class AdvisorInferenceWorkerTest {
         verify(jobs).linkGateway(eq(100L), anyString(), eq("DISPATCHING"), eq(11L), any());
         verify(jobs).insertExplanation(eq(7L), eq(100L), eq(1), eq("Spend rose."), anyString(),
                 anyString(), anyString(), anyString(), any());
+        verify(jobs).markCompleted(eq(100L), anyString(), any());
+    }
+
+    @Test
+    void noneAuthAdvisorSkipsCredentialDecryptionAndExecutes() {
+        var worker = worker();
+        when(jobs.claimEligibleAny(any())).thenReturn(jobRow()).thenReturn(null);
+        when(jobs.markClaimed(anyLong(), anyString(), any(), any())).thenReturn(1);
+        when(jobs.findJob(eq(100L), eq(7L))).thenReturn(jobRow());
+        when(jobs.findProfileById(eq(7L), eq(10L))).thenReturn(profileRow());
+        when(jobs.findCredentialForProfile(eq(7L), eq(10L))).thenReturn(credentialRow());
+        when(jobs.findLogicalModelOf(21L)).thenReturn(9L);
+        when(jobs.findEvidenceSnapshot(eq(100L), eq(7L))).thenReturn(snapshotRow());
+        var dispatch = dispatch();
+        var prepared = new GatewayRequestOrchestrator.PreparedDispatch(dispatch,
+                new GatewayPrincipal(5L, 7L, 6L, "SERVICE", null, 4L, "PROJECT", 6L, "OPTIONAL"),
+                new GatewayRequestService.AuthorizeCommand(null, 9L, new byte[0], "k", 1024L, false),
+                null, java.util.Set.of());
+        when(orchestrator.prepareInitial(any(), eq(false))).thenReturn(Mono.just(prepared));
+        when(jobs.linkGateway(anyLong(), anyString(), anyString(), anyLong(), any())).thenReturn(1);
+        when(jobs.linkAttempt(anyLong(), anyInt(), anyLong())).thenReturn(1);
+        when(jobs.completeAttempt(anyLong(), anyInt())).thenReturn(1);
+        when(readMapper.findConnectionProfileById(7L, 18L)).thenReturn(
+                new GatewayReadMapper.ConnectionProfileRow(18L, 7L, 14L,
+                        "NONE", null, "DIRECT_PUBLIC_ONLY"));
+        when(lifecycleService.beginUpstream(11L, 7L, 12L)).thenReturn(Mono.empty());
+        var adapter = org.mockito.Mockito.mock(ProviderChatAdapter.class);
+        when(adapterRegistry.require("CUSTOM_OPENAI_COMPATIBLE")).thenReturn(adapter);
+        var completion = new ProviderChatCompletion("req-1", "cmpl-1", 1L, "model-x",
+                List.of(new ProviderChatCompletion.CompletionChoice(0, narrative(), "stop")),
+                new ProviderChatCompletion.ProviderUsage(5, 3, 8));
+        when(adapter.complete(any(ProviderCallContext.class), any(ChatCompletionCommand.class)))
+                .thenReturn(Mono.just(completion));
+        when(usageFinalization.finalizeSuccess(eq(11L), eq(7L), eq(12L), any()))
+                .thenReturn(Mono.just(org.mockito.Mockito.mock(
+                        GatewayUsageFinalizationService.FinalizationResult.class)));
+        when(jobs.markCompleted(anyLong(), anyString(), any())).thenReturn(1);
+
+        worker.tick();
+
+        verify(credentialDecryptor, never()).decrypt(anyLong(), anyLong());
+        var context = ArgumentCaptor.forClass(ProviderCallContext.class);
+        verify(adapter).complete(context.capture(), any(ChatCompletionCommand.class));
+        assertThat(context.getValue().credentialType()).isEqualTo("NONE");
+        assertThat(context.getValue().providerSecret()).isNull();
         verify(jobs).markCompleted(eq(100L), anyString(), any());
     }
 
@@ -149,8 +198,9 @@ class AdvisorInferenceWorkerTest {
         when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
         when(credentialDecryptor.decrypt(7L, 14L)).thenReturn(
                 new ProviderCredentialDecryptor.DecryptedCredential("BEARER_TOKEN", "s3cr3t".getBytes()));
-        when(readMapper.findActiveConnectionProfile(7L, 14L)).thenReturn(
-                new GatewayReadMapper.ConnectionProfileRow("BEARER", null, "DIRECT_PUBLIC_ONLY"));
+        when(readMapper.findConnectionProfileById(7L, 18L)).thenReturn(
+                new GatewayReadMapper.ConnectionProfileRow(18L, 7L, 14L,
+                        "BEARER", null, "DIRECT_PUBLIC_ONLY"));
         when(lifecycleService.beginUpstream(11L, 7L, 12L)).thenReturn(Mono.empty());
         var adapter = org.mockito.Mockito.mock(ProviderChatAdapter.class);
         when(adapterRegistry.require("CUSTOM_OPENAI_COMPATIBLE")).thenReturn(adapter);
@@ -192,8 +242,9 @@ class AdvisorInferenceWorkerTest {
         when(jobs.failAttempt(anyLong(), anyInt(), anyString())).thenReturn(1);
         when(credentialDecryptor.decrypt(7L, 14L)).thenReturn(
                 new ProviderCredentialDecryptor.DecryptedCredential("BEARER_TOKEN", "s3cr3t".getBytes()));
-        when(readMapper.findActiveConnectionProfile(7L, 14L)).thenReturn(
-                new GatewayReadMapper.ConnectionProfileRow("BEARER", null, "DIRECT_PUBLIC_ONLY"));
+        when(readMapper.findConnectionProfileById(7L, 18L)).thenReturn(
+                new GatewayReadMapper.ConnectionProfileRow(18L, 7L, 14L,
+                        "BEARER", null, "DIRECT_PUBLIC_ONLY"));
         when(lifecycleService.beginUpstream(11L, 7L, 12L)).thenReturn(Mono.empty());
         var adapter = org.mockito.Mockito.mock(ProviderChatAdapter.class);
         when(adapterRegistry.require("CUSTOM_OPENAI_COMPATIBLE")).thenReturn(adapter);
@@ -376,8 +427,9 @@ class AdvisorInferenceWorkerTest {
         when(jobs.completeAttempt(anyLong(), anyInt())).thenReturn(1);
         when(credentialDecryptor.decrypt(7L, 14L)).thenReturn(
                 new ProviderCredentialDecryptor.DecryptedCredential("BEARER_TOKEN", "s3cr3t".getBytes()));
-        when(readMapper.findActiveConnectionProfile(7L, 14L)).thenReturn(
-                new GatewayReadMapper.ConnectionProfileRow("BEARER", null, "DIRECT_PUBLIC_ONLY"));
+        when(readMapper.findConnectionProfileById(7L, 18L)).thenReturn(
+                new GatewayReadMapper.ConnectionProfileRow(18L, 7L, 14L,
+                        "BEARER", null, "DIRECT_PUBLIC_ONLY"));
         when(lifecycleService.beginUpstream(11L, 7L, 12L)).thenReturn(Mono.empty());
         var adapter = org.mockito.Mockito.mock(ProviderChatAdapter.class);
         when(adapterRegistry.require("CUSTOM_OPENAI_COMPATIBLE")).thenReturn(adapter);

@@ -4,12 +4,12 @@ import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.metering.GatewayUsageFinalizationService;
 import com.aicostops.gateway.metering.GatewayUsageFinalizationService.TransportFailure;
 import com.aicostops.gateway.metering.GatewayUsageObservation;
-import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapter;
 import com.aicostops.gateway.provider.ProviderChatAdapterRegistry;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
-import com.aicostops.gateway.provider.ProviderCredentialDecryptor;
+import com.aicostops.gateway.provider.ProviderContextResolutionException;
+import com.aicostops.gateway.provider.ProviderExecutionContextResolver;
 import com.aicostops.gateway.provider.ProviderExecutionException;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.request.GatewayRequestLifecycleService;
@@ -58,11 +58,10 @@ public class AdvisorInferenceWorker {
             "CANCELED_AFTER_DISPATCH", "TIMED_OUT_AFTER_DISPATCH", "FAILED_AFTER_DISPATCH");
 
     private final AdvisorJobMapper jobs;
-    private final GatewayReadMapper readMapper;
     private final GatewayRequestOrchestrator orchestrator;
     private final GatewayRequestLifecycleService lifecycleService;
     private final ProviderChatAdapterRegistry adapterRegistry;
-    private final ProviderCredentialDecryptor credentialDecryptor;
+    private final ProviderExecutionContextResolver contextResolver;
     private final GatewayUsageFinalizationService usageFinalization;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -71,21 +70,19 @@ public class AdvisorInferenceWorker {
 
     public AdvisorInferenceWorker(
             AdvisorJobMapper jobs,
-            GatewayReadMapper readMapper,
             GatewayRequestOrchestrator orchestrator,
             GatewayRequestLifecycleService lifecycleService,
             ProviderChatAdapterRegistry adapterRegistry,
-            ProviderCredentialDecryptor credentialDecryptor,
+            ProviderExecutionContextResolver contextResolver,
             GatewayUsageFinalizationService usageFinalization,
             ObjectMapper objectMapper,
             Clock clock,
             PlatformTransactionManager transactionManager) {
         this.jobs = jobs;
-        this.readMapper = readMapper;
         this.orchestrator = orchestrator;
         this.lifecycleService = lifecycleService;
         this.adapterRegistry = adapterRegistry;
-        this.credentialDecryptor = credentialDecryptor;
+        this.contextResolver = contextResolver;
         this.usageFinalization = usageFinalization;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -333,7 +330,20 @@ public class AdvisorInferenceWorker {
                     ADVISOR_MAX_TOKENS, false);
             completion = adapter.complete(context, chatCommand).block(Duration.ofMinutes(9));
         } catch (RuntimeException ex) {
-            failAfterDispatch(claimed, dispatch, ex);
+            var contextFailure = contextResolutionFailure(ex);
+            if (contextFailure != null) {
+                try {
+                    orchestrator.failBeforeProviderIo(prepared, contextFailure)
+                            .block(Duration.ofMinutes(1));
+                } catch (RuntimeException nested) {
+                    LOG.warn("Advisor pre-dispatch context failure convergence failed for job {}",
+                            claimed.jobId(), nested);
+                }
+                terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(),
+                        mapFailureCode(ex));
+            } else {
+                failAfterDispatch(claimed, dispatch, ex);
+            }
             return;
         }
         if (completion == null) {
@@ -624,23 +634,16 @@ public class AdvisorInferenceWorker {
 
     private ProviderCallContext buildContext(GatewayPrincipal principal,
             GatewayRequestService.DispatchResult result) {
-        var credential = credentialDecryptor.decrypt(principal.organizationId(), result.providerAccountId());
-        var profile = readMapper.findActiveConnectionProfile(
-                principal.organizationId(), result.providerAccountId());
-        final String credentialType;
-        final byte[] secret;
-        if (profile != null && "NONE".equals(profile.authType())) {
-            credentialType = "NONE";
-            secret = null;
-        } else {
-            credentialType = credential.credentialType();
-            secret = credential.secret();
+        return contextResolver.resolve(principal, result);
+    }
+
+    private static ProviderContextResolutionException contextResolutionFailure(Throwable error) {
+        var current = reactor.core.Exceptions.unwrap(error);
+        while (current != null) {
+            if (current instanceof ProviderContextResolutionException contextFailure) return contextFailure;
+            current = current.getCause();
         }
-        return new ProviderCallContext(result.adapterCode(), result.providerAccountId(),
-                result.providerModelId(), result.providerModelName(), result.pricingVersionId(),
-                result.currency(), result.baseUrl(), credentialType, secret, result.routeDecisionId(),
-                result.providerConnectionProfileId(), result.completionPath(), result.protocolCode(),
-                result.networkPolicy(), profile == null ? null : profile.authHeaderName());
+        return null;
     }
 
     private String mapFailureCode(RuntimeException ex) {

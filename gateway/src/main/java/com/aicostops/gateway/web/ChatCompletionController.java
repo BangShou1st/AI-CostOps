@@ -14,8 +14,9 @@ import com.aicostops.gateway.provider.ProviderCallContext;
 import com.aicostops.gateway.provider.ProviderChatAdapterRegistry;
 import com.aicostops.gateway.provider.ProviderChatCompletion;
 import com.aicostops.gateway.provider.ProviderChatStreamEvent;
-import com.aicostops.gateway.provider.ProviderCredentialDecryptor;
 import com.aicostops.gateway.provider.ProviderExecutionException;
+import com.aicostops.gateway.provider.ProviderExecutionContextResolver;
+import com.aicostops.gateway.provider.ProviderContextResolutionException;
 import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
 import com.aicostops.gateway.quota.GatewayQuotaLimiter;
@@ -82,7 +83,7 @@ public class ChatCompletionController {
     private final CircuitBreakerService circuits;
     private final GatewayRequestLifecycleService lifecycleService;
     private final StreamingLifecycleService streamingLifecycle;
-    private final ProviderCredentialDecryptor credentialDecryptor;
+    private final ProviderExecutionContextResolver contextResolver;
     private final ProviderChatAdapterRegistry adapterRegistry;
     private final GatewayUsageFinalizationService usageFinalization;
     private final GatewaySseEncoder sseEncoder;
@@ -102,7 +103,7 @@ public class ChatCompletionController {
             CircuitBreakerService circuits,
             GatewayRequestLifecycleService lifecycleService,
             StreamingLifecycleService streamingLifecycle,
-            ProviderCredentialDecryptor credentialDecryptor,
+            ProviderExecutionContextResolver contextResolver,
             ProviderChatAdapterRegistry adapterRegistry,
             GatewayUsageFinalizationService usageFinalization,
             GatewaySseEncoder sseEncoder,
@@ -120,7 +121,7 @@ public class ChatCompletionController {
         this.circuits = circuits;
         this.lifecycleService = lifecycleService;
         this.streamingLifecycle = streamingLifecycle;
-        this.credentialDecryptor = credentialDecryptor;
+        this.contextResolver = contextResolver;
         this.adapterRegistry = adapterRegistry;
         this.usageFinalization = usageFinalization;
         this.sseEncoder = sseEncoder;
@@ -374,6 +375,10 @@ public class ChatCompletionController {
             Throwable error, Set<Long> cancellationFinalizedAttempts) {
         var failure = asProviderFailure(error);
         var result = prepared.dispatch();
+        if (isContextResolutionFailure(error)) {
+            return orchestrator.failBeforeProviderIo(prepared, failure)
+                    .thenMany(Flux.error(error));
+        }
         metrics.recordProviderSafety(result.adapterCode(), failure.safetyOutcome().name(),
                 failure.safetyReason().name());
         var key = new RouteCircuitKey(principal.organizationId(),
@@ -413,6 +418,10 @@ public class ChatCompletionController {
         return invokeProviderOnce(principal, prepared, request, effectiveMaxTokens)
                 .map(completion -> new CompletedDispatch(prepared.dispatch(), completion))
                 .onErrorResume(error -> {
+                    if (isContextResolutionFailure(error)) {
+                        return orchestrator.failBeforeProviderIo(prepared, asProviderFailure(error))
+                                .then(Mono.error(error));
+                    }
                     var failure = asProviderFailure(error);
                     var result = prepared.dispatch();
                     metrics.recordProviderSafety(result.adapterCode(), failure.safetyOutcome().name(),
@@ -515,6 +524,15 @@ public class ChatCompletionController {
                 ProviderHealthSignal.QUALIFYING_FAILURE, null, null, true, unwrapped);
     }
 
+    private static boolean isContextResolutionFailure(Throwable error) {
+        var current = reactor.core.Exceptions.unwrap(error);
+        while (current != null) {
+            if (current instanceof ProviderContextResolutionException) return true;
+            current = current.getCause();
+        }
+        return false;
+    }
+
     private Mono<Void> recordCircuitFailure(RouteCircuitKey key, ProviderExecutionException failure) {
         var signal = failure.healthSignal();
         if (signal == null || signal == ProviderHealthSignal.NONE
@@ -587,37 +605,7 @@ public class ChatCompletionController {
      */
     private Mono<ProviderCallContext> buildProviderContext(
             GatewayPrincipal principal, DispatchResult result) {
-        return blockingIo.call(() -> {
-            var profile = readMapper.findActiveConnectionProfile(
-                    principal.organizationId(), result.providerAccountId());
-            final String credentialType;
-            final byte[] secret;
-            if (profile != null && "NONE".equals(profile.authType())) {
-                credentialType = "NONE";
-                secret = null;
-            } else {
-                var credential = credentialDecryptor.decrypt(
-                        principal.organizationId(), result.providerAccountId());
-                credentialType = credential.credentialType();
-                secret = credential.secret();
-            }
-            return new ProviderCallContext(
-                    result.adapterCode(),
-                    result.providerAccountId(),
-                    result.providerModelId(),
-                    result.providerModelName(),
-                    result.pricingVersionId(),
-                    result.currency(),
-                    result.baseUrl(),
-                    credentialType,
-                    secret,
-                    result.routeDecisionId(),
-                    result.providerConnectionProfileId(),
-                    result.completionPath(),
-                    result.protocolCode(),
-                    result.networkPolicy(),
-                    profile == null ? null : profile.authHeaderName());
-        });
+        return blockingIo.call(() -> contextResolver.resolve(principal, result));
     }
 
     private Map<String, Object> buildResponse(DispatchResult result, ChatCompletionRequest request,

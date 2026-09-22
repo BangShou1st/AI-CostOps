@@ -80,13 +80,21 @@ public interface GatewayReadMapper {
     Long findVisibleModelId(@Param("orgId") long orgId, @Param("modelKey") String modelKey);
 
     @Select("""
-            SELECT auth_type, auth_header_name, network_policy
+            SELECT id, org_id, provider_account_id, auth_type, auth_header_name, network_policy
             FROM provider_connection_profile
             WHERE org_id=#{orgId} AND provider_account_id=#{accountId} AND status='ACTIVE'
             ORDER BY version DESC LIMIT 1
             """)
     ConnectionProfileRow findActiveConnectionProfile(
             @Param("orgId") long orgId, @Param("accountId") long providerAccountId);
+
+    @Select("""
+            SELECT id, org_id, provider_account_id, auth_type, auth_header_name, network_policy
+            FROM provider_connection_profile
+            WHERE org_id=#{orgId} AND id=#{profileId}
+            """)
+    ConnectionProfileRow findConnectionProfileById(
+            @Param("orgId") long orgId, @Param("profileId") long providerConnectionProfileId);
 
     record CredentialRow(
             long id,
@@ -117,6 +125,17 @@ public interface GatewayReadMapper {
     record ProviderCredentialRow(String credentialType, byte[] ciphertext, byte[] nonce, short encryptionKeyVersion) {
     }
 
-    record ConnectionProfileRow(String authType, String authHeaderName, String networkPolicy) {
+    record ConnectionProfileRow(
+            long id,
+            long orgId,
+            long providerAccountId,
+            String authType,
+            String authHeaderName,
+            String networkPolicy) {
+
+        /** Compatibility constructor for non-runtime mapper tests. */
+        public ConnectionProfileRow(String authType, String authHeaderName, String networkPolicy) {
+            this(-1L, -1L, -1L, authType, authHeaderName, networkPolicy);
+        }
     }
 }
