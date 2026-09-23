@@ -189,7 +189,7 @@ FIX:  docs/04-operations/v3-operational-runbook.md (self-contained flow, no hard
 FIX:  .gitignore (add .m21-operational-state.json)
 ```
 
-## Candidate Decision
+## Candidate Decision (historical review snapshot)
 
 ```text
 Bootstrap self-contained (CSPRNG, complete env) = PASS
@@ -211,7 +211,23 @@ P0: 0
 P1: 0 (1 fixed)
 P2: 0 (5 fixed)
 
-M21_OPERATIONAL_READY_CANDIDATE
+M21_OPERATIONAL_READY_CANDIDATE (historical review snapshot)
 ```
 
-Awaiting: GPT-5.6 Sol final review.
+The candidate label and pending-review note above describe the review snapshot at that time. M21 operational readiness was subsequently completed as part of V3 final closure.
+
+## Final Closure
+
+```text
+M21 = COMPLETE
+Operational readiness = COMPLETE
+```
+
+After V3 final stabilization, these provider execution invariants are confirmed:
+
+```text
+Provider execution uses the exact frozen provider_connection_profile_id.
+auth_type=NONE performs zero credential lookup/decryption.
+```
+
+M22's separately documented real-provider / OpenCode credential and independent browser-context organization-isolation gates remain `DEFERRED / NON-BLOCKING`; this M21 closure does not mark those gates PASS. See [M22 V3 Production Certification](m22-v3-production-certification.md).
