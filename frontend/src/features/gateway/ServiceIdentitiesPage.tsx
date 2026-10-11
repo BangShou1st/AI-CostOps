@@ -3,7 +3,7 @@ import { Alert, Button, Input, Modal, Space, Table, Tag, Typography } from 'antd
 import { useState } from 'react'
 import { problemDetail, problemTitle, toProblemDetail, type ProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
-import { hasPermission } from '../settings/permissions'
+import { hasPermission } from '../auth/permissions'
 import { useAuthorizationMutation } from '../settings/useAuthorizationMutation'
 import { gatewayApi } from './api/gatewayApi'
 import { gatewayKeys } from './api/gatewayKeys'

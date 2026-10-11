@@ -4,7 +4,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { expenseApi, expenseKeys, type ExpenseClaimStatus, type ExpenseSummaryResponse } from './api/expenseApi'
 import { formatMoney } from '../../lib/money'
-import { hasPermission } from '../settings/permissions'
+import { hasPermission } from '../auth/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { useState } from 'react'
 

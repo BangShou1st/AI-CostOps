@@ -5,7 +5,7 @@ import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail,
 import { formatBusinessDate } from '../../lib/dateTime'
 import { formatMoney } from '../../lib/money'
 import { useAuth } from '../auth/AuthSessionProvider'
-import { hasPermission } from '../settings/permissions'
+import { hasPermission } from '../auth/permissions'
 import { duplicateKeys } from './api/duplicateKeys'
 import { duplicatesApi, type DuplicateCandidate } from './api/duplicatesApi'
 import { costKeys } from '../costs/api/costKeys'
