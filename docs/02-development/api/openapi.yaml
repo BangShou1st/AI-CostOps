@@ -15,6 +15,7 @@ components:
     Page:
       name: page
       in: query
+      description: Zero-based page. page * size must not exceed 2147483647; invalid pagination returns 400 VALIDATION_FAILED.
       schema: { type: integer, minimum: 0, default: 0 }
     Size:
       name: size

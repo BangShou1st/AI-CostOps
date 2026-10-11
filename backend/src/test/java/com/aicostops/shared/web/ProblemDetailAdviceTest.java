@@ -61,6 +61,18 @@ class ProblemDetailAdviceTest {
         assertMalformed("/projects/not-a-number");
     }
 
+    @Test
+    void mapsInvalidPaginationToTraceableValidationError() throws Exception {
+        for (var query : new String[] { "page=-1&size=50", "page=0&size=0",
+                "page=0&size=201", "page=50000000&size=50" }) {
+            mockMvc.perform(get("/paged?" + query))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().contentType("application/problem+json"))
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                    .andExpect(jsonPath("$.traceId").isNotEmpty());
+        }
+    }
+
     private void assertMalformed(String path) throws Exception {
         mockMvc.perform(get(path))
                 .andExpect(status().isBadRequest())
@@ -77,6 +89,11 @@ class ProblemDetailAdviceTest {
 
     @RestController
     static class FailingController {
+
+        @GetMapping("/paged")
+        void paged(@RequestParam int page, @RequestParam int size) {
+            PageRequest.of(page, size);
+        }
 
         @GetMapping("/failure")
         void fail() {

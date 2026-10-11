@@ -60,7 +60,7 @@ public class BudgetController {
             @RequestParam(required = false) ScopeType scopeType,
             @RequestParam(required = false) Long scopeId) {
         var result = queries.list(authenticatedUser,
-                PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 200), 1)),
+                PageRequest.of(page, size),
                 billingPeriodId, scopeType, scopeId);
         return new PageResponse<>(
                 result.items().stream().map(BudgetResponse::from).toList(),
