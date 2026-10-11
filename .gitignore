@@ -64,6 +64,9 @@ temp/
 # Local development mailboxes contain usable reset/invitation tokens.
 # Matches both the repo-root and backend working directory locations.
 .local-dev/
+# Temporary task POMs are removed normally; ignore crash leftovers.
+backend/.task-build-*.pom.xml
+gateway/.task-build-*.pom.xml
 
 # =========================
 # IDE

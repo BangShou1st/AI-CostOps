@@ -116,7 +116,22 @@ Redis         localhost:6379          （Docker）
 MinIO         localhost:9000 / 9001   （Docker API / Console）
 ```
 
-启动需要四个独立终端（Windows PowerShell，不用 `&&` 链接；`npm ci` 仅在首次 clone 或依赖变更后运行，不是每次启动都必须）：
+推荐在仓库根目录使用统一命令入口（Node 24+、JDK 21）：
+
+```powershell
+npm run doctor
+npm run setup       # 首次使用或前端依赖变更后执行
+npm run infra:up    # 需要先配置根 .env；仅管理当前 Compose 项目的基础设施
+npm run dev         # 一个前台终端启动 Backend + Gateway + Frontend
+```
+
+`dev` 明确使用 `local` profile，检查端口并等待三端 HTTP 就绪；Ctrl+C 停止本次启动的应用进程树。`npm run status` 检查应用，`npm run infra:status` 查看基础设施，`npm run infra:down` 停止基础设施并保留数据。已有独立容器不会被接管，端口冲突会明确报错。
+
+`npm run test` 覆盖脚本测试、Backend/Gateway 单元与架构测试、前端单元测试；`npm run verify` 执行两个 Maven 模块的完整 verify，再执行前端测试、lint 和生产 build。Maven 使用独立输出目录，避免覆盖运行中的 JAR；报告与新产物路径会打印在终端。参数、环境映射和脚本职责详见 [scripts/README.md](scripts/README.md)。
+
+如只需分别运行某个应用，也可继续使用以下独立终端命令（Windows PowerShell，`npm ci` 仅在首次 clone 或依赖变更后运行）：
+
+独立模块命令使用该终端已有的服务环境变量；根 `.env` 的自动读取和 localhost 映射由统一 `dev` 入口提供。
 
 Terminal 1 — Docker 基础设施：
 

@@ -1,0 +1,22 @@
+{
+  "name": "ai-costops-workspace",
+  "private": true,
+  "version": "3.0.0",
+  "description": "AI CostOps monorepo task orchestration (backend + gateway + frontend). No dependencies; delegates to scripts/tasks.mjs.",
+  "type": "module",
+  "scripts": {
+    "setup": "node scripts/tasks.mjs setup",
+    "doctor": "node scripts/tasks.mjs doctor",
+    "status": "node scripts/tasks.mjs status",
+    "test:scripts": "node --test scripts/tests/*.test.mjs",
+    "test:scripts:integration": "node --test scripts/tests/*.integration.mjs",
+    "dev": "node scripts/tasks.mjs dev",
+    "build": "node scripts/tasks.mjs build",
+    "test": "node scripts/tasks.mjs test",
+    "verify": "node scripts/tasks.mjs verify",
+    "infra:up": "node scripts/tasks.mjs infra:up",
+    "infra:down": "node scripts/tasks.mjs infra:down",
+    "infra:status": "node scripts/tasks.mjs infra:status",
+    "task": "node scripts/tasks.mjs"
+  }
+}

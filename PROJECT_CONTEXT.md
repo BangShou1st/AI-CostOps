@@ -325,14 +325,18 @@ MinIO         localhost:9000    （Docker API）
 
 Backend / Frontend / Gateway 的 Docker 镜像可以存在，但它们不是日常本地开发的默认运行时（`Backend / Frontend / Gateway Docker images may exist, but they are NOT the default local development runtime.`）。日常 edit-test 循环禁止反复执行 `docker compose build` / `docker compose up --build` / `docker build backend|frontend|gateway`。
 
-启动基础设施：
+日常统一入口（Node 24+、JDK 21，配置根 `.env` 后启动基础设施）：
 
 ```powershell
 Set-Location "E:\project\AI-CostOps"
-.\scripts\dev\start-infra.ps1
+npm run doctor
+npm run infra:up
+npm run dev
 ```
 
 Full Compose 仍优先用于 CI / E2E / Security / Smoke / Release 与最终集成 / Docker 验证，而不是日常代码循环；详细警告见 README.md 的"本地完整 Compose Quick Start"段落。
+
+`dev` 在前台启动本机三端，Ctrl+C 清理本次创建的应用进程树。`test` 包含 Backend/Gateway 单元与架构及前端单元测试；`verify` 执行两个 Maven 模块完整生命周期及前端测试、lint、生产 build。Maven 根任务输出隔离在 `.local-dev/builds/`，不覆盖运行中的模块 JAR。脚本包装、环境配置与状态命令见 `scripts/README.md`。
 
 ## Repository Workflow
 
