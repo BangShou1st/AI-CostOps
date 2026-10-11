@@ -19,6 +19,10 @@
 
   <properties>
     <java.version>21</java.version>
+    <!-- Align patched Spring and both Jackson BOM families without changing Boot 4.1.0. -->
+    <spring-framework.version>7.0.9</spring-framework.version>
+    <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
+    <jackson-bom.version>3.1.7</jackson-bom.version>
     <mybatis-spring-boot.version>4.1.0</mybatis-spring-boot.version>
     <testcontainers.version>2.0.5</testcontainers.version>
     <archunit.version>1.4.2</archunit.version>

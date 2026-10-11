@@ -354,7 +354,9 @@ cd backend
 MinIO 集成测试默认使用公开的 Chainguard 镜像固定摘要，由
 `backend/src/test/java/com/aicostops/testsupport/MinioTestImage.java` 统一定义；不需要额外传镜像参数。
 受限网络或内部镜像仓库仍可通过 `-Daicostops.test.minio-image=<镜像名或摘要>` 覆盖。
-更新默认摘要前，应验证匿名拉取及真实 S3 集成测试；该设置不改变开发或生产 Compose 的镜像。
+更新默认摘要前，应验证匿名拉取及真实 S3 集成测试。根开发 Compose 也使用该公开固定摘要，
+健康检查使用镜像内置的 `mc ready local`，不依赖 curl。更新测试覆盖参数不会改变 Compose。
+该镜像默认以 UID 65532 运行；复用旧 MinIO 数据卷前先备份并核对目录写入权限，脚本不会自动修改卷权限或迁移数据。
 
 前端：
 
