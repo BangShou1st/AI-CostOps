@@ -21,19 +21,18 @@ export function spawnCommand(command, args, options = {}) {
     // delayed expansion, and bypass Node's second Windows quoting pass.
     if ([command, ...args].some(value => /[%"\r\n]/.test(value))) throw new Error('Windows batch 参数包含不支持的字符。')
     const invocation = `"${[command, ...args].map(value => `"${value}"`).join(' ')}"`
-    // Keep an owned Node parent in the new process group. Starting cmd itself
-    // detached loses nested Maven/PowerShell console output on Windows; an
-    // attached cmd child inherits the launcher's pipes correctly.
+    // Keep an owned Node parent for batch process-tree cleanup and pipe forwarding.
+    // Windows cleanup uses taskkill /T, so a detached console is unnecessary.
     const launcher = `const {spawn}=require('node:child_process');
       const child=spawn(process.argv[1],process.argv.slice(2),{stdio:'inherit',windowsHide:true,windowsVerbatimArguments:true});
       child.on('error',error=>{console.error(error.message);process.exitCode=1});
       child.on('exit',code=>{process.exitCode=code??1});`
     return spawn(process.execPath, ['-e', launcher, '--', process.env.ComSpec ?? 'cmd.exe', '/d', '/v:off', '/s', '/c', invocation],
-      { ...spawnOptions, shell: false, windowsHide: true, detached: group })
+      { ...spawnOptions, shell: false, windowsHide: true, detached: false })
   }
-  // PowerShell exits before evaluating a script in a detached hidden Windows
-  // console. Task wrappers use cmd; direct PowerShell checks stay attached.
-  const detached = group && !(isWindows && /(?:^|[\\/])(?:powershell|pwsh)(?:\.exe)?$/i.test(command))
+  // POSIX cleanup needs a process group. Windows taskkill /T already follows
+  // descendants; detaching there creates a new console and can flash windows.
+  const detached = group && !isWindows
   return spawn(command, args, { ...spawnOptions, shell: false, windowsHide: true, detached })
 }
 

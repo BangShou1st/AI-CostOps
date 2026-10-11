@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { capture, supervise, withSignals, isWindows } from '../lib/processes.mjs'
+import { capture, supervise, withSignals, isWindows, spawnCommand, terminate } from '../lib/processes.mjs'
 import { temporary, waitForFile, alive } from './helpers.mjs'
 
 function worker(root, name) {
@@ -35,6 +35,24 @@ test('Windows nested batch output and literal argument boundaries survive the la
   const args = ['space value', 'literal & value', '$not-a-variable', 'semi;colon', '中文']
   const output = await capture(wrapper, args)
   assert.deepEqual(JSON.parse(output.trim()), args)
+})
+
+test('Windows background batch keeps owned console windows hidden', { skip: !isWindows }, async t => {
+  const root = temporary(t)
+  const script = join(root, 'background.mjs')
+  const wrapper = join(root, 'background.cmd')
+  const ready = join(root, 'ready.json')
+  writeFileSync(script, `import {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(ready)},JSON.stringify(process.pid)); setInterval(()=>{},1000);`)
+  writeFileSync(wrapper, `@echo off\r\n"${process.execPath}" "${script}"\r\n`)
+  const child = spawnCommand(wrapper, [], { stdio: 'ignore', group: true })
+  t.after(() => terminate(child))
+  await waitForFile(ready)
+  // Observe only this launcher's descendants. The inspection shell is a sibling,
+  // and existing user terminals must not affect this assertion.
+  const native = 'using System; using System.Collections.Generic; using System.Runtime.InteropServices; public static class OwnedWindows { public delegate bool Callback(IntPtr h,IntPtr p); [DllImport("user32.dll")] static extern bool EnumWindows(Callback c,IntPtr p); [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h,out uint p); [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h); public static int Visible(int[] ids) { var owned=new HashSet<int>(ids); int count=0; EnumWindows((h,p)=>{ uint pid; GetWindowThreadProcessId(h,out pid); if(owned.Contains((int)pid)&&IsWindowVisible(h)) count++; return true; },IntPtr.Zero); return count; } }'
+  const query = `Add-Type -TypeDefinition '${native}'; $all=Get-CimInstance Win32_Process; $ids=[System.Collections.Generic.HashSet[int]]::new(); [void]$ids.Add(${child.pid}); do { $added=$false; foreach($p in $all) { if($ids.Contains([int]$p.ParentProcessId) -and $ids.Add([int]$p.ProcessId)) { $added=$true } } } while($added); [OwnedWindows]::Visible([int[]]@($ids))`
+  const count = await capture('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', query])
+  assert.equal(Number(count.trim()), 0, 'background batch displayed an owned console window')
 })
 
 test('cancel shuts down owned child and grandchild processes and cancels readiness', async t => {
