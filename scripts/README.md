@@ -52,6 +52,21 @@
 
 这样构建不会覆盖 `backend/target` 或 `gateway/target` 中正在运行的 JAR。根命令生成的新 JAR 在打印的独立路径下，测试报告位于其 surefire-reports/failsafe-reports；直接进入模块执行 `mvnw` 仍沿用原 target。完整 verify 需要 Docker/Testcontainers，会比单元测试明显更慢。
 
+### CI 脚本检查
+
+`.github/workflows/ci.yml` 独立运行以下作业，与原有后端、Gateway、前端及 E2E 检查并行，不需要根目录安装依赖：
+
+| 作业 | 平台 | 范围 | 上传产物 |
+| --- | --- | --- | --- |
+| `scripts-unit` | Ubuntu、Windows | `scripts/tests/*.test.mjs`；Windows 专属用例在 Linux 跳过 | `scripts-unit-ubuntu-latest`、`scripts-unit-windows-latest` |
+| `scripts-lifecycle` | Ubuntu | 真实 CLI、进程树清理、隔离 Compose 服务与卷保留；提前拉取 Redis 测试镜像 | `scripts-lifecycle` |
+
+两个作业固定 Node 24.14.0，同时输出控制台结果与 `test-results/scripts/` 下的 JUnit XML。测试失败仍上传已生成的报告，失败退出码不会被上传步骤覆盖。
+
+生命周期作业设置 `AICOSTOPS_TASK_TEST_ARTIFACT_DIR`，在该目录保留 `dev-lifecycle.log` 和 `infra-lifecycle.log`。日志只来自受控 HTTP/Redis 测试夹具，不采集真实应用配置。普通测试失败也会执行清理并写日志；强制中断或 runner 故障可能来不及生成完整报告。正常本地运行未设置该变量时不写日志。
+
+本轮本地跨平台证据见 `docs/03-acceptance/2026-10-11-script-ci-review.md`；GitHub 上的实际作业结果仍需在后续 PR 中确认。
+
 ## 新脚本约定
 
 1. **命名**：使用语义化名称（如 `backup-mysql.ps1`），禁止再以里程碑编号命名目录或文件（`m23-*`、`v4-*` 等）。

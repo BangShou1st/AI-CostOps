@@ -7,11 +7,15 @@ import { mkdirSync, writeFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnCommand, terminate, capture, isWindows } from '../lib/processes.mjs'
 import { available } from '../lib/workspace.mjs'
-import { projectFixture, waitForFile, alive } from './helpers.mjs'
+import { projectFixture, waitForFile, alive, writeArtifact } from './helpers.mjs'
 
 test('real dev CLI starts three HTTP apps, detects readiness and stops all owned process trees', { timeout: 60_000 }, async t => {
   let child
-  t.after(() => child && terminate(child))
+  let output = ''
+  t.after(async () => {
+    try { if (child) await terminate(child) }
+    finally { writeArtifact('dev-lifecycle.log', output) }
+  })
   await capture('docker', ['info', '--format', '{{.ServerVersion}}'])
   const root = projectFixture(t)
   const env = { ...process.env }
@@ -51,7 +55,6 @@ test('real dev CLI starts three HTTP apps, detects readiness and stops all owned
     import('./scripts/tasks.mjs').then(()=>{if(process.connected)process.disconnect()});`)
   child = spawnCommand(process.execPath, [join(root, 'entry.mjs'), 'dev'], { cwd: root, env,
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'], group: true })
-  let output = ''
   const closed = new Promise(resolve => child.once('close', code => resolve(code)))
   await new Promise((resolve, reject) => {
     child.stdout.on('data', chunk => { output += chunk; if (output.includes('三端已就绪')) resolve() })

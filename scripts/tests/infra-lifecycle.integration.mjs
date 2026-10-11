@@ -7,15 +7,26 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { capture } from '../lib/processes.mjs'
-import { projectFixture } from './helpers.mjs'
+import { projectFixture, writeArtifact } from './helpers.mjs'
 
 test('infra CLI rejects foreign ports, supports repeated up and stops without removing volumes', { timeout: 120_000 }, async t => {
   const project = `aicostops-tasks-test-${randomUUID()}`
   let root
+  let output = ''
   t.after(async () => {
     if (!root) return
     if (!/^aicostops-tasks-test-[a-f0-9-]+$/.test(project)) throw new Error('Unsafe Compose cleanup project')
-    await capture('docker', ['compose', '-p', project, '-f', join(root, 'compose.yaml'), 'down', '--volumes'], { cwd: root, timeout: 30_000 })
+    try {
+      if (process.env.AICOSTOPS_TASK_TEST_ARTIFACT_DIR) {
+        try {
+          output += await capture('docker', ['compose', '-p', project, '-f', join(root, 'compose.yaml'), 'logs', '--no-color', '--tail', '200'], { cwd: root, timeout: 15_000 })
+        } catch (error) { output += `\nFixture logs: ${error.output || error.message}\n` }
+      }
+    } finally {
+      try {
+        await capture('docker', ['compose', '-p', project, '-f', join(root, 'compose.yaml'), 'down', '--volumes'], { cwd: root, timeout: 30_000 })
+      } finally { writeArtifact('infra-lifecycle.log', output) }
+    }
   })
   root = projectFixture(t)
   await capture('docker', ['info', '--format', '{{.ServerVersion}}'])
@@ -44,7 +55,17 @@ ${name === 'minio' ? `      - "127.0.0.1:${env.MINIO_CONSOLE_PORT}:6380"\n` : ''
   writeFileSync(join(root, 'compose.yaml'), `name: ${project}\nservices:\n${services}\nvolumes:\n  mysql-test-data:\n  redis-test-data:\n  minio-test-data:\n`)
   writeFileSync(join(root, 'compose.dev.yaml'), 'services: {}\n')
   writeFileSync(join(root, '.env'), ['MYSQL_PORT', 'REDIS_PORT', 'MINIO_API_PORT', 'MINIO_CONSOLE_PORT'].map(name => `${name}=${env[name]}`).join('\n'))
-  const invoke = command => capture(process.execPath, [join(root, 'scripts', 'tasks.mjs'), command], { cwd: root, env, timeout: 45_000 })
+  const invoke = async command => {
+    output += `\n$ tasks.mjs ${command}\n`
+    try {
+      const result = await capture(process.execPath, [join(root, 'scripts', 'tasks.mjs'), command], { cwd: root, env, timeout: 45_000 })
+      output += result
+      return result
+    } catch (error) {
+      output += error.output || error.message
+      throw error
+    }
+  }
   const containerIds = async () => (await capture('docker', ['ps', '-a', '-q', '--filter', `label=com.docker.compose.project=${project}`])).trim().split(/\r?\n/).filter(Boolean).sort()
   const volumes = async () => (await capture('docker', ['volume', 'ls', '-q', '--filter', `label=com.docker.compose.project=${project}`])).trim().split(/\r?\n/).filter(Boolean).sort()
   await assert.rejects(invoke('infra:up'), /exit 1/)

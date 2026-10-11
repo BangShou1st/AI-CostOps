@@ -1,7 +1,15 @@
-import { mkdtempSync, rmSync, existsSync, readFileSync, cpSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, cpSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, relative, isAbsolute, basename, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+export function writeArtifact(name, content) {
+  const directory = process.env.AICOSTOPS_TASK_TEST_ARTIFACT_DIR
+  if (!directory) return
+  if (!/^[a-z0-9-]+\.log$/.test(name)) throw new Error('Unsafe test artifact name')
+  mkdirSync(resolve(directory), { recursive: true })
+  writeFileSync(join(resolve(directory), name), content)
+}
 
 export function temporary(t) {
   const directory = mkdtempSync(join(tmpdir(), 'aicostops-tasks-test-'))
