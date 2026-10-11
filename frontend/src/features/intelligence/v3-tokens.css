@@ -1,27 +1,29 @@
+/* Aligned with the global design tokens in styles.css — keep both layers
+   deriving from the same palette so intelligence pages match the app shell. */
 :root {
-  --v3-page-bg: #eef1f6;
+  --v3-page-bg: #f5f7fb;
   --v3-surface: #ffffff;
   --v3-sunken: #f7f9fc;
-  --v3-border: #e2e7f0;
+  --v3-border: #e6eaf2;
   --v3-border-strong: #cbd4e3;
   --v3-text: #172033;
   --v3-text-secondary: #475569;
-  --v3-text-muted: #67788f;
+  --v3-text-muted: var(--text-muted, #5f7086);
   --v3-success: #1a7f4b;
   --v3-success-bg: #eaf6ef;
   --v3-warning: #b45309;
   --v3-warning-bg: #fdf3e7;
   --v3-danger: #b42318;
   --v3-danger-bg: #fdeeee;
-  --v3-info: #1d4ed8;
-  --v3-info-bg: #e9f0fd;
+  --v3-info: #2563eb;
+  --v3-info-bg: #eef4ff;
   --v3-neutral-bg: #eef1f6;
-  --v3-actual: #1d4ed8;
+  --v3-actual: #2563eb;
   --v3-forecast: #67788f;
   --v3-budget: #172033;
   --v3-threshold: #b45309;
   --v3-savings: #1a7f4b;
-  --v3-radius-card: 10px;
+  --v3-radius-card: 12px;
   --v3-radius-control: 8px;
   --v3-radius-pill: 6px;
 }

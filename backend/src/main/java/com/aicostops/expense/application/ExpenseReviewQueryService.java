@@ -1,7 +1,9 @@
 package com.aicostops.expense.application;
 
 import com.aicostops.expense.application.ExpenseReadModels.ExpenseDetail;
-import com.aicostops.expense.infrastructure.ExpenseClaimMapper;
+import com.aicostops.expense.application.ExpenseReadModels.ExpenseSummary;
+import com.aicostops.shared.web.PageRequest;
+import com.aicostops.expense.infrastructure.ExpenseQueryMapper;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -21,27 +23,25 @@ public class ExpenseReviewQueryService {
 
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
-    private final ExpenseClaimMapper mapper;
+    private final ExpenseQueryMapper mapper;
     private final ExpenseQueryService expenseQueries;
 
     public ExpenseReviewQueryService(
             AuthorizationContextService authorizationContexts,
-            ExpenseClaimMapper mapper,
+            ExpenseQueryMapper mapper,
             ExpenseQueryService expenseQueries) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.expenseQueries = expenseQueries;
     }
 
-    public List<ExpenseDetail> listQueue(AuthenticatedUser user, String status, int page, int size) {
+    public List<ExpenseSummary> listQueue(AuthenticatedUser user, String status, int page, int size) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_EXPENSE_REVIEW);
         var filter = normalizeStatusFilter(status);
-        var offset = Math.max(page, 0) * Math.max(size, 1);
-        return mapper.selectReviewQueue(context.organizationId(), filter,
-                        Math.max(size, 1), offset).stream()
-                .map(claim -> expenseQueries.toDetail(context.organizationId(), claim))
-                .toList();
+        var pagination = PageRequest.of(page, size);
+        return mapper.selectReviewSummaries(context.organizationId(), filter,
+                pagination.size(), pagination.offset());
     }
 
     public long countQueue(AuthenticatedUser user, String status) {

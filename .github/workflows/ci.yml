@@ -10,6 +10,66 @@ permissions:
   contents: read
 
 jobs:
+  scripts-unit:
+    name: scripts-unit (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.14.0"
+      - name: Test workspace scripts
+        shell: bash
+        run: |
+          mkdir -p test-results/scripts
+          node --test --test-reporter=spec --test-reporter=junit \
+            --test-reporter-destination=stdout \
+            --test-reporter-destination=test-results/scripts/unit.xml \
+            'scripts/tests/*.test.mjs'
+      - name: Upload script unit reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scripts-unit-${{ matrix.os }}
+          if-no-files-found: warn
+          path: test-results/scripts/
+
+  scripts-lifecycle:
+    name: scripts-lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AICOSTOPS_TASK_TEST_ARTIFACT_DIR: test-results/scripts
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24.14.0"
+      - name: Prepare Docker fixtures
+        run: |
+          docker info
+          docker compose version
+          docker pull redis:8.8.1-alpine
+      - name: Test workspace lifecycle commands
+        run: |
+          mkdir -p test-results/scripts
+          node --test --test-reporter=spec --test-reporter=junit \
+            --test-reporter-destination=stdout \
+            --test-reporter-destination=test-results/scripts/lifecycle.xml \
+            'scripts/tests/*.integration.mjs'
+      - name: Upload script lifecycle reports and fixture logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: scripts-lifecycle
+          if-no-files-found: warn
+          path: test-results/scripts/
+
   backend-unit:
     name: backend-unit
     runs-on: ubuntu-latest
@@ -40,7 +100,9 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/pom.xml
-      - run: ./mvnw -B -Dgroups=integration verify
+      # Failsafe selects *IntegrationTest by filename. A tag filter silently
+      # drops existing untagged integration tests, so verify the full lifecycle.
+      - run: ./mvnw -B verify
       - name: Upload backend Failsafe reports
         if: always()
         uses: actions/upload-artifact@v6
@@ -95,7 +157,8 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: gateway/pom.xml
-      - run: ./mvnw -B -Dgroups=integration verify
+      # Keep every Failsafe integration class, including those without @Tag.
+      - run: ./mvnw -B verify
 
   gateway-architecture:
     name: gateway-architecture

@@ -1,3 +1,4 @@
+import { EXPENSE_STATUS_LABEL as STATUS_LABEL, EXPENSE_STATUS_COLOR as STATUS_COLOR } from './presentation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -9,13 +10,8 @@ import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
 import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
 import { formatBusinessDate, formatEventDateTime } from '../../lib/dateTime'
 import { formatMoney } from '../../lib/money'
+import { useIdempotentCommand } from '../../lib/useIdempotentCommand'
 
-const STATUS_LABEL: Record<string, string> = {
-  DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', REJECTED: '已拒绝', CANCELED: '已取消',
-}
-const STATUS_COLOR: Record<string, string> = {
-  DRAFT: 'default', SUBMITTED: 'processing', NEEDS_INFO: 'warning', APPROVED: 'success', REJECTED: 'error', CANCELED: 'default',
-}
 
 /** The API has no submittedAt field; the last SUBMIT/RESUBMIT action is the
  *  authoritative submit instant (the employee detail page and the approval
@@ -33,11 +29,12 @@ function lastSubmittedAt(history: ApprovalActionResponse[]): string | null {
 export function ExpenseDetailPage() {
   const { expenseId } = useParams<{ expenseId: string }>()
   const qc = useQueryClient()
+  const execute = useIdempotentCommand()
   const [problem, setProblem] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [cancelModal, setCancelModal] = useState(false)
 
-  const { data: expense, isLoading } = useQuery({
+  const { data: expense, isLoading, error, refetch: reload } = useQuery({
     queryKey: expenseKeys.detail(expenseId!),
     queryFn: () => expenseApi.get(expenseId!),
     enabled: !!expenseId,
@@ -47,13 +44,17 @@ export function ExpenseDetailPage() {
     qc.invalidateQueries({ queryKey: expenseKeys.detail(expenseId!) })
   }, [qc, expenseId])
 
+  if (error) return <Alert type="error" showIcon title="报销详情加载失败"
+    description={presentProblemDetail(toProblemDetail(error))}
+    action={<Button onClick={() => { void reload() }}>重试</Button>} />
   if (isLoading || !expense) return <Card loading={isLoading} />
   const canEdit = expense.canEdit
 
   const submit = async () => {
     setLoading(true); setProblem(null)
     try {
-      await expenseApi.submit(expense.id, { expectedVersion: expense.version }, crypto.randomUUID())
+      const body = { expectedVersion: expense.version }
+      await execute(`submit:${expense.id}`, body, key => expenseApi.submit(expense.id, body, key))
       refetch()
     } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '提交失败') }
     finally { setLoading(false) }
@@ -71,7 +72,8 @@ export function ExpenseDetailPage() {
   const handleCancel = async () => {
     setLoading(true); setProblem(null)
     try {
-      await expenseApi.cancel(expense.id, { expectedVersion: expense.version }, crypto.randomUUID())
+      const body = { expectedVersion: expense.version }
+      await execute(`cancel:${expense.id}`, body, key => expenseApi.cancel(expense.id, body, key))
       refetch(); setCancelModal(false)
     } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '取消失败') }
     finally { setLoading(false) }
@@ -79,7 +81,8 @@ export function ExpenseDetailPage() {
 
   return (
     <Space orientation="vertical" style={{ width: '100%' }} size="middle">
-      {problem && <Alert type="error" showIcon title={problem} closable onClose={() => setProblem(null)} />}
+      {problem && <Alert type="error" showIcon title={problem} closable onClose={() => setProblem(null)}
+        action={<Button onClick={() => { void reload() }}>刷新详情</Button>} />}
       <Card title={`报销 ${expense.id}`} extra={
         <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
       }>
@@ -100,6 +103,7 @@ export function ExpenseDetailPage() {
       {(canEdit || expense.status === 'DRAFT' || expense.status === 'NEEDS_INFO') && (
         <Card title="编辑">
           <ExpenseForm
+            key={`${expense.id}:${expense.version}`}
             expenseDate={expense.expenseDate}
             amount={expense.amount}
             currency={expense.currency}

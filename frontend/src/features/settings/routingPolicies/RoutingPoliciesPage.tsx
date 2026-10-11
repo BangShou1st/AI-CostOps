@@ -6,7 +6,7 @@ import { problemDetail, problemTitle, toProblemDetail, type ProblemDetail } from
 import { useAuth } from '../../auth/AuthSessionProvider'
 import { settingsApi } from '../api/settingsApi'
 import { settingsKeys } from '../api/settingsKeys'
-import { hasPermission } from '../permissions'
+import { hasPermission } from '../../auth/permissions'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { RoutingPolicyEditor } from './RoutingPolicyEditor'
 import type { RoutingCandidateInput, RoutingPolicy, RoutingPolicyInput } from './types'

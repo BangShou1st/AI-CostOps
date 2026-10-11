@@ -205,9 +205,11 @@ public final class GatewayTestFixture {
 
     /** FK-safe cleanup of all M11/M12 rows for tests sharing one container. */
     public static void clean(JdbcTemplate jdbc) {
+        jdbc.update("DELETE FROM advisor_evidence_snapshot");
         jdbc.update("DELETE FROM advisor_explanation");
         jdbc.update("DELETE FROM advisor_inference_attempt");
         jdbc.update("DELETE FROM advisor_inference_job");
+        jdbc.update("UPDATE gateway_credential SET advisor_profile_id = NULL");
         jdbc.update("DELETE FROM advisor_profile");
         jdbc.update("DELETE FROM savings_recommendation");
         jdbc.update("DELETE FROM cost_forecast_snapshot");

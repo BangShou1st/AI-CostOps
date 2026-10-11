@@ -94,6 +94,22 @@ class ExpenseAllocationConfirmIntegrationTest extends ExpenseTestSupport {
     }
 
     @Test
+    void targetDisabledAfterDraftCannotBeConfirmedAndLeavesNoPointer() {
+        var expenseId = insertApprovedExpense("10.00000000");
+        var draft = commands.createManualDraft(financeUser(), AllocationSubjectType.EXPENSE_CLAIM,
+                expenseId, manualDraft(projectId, "10.00000000"), "disable-target-draft");
+        jdbc.update("UPDATE project SET status='DISABLED' WHERE id=?", projectId);
+        assertThatThrownBy(() -> commands.confirm(financeUser(), draft.decision().id(), "disable-target-confirm"))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("ACTIVE");
+        assertThat(jdbc.queryForObject("SELECT status FROM allocation_decision WHERE id=?",
+                String.class, draft.decision().id())).isEqualTo("DRAFT");
+        assertThat(jdbc.queryForObject("SELECT current_allocation_decision_id FROM expense_claim WHERE id=?",
+                Long.class, expenseId)).isNull();
+        assertThat(expenseQueries.getForReview(financeUser(), expenseId).postingReady()).isFalse();
+    }
+
+    @Test
     void secondConfirmAfterSuccessIsRejected() {
         var expenseId = insertApprovedExpense("10.00000000");
         var draft = commands.createManualDraft(financeUser(), AllocationSubjectType.EXPENSE_CLAIM,

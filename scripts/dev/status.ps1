@@ -1,11 +1,6 @@
-# Shows the local-dev infrastructure status (MySQL, Redis, MinIO).
+# Shows this Compose project's infrastructure through the shared runner.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
-Push-Location $root
-try {
-    docker compose -f compose.yaml -f compose.dev.yaml ps
-}
-finally {
-    Pop-Location
-}
+& node (Join-Path $root 'scripts/tasks.mjs') 'infra:status' @args
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState, type ReactNode } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
@@ -13,7 +14,7 @@ const ALL_PERMISSIONS = ['USER_READ', 'ROLE_READ', 'PROJECT_READ', 'TEAM_READ', 
 const NAV_LABELS = ['用户管理', '角色与权限', '项目管理', '团队管理', '成本中心', '云账号', '服务商总览', '连接配置', '模型目录', '路由策略', '服务身份', '网关凭证', '模型与定价']
 const BUSINESS_LABELS = ['证据', '导入']
 
-function renderLayout(permissions: string[]) {
+function renderLayout(permissions: string[], usersPage: ReactNode = <h1>Users page</h1>) {
   mockedUseAuth.mockReturnValue({
     status: 'authenticated',
     user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '3', permissions },
@@ -25,7 +26,7 @@ function renderLayout(permissions: string[]) {
     <MemoryRouter initialEntries={['/settings/users']}>
       <Routes>
         <Route element={<AuthenticatedLayout />}>
-          <Route path="/settings/users" element={<h1>Users page</h1>} />
+          <Route path="/settings/users" element={usersPage} />
           <Route path="/settings/projects" element={<h1>Projects page</h1>} />
         </Route>
       </Routes>
@@ -189,6 +190,30 @@ describe('AuthenticatedLayout desktop sidebar', () => {
 })
 
 describe('AuthenticatedLayout mobile navigation', () => {
+  it('preserves page input when the viewport crosses the desktop breakpoint', () => {
+    const originalMatchMedia = window.matchMedia
+    const desktopQuery = '(min-width: 1024px)'
+    const media = originalMatchMedia(desktopQuery)
+    let notify!: () => void
+    media.addEventListener = vi.fn((_event, listener) => { notify = listener as () => void })
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation(query => query === desktopQuery ? media : originalMatchMedia(query))
+    function DraftPage() {
+      const [draft, setDraft] = useState('')
+      return <input aria-label="未提交的说明" value={draft} onChange={event => setDraft(event.target.value)} />
+    }
+    try {
+      renderLayout(ALL_PERMISSIONS, <DraftPage />)
+      fireEvent.change(screen.getByLabelText('未提交的说明'), { target: { value: '保留我的输入' } })
+      act(() => { Object.defineProperty(media, 'matches', { value: false, configurable: true }); notify() })
+      expect(screen.getByRole('button', { name: '菜单' })).toBeInTheDocument()
+      expect(screen.getByLabelText('未提交的说明')).toHaveValue('保留我的输入')
+      act(() => { Object.defineProperty(media, 'matches', { value: true, configurable: true }); notify() })
+      expect(screen.getByLabelText('未提交的说明')).toHaveValue('保留我的输入')
+    } finally {
+      matchMedia.mockRestore()
+    }
+  })
+
   it('mobileUsesMenuButtonAndDrawerWithoutPermanentSidebar', () => {
     setMediaMatches({ '(min-width: 1024px)': false })
     renderLayout(ALL_PERMISSIONS)

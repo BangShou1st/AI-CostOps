@@ -16,6 +16,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Keep concurrent jsdom/Ant Design suites bounded on developer machines.
+    maxWorkers: 2,
     globals: true,
     setupFiles: './src/test/setup.ts',
     // Playwright specs live in ./e2e and are executed by the Playwright

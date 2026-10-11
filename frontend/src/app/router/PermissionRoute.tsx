@@ -1,6 +1,6 @@
 import { Outlet } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
-import { hasPermission } from '../../features/settings/permissions'
+import { hasPermission } from '../../features/auth/permissions'
 import { ForbiddenPage } from './ForbiddenPage'
 
 export function PermissionRoute({ permission }: { permission: string }) {

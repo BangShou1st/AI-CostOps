@@ -1,29 +1,22 @@
 package com.aicostops.expense.infrastructure;
 
-import com.aicostops.expense.domain.ApprovalAction;
-import com.aicostops.expense.domain.ApprovalCase;
 import com.aicostops.expense.domain.ExpenseClaim;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-/** Row access for {@code expense_claim}, {@code approval_case}, {@code approval_action}. */
+/** Expense row reads, locks and writes, plus evidence/allocation status checks. */
 @Mapper
 public interface ExpenseClaimMapper {
 
     String CLAIM_COLUMNS = """
             ec.id,ec.org_id,ec.claimant_member_id,ec.evidence_id,ec.expense_date,ec.amount,ec.currency,
             ec.status,ec.current_allocation_decision_id,ec.approval_case_id,ec.version,ec.created_at,ec.updated_at
-            """;
-
-    String CASE_COLUMNS = """
-            ac.id,ac.org_id,ac.expense_claim_id,ac.status,ac.created_at,ac.updated_at
             """;
 
     @Insert("""
@@ -154,88 +147,7 @@ public interface ExpenseClaimMapper {
             @Param("expectedVersion") long expectedVersion,
             @Param("now") Instant now);
 
-    @Select("""
-            SELECT
-            """ + CLAIM_COLUMNS + """
-            FROM expense_claim ec
-            WHERE ec.org_id=#{organizationId} AND ec.claimant_member_id=#{claimantMemberId}
-            ORDER BY ec.created_at DESC, ec.id DESC
-            LIMIT #{size} OFFSET #{offset}
-            """)
-    List<ExpenseClaim> selectByClaimant(
-            @Param("organizationId") long organizationId,
-            @Param("claimantMemberId") long claimantMemberId,
-            @Param("size") int size,
-            @Param("offset") int offset);
-
-    @Select("""
-            SELECT COUNT(*)
-            FROM expense_claim ec
-            WHERE ec.org_id=#{organizationId} AND ec.claimant_member_id=#{claimantMemberId}
-            """)
-    long countByClaimant(
-            @Param("organizationId") long organizationId,
-            @Param("claimantMemberId") long claimantMemberId);
-
-    /** Finance review queue: active reviews plus every APPROVED expense until POSTED. */
-    @Select("""
-            <script>
-            SELECT
-            """ + CLAIM_COLUMNS + """
-            FROM expense_claim ec
-            WHERE ec.org_id=#{organizationId}
-            <choose>
-              <when test="statusFilter == 'SUBMITTED'">
-                AND ec.status='SUBMITTED'
-              </when>
-              <when test="statusFilter == 'NEEDS_INFO'">
-                AND ec.status='NEEDS_INFO'
-              </when>
-              <when test="statusFilter == 'APPROVED'">
-                AND ec.status='APPROVED'
-              </when>
-              <otherwise>
-                AND (ec.status IN ('SUBMITTED','NEEDS_INFO')
-                     OR ec.status='APPROVED')
-              </otherwise>
-            </choose>
-            ORDER BY ec.created_at ASC, ec.id ASC
-            LIMIT #{size} OFFSET #{offset}
-            </script>
-            """)
-    List<ExpenseClaim> selectReviewQueue(
-            @Param("organizationId") long organizationId,
-            @Param("statusFilter") String statusFilter,
-            @Param("size") int size,
-            @Param("offset") int offset);
-
-    @Select("""
-            <script>
-            SELECT COUNT(*)
-            FROM expense_claim ec
-            WHERE ec.org_id=#{organizationId}
-            <choose>
-              <when test="statusFilter == 'SUBMITTED'">
-                AND ec.status='SUBMITTED'
-              </when>
-              <when test="statusFilter == 'NEEDS_INFO'">
-                AND ec.status='NEEDS_INFO'
-              </when>
-              <when test="statusFilter == 'APPROVED'">
-                AND ec.status='APPROVED'
-              </when>
-              <otherwise>
-                AND (ec.status IN ('SUBMITTED','NEEDS_INFO')
-                     OR ec.status='APPROVED')
-              </otherwise>
-            </choose>
-            </script>
-            """)
-    long countReviewQueue(
-            @Param("organizationId") long organizationId,
-            @Param("statusFilter") String statusFilter);
-
-    // -- approval case ---------------------------------------------------------
+    // -- referenced evidence and allocation status -----------------------------
 
     /** Storage status of the expense's primary evidence (submit gate). */
     @Select("""
@@ -255,75 +167,4 @@ public interface ExpenseClaimMapper {
             @Param("organizationId") long organizationId,
             @Param("decisionId") long decisionId);
 
-    @Select("""
-            SELECT
-            """ + CASE_COLUMNS + """
-            FROM approval_case ac
-            WHERE ac.org_id=#{organizationId} AND ac.expense_claim_id=#{expenseId}
-            """)
-    ApprovalCase selectApprovalCaseByExpense(
-            @Param("organizationId") long organizationId,
-            @Param("expenseId") long expenseId);
-
-    @Select("""
-            SELECT
-            """ + CASE_COLUMNS + """
-            FROM approval_case ac
-            WHERE ac.org_id=#{organizationId} AND ac.expense_claim_id=#{expenseId}
-            FOR UPDATE
-            """)
-    ApprovalCase selectApprovalCaseByExpenseForUpdate(
-            @Param("organizationId") long organizationId,
-            @Param("expenseId") long expenseId);
-
-    @Insert("""
-            INSERT INTO approval_case(org_id,expense_claim_id,status,created_at,updated_at)
-            VALUES (#{organizationId},#{expenseId},'PENDING',#{now},#{now})
-            """)
-    int insertApprovalCase(
-            @Param("organizationId") long organizationId,
-            @Param("expenseId") long expenseId,
-            @Param("now") Instant now);
-
-    /** CAS on the expected approval status; affects exactly one row on success. */
-    @Update("""
-            UPDATE approval_case
-            SET status=#{toStatus}, updated_at=#{now}
-            WHERE id=#{caseId} AND org_id=#{organizationId} AND status=#{fromStatus}
-            """)
-    int updateApprovalCaseStatus(
-            @Param("organizationId") long organizationId,
-            @Param("caseId") long caseId,
-            @Param("fromStatus") String fromStatus,
-            @Param("toStatus") String toStatus,
-            @Param("now") Instant now);
-
-    // -- approval actions (append-only) ----------------------------------------
-
-    @Insert("""
-            INSERT INTO approval_action(
-                org_id,approval_case_id,actor_member_id,action_type,from_state,to_state,comment,created_at)
-            VALUES (#{organizationId},#{approvalCaseId},#{actorMemberId},#{actionType},
-                    #{fromState},#{toState},#{comment},#{now})
-            """)
-    int insertApprovalAction(
-            @Param("organizationId") long organizationId,
-            @Param("approvalCaseId") long approvalCaseId,
-            @Param("actorMemberId") long actorMemberId,
-            @Param("actionType") String actionType,
-            @Param("fromState") String fromState,
-            @Param("toState") String toState,
-            @Param("comment") String comment,
-            @Param("now") Instant now);
-
-    @Select("""
-            SELECT aa.id,aa.org_id,aa.approval_case_id,aa.actor_member_id,aa.action_type,
-                   aa.from_state,aa.to_state,aa.comment,aa.created_at
-            FROM approval_action aa
-            WHERE aa.org_id=#{organizationId} AND aa.approval_case_id=#{approvalCaseId}
-            ORDER BY aa.id ASC
-            """)
-    List<ApprovalAction> selectApprovalActionsByCase(
-            @Param("organizationId") long organizationId,
-            @Param("approvalCaseId") long approvalCaseId);
 }

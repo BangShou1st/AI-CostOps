@@ -3,7 +3,7 @@ import { Alert, Button, Card, Descriptions, Input, Modal, Space, Table, Tag } fr
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail } from '../../api/problem'
-import { hasPermission } from '../settings/permissions'
+import { hasPermission } from '../auth/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { budgetApi, budgetKeys } from './api/budgetApi'
 import {

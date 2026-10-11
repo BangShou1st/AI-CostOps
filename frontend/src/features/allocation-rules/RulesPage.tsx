@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail, type ProblemDetail } from '../../api/problem'
 import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
 import { useAuth } from '../auth/AuthSessionProvider'
-import { hasPermission } from '../settings/permissions'
+import { hasPermission } from '../auth/permissions'
 import { settingsApi } from '../settings/api/settingsApi'
 import { ruleKeys } from './api/ruleKeys'
 import {

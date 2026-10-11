@@ -12,7 +12,7 @@ import org.testcontainers.containers.MySQLContainer;
 /**
  * Gateway integration-test support. The Gateway has no Flyway dependency (the
  * Backend is the sole production migration owner), so tests apply the exact
- * repository migration scripts V1..V25 directly from the Backend module over
+ * repository migration scripts V1..V27 directly from the Backend module over
  * the shared MySQL 8.4 container. A shared Redis container provides the
  * runtime rate-limit/coordination dependency so an enabled mandatory limiter
  * has a real broker.
@@ -45,7 +45,9 @@ public abstract class GatewayMySqlContainerSupport {
             "V22__m14_multi_provider_routing.sql",
             "V23__m15_hybrid_reconciliation.sql",
             "V24__m18_provider_hub.sql",
-            "V25__m18_cost_intelligence_advisor.sql");
+            "V25__m18_cost_intelligence_advisor.sql",
+            "V26__m18_advisor_identity_binding.sql",
+            "V27__m18_advisor_evidence_freeze.sql");
 
     protected static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("aicostops_test")

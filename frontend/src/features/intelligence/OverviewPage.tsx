@@ -3,7 +3,7 @@ import { Alert, Empty, Select } from 'antd'
 import { useState } from 'react'
 import { toProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
-import { hasPermission } from '../settings/permissions'
+import { hasPermission } from '../auth/permissions'
 import { intelligenceApi } from './api/intelligenceApi'
 import { intelligenceKeys } from './api/intelligenceKeys'
 import type { BudgetRisk, CostAnomaly, CostForecast, IntelligenceSummary, SavingRecommendation } from './api/intelligenceTypes'
@@ -70,6 +70,7 @@ export function OverviewPage(props: OverviewPageProps) {
   const anomalies = preview?.anomalies ?? anomaliesQuery.data ?? []
   const forecasts = preview?.forecasts ?? forecastsQuery.data ?? []
   const recommendations = preview?.recommendations ?? recommendationsQuery.data ?? []
+  const hasSnapshot = summary?.runId !== null && summary?.runId !== undefined
   const orgForecast = forecasts.find((f) => f.scopeType === 'ORGANIZATION') ?? forecasts[0]
 
   const isLoading = !preview && (summaryQuery.isLoading || anomaliesQuery.isLoading || forecastsQuery.isLoading || recommendationsQuery.isLoading)
@@ -105,12 +106,12 @@ export function OverviewPage(props: OverviewPageProps) {
         </div>
       )}
       {isLoading && <OverviewSkeleton />}
-      {!isLoading && !loadError && !summary && (
+      {!isLoading && !loadError && !hasSnapshot && (
         <div style={{ marginTop: 20 }}>
           <Empty description="暂无智能分析结果，调度器完成首次运行后自动呈现" />
         </div>
       )}
-      {!isLoading && !loadError && summary && (
+      {!isLoading && !loadError && hasSnapshot && summary && (
         <>
           {summary.status !== 'COMPLETED' && (
             <div style={{ marginTop: 16 }}>

@@ -12,14 +12,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class CostIntelligenceScheduler {
 
-    private final CostIntelligenceService intelligence;
+    private final CostIntelligenceAnalysisService analysis;
 
-    public CostIntelligenceScheduler(CostIntelligenceService intelligence) {
-        this.intelligence = intelligence;
+    public CostIntelligenceScheduler(CostIntelligenceAnalysisService analysis) {
+        this.analysis = analysis;
     }
 
     @Scheduled(fixedDelayString = "${aicostops.intelligence.schedule-delay-ms:3600000}")
     public void runDueAnalyses() {
-        intelligence.runDueAnalyses();
+        analysis.runDueAnalyses();
     }
 }

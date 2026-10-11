@@ -20,7 +20,7 @@ const preview: OverviewPreviewData = {
   recommendations: overviewFixture.recommendations,
 }
 
-function renderPreview() {
+function renderPreview(data: OverviewPreviewData = preview) {
   mockedUseAuth.mockReturnValue({
     status: 'authenticated',
     user: {
@@ -33,7 +33,7 @@ function renderPreview() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={['/intelligence/overview']}>
-        <OverviewPage preview={preview} authOverride={{ organizationId: '1', canReadBudget: true }} />
+        <OverviewPage preview={data} authOverride={{ organizationId: '1', canReadBudget: true }} />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -42,6 +42,24 @@ function renderPreview() {
 beforeEach(() => vi.clearAllMocks())
 
 describe('OverviewPage', () => {
+  it('does not claim a successful snapshot or healthy spending before the first analysis', () => {
+    renderPreview({
+      ...preview,
+      summary: { runId: null, status: 'STALE', anomalyCount: 0, forecastCount: 0, openRecommendations: 0 },
+      anomalies: [], forecasts: [], recommendations: [], budgetRisk: null,
+    })
+    expect(screen.getByText('暂无智能分析结果，调度器完成首次运行后自动呈现')).toBeInTheDocument()
+    expect(screen.queryByText('Are we okay?')).not.toBeInTheDocument()
+    expect(screen.queryByText(/支出按预期进行/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/上次成功运行的快照/)).not.toBeInTheDocument()
+  })
+
+  it('continues to show an existing snapshot while its next analysis is pending', () => {
+    renderPreview({ ...preview, summary: { ...preview.summary, status: 'STALE' } })
+    expect(screen.getByText('Are we okay?')).toBeInTheDocument()
+    expect(screen.getByText(/上次成功运行的快照/)).toBeInTheDocument()
+  })
+
   it('renders the four-question briefing spine instead of a KPI card wall', () => {
     renderPreview()
     expect(screen.getByRole('heading', { name: '成本智能总览', level: 1 })).toBeInTheDocument()

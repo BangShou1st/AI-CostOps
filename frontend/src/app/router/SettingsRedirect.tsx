@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
-import { hasPermission, SETTINGS_NAV } from '../../features/settings/permissions'
+import { hasPermission } from '../../features/auth/permissions'
+import { SETTINGS_NAV } from '../../features/settings/permissions'
 import { ForbiddenPage } from './ForbiddenPage'
 
 /**

@@ -2,12 +2,11 @@ package com.aicostops.expense.application;
 
 import com.aicostops.expense.application.ExpenseCommands.CreateExpenseCommand;
 import com.aicostops.expense.application.ExpenseCommands.EditExpenseCommand;
-import com.aicostops.expense.application.ExpenseIdempotencyStore.IdempotencyDecision;
 import com.aicostops.expense.application.ExpenseReadModels.ExpenseDetail;
-import com.aicostops.expense.domain.ApprovalAction;
 import com.aicostops.expense.domain.ExpenseClaim;
 import com.aicostops.expense.domain.ExpenseClaimStatus;
 import com.aicostops.expense.infrastructure.ExpenseClaimMapper;
+import com.aicostops.expense.infrastructure.ExpenseApprovalMapper;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -16,12 +15,8 @@ import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
-import java.util.function.Supplier;
-import org.springframework.dao.DeadlockLoserDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Expense claim commands: idempotent DRAFT creation and optimistic-version
@@ -32,33 +27,38 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class ExpenseClaimCommandService {
 
-    private static final int DEADLOCK_RETRIES = 3;
     private static final String PERMISSION_EXPENSE_CREATE_OWN = "EXPENSE_CREATE_OWN";
     private static final String PERMISSION_EXPENSE_SUBMIT_OWN = "EXPENSE_SUBMIT_OWN";
 
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final ExpenseClaimMapper mapper;
+    private final ExpenseApprovalMapper approvals;
     private final ExpenseIdempotency idempotency;
     private final ExpenseAuditPort audit;
     private final ExpenseResponseCodec responseCodec;
-    private final TransactionTemplate transactions;
+    private final ExpenseCommandTransactions transactions;
+    private final ExpenseDetailAssembler details;
     private final Clock clock;
 
     public ExpenseClaimCommandService(
             AuthorizationContextService authorizationContexts,
             ExpenseClaimMapper mapper,
+            ExpenseApprovalMapper approvals,
             ExpenseIdempotency idempotency,
             ExpenseAuditPort audit,
             ExpenseResponseCodec responseCodec,
-            PlatformTransactionManager transactionManager,
+            ExpenseCommandTransactions transactions,
+            ExpenseDetailAssembler details,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
+        this.approvals = approvals;
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseCodec = responseCodec;
-        this.transactions = new TransactionTemplate(transactionManager);
+        this.transactions = transactions;
+        this.details = details;
         this.clock = clock;
     }
 
@@ -70,7 +70,7 @@ public class ExpenseClaimCommandService {
         var requestHash = idempotency.createRequestHash(context.organizationId(),
                 context.organizationMemberId(), command.expenseDate(), command.amount(),
                 command.currency());
-        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+        return transactions.execute(() -> {
             var decision = idempotency.reserve(context.organizationId(),
                     context.organizationMemberId(), ExpenseIdempotency.OPERATION_CREATE,
                     idempotencyKey, requestHash);
@@ -89,7 +89,7 @@ public class ExpenseClaimCommandService {
                     detail.currency());
             idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
             return detail;
-        }));
+        });
     }
 
     /**
@@ -99,7 +99,7 @@ public class ExpenseClaimCommandService {
     public ExpenseDetail edit(AuthenticatedUser user, long expenseId, EditExpenseCommand command) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_EXPENSE_CREATE_OWN);
-        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+        return transactions.execute(() -> {
             var claim = requireOwnedEditable(context.organizationId(),
                     context.organizationMemberId(), expenseId, command.expectedVersion());
             if (mapper.updateEditable(context.organizationId(), expenseId, command.expectedVersion(),
@@ -108,11 +108,11 @@ public class ExpenseClaimCommandService {
                 throw staleVersion();
             }
             var updated = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
-            var detail = toDetail(updated);
+            var detail = details.assemble(updated);
             audit.claimEdited(context.organizationId(), context.userId(), detail.id(),
                     detail.version(), detail.currency());
             return detail;
-        }));
+        });
     }
 
     /**
@@ -129,7 +129,7 @@ public class ExpenseClaimCommandService {
         idempotency.validateKey(idempotencyKey);
         var requestHash = idempotency.submitRequestHash(context.organizationId(),
                 context.organizationMemberId(), expenseId, command.expectedVersion());
-        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+        return transactions.execute(() -> {
             var decision = idempotency.reserve(context.organizationId(),
                     context.organizationMemberId(), ExpenseIdempotency.OPERATION_SUBMIT,
                     idempotencyKey, requestHash);
@@ -147,10 +147,10 @@ public class ExpenseClaimCommandService {
                 default -> throw notSubmittable();
             }
             var updated = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
-            var detail = toDetail(updated);
+            var detail = details.assemble(updated);
             idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
             return detail;
-        }));
+        });
     }
 
     /**
@@ -164,7 +164,7 @@ public class ExpenseClaimCommandService {
         idempotency.validateKey(idempotencyKey);
         var requestHash = idempotency.cancelRequestHash(context.organizationId(),
                 context.organizationMemberId(), expenseId, command.expectedVersion());
-        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+        return transactions.execute(() -> {
             var decision = idempotency.reserve(context.organizationId(),
                     context.organizationMemberId(), ExpenseIdempotency.OPERATION_CANCEL,
                     idempotencyKey, requestHash);
@@ -182,7 +182,7 @@ public class ExpenseClaimCommandService {
             if (claim.approvalCaseId() == null) {
                 throw new IllegalStateException("A SUBMITTED expense must have an approval case");
             }
-            var approvalCase = mapper.selectApprovalCaseByExpenseForUpdate(
+            var approvalCase = approvals.selectApprovalCaseByExpenseForUpdate(
                     context.organizationId(), claim.id());
             if (approvalCase == null
                     || approvalCase.status() != com.aicostops.expense.domain.ApprovalCaseStatus.PENDING) {
@@ -194,19 +194,19 @@ public class ExpenseClaimCommandService {
                     claim.approvalCaseId(), now) != 1) {
                 throw staleVersion();
             }
-            if (mapper.updateApprovalCaseStatus(context.organizationId(), approvalCase.id(),
+            if (approvals.updateApprovalCaseStatus(context.organizationId(), approvalCase.id(),
                     "PENDING", "CANCELED", now) != 1) {
                 throw staleVersion();
             }
-            mapper.insertApprovalAction(context.organizationId(), approvalCase.id(),
+            approvals.insertApprovalAction(context.organizationId(), approvalCase.id(),
                     context.organizationMemberId(), "CANCEL", "SUBMITTED", "CANCELED",
                     null, now);
             var updated = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
-            var detail = toDetail(updated);
+            var detail = details.assemble(updated);
             audit.canceled(context.organizationId(), context.userId(), detail.id(), detail.version());
             idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
             return detail;
-        }));
+        });
     }
 
     private void firstSubmit(com.aicostops.iam.domain.AuthorizationContext context,
@@ -214,13 +214,13 @@ public class ExpenseClaimCommandService {
         if (claim.approvalCaseId() != null) {
             throw new IllegalStateException("A DRAFT expense cannot already have an approval case");
         }
-        mapper.insertApprovalCase(context.organizationId(), claim.id(), now);
-        var approvalCaseId = mapper.selectApprovalCaseByExpense(context.organizationId(), claim.id()).id();
+        approvals.insertApprovalCase(context.organizationId(), claim.id(), now);
+        var approvalCaseId = approvals.selectApprovalCaseByExpense(context.organizationId(), claim.id()).id();
         if (mapper.updateStatusVersioned(context.organizationId(), claim.id(), claim.version(),
                 "DRAFT", "SUBMITTED", approvalCaseId, now) != 1) {
             throw staleVersion();
         }
-        mapper.insertApprovalAction(context.organizationId(), approvalCaseId,
+        approvals.insertApprovalAction(context.organizationId(), approvalCaseId,
                 context.organizationMemberId(), "SUBMIT", "DRAFT", "SUBMITTED", null, now);
         audit.submitted(context.organizationId(), context.userId(), claim.id(), "SUBMIT",
                 claim.version() + 1);
@@ -231,7 +231,7 @@ public class ExpenseClaimCommandService {
         if (claim.approvalCaseId() == null) {
             throw new IllegalStateException("A NEEDS_INFO expense must have an approval case");
         }
-        var approvalCase = mapper.selectApprovalCaseByExpenseForUpdate(
+        var approvalCase = approvals.selectApprovalCaseByExpenseForUpdate(
                 context.organizationId(), claim.id());
         if (approvalCase == null
                 || approvalCase.status() != com.aicostops.expense.domain.ApprovalCaseStatus.NEEDS_INFO) {
@@ -241,11 +241,11 @@ public class ExpenseClaimCommandService {
                 "NEEDS_INFO", "SUBMITTED", claim.approvalCaseId(), now) != 1) {
             throw staleVersion();
         }
-        if (mapper.updateApprovalCaseStatus(context.organizationId(), approvalCase.id(),
+        if (approvals.updateApprovalCaseStatus(context.organizationId(), approvalCase.id(),
                 "NEEDS_INFO", "PENDING", now) != 1) {
             throw staleVersion();
         }
-        mapper.insertApprovalAction(context.organizationId(), approvalCase.id(),
+        approvals.insertApprovalAction(context.organizationId(), approvalCase.id(),
                 context.organizationMemberId(), "RESUBMIT", "NEEDS_INFO", "SUBMITTED", null, now);
         audit.submitted(context.organizationId(), context.userId(), claim.id(), "RESUBMIT",
                 claim.version() + 1);
@@ -298,17 +298,6 @@ public class ExpenseClaimCommandService {
         return claim;
     }
 
-    private ExpenseDetail toDetail(ExpenseClaim claim) {
-        var approvalStatus = claim.approvalCaseId() == null ? null
-                : mapper.selectApprovalCaseByExpense(claim.organizationId(), claim.id()).status();
-        var decisionConfirmed = claim.currentAllocationDecisionId() == null ? false
-                : "CONFIRMED".equals(mapper.selectDecisionStatus(
-                        claim.organizationId(), claim.currentAllocationDecisionId()));
-        var history = claim.approvalCaseId() == null ? List.<ApprovalAction>of()
-                : mapper.selectApprovalActionsByCase(claim.organizationId(), claim.approvalCaseId());
-        return ExpenseDetail.from(claim, approvalStatus, decisionConfirmed, history);
-    }
-
     private static DomainException notFound() {
         return new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                 "Expense not found",
@@ -321,15 +310,4 @@ public class ExpenseClaimCommandService {
                 "The expense was modified by another request; reload and retry.");
     }
 
-    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
-        for (var attempt = 1; ; attempt++) {
-            try {
-                return operation.get();
-            } catch (DeadlockLoserDataAccessException deadlock) {
-                if (attempt >= DEADLOCK_RETRIES) {
-                    throw deadlock;
-                }
-            }
-        }
-    }
 }

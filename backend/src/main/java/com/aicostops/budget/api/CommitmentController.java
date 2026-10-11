@@ -66,7 +66,7 @@ public class CommitmentController {
             @RequestParam(required = false) Long budgetId,
             @RequestParam(required = false) String status) {
         var result = queries.list(authenticatedUser,
-                PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 200), 1)),
+                PageRequest.of(page, size),
                 budgetId, status);
         return new PageResponse<>(
                 result.items().stream().map(CommitmentResponse::from).toList(),

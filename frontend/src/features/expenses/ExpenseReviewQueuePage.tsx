@@ -1,16 +1,12 @@
+import { EXPENSE_STATUS_LABEL as STATUS_LABEL, EXPENSE_STATUS_COLOR as STATUS_COLOR } from './presentation'
 import { useQuery } from '@tanstack/react-query'
-import { Card, Table, Tag, Button, Segmented } from 'antd'
+import { Alert, Card, Table, Tag, Button, Segmented } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { expenseApi, expenseKeys, type ExpenseClaimStatus, type ExpenseReviewStatusFilter, type ExpenseSummaryResponse } from './api/expenseApi'
 import { formatMoney } from '../../lib/money'
 import { useState } from 'react'
+import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 
-const STATUS_LABEL: Record<string, string> = {
-  DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', REJECTED: '已拒绝', CANCELED: '已取消',
-}
-const STATUS_COLOR: Record<string, string> = {
-  DRAFT: 'default', SUBMITTED: 'processing', NEEDS_INFO: 'warning', APPROVED: 'success', REJECTED: 'error', CANCELED: 'default',
-}
 
 export function ExpenseReviewQueuePage() {
   const navigate = useNavigate()
@@ -18,9 +14,10 @@ export function ExpenseReviewQueuePage() {
   const [page, setPage] = useState(0)
   const size = 20
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: expenseKeys.reviewQueue(status, page, size),
     queryFn: () => expenseApi.listReviewQueue(status, page, size),
+    retry: false,
   })
 
   return (
@@ -36,7 +33,11 @@ export function ExpenseReviewQueuePage() {
         ]}
         style={{ marginBottom: 16 }}
       />
-      <Table
+      {error ? (
+        <Alert type="error" showIcon title="审核列表加载失败"
+          description={problemDetail(toProblemDetail(error)) ?? problemTitle(toProblemDetail(error))}
+          action={<Button onClick={() => { void refetch() }} loading={isFetching}>重试</Button>} />
+      ) : <Table
         loading={isLoading}
         dataSource={data?.items ?? []}
         rowKey="id"
@@ -62,7 +63,7 @@ export function ExpenseReviewQueuePage() {
             ),
           },
         ]}
-      />
+      />}
     </Card>
   )
 }

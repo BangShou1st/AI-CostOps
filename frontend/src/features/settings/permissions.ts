@@ -1,8 +1,6 @@
 import type { ScopeType } from './api/settingsTypes'
 
-export function hasPermission(permissions: readonly string[] | undefined, code: string): boolean {
-  return permissions?.includes(code) ?? false
-}
+import { hasPermission } from '../auth/permissions'
 
 /** Frozen M1 role scope matrix, presented read-only for diagnostics. */
 export const ROLE_SCOPE_APPLICABILITY: Record<string, readonly ScopeType[]> = {
