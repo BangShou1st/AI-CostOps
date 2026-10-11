@@ -6,6 +6,7 @@ import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail 
 import { ledgerApi, type LedgerListParams, type LedgerPostingSummaryResponse, type LedgerSourceType } from './api/ledgerApi'
 import { ledgerKeys } from './api/ledgerKeys'
 import { currencyTotals, LEDGER_SOURCE_LABEL } from './presentation'
+import { formatEventDateTime } from '../../lib/dateTime'
 
 const PAGE_SIZE = 50
 
@@ -68,7 +69,7 @@ export function LedgerListPage() {
         }}
         scroll={{ x: 1000 }}
         columns={[
-          { title: '发布时间', dataIndex: 'postedAt', width: 190 },
+          { title: '发布时间', dataIndex: 'postedAt', width: 190, render: (value: string) => formatEventDateTime(value) },
           { title: '来源', width: 150, render: (_: unknown, row: LedgerPostingSummaryResponse) => LEDGER_SOURCE_LABEL[row.sourceType] ?? row.sourceType },
           { title: '来源 ID', width: 140, render: (_: unknown, row: LedgerPostingSummaryResponse) => <Link to={`/ledger/postings/${row.id}`}>{row.sourceId}</Link> },
           { title: '账期', dataIndex: 'billingPeriodId', width: 120 },

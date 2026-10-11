@@ -49,6 +49,8 @@ describe('LedgerListPage', () => {
     await waitFor(() => expect(screen.getAllByText('纠正').length).toBeGreaterThan(0))
     expect(screen.getAllByText('10.00000000 CNY').length).toBeGreaterThan(0)
     expect(screen.getByText('供应商成本')).toBeInTheDocument()
+    expect(screen.getAllByText('2026-08-19 18:00')).toHaveLength(2)
+    expect(screen.queryByText(POSTING.postedAt)).not.toBeInTheDocument()
   })
 })
 
