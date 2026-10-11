@@ -336,6 +336,11 @@ cd backend
 .\mvnw.cmd -B "-Dgroups=integration" verify
 ~~~
 
+MinIO 集成测试默认使用公开的 Chainguard 镜像固定摘要，由
+`backend/src/test/java/com/aicostops/testsupport/MinioTestImage.java` 统一定义；不需要额外传镜像参数。
+受限网络或内部镜像仓库仍可通过 `-Daicostops.test.minio-image=<镜像名或摘要>` 覆盖。
+更新默认摘要前，应验证匿名拉取及真实 S3 集成测试；该设置不改变开发或生产 Compose 的镜像。
+
 前端：
 
 ~~~powershell

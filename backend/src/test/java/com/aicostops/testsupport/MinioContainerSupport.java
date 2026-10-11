@@ -4,7 +4,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 /**
  * MySQL + MinIO containers for storage-backed integration tests.
@@ -18,8 +17,7 @@ public abstract class MinioContainerSupport extends MySqlContainerSupport {
     private static final String MINIO_SECRET_KEY = "minio-test-only-secret-key";
     private static final String MINIO_BUCKET = "aicostops-evidence-test";
 
-    protected static final GenericContainer<?> MINIO = new GenericContainer<>(
-            DockerImageName.parse("quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"))
+    protected static final GenericContainer<?> MINIO = new GenericContainer<>(MinioTestImage.imageName())
             .withExposedPorts(9000)
             .withEnv("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
             .withEnv("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
