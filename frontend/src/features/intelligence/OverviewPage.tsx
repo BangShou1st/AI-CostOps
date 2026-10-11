@@ -70,6 +70,7 @@ export function OverviewPage(props: OverviewPageProps) {
   const anomalies = preview?.anomalies ?? anomaliesQuery.data ?? []
   const forecasts = preview?.forecasts ?? forecastsQuery.data ?? []
   const recommendations = preview?.recommendations ?? recommendationsQuery.data ?? []
+  const hasSnapshot = summary?.runId !== null && summary?.runId !== undefined
   const orgForecast = forecasts.find((f) => f.scopeType === 'ORGANIZATION') ?? forecasts[0]
 
   const isLoading = !preview && (summaryQuery.isLoading || anomaliesQuery.isLoading || forecastsQuery.isLoading || recommendationsQuery.isLoading)
@@ -105,12 +106,12 @@ export function OverviewPage(props: OverviewPageProps) {
         </div>
       )}
       {isLoading && <OverviewSkeleton />}
-      {!isLoading && !loadError && !summary && (
+      {!isLoading && !loadError && !hasSnapshot && (
         <div style={{ marginTop: 20 }}>
           <Empty description="暂无智能分析结果，调度器完成首次运行后自动呈现" />
         </div>
       )}
-      {!isLoading && !loadError && summary && (
+      {!isLoading && !loadError && hasSnapshot && summary && (
         <>
           {summary.status !== 'COMPLETED' && (
             <div style={{ marginTop: 16 }}>
