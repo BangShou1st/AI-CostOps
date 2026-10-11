@@ -195,13 +195,14 @@ class SavingsRecommendationCommandAtomicityIntegrationTest extends ControlPlaneF
     private long analysisRunId() {
         var yesterday = LocalDate.now().minusDays(1);
         var existing = jdbc.query("SELECT id FROM cost_intelligence_run WHERE org_id=? AND analysis_date=?"
-                + " AND currency='USD' AND run_version=1", (rs, i) -> rs.getLong(1), organizationId,
-                yesterday);
+                + " AND currency='USD' AND run_version=?", (rs, i) -> rs.getLong(1), organizationId,
+                yesterday, com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
         if (!existing.isEmpty()) {
             return existing.get(0);
         }
         jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,"
-                + "created_at) VALUES (?,?,'USD',1,'COMPLETED',UTC_TIMESTAMP(6))", organizationId, yesterday);
+                + "created_at) VALUES (?,?,'USD',?,'COMPLETED',UTC_TIMESTAMP(6))", organizationId, yesterday,
+                com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
         return jdbc.queryForObject("SELECT id FROM cost_intelligence_run WHERE org_id=?", Long.class,
                 organizationId);
     }

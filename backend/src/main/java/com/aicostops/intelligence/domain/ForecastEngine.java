@@ -47,6 +47,21 @@ public final class ForecastEngine {
         if (remainingDays < 0) {
             throw new IllegalArgumentException("Remaining days must be zero or greater");
         }
+        for (var i = 1; i < completedBuckets.size(); i++) {
+            if (!completedBuckets.get(i).date().equals(completedBuckets.get(i - 1).date().plusDays(1))) {
+                throw new IllegalArgumentException("Forecast buckets must be consecutive and ordered");
+            }
+        }
+        if (observedThrough == null || !completedBuckets.get(completedBuckets.size() - 1).date().equals(observedThrough)) {
+            throw new IllegalArgumentException("Forecast history must end at observedThrough");
+        }
+        // Unknown days break evidence continuity; zero-valued observed days do not.
+        // Never compress sparse dates into an apparently continuous daily series.
+        var firstObserved = completedBuckets.size();
+        while (firstObserved > 0 && completedBuckets.get(firstObserved - 1).observed()) {
+            firstObserved--;
+        }
+        completedBuckets = completedBuckets.subList(firstObserved, completedBuckets.size());
         if (completedBuckets.size() >= MIN_DAMPED_HOLT_BUCKETS) {
             var daily = dampedHoltDaily(completedBuckets);
             var projected = daily.multiply(BigDecimal.valueOf(Math.max(remainingDays, 0)));

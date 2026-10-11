@@ -105,7 +105,8 @@ public class AdvisorEvidenceAssembler {
                             "immediate", evidence.immediateExposure().toPlainString(),
                             "projected", evidence.projectedPeriodEnd().toPlainString(),
                             "total", evidence.budgetTotal().toPlainString(),
-                            "risk", evidence.risk()));
+                            "risk", evidence.risk(),
+                            "forecastAvailable", evidence.forecastAvailable()));
                 } catch (Exception ex) {
                     throw new IllegalStateException("Advisor risk evidence is unavailable", ex);
                 }

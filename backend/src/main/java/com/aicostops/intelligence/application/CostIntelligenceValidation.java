@@ -14,8 +14,8 @@ import org.springframework.http.HttpStatus;
  */
 public final class CostIntelligenceValidation {
 
-    /** Analysis identity version; part of the database uniqueness contract and not raised here. */
-    public static final int RUN_VERSION = 1;
+    /** Version 2 excludes unobserved calendar padding from forecast sample counts. */
+    public static final int RUN_VERSION = 2;
 
     private CostIntelligenceValidation() {
     }

@@ -29,6 +29,8 @@ describe('ForecastsPage', () => {
     expect(screen.getAllByText(/DAMPED_HOLT/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/RECENT_RUN_RATE/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/不是 AI 预测/)).toBeInTheDocument()
+    expect(screen.getByText(/缺失日期不算有效观测/)).toBeInTheDocument()
+    expect(screen.getAllByText(/连续有效观测/).length).toBeGreaterThan(1)
   })
   it('renders an empty state without inventing precision', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

@@ -196,6 +196,29 @@ class CostIntelligenceAnalysisPipelineIntegrationTest extends AuthenticationCont
 
     // ------------------------------------------------------------------ helpers
 
+    @Test
+    void sparseLedgerProducesNoForecastAndPreservesLegacySnapshotWithoutReusingIt() {
+        jdbc.update("DELETE le FROM ledger_entry le JOIN ledger_posting lp ON lp.id=le.posting_id "
+                + "WHERE le.org_id=? AND DATE(lp.posted_at) < ?", org, ANALYSIS_DATE.minusDays(1));
+        jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,created_at) "
+                + "VALUES (?,?,'USD',1,'COMPLETED',UTC_TIMESTAMP(6))", org, ANALYSIS_DATE);
+        var oldId = jdbc.queryForObject("SELECT id FROM cost_intelligence_run WHERE org_id=? AND run_version=1",
+                Long.class, org);
+        jdbc.update("INSERT INTO cost_forecast_snapshot(org_id,run_id,scope_type,scope_key,currency,projected_amount,"
+                + "method,history_bucket_count,confidence,observed_through,created_at) "
+                + "VALUES (?,?,'ORGANIZATION',?,'USD',999,'DAMPED_HOLT',29,'HIGH',?,UTC_TIMESTAMP(6))",
+                org, oldId, "org:" + org, ANALYSIS_DATE.minusDays(1));
+        var outcome = analysis.runAnalysis(org, ANALYSIS_DATE, "USD");
+        assertThat(outcome.status()).isEqualTo("COMPLETED");
+        assertThat(outcome.runId()).isNotEqualTo(oldId);
+        assertThat(jdbc.queryForObject("SELECT run_version FROM cost_intelligence_run WHERE id=?",
+                Integer.class, outcome.runId())).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
+                Integer.class, outcome.runId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
+                Integer.class, oldId)).isEqualTo(1);
+    }
+
     private void resetInsideTransactionCounts() {
         anomaliesInsideTransaction.set(0);
         forecastsInsideTransaction.set(0);

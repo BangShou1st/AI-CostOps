@@ -57,11 +57,11 @@ export function AnswerStrip(props: {
     {
       key: 'ok',
       question: 'Are we okay?',
-      tone: summary.anomalyCount > 0 ? 'watch' : 'ok',
-      icon: summary.anomalyCount > 0 ? <WarningOutlined /> : <CheckCircleOutlined />,
+      tone: summary.anomalyCount > 0 ? 'watch' : forecast ? 'ok' : 'info',
+      icon: summary.anomalyCount > 0 ? <WarningOutlined /> : forecast ? <CheckCircleOutlined /> : <InfoCircleOutlined />,
       body: summary.anomalyCount > 0
         ? <><strong>{summary.anomalyCount} 个异常</strong>需要关注，见下方变化。</>
-        : <>本周期暂无异常，支出按预期进行。</>,
+        : forecast ? <>本周期暂无异常，支出按预期进行。</> : <>有效历史不足，暂不能判断支出趋势。</>,
     },
     {
       key: 'changed',
@@ -70,7 +70,7 @@ export function AnswerStrip(props: {
       icon: <InfoCircleOutlined />,
       body: topAnomaly
         ? <><strong>{grainLabel(topAnomaly)} {formatPercent(topAnomaly.deltaPercent)}</strong>，观测 {formatMoney(topAnomaly.observedAmount, currency)}。</>
-        : <>各粒度与基线基本持平。</>,
+        : forecast ? <>各粒度与基线基本持平。</> : <>暂无足够历史支持趋势比较。</>,
     },
     {
       key: 'happen',
@@ -176,7 +176,7 @@ export function ExposureSection(props: {
         </>
       )}
       {risk && riskMeta && !forecast && (
-        <div className="v3-note">预算敞口已就绪，但历史粒度不足，暂无周期预测。</div>
+        <div className="v3-note">即时敞口 {formatMoney(risk.immediateExposure, currency)}；有效历史不足，暂无周期预测。当前风险判断不包含未来费用预测。</div>
       )}
     </section>
   )

@@ -46,7 +46,7 @@ public final class CostIntelligenceReadModels {
     }
 
     public record BudgetRiskResponse(String immediateExposure, String projectedPeriodEnd,
-            String budgetTotal, String currency, String risk) {
+            String budgetTotal, String currency, String risk, boolean forecastAvailable) {
     }
 
     public record RecommendationResponse(long id, long logicalModelId, long currentProviderAccountId,

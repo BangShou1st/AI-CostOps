@@ -53,13 +53,14 @@ public class BudgetRiskQueryService {
                     "Budget not found", "No OPEN budget covers this scope and currency.");
         }
         var reservations = facts.activeReservations(context.organizationId(), budget.id());
-        var forecast = latestForecastAmount(context.organizationId(), scopeType, scopeId, currency);
+        var forecast = latestForecast(context.organizationId(), scopeType, scopeId, currency);
         var assessment = BudgetRiskService.assess(budget.actualAmount(), budget.committedAmount(),
-                zeroIfNull(reservations), forecast, budget.totalAmount(), currency);
+                zeroIfNull(reservations), forecast.map(IntelligenceMapper.ForecastRow::projectedAmount)
+                        .orElse(BigDecimal.ZERO), budget.totalAmount(), currency);
         return new CostIntelligenceReadModels.BudgetRiskResponse(
                 assessment.immediateExposure().toPlainString(),
                 assessment.projectedPeriodEnd().toPlainString(), budget.totalAmount().toPlainString(),
-                currency, assessment.risk());
+                currency, assessment.risk(), forecast.isPresent());
     }
 
     /**
@@ -70,24 +71,26 @@ public class BudgetRiskQueryService {
     public BudgetRiskEvidence assessScopeBudget(long organizationId, String scopeType, long scopeId,
             BigDecimal actual, BigDecimal committed, BigDecimal total, String currency, long budgetId) {
         var reservations = zeroIfNull(facts.activeReservations(organizationId, budgetId));
-        var forecast = latestForecastAmount(organizationId, scopeType, scopeId, currency);
-        var assessment = BudgetRiskService.assess(actual, committed, reservations, forecast, total,
+        var forecast = latestForecast(organizationId, scopeType, scopeId, currency);
+        var future = forecast.map(IntelligenceMapper.ForecastRow::projectedAmount).orElse(BigDecimal.ZERO);
+        var assessment = BudgetRiskService.assess(actual, committed, reservations, future, total,
                 currency);
-        return new BudgetRiskEvidence(actual, committed, reservations, forecast,
+        return new BudgetRiskEvidence(actual, committed, reservations, future,
                 assessment.immediateExposure(), assessment.projectedPeriodEnd(), total, currency,
-                assessment.risk());
+                assessment.risk(), forecast.isPresent());
     }
 
     /**
      * P1: scoped forecast lookup. TEAM/COST_CENTER use their own grains; missing scoped
-     * history yields ZERO future usage (never whole-org fallback which misattributes spend).
+     * history is reported as unavailable. ZERO is only a calculation fallback;
+     * whole-org forecasts must never be attributed to another scope.
      */
-    private BigDecimal latestForecastAmount(long organizationId, String scopeType, long scopeId,
+    private java.util.Optional<IntelligenceMapper.ForecastRow> latestForecast(long organizationId, String scopeType, long scopeId,
             String currency) {
         var runDate = LocalDate.now(clock).minusDays(1);
         var runId = store.findRunId(organizationId, runDate, currency,
                 CostIntelligenceValidation.RUN_VERSION);
-        if (runId == null) return BigDecimal.ZERO;
+        if (runId == null) return java.util.Optional.empty();
         final String key = switch (scopeType) {
             case "PROJECT" -> "project:" + scopeId;
             case "TEAM" -> "team:" + scopeId;
@@ -96,8 +99,7 @@ public class BudgetRiskQueryService {
         };
         return store.listForecasts(organizationId, runId).stream()
                 .filter(r -> r.scopeKey().equals(key))
-                .map(IntelligenceMapper.ForecastRow::projectedAmount)
-                .findFirst().orElse(BigDecimal.ZERO);
+                .findFirst();
     }
 
     private static BigDecimal zeroIfNull(BigDecimal amount) {

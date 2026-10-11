@@ -89,6 +89,7 @@ class AdvisorBudgetRiskEvidenceIntegrationTest extends ControlPlaneFixtureSuppor
         assertEquals("50.00000000", risk.read("$.committed"));
         assertEquals("30.00000000", risk.read("$.reservations"));
         assertEquals("200.00000000", risk.read("$.forecastFuture"));
+        assertTrue(risk.forecastAvailable());
         // immediate = actual + committed + reservations
         assertEquals("180.00000000", risk.read("$.immediate"));
         // projected = actual + committed + forecast future usage; reservations never re-enter it.
@@ -107,8 +108,9 @@ class AdvisorBudgetRiskEvidenceIntegrationTest extends ControlPlaneFixtureSuppor
         var risk = riskBlock(requestExplanation("BUDGET_RISK", budgetId));
         assertEquals("TEAM:" + teamT, risk.read("$.scope"));
         assertEquals("0.00000000", risk.read("$.reservations"));
-        // A missing scoped forecast is literally zero future usage, not the org grain.
+        // Missing scoped evidence is unavailable; zero is only the calculation fallback.
         assertEquals("0", risk.read("$.forecastFuture"));
+        assertFalse(risk.forecastAvailable());
         assertEquals("15.00000000", risk.read("$.immediate"));
         assertEquals("15.00000000", risk.read("$.projected"));
         assertEquals("LOW", risk.read("$.risk"));
@@ -138,6 +140,9 @@ class AdvisorBudgetRiskEvidenceIntegrationTest extends ControlPlaneFixtureSuppor
     }
 
     private record RiskBlock(String json) {
+        boolean forecastAvailable() {
+            return JsonPath.read(json, "$.forecastAvailable");
+        }
         String read(String path) {
             return JsonPath.read(json, path);
         }
@@ -170,7 +175,8 @@ class AdvisorBudgetRiskEvidenceIntegrationTest extends ControlPlaneFixtureSuppor
         // Same clock as the service: the risk lookup resolves yesterday from the injected clock.
         var yesterday = LocalDate.now(clock).minusDays(1);
         jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,"
-                + "created_at) VALUES (?,?,'USD',1,'COMPLETED',UTC_TIMESTAMP(6))", organizationId, yesterday);
+                + "created_at) VALUES (?,?,'USD',?,'COMPLETED',UTC_TIMESTAMP(6))", organizationId, yesterday,
+                com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
         return jdbc.queryForObject("SELECT id FROM cost_intelligence_run WHERE org_id=?", Long.class,
                 organizationId);
     }

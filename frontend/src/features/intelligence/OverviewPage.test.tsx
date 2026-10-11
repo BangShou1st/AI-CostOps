@@ -42,6 +42,14 @@ function renderPreview(data: OverviewPreviewData = preview) {
 beforeEach(() => vi.clearAllMocks())
 
 describe('OverviewPage', () => {
+  it('does not claim healthy spending after an analysis with insufficient forecast evidence', () => {
+    renderPreview({ ...preview, summary: { runId: 2, status: 'COMPLETED', anomalyCount: 0, forecastCount: 0, openRecommendations: 0 },
+      forecasts: [], anomalies: [], recommendations: [] });
+    expect(screen.getByText('有效历史不足，暂不能判断支出趋势。')).toBeInTheDocument();
+    expect(screen.getByText(/当前风险判断不包含未来费用预测/)).toBeInTheDocument();
+    expect(screen.queryByText(/支出按预期进行/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/各粒度与基线基本持平/)).not.toBeInTheDocument();
+  });
   it('does not claim a successful snapshot or healthy spending before the first analysis', () => {
     renderPreview({
       ...preview,

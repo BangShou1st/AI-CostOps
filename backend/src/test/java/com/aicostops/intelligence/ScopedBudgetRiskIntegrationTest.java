@@ -55,8 +55,8 @@ class ScopedBudgetRiskIntegrationTest extends ControlPlaneFixtureSupport {
         insertBudget("COST_CENTER", costCenterA, "50.00", "20.00", "5.00");
         var yesterday = LocalDate.now(clock).minusDays(1);
         jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,"
-                + "created_at) VALUES (?,?, 'USD',1,'COMPLETED',UTC_TIMESTAMP(6))",
-                organizationId, yesterday);
+                + "created_at) VALUES (?,?, 'USD',?,'COMPLETED',UTC_TIMESTAMP(6))",
+                organizationId, yesterday, com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
         var runId = jdbc.queryForObject("SELECT id FROM cost_intelligence_run WHERE org_id=?", Long.class,
                 organizationId);
         insertForecast(runId, "TEAM", "team:" + teamA, "10.00");
@@ -77,6 +77,8 @@ class ScopedBudgetRiskIntegrationTest extends ControlPlaneFixtureSupport {
         assertMoney("85.00", body, "$.immediateExposure");
         assertMoney("95.00", body, "$.projectedPeriodEnd");
         assertRisk("HIGH", body);
+        org.junit.jupiter.api.Assertions.assertEquals(true,
+                com.jayway.jsonpath.JsonPath.read(body, "$.forecastAvailable"));
     }
 
     @Test
@@ -85,6 +87,8 @@ class ScopedBudgetRiskIntegrationTest extends ControlPlaneFixtureSupport {
         assertMoney("10.00", body, "$.immediateExposure");
         assertMoney("10.00", body, "$.projectedPeriodEnd");
         assertRisk("LOW", body);
+        org.junit.jupiter.api.Assertions.assertEquals(false,
+                com.jayway.jsonpath.JsonPath.read(body, "$.forecastAvailable"));
     }
 
     @Test

@@ -268,12 +268,13 @@ public class CostIntelligenceAnalysisService {
                 .toList();
     }
 
-    /** Whole window is zero-filled day by day; a gap is a real zero, never a missing bucket. */
+    /** Keep anomaly calendar alignment, but do not treat missing ledger days as forecast evidence. */
     private List<DailyBucket> completeSeries(Map<LocalDate, BigDecimal> days,
             LocalDate start, LocalDate end, String currency) {
         var series = new ArrayList<DailyBucket>();
         for (var day = start; day.isBefore(end); day = day.plusDays(1)) {
-            series.add(new DailyBucket(day, days.getOrDefault(day, BigDecimal.ZERO), currency));
+            series.add(new DailyBucket(day, days.getOrDefault(day, BigDecimal.ZERO), currency,
+                    days.containsKey(day)));
         }
         return series;
     }
