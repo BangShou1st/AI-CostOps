@@ -100,7 +100,9 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/pom.xml
-      - run: ./mvnw -B -Dgroups=integration verify
+      # Failsafe selects *IntegrationTest by filename. A tag filter silently
+      # drops existing untagged integration tests, so verify the full lifecycle.
+      - run: ./mvnw -B verify
       - name: Upload backend Failsafe reports
         if: always()
         uses: actions/upload-artifact@v6
@@ -155,7 +157,8 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: gateway/pom.xml
-      - run: ./mvnw -B -Dgroups=integration verify
+      # Keep every Failsafe integration class, including those without @Tag.
+      - run: ./mvnw -B verify
 
   gateway-architecture:
     name: gateway-architecture

@@ -348,7 +348,7 @@ Java 21 / Spring Boot 4.1 / Plain MyBatis / Flyway / MySQL 8.4 LTS / Redis / Min
 cd backend
 .\mvnw.cmd -B "-DexcludedGroups=architecture,integration" test
 .\mvnw.cmd -B "-Dgroups=architecture" test
-.\mvnw.cmd -B "-Dgroups=integration" verify
+.\mvnw.cmd -B verify
 ~~~
 
 MinIO 集成测试默认使用公开的 Chainguard 镜像固定摘要，由

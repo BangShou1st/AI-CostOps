@@ -31,4 +31,12 @@ E2E 在启动 Compose 时失败，日志为 `minio Error unauthorized`，页面�
 
 版本来源：[Spring CVE-2026-47884](https://spring.io/security/cve-2026-47884/)、[Spring CVE-2026-47890](https://spring.io/security/cve-2026-47890/)、[Jackson 2.21.7](https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.21.7)、[Jackson 3.1.7](https://github.com/FasterXML/jackson/wiki/Jackson-Release-3.1.7)。Trivy 与厂商的严重等级有差异；Spring 公告涉及特定视图/SSE 片段配置，这里不声称本项目已经满足所有可利用前提。
 
-本地启动完整 `npm run test`，输出在隔离目录，日志为 `.local-dev/ci-validation/java-patch-root-test.log`。首次拉取新依赖期间仍在运行；不据此提前声称通过。修复提交的完整单元、架构、集成、镜像扫描和 E2E 以对应 PR head 的后续远程结果为准。
+本地启动完整 `npm run test`，输出在隔离目录，日志为 `.local-dev/ci-validation/java-patch-root-test.log`。首次拉取新依赖长时间停滞，核对进程归属后停止了该 Maven 进程；任务入口退出 1 并正常移除临时 POM。没有把该取消记录当作测试通过。修复提交的验证以对应 PR head 的远程结果为准。
+
+## 完整集成测试收集
+
+提交 `fc98c26` 的 CI 与 Security 均成功：14 个 CI 作业、3 个 Security 作业通过，E2E 实际 16 项通过，Trivy 文件系统及三个镜像步骤通过。但下载实际报告后发现收集范围不足：Backend 171 份报告、1167 项，相比此前完整 verify 的 182 份、1196 项少 29 项；Gateway 日志为 83 项，相比完整 verify 少 1 项。
+
+原因是原 CI 命令 `-Dgroups=integration verify` 过滤掉没有 integration 标签的已有测试。漏收内容包括 ledger 入账、对账 API 和 Provider DNS 重绑定等；不能仅依据绿色状态声称它们已验证。POM 已用文件名将 Surefire 单元与 Failsafe 的 `*IntegrationTest` 分开，进一步标签过滤并非完整收集所必需。
+
+因此将两个集成作业改为 `./mvnw -B verify`，保留完整 package/repackage 与所有 Failsafe 测试。该作业会再次运行单元及架构检查，这是换取完整生命周期的一项明确重复；原独立单元/架构作业及并行关系保留。后续报告必须达到实际源码的完整收集范围，不能用 fc98c26 的 1167/83 项作为最终验收数量。
