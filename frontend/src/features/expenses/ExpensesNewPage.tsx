@@ -5,11 +5,11 @@ import { expenseApi } from './api/expenseApi'
 import { ExpenseForm } from './components/ExpenseForm'
 import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
 import type { CreateExpenseBody } from './api/expenseApi'
-import { useExpenseCommand } from './hooks/useExpenseCommand'
+import { useIdempotentCommand } from '../../lib/useIdempotentCommand'
 
 export function ExpensesNewPage() {
   const navigate = useNavigate()
-  const execute = useExpenseCommand()
+  const execute = useIdempotentCommand()
   const [loading, setLoading] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
 

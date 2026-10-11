@@ -19,7 +19,7 @@ import { ledgerApi } from '../ledger/api/ledgerApi'
 import { ledgerKeys } from '../ledger/api/ledgerKeys'
 import type { CommitmentLinkRequest } from '../ledger/api/ledgerApi'
 import { CommitmentLinkPicker } from '../ledger/CommitmentLinkPicker'
-import { useExpenseCommand } from './hooks/useExpenseCommand'
+import { useIdempotentCommand } from '../../lib/useIdempotentCommand'
 
 
 export function ExpenseReviewDetailPage() {
@@ -31,7 +31,7 @@ export function ExpenseReviewDetailPage() {
   const canReview = hasPermission(auth.user?.permissions, 'EXPENSE_REVIEW')
   const canPost = hasPermission(auth.user?.permissions, 'EXPENSE_POST') && hasPermission(auth.user?.permissions, 'LEDGER_POST')
   const qc = useQueryClient()
-  const execute = useExpenseCommand()
+  const execute = useIdempotentCommand()
   const [problem, setProblem] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [comment, setComment] = useState('')

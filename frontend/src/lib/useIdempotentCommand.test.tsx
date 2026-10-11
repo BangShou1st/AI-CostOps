@@ -1,10 +1,10 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { useExpenseCommand } from './useExpenseCommand'
+import { useIdempotentCommand } from './useIdempotentCommand'
 
-describe('expense command retries', () => {
+describe('idempotent command retries', () => {
   it('reuses the original key when the response is lost and changes it for a new successful action', async () => {
-    const { result } = renderHook(() => useExpenseCommand())
+    const { result } = renderHook(() => useIdempotentCommand())
     const send = vi.fn().mockRejectedValueOnce(new Error('response lost')).mockResolvedValue('created')
     await act(async () => { await expect(result.current('create', { amount: '100' }, send)).rejects.toThrow('response lost') })
     await act(async () => { expect(await result.current('create', { amount: '100' }, send)).toBe('created') })
@@ -16,7 +16,7 @@ describe('expense command retries', () => {
   it('coalesces a double click and waits for the same request to finish', async () => {
     let finish!: (value: string) => void
     const send = vi.fn(() => new Promise<string>(resolve => { finish = resolve }))
-    const { result } = renderHook(() => useExpenseCommand())
+    const { result } = renderHook(() => useIdempotentCommand())
     const first = result.current('submit:1', { expectedVersion: 2 }, send)
     const second = result.current('submit:1', { expectedVersion: 2 }, send)
     await Promise.resolve()
@@ -27,7 +27,7 @@ describe('expense command retries', () => {
   })
 
   it('uses a fresh key for corrected input and keeps different actions separate', async () => {
-    const { result } = renderHook(() => useExpenseCommand())
+    const { result } = renderHook(() => useIdempotentCommand())
     const send = vi.fn().mockRejectedValue(new Error('failed'))
     await expect(result.current('create', { amount: '100' }, send)).rejects.toThrow()
     await expect(result.current('create', { amount: '105' }, send)).rejects.toThrow()

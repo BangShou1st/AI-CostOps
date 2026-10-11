@@ -1,8 +1,8 @@
 import { useCallback, useRef } from 'react'
 
 /** Same action and payload reuse the key after an uncertain response.
- * Only one mutation may run at a time in this page. Nothing is persisted to storage. */
-export function useExpenseCommand() {
+ * Only one mutation may run at a time per hook. Nothing is persisted to storage. */
+export function useIdempotentCommand() {
   const attempts = useRef(new Map<string, { payload: string; key: string }>())
   const running = useRef<{ action: string; payload: string; result: Promise<unknown> } | null>(null)
 

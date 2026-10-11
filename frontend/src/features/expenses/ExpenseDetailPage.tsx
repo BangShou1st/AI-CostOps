@@ -10,7 +10,7 @@ import { ExpenseEvidenceSection } from './components/ExpenseEvidenceSection'
 import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
 import { formatBusinessDate, formatEventDateTime } from '../../lib/dateTime'
 import { formatMoney } from '../../lib/money'
-import { useExpenseCommand } from './hooks/useExpenseCommand'
+import { useIdempotentCommand } from '../../lib/useIdempotentCommand'
 
 
 /** The API has no submittedAt field; the last SUBMIT/RESUBMIT action is the
@@ -29,7 +29,7 @@ function lastSubmittedAt(history: ApprovalActionResponse[]): string | null {
 export function ExpenseDetailPage() {
   const { expenseId } = useParams<{ expenseId: string }>()
   const qc = useQueryClient()
-  const execute = useExpenseCommand()
+  const execute = useIdempotentCommand()
   const [problem, setProblem] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [cancelModal, setCancelModal] = useState(false)
