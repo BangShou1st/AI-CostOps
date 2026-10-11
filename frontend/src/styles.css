@@ -1,7 +1,55 @@
+/* =========================
+   Design tokens
+   Shared CSS color / radius / shadow values. Keep AppProviders.tsx's
+   Ant Design seed palette aligned when changing these values.
+   ========================= */
 :root {
+  /* Brand scale: unified on a vivid modern blue. 600 is the primary action
+     color, 500 the hover lift, 700 the pressed/active depth. */
+  --brand-50: #eef4ff;
+  --brand-100: #dfe9fd;
+  --brand-200: #c3d5f5;
+  --brand-500: #3b82f6;
+  --brand-600: #2563eb;
+  --brand-700: #1d4ed8;
+
+  /* Cool neutrals with a slight blue cast so surfaces harmonize with the
+     brand instead of reading as flat gray. */
+  --bg-app: #f5f7fb;
+  --surface: #ffffff;
+  --surface-sunken: #f7f9fc;
+  --border: #e6eaf2;
+  --border-strong: #cbd4e3;
+  --text: #172033;
+  --text-secondary: #475569;
+  --text-muted: #5f7086;
+
+  /* Dark rail */
+  --sidebar-bg: linear-gradient(180deg, #14213f 0%, #0e1830 100%);
+  --sidebar-text: #c3cfe2;
+  --sidebar-text-muted: #93a5c4;
+  --sidebar-hover: rgb(255 255 255 / 8%);
+
+  /* Semantic */
+  --success: #1a7f4b;
+  --success-bg: #eaf6ef;
+  --warning: #b45309;
+  --warning-bg: #fdf3e7;
+  --danger: #b42318;
+  --danger-bg: #fdeeee;
+
+  /* Radius scale */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+
+  /* Soft layered shadows: a tight contact shadow plus a diffuse lift. */
+  --shadow-card: 0 1px 2px rgb(23 32 51 / 4%), 0 8px 24px rgb(23 32 51 / 5%);
+  --shadow-pop: 0 4px 12px rgb(23 32 51 / 6%), 0 20px 48px rgb(23 32 51 / 10%);
+
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  color: #172033;
-  background: #f4f7fb;
+  color: var(--text);
+  background: var(--bg-app);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -12,6 +60,12 @@ body {
   min-height: 100vh;
 }
 
+/* Money and metric figures align vertically in tables and stat cards. */
+.ant-statistic-content,
+.ant-table-cell {
+  font-variant-numeric: tabular-nums;
+}
+
 .app-shell {
   max-width: 720px;
   margin: 20vh auto 0;
@@ -19,7 +73,7 @@ body {
 }
 
 .eyebrow {
-  color: #2563eb;
+  color: var(--brand-600);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -32,16 +86,18 @@ h1 {
 }
 
 .auth-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
-.auth-card { width: min(100%, 420px); background: white; border: 1px solid #dce3ef; border-radius: 14px; padding: 32px; box-shadow: 0 18px 45px rgb(30 52 86 / 10%); }
+.auth-card { width: min(100%, 420px); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 32px; box-shadow: var(--shadow-pop); }
 .auth-card h1 { font-size: 2rem; letter-spacing: -0.03em; margin-bottom: 24px; }
 .auth-card form { display: grid; gap: 16px; }
 .auth-card label { display: grid; gap: 6px; font-weight: 600; }
-.auth-card input { padding: 11px 12px; border: 1px solid #b9c5d8; border-radius: 7px; font: inherit; }
-button { border: 0; border-radius: 7px; padding: 11px 16px; background: #1d4ed8; color: white; font: inherit; font-weight: 700; cursor: pointer; }
+.auth-card input { padding: 11px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; transition: border-color .15s ease, box-shadow .15s ease; }
+.auth-card input:focus-visible { outline: none; border-color: var(--brand-600); box-shadow: 0 0 0 3px var(--brand-100); }
+button { border: 0; border-radius: var(--radius-sm); padding: 11px 16px; background: var(--brand-600); color: #ffffff; font: inherit; font-weight: 700; cursor: pointer; transition: background .15s ease; }
+button:hover:not(:disabled) { background: var(--brand-700); }
 button:disabled { opacity: .55; cursor: wait; }
 .auth-card nav { display: flex; justify-content: space-between; margin-top: 20px; }
 .auth-card > a { display: inline-block; margin-top: 20px; }
-.form-error { color: #b42318; background: #fef3f2; padding: 10px; border-radius: 7px; }
+.form-error { color: var(--danger); background: var(--danger-bg); padding: 10px; border-radius: var(--radius-sm); }
 
 /* =========================
    Application shell
@@ -70,8 +126,8 @@ button:disabled { opacity: .55; cursor: wait; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #101a2e;
-  color: #c3cfe2;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-text);
   transition: width .18s ease;
 }
 .settings-shell-collapsed .settings-sider {
@@ -93,22 +149,23 @@ button:disabled { opacity: .55; cursor: wait; }
   min-height: 56px;
   box-sizing: border-box;
 }
-.app-shell-collapsed .settings-brand { justify-content: center; padding: 16px 8px; }
+.settings-shell-collapsed .settings-brand { justify-content: center; padding: 16px 8px; }
 .settings-brand-name { white-space: nowrap; overflow: hidden; }
 .settings-brand-mark {
   width: 32px;
   height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: #1d4ed8;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--brand-500) 0%, var(--brand-700) 100%);
   color: #ffffff;
   font-weight: 800;
+  box-shadow: 0 4px 12px rgb(37 99 235 / 35%);
 }
 
 .settings-collapse {
   background: transparent;
-  color: #c3cfe2;
+  color: var(--sidebar-text);
   padding: 6px 8px;
   border-radius: 6px;
   display: inline-flex;
@@ -127,15 +184,20 @@ button:disabled { opacity: .55; cursor: wait; }
      wheel/touch/keyboard scrolling still works, Chrome/Edge/Firefox all hide
      the bar through these two properties. */
   scrollbar-width: none;
+  padding: 4px 10px 12px;
+  box-sizing: border-box;
 }
 .settings-nav-scroll::-webkit-scrollbar { display: none; }
 
 .settings-menu { background: transparent !important; border-inline-end: 0 !important; }
-.settings-menu .ant-menu-item { color: #c3cfe2 !important; }
-.settings-menu .ant-menu-item-selected { background: #1d4ed8 !important; color: #ffffff !important; }
+.settings-menu .ant-menu-item { color: var(--sidebar-text) !important; border-radius: var(--radius-sm); transition: background .15s ease, color .15s ease; }
+.settings-menu .ant-menu-item:hover { color: #ffffff !important; background: var(--sidebar-hover) !important; }
+.settings-menu .ant-menu-item-selected { background: var(--brand-600) !important; color: #ffffff !important; box-shadow: 0 4px 14px rgb(37 99 235 / 32%); }
+.settings-menu .ant-menu-item-selected:hover { background: var(--brand-700) !important; }
 /* The dark rail made antd's default group title (dark gray) unreadable;
    lift it to a light muted tone instead of changing the sidebar theme. */
-.settings-menu .ant-menu-item-group-title { color: #93a5c4 !important; }
+.settings-menu .ant-menu-item-group-title { color: var(--sidebar-text-muted) !important; }
+.settings-menu .ant-menu-item-divider { border-color: rgb(255 255 255 / 8%) !important; }
 
 .settings-identity {
   margin-top: auto;
@@ -148,7 +210,7 @@ button:disabled { opacity: .55; cursor: wait; }
   border-top: 1px solid rgb(255 255 255 / 8%);
 }
 .settings-identity-user {
-  color: #c3cfe2;
+  color: var(--sidebar-text);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -157,14 +219,14 @@ button:disabled { opacity: .55; cursor: wait; }
 }
 .settings-identity button {
   background: transparent;
-  color: #c3cfe2;
+  color: var(--sidebar-text);
   padding: 6px 10px;
   border-radius: 6px;
   font-weight: 600;
   white-space: nowrap;
 }
 .settings-identity button:hover { background: rgb(255 255 255 / 10%); color: #ffffff; }
-.app-shell-collapsed .settings-identity {
+.settings-shell-collapsed .settings-identity {
   flex-direction: column;
   padding: 12px 8px;
 }
@@ -174,7 +236,7 @@ button:disabled { opacity: .55; cursor: wait; }
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: #1d4ed8;
+  background: var(--brand-600);
   color: #ffffff;
   font-weight: 700;
 }
@@ -191,16 +253,16 @@ button:disabled { opacity: .55; cursor: wait; }
   gap: 12px;
   height: 56px;
   padding: 0 16px;
-  background: #101a2e;
+  background: var(--sidebar-bg);
   color: #ffffff;
   box-sizing: border-box;
 }
 .settings-topbar-menu { color: #ffffff !important; font-size: 18px; }
 .settings-topbar-brand { font-weight: 800; letter-spacing: 0.02em; }
-.settings-topbar-page { margin-left: auto; color: #c3cfe2; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.settings-topbar-page { margin-left: auto; color: var(--sidebar-text); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .settings-drawer-body { display: flex; flex-direction: column; height: 100%; }
 .settings-drawer-body .settings-menu-drawer { flex: 1; }
-.settings-drawer-body .settings-identity { margin-top: 0; border-top: 1px solid #e5eaf3; }
+.settings-drawer-body .settings-identity { margin-top: 0; border-top: 1px solid var(--border); }
 
 /* The mobile Drawer sits on the default white Drawer surface. The desktop
    sidebar rules above use light foreground colors for the dark rail; here
@@ -210,20 +272,21 @@ button:disabled { opacity: .55; cursor: wait; }
   color: #344054 !important;
 }
 .settings-drawer-body .settings-menu .ant-menu-item:hover {
-  color: #1d4ed8 !important;
-  background: #f2f4f7 !important;
+  color: var(--brand-700) !important;
+  background: var(--surface-sunken) !important;
 }
 .settings-drawer-body .settings-menu .ant-menu-item-selected {
-  background: #1d4ed8 !important;
+  background: var(--brand-600) !important;
   color: #ffffff !important;
+  box-shadow: none;
 }
 .settings-drawer-body .settings-identity-user,
 .settings-drawer-body .settings-identity button {
   color: #344054;
 }
 .settings-drawer-body .settings-identity button:hover {
-  background: #f2f4f7;
-  color: #101828;
+  background: var(--surface-sunken);
+  color: var(--text);
 }
 
 /* Main content: full width, comfortable desktop density. The antd
@@ -242,11 +305,11 @@ button:disabled { opacity: .55; cursor: wait; }
 }
 .settings-content h1 { font-size: 1.75rem; letter-spacing: -0.02em; margin-bottom: 4px; }
 
-.settings-page { background: #ffffff; border: 1px solid #dce3ef; border-radius: 12px; padding: 24px; }
+.settings-page { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; box-shadow: var(--shadow-card); }
 .settings-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
-.settings-empty { text-align: center; color: #6b7a93; padding: 48px 0; }
+.settings-empty { text-align: center; color: var(--text-muted); padding: 48px 0; }
 .forbidden-page { max-width: 640px; padding: 64px 0; }
-.forbidden-page h1 { font-size: 5rem; color: #1d4ed8; margin-bottom: 8px; }
+.forbidden-page h1 { font-size: 5rem; color: var(--brand-600); margin-bottom: 8px; }
 
 /* Compact action rows inside tables */
 .settings-actions { display: flex; gap: 8px; flex-wrap: nowrap; white-space: nowrap; }
@@ -266,13 +329,14 @@ button:disabled { opacity: .55; cursor: wait; }
 .page-header h1 { font-size: clamp(1.6rem, 3vw, 2.15rem); letter-spacing: -0.035em; margin: 2px 0 6px; }
 .m6-page-header { margin-bottom: 20px; }
 .m6-page-subtitle { max-width: 700px; margin: 0 !important; }
-.m6-eyebrow { display: block; color: #64748b; font-size: 11px; font-weight: 800; letter-spacing: .14em; }
+.m6-eyebrow { display: block; color: var(--text-secondary); font-size: 11px; font-weight: 800; letter-spacing: .14em; }
 .m6-back-link { padding-inline: 0 !important; margin-bottom: 4px; }
 .m6-summary-grid { margin-bottom: 16px; }
-.m6-stat-card { height: 100%; border-color: #e4e9f2; background: linear-gradient(135deg, #fff 0%, #f7f9fd 100%); box-shadow: 0 8px 24px rgb(31 55 91 / 5%); }
-.m6-stat-card .ant-statistic-title { color: #667085; font-size: 13px; }
-.m6-stat-card .ant-statistic-content { color: #172033; font-weight: 750; }
-.m6-section-card { margin-bottom: 16px; border-color: #e4e9f2; box-shadow: 0 7px 22px rgb(31 55 91 / 4%); }
+.m6-stat-card { height: 100%; border-color: var(--border); background: linear-gradient(135deg, #ffffff 0%, #f7f9fd 100%); box-shadow: var(--shadow-card); transition: box-shadow .18s ease, transform .18s ease; }
+.m6-stat-card:hover { box-shadow: var(--shadow-pop); transform: translateY(-1px); }
+.m6-stat-card .ant-statistic-title { color: var(--text-muted); font-size: 13px; }
+.m6-stat-card .ant-statistic-content { color: var(--text); font-weight: 750; }
+.m6-section-card { margin-bottom: 16px; border-color: var(--border); box-shadow: var(--shadow-card); }
 .m6-section-card > .ant-card-head { border-bottom-color: #edf0f6; }
 .m6-filter-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .m6-filter-grid label { display: grid; gap: 6px; color: #344054; font-size: 13px; font-weight: 650; }
@@ -280,16 +344,16 @@ button:disabled { opacity: .55; cursor: wait; }
 .m6-filter-hint { display: block; margin-top: 12px; font-size: 12px; }
 .m6-case-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 18px; }
 .m6-clickable-row { cursor: pointer; }
-.m6-clickable-row:hover > td { background: #f7faff !important; }
+.m6-clickable-row:hover > td { background: var(--brand-50) !important; }
 .m6-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.m6-check-card { min-height: 126px; border-color: #e7ebf2; }
-.m6-check-pass { border-top: 3px solid #52c41a; }
-.m6-check-fail { border-top: 3px solid #faad14; }
-.m6-check-error { border-top: 3px solid #ff4d4f; }
-.m6-check-pending { border-top: 3px solid #b7c0d0; }
+.m6-check-card { min-height: 126px; border-color: var(--border); }
+.m6-check-pass { border-top: 3px solid var(--success); }
+.m6-check-fail { border-top: 3px solid var(--warning); }
+.m6-check-error { border-top: 3px solid var(--danger); }
+.m6-check-pending { border-top: 3px solid var(--border-strong); }
 .m6-check-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.m6-check-meta { margin-top: 12px; color: #98a2b3; font-size: 12px; }
-.m6-note-block { margin-top: 8px; padding: 12px 14px; min-height: 42px; background: #f7f9fc; border-radius: 8px; white-space: pre-wrap; }
+.m6-check-meta { margin-top: 12px; color: var(--text-muted); font-size: 12px; }
+.m6-note-block { margin-top: 8px; padding: 12px 14px; min-height: 42px; background: var(--surface-sunken); border-radius: var(--radius-sm); white-space: pre-wrap; }
 .m6-page .ant-table-wrapper { max-width: 100%; }
 .m6-page .ant-table-cell { white-space: nowrap; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
@@ -317,7 +381,7 @@ button:disabled { opacity: .55; cursor: wait; }
 
 @media (max-width: 639px) {
   .settings-content { padding: 16px; }
-  .settings-page { padding: 16px; border-radius: 10px; }
+  .settings-page { padding: 16px; border-radius: var(--radius-md); }
   .settings-toolbar { align-items: flex-start; flex-direction: column; }
   .page-header { flex-direction: column; gap: 12px; }
   .m6-page-header > .ant-btn { align-self: stretch; }
@@ -327,4 +391,5 @@ button:disabled { opacity: .55; cursor: wait; }
 
 @media (prefers-reduced-motion: reduce) {
   .settings-sider { transition: none; }
+  .m6-stat-card { transition: none; }
 }

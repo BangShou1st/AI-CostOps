@@ -1,5 +1,5 @@
-.v3-lettermark { width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 8px; background: #eef1f6; color: #475569; font-weight: 800; font-size: 13px; flex-shrink: 0; }
-.v3-lettermark-builtin { background: #e9f0fd; color: #1d4ed8; }
+.v3-lettermark { width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: 8px; background: var(--v3-neutral-bg); color: var(--v3-text-secondary); font-weight: 800; font-size: 13px; flex-shrink: 0; }
+.v3-lettermark-builtin { background: var(--v3-info-bg); color: var(--v3-info); }
 .v3-provider-group { border: 1px solid var(--v3-border); border-radius: var(--v3-radius-card); margin-top: 16px; overflow: hidden; }
 .v3-provider-group-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--v3-sunken); border-bottom: 1px solid var(--v3-border); flex-wrap: wrap; }
 .v3-provider-group-head .t { font-weight: 750; font-size: 14px; }
