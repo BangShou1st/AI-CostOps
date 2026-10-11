@@ -1,12 +1,16 @@
 package com.aicostops.advisor.application;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.aicostops.audit.application.AuditService;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +20,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import com.aicostops.providerhub.application.ControlPlaneFixtureSupport;
 
 /**
@@ -33,11 +38,15 @@ class AdvisorEvidenceSnapshotIntegrationTest extends ControlPlaneFixtureSupport 
     @Autowired
     private MockMvc mockMvc;
 
+    @MockitoSpyBean
+    private AuditService audit;
+
     private long organizationId;
     private long managerUserId;
     private long managerMemberId;
     private long projectA;
     private long modelA;
+    private long logicalModelId;
     private long anomalyId;
 
     @BeforeEach
@@ -48,8 +57,8 @@ class AdvisorEvidenceSnapshotIntegrationTest extends ControlPlaneFixtureSupport 
         managerUserId = insertUser("evidence-manager@example.com");
         managerMemberId = insertMember(organizationId, managerUserId);
         projectA = insertProject(organizationId, "proj-a");
-        var logicalA = insertGlobalLogicalModel("ev-model-a");
-        modelA = insertGlobalProviderModel("CUSTOM_OPENAI_COMPATIBLE", logicalA, "ev-model-a");
+        logicalModelId = insertGlobalLogicalModel("ev-model-a");
+        modelA = insertGlobalProviderModel("CUSTOM_OPENAI_COMPATIBLE", logicalModelId, "ev-model-a");
         createPermissionRole("EV_MANAGER", List.of("AI_ADVISOR_MANAGE", "AI_ADVISOR_USE"));
         assign(managerMemberId, "EV_MANAGER", "ORG", organizationId);
         flushRedis();
@@ -136,6 +145,82 @@ class AdvisorEvidenceSnapshotIntegrationTest extends ControlPlaneFixtureSupport 
         assertEquals("PENDING", attempts.get(1).get("status").toString());
     }
 
+    @Test
+    void forecastAndSavingsSnapshotsKeepTheirServerAmountsAndReferences() throws Exception {
+        var runId = jdbc.queryForObject("SELECT run_id FROM cost_anomaly WHERE id=?", Long.class,
+                anomalyId);
+        jdbc.update("INSERT INTO cost_forecast_snapshot(org_id,run_id,scope_type,scope_key,currency,"
+                + "projected_amount,method,history_bucket_count,confidence,observed_through,created_at)"
+                + " VALUES (?,?,'PROJECT',?,'USD',125.5,'RECENT_RUN_RATE',3,'LOW',"
+                + "DATE_SUB(UTC_DATE(),INTERVAL 1 DAY),UTC_TIMESTAMP(6))",
+                organizationId, runId, "project:" + projectA);
+        var forecastId = jdbc.queryForObject("SELECT id FROM cost_forecast_snapshot WHERE org_id=?",
+                Long.class, organizationId);
+        var forecastJob = requestExplanation("{\"subjectType\":\"FORECAST\",\"subjectId\":"
+                + forecastId + "}");
+        var forecastFacts = snapshotColumn(forecastJob, "facts_json");
+        assertEquals("125.50000000", JsonPath.read(forecastFacts, "$[0].amount"));
+        assertEquals("forecast:" + forecastId + ":projected", JsonPath.read(forecastFacts, "$[0].factId"));
+        assertEquals("method=RECENT_RUN_RATE", JsonPath.read(snapshotColumn(forecastJob, "summary_json"),
+                "$.forecastSummary"));
+
+        var account = insertAccount(organizationId, "CUSTOM_OPENAI_COMPATIBLE", "Snapshot Account");
+        jdbc.update("INSERT INTO savings_recommendation(org_id,run_id,logical_model_id,"
+                + "current_provider_account_id,current_provider_model_id,current_pricing_version_id,"
+                + "candidate_provider_account_id,candidate_provider_model_id,candidate_pricing_version_id,"
+                + "currency,evidence_window_start,evidence_window_end,current_cost,candidate_cost,"
+                + "potential_saving,potential_saving_percent,evidence_fingerprint,status,"
+                + "routing_change_required,calculated_at,created_at) VALUES (?,?,?,?,?,13,?,?,14,'USD',"
+                + "DATE_SUB(UTC_DATE(),INTERVAL 29 DAY),DATE_SUB(UTC_DATE(),INTERVAL 1 DAY),"
+                + "100,60,40,40,REPEAT('a',64),'OPEN',FALSE,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
+                organizationId, runId, logicalModelId, account, modelA, account, modelA);
+        var savingsId = jdbc.queryForObject("SELECT id FROM savings_recommendation WHERE org_id=?",
+                Long.class, organizationId);
+        var savingsJob = requestExplanation("{\"subjectType\":\"SAVINGS\",\"subjectId\":"
+                + savingsId + "}");
+        var savingsFacts = snapshotColumn(savingsJob, "facts_json");
+        assertEquals(List.of("100.00000000", "60.00000000", "40.00000000"),
+                JsonPath.<List<String>>read(savingsFacts, "$[*].amount"));
+        assertEquals(List.of("savings:" + savingsId + ":current", "savings:" + savingsId + ":candidate",
+                "savings:" + savingsId + ":saving"), JsonPath.<List<String>>read(savingsFacts, "$[*].factId"));
+        assertEquals("[]", snapshotColumn(savingsJob, "drivers_json"));
+    }
+
+    @Test
+    void auditFailureRollsBackJobSnapshotAndFirstAttemptThatWereWritten() {
+        doAnswer(invocation -> {
+            // These assertions run inside the request transaction, after all three inserts.
+            assertEquals(1, count("advisor_inference_job"));
+            assertEquals(1, count("advisor_evidence_snapshot"));
+            assertEquals(1, count("advisor_inference_attempt"));
+            throw new IllegalStateException("Injected Advisor audit failure");
+        }).when(audit).append(eq("AI_ADVISOR_EXPLANATION_REQUESTED"), any(), any(), any(), any(), any());
+
+        var failure = assertThrows(Exception.class, () -> requestExplanation(
+                "{\"subjectType\":\"ANOMALY\",\"subjectId\":" + anomalyId + "}"));
+        Throwable cause = failure;
+        while (cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        assertInstanceOf(IllegalStateException.class, cause);
+        assertEquals("Injected Advisor audit failure", cause.getMessage());
+        assertEquals(0, count("advisor_inference_job"));
+        assertEquals(0, count("advisor_evidence_snapshot"));
+        assertEquals(0, count("advisor_inference_attempt"));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?"
+                + " AND event_type='AI_ADVISOR_EXPLANATION_REQUESTED'", Integer.class, organizationId));
+    }
+
+    private int count(String table) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE org_id=?", Integer.class,
+                organizationId);
+    }
+
+    private String snapshotColumn(long jobId, String column) {
+        return jdbc.queryForObject("SELECT CAST(" + column + " AS CHAR) FROM advisor_evidence_snapshot"
+                + " WHERE job_id=? AND org_id=?", String.class, jobId, organizationId);
+    }
+
     private void putProfile(long providerModelId, long projectId, String scopeType, long scopeId,
             String budgetMode) throws Exception {
         mockMvc.perform(put("/api/v1/ai-advisor/profile")
@@ -183,9 +268,12 @@ class AdvisorEvidenceSnapshotIntegrationTest extends ControlPlaneFixtureSupport 
         jdbc.update("DELETE FROM advisor_profile");
         jdbc.update("DELETE FROM service_identity");
         jdbc.update("DELETE FROM cost_anomaly");
+        jdbc.update("DELETE FROM cost_forecast_snapshot");
+        jdbc.update("DELETE FROM savings_recommendation");
         jdbc.update("DELETE FROM cost_intelligence_run");
         jdbc.update("DELETE FROM provider_model WHERE provider_model_name LIKE 'ev-model-%'");
         jdbc.update("DELETE FROM model_catalog WHERE model_key LIKE 'ev-model-%'");
+        jdbc.update("DELETE FROM provider_account");
         jdbc.update("DELETE FROM project");
         jdbc.update("DELETE FROM team");
         jdbc.update("DELETE FROM cost_center");

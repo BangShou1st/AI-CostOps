@@ -72,6 +72,8 @@ class AdvisorInferenceWorkerTest {
         return new AdvisorInferenceWorker(jobs, orchestrator, lifecycleService,
                 adapterRegistry, new ProviderExecutionContextResolver(readMapper, credentialDecryptor),
                 usageFinalization, new ObjectMapper(),
+                new AdvisorSnapshotPromptBuilder(new ObjectMapper()),
+                new AdvisorNarrativeValidator(new ObjectMapper()),
                 clock, transactionManager);
     }
 

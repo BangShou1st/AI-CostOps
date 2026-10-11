@@ -1,6 +1,8 @@
 package com.aicostops.advisor.application;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -14,6 +16,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import com.aicostops.audit.application.AuditService;
 import com.aicostops.providerhub.application.ControlPlaneFixtureSupport;
 /** P1-1 atomic terminal convergence over real MySQL. */
 @SpringBootTest(properties = {
@@ -23,7 +27,9 @@ import com.aicostops.providerhub.application.ControlPlaneFixtureSupport;
 @Tag("integration")
 class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSupport {
     @Autowired private MockMvc mockMvc;
-    @Autowired private AdvisorService advisorService;
+    @Autowired private AdvisorJobLifecycleService advisorService;
+    @Autowired private AdvisorJobQueryService queries;
+    @MockitoSpyBean private AuditService audit;
     private long organizationId;
     private long managerUserId;
     private long managerMemberId;
@@ -62,6 +68,45 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
         flushRedis();
     }
     @AfterEach void tearDown() { cleanDatabase(); }
+    @Test void profileAuditFailureRollsBackRotationAndSupersededWork() throws Exception {
+        putProfile(modelA, projectA, "PROJECT", projectA, "OPTIONAL");
+        var jobId = requestExplanation("BUDGET_RISK", budgetA);
+        var beforeProfiles = jdbc.queryForList("SELECT * FROM advisor_profile WHERE org_id=? ORDER BY id",
+                organizationId);
+        var beforeCredentials = credentialSnapshot();
+        var beforeModels = jdbc.queryForList("SELECT * FROM gateway_credential_model WHERE org_id=? ORDER BY credential_id,model_id",
+                organizationId);
+        var beforeAuditCount = jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?",
+                Integer.class, organizationId);
+        doAnswer(invocation -> {
+            // Observe real writes inside the profile transaction before forcing rollback.
+            assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM advisor_profile WHERE org_id=?",
+                    Integer.class, organizationId));
+            assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM gateway_credential WHERE org_id=?"
+                    + " AND status='REVOKED'", Integer.class, organizationId));
+            assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM gateway_credential WHERE org_id=?"
+                    + " AND status='ACTIVE' AND financial_scope_type='TEAM' AND financial_scope_id=?",
+                    Integer.class, organizationId, teamT));
+            assertEquals("FAILED", jobStatus(jobId));
+            assertEquals("FAILED", attemptStatus(jobId, 1));
+            throw new IllegalStateException("Injected profile audit failure");
+        }).when(audit).append(eq("AI_ADVISOR_PROFILE_UPDATED"), any(), any(), any(), any(), any());
+
+        var failure = assertThrows(Exception.class,
+                () -> putProfile(modelB, projectB, "TEAM", teamT, "REQUIRED"));
+        Throwable cause = failure;
+        while (cause.getCause() != null) cause = cause.getCause();
+        assertEquals("Injected profile audit failure", cause.getMessage());
+        assertEquals(beforeProfiles, jdbc.queryForList("SELECT * FROM advisor_profile WHERE org_id=? ORDER BY id",
+                organizationId));
+        assertEquals(beforeCredentials, credentialSnapshot());
+        assertEquals(beforeModels, jdbc.queryForList("SELECT * FROM gateway_credential_model WHERE org_id=? ORDER BY credential_id,model_id",
+                organizationId));
+        assertEquals("PENDING", jobStatus(jobId));
+        assertEquals("PENDING", attemptStatus(jobId, 1));
+        assertEquals(beforeAuditCount, jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?",
+                Integer.class, organizationId));
+    }
     @Test void supersedeTerminalizesJobAndAttemptTogether() throws Exception {
         putProfile(modelA, projectA, "PROJECT", projectA, "OPTIONAL");
         var job1 = requestExplanation("BUDGET_RISK", budgetA);
@@ -72,6 +117,31 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
         assertEquals("PROFILE_SUPERSEDED", jobFailureCode(job1));
         assertEquals("FAILED", attemptStatus(job1, 1));
         assertEquals("PROFILE_SUPERSEDED", attemptFailureCode(job1, 1));
+    }
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"COMPLETED", "FAILED"})
+    void terminalTransitionRejectsAnOldAttemptNumber(String terminalStatus) throws Exception {
+        putProfile(modelA, projectA, "PROJECT", projectA, "OPTIONAL");
+        var jobId = requestExplanation("BUDGET_RISK", budgetA);
+        var claimed = advisorService.claimNext("attempt-fence");
+        assertNotNull(claimed);
+        // Legacy split data must not let an old PENDING attempt terminalize the current job.
+        jdbc.update("UPDATE advisor_inference_job SET attempt_count=2 WHERE id=? AND org_id=?",
+                jobId, organizationId);
+        jdbc.update("INSERT INTO advisor_inference_attempt(org_id,job_id,attempt_no,status,created_at)"
+                + " VALUES (?,?,2,'PENDING',UTC_TIMESTAMP(6))", organizationId, jobId);
+        var failure = assertThrows(com.aicostops.shared.web.DomainException.class,
+                () -> advisorService.terminalizeAttempt(jobId, organizationId, 1, claimed.token(),
+                        terminalStatus, "TEST_FAILURE"));
+        assertEquals("STATE_CONFLICT", failure.code().name());
+        assertEquals("CLAIMED", jobStatus(jobId));
+        assertEquals("PENDING", attemptStatus(jobId, 1));
+        assertEquals("PENDING", attemptStatus(jobId, 2));
+        advisorService.terminalizeAttempt(jobId, organizationId, 2, claimed.token(),
+                terminalStatus, "TEST_FAILURE");
+        assertEquals(terminalStatus, jobStatus(jobId));
+        assertEquals("PENDING", attemptStatus(jobId, 1));
+        assertEquals(terminalStatus, attemptStatus(jobId, 2));
     }
     @Test void preDispatchEvidenceFailureTerminalizesBoth() throws Exception {
         putProfile(modelA, projectA, "PROJECT", projectA, "OPTIONAL");
@@ -91,7 +161,7 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
         var claimed = advisorService.claimNext("w-rc");
         assertNotNull(claimed);
         jdbc.update("UPDATE advisor_inference_attempt SET status=? WHERE job_id=? AND org_id=? AND attempt_no=1", "COMPLETED", jobId, organizationId);
-        var refs = advisorService.knownFactReferences(jobId, organizationId);
+        var refs = queries.knownFactReferences(jobId, organizationId);
         var ref = refs.iterator().next();
         var narrative = "{\"summary\":\"Spend rose.\",\"driversExplanation\":\"X.\",\"recommendedActions\":[],\"warnings\":[],\"factReferences\":[\"" + ref + "\"]}";
         assertThrows(Exception.class, () -> advisorService.complete(jobId, organizationId, claimed.token(), narrative, refs));
@@ -113,7 +183,7 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
         var jobId = requestExplanation("ANOMALY", anomaly);
         var claimed = advisorService.claimNext("w-ok");
         assertNotNull(claimed);
-        var refs = advisorService.knownFactReferences(jobId, organizationId);
+        var refs = queries.knownFactReferences(jobId, organizationId);
         var ref = refs.iterator().next();
         var narrative = "{\"summary\":\"Spend rose.\",\"driversExplanation\":\"X.\",\"recommendedActions\":[],\"warnings\":[],\"factReferences\":[\"" + ref + "\"]}";
         advisorService.complete(jobId, organizationId, claimed.token(), narrative, refs);
@@ -138,7 +208,7 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
         assertEquals(g1, attemptGateway(jobId, 1));
         var second = advisorService.claimNext("w-r2");
         jdbc.update("UPDATE advisor_inference_attempt SET gateway_request_id=? WHERE job_id=? AND org_id=? AND attempt_no=2", 910002L, jobId, organizationId);
-        var refs = advisorService.knownFactReferences(jobId, organizationId);
+        var refs = queries.knownFactReferences(jobId, organizationId);
         var ref = refs.iterator().next();
         var narrative = "{\"summary\":\"Again.\",\"driversExplanation\":\"X.\",\"recommendedActions\":[],\"warnings\":[],\"factReferences\":[\"" + ref + "\"]}";
         advisorService.complete(jobId, organizationId, second.token(), narrative, refs);
@@ -163,7 +233,7 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
                 "REQUESTED audit actor must be the human app_user.id");
         var claimed = advisorService.claimNext("w-identity");
         assertNotNull(claimed);
-        var refs = advisorService.knownFactReferences(jobId, organizationId);
+        var refs = queries.knownFactReferences(jobId, organizationId);
         var ref = refs.iterator().next();
         var narrative = "{\"summary\":\"Spend rose.\",\"driversExplanation\":\"X.\",\"recommendedActions\":[],\"warnings\":[],\"factReferences\":[\"" + ref + "\"]}";
         advisorService.complete(jobId, organizationId, claimed.token(), narrative, refs);
@@ -177,7 +247,7 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
                 "Retry must not rewrite requested_by to organization_member.id");
         var second = advisorService.claimNext("w-identity-r2");
         assertNotNull(second);
-        var refs2 = advisorService.knownFactReferences(jobId, organizationId);
+        var refs2 = queries.knownFactReferences(jobId, organizationId);
         var ref2 = refs2.iterator().next();
         var narrative2 = "{\"summary\":\"Again.\",\"driversExplanation\":\"X.\",\"recommendedActions\":[],\"warnings\":[],\"factReferences\":[\"" + ref2 + "\"]}";
         advisorService.complete(jobId, organizationId, second.token(), narrative2, refs2);
@@ -240,6 +310,13 @@ class AdvisorTerminalConvergenceIntegrationTest extends ControlPlaneFixtureSuppo
         }
         jdbc.update("INSERT INTO budget(org_id,billing_period_id,scope_type,scope_id,currency,total_amount,actual_amount,committed_amount,status,created_at,updated_at) VALUES (?,?,?,?,?,?,0,0,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))", org, pid, st, sid, cur, new java.math.BigDecimal(total));
         return jdbc.queryForObject("SELECT id FROM budget WHERE org_id=? AND scope_type=? AND scope_id=?", Long.class, org, st, sid);
+    }
+    private List<java.util.Map<String, Object>> credentialSnapshot() {
+        var rows = jdbc.queryForList("SELECT * FROM gateway_credential WHERE org_id=? ORDER BY id",
+                organizationId);
+        rows.forEach(row -> row.replaceAll((key, value) -> value instanceof byte[] bytes
+                ? java.util.HexFormat.of().formatHex(bytes) : value));
+        return rows;
     }
     private void cleanDatabase() {
         jdbc.update("DELETE FROM audit_event");

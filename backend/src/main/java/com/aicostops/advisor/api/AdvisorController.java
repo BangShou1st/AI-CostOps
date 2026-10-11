@@ -1,10 +1,12 @@
 package com.aicostops.advisor.api;
 
-import com.aicostops.advisor.application.AdvisorService;
-import com.aicostops.advisor.application.AdvisorService.ExplanationRequest;
-import com.aicostops.advisor.application.AdvisorService.JobResponse;
-import com.aicostops.advisor.application.AdvisorService.ProfileResponse;
-import com.aicostops.advisor.application.AdvisorService.UpdateProfileRequest;
+import com.aicostops.advisor.application.AdvisorProfileService;
+import com.aicostops.advisor.application.AdvisorJobCommandService;
+import com.aicostops.advisor.application.AdvisorJobQueryService;
+import com.aicostops.advisor.application.AdvisorRequests.ExplanationRequest;
+import com.aicostops.advisor.application.AdvisorReadModels.JobResponse;
+import com.aicostops.advisor.application.AdvisorReadModels.ProfileResponse;
+import com.aicostops.advisor.application.AdvisorRequests.UpdateProfileRequest;
 import com.aicostops.shared.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -22,22 +24,27 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/ai-advisor")
 public class AdvisorController {
 
-    private final AdvisorService advisor;
+    private final AdvisorProfileService profiles;
+    private final AdvisorJobCommandService commands;
+    private final AdvisorJobQueryService queries;
 
-    public AdvisorController(AdvisorService advisor) {
-        this.advisor = advisor;
+    public AdvisorController(AdvisorProfileService profiles, AdvisorJobCommandService commands,
+            AdvisorJobQueryService queries) {
+        this.profiles = profiles;
+        this.commands = commands;
+        this.queries = queries;
     }
 
     @GetMapping("/profile")
     public ProfileResponse profile(@AuthenticationPrincipal AuthenticatedUser user) {
-        return advisor.profile(user);
+        return profiles.profile(user);
     }
 
     @PutMapping("/profile")
     public ProfileResponse updateProfile(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody UpdateProfileBody body) {
-        return advisor.updateProfile(user, new UpdateProfileRequest(body.providerModelId(),
+        return profiles.updateProfile(user, new UpdateProfileRequest(body.providerModelId(),
                 body.projectId(), body.financialScopeType(), body.financialScopeId(),
                 body.budgetEnforcementMode()));
     }
@@ -52,19 +59,19 @@ public class AdvisorController {
     public JobResponse requestExplanation(
             @AuthenticationPrincipal AuthenticatedUser user,
             @Valid @RequestBody ExplanationBody body) {
-        return advisor.requestExplanation(user, new ExplanationRequest(body.subjectType(), body.subjectId()));
+        return commands.requestExplanation(user, new ExplanationRequest(body.subjectType(), body.subjectId()));
     }
 
     @GetMapping("/explanations/{id}")
     public JobResponse explanation(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
-        return advisor.explanation(user, id);
+        return queries.explanation(user, id);
     }
 
     @PostMapping("/explanations/{id}/retry")
     public JobResponse retry(
             @AuthenticationPrincipal AuthenticatedUser user, @PathVariable long id) {
-        return advisor.retry(user, id);
+        return commands.retry(user, id);
     }
 
     public record UpdateProfileBody(

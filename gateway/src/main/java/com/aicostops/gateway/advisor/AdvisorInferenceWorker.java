@@ -22,11 +22,8 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,9 +31,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
-import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Governed advisor execution worker (M18 V3).
@@ -64,6 +59,8 @@ public class AdvisorInferenceWorker {
     private final ProviderExecutionContextResolver contextResolver;
     private final GatewayUsageFinalizationService usageFinalization;
     private final ObjectMapper objectMapper;
+    private final AdvisorSnapshotPromptBuilder prompts;
+    private final AdvisorNarrativeValidator narratives;
     private final Clock clock;
     private final TransactionTemplate transactions;
     private final SecureRandom random = new SecureRandom();
@@ -76,6 +73,8 @@ public class AdvisorInferenceWorker {
             ProviderExecutionContextResolver contextResolver,
             GatewayUsageFinalizationService usageFinalization,
             ObjectMapper objectMapper,
+            AdvisorSnapshotPromptBuilder prompts,
+            AdvisorNarrativeValidator narratives,
             Clock clock,
             PlatformTransactionManager transactionManager) {
         this.jobs = jobs;
@@ -85,6 +84,8 @@ public class AdvisorInferenceWorker {
         this.contextResolver = contextResolver;
         this.usageFinalization = usageFinalization;
         this.objectMapper = objectMapper;
+        this.prompts = prompts;
+        this.narratives = narratives;
         this.clock = clock;
         this.transactions = new TransactionTemplate(transactionManager);
     }
@@ -270,17 +271,17 @@ public class AdvisorInferenceWorker {
         }
         final java.util.Set<String> allowedRefs;
         try {
-            allowedRefs = snapshotDerivedRefs(snapshot);
+            allowedRefs = prompts.snapshotDerivedRefs(snapshot);
         } catch (RuntimeException ex) {
             terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "EVIDENCE_INTEGRITY_FAILED");
             return;
         }
-        var jobRefs = parseRefs(job.evidenceRefsJson());
+        var jobRefs = prompts.parseRefs(job.evidenceRefsJson());
         if (!allowedRefs.equals(jobRefs)) {
             terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "EVIDENCE_INTEGRITY_FAILED");
             return;
         }
-        var prompt = buildPrompt(snapshot);
+        var prompt = prompts.buildPrompt(snapshot);
         if (prompt == null) {
             terminalizeFailed(claimed.jobId(), claimed.token(), claimed.attemptNo(), "SUBJECT_UNAVAILABLE");
             return;
@@ -361,9 +362,9 @@ public class AdvisorInferenceWorker {
                 .block(Duration.ofMinutes(1));
         var narrative = completion.choices().isEmpty() ? ""
                 : String.valueOf(completion.choices().get(0).content());
-        final ValidatedNarrative validated;
+        final AdvisorNarrativeValidator.ValidatedNarrative validated;
         try {
-            validated = validateNarrative(narrative, allowedRefs);
+            validated = narratives.validateNarrative(narrative, allowedRefs);
         } catch (IllegalArgumentException ex) {
             // P1-1 atomic terminal convergence; Provider I/O already happened, but job+attempt
             // must still commit together with row-count asserts.
@@ -430,199 +431,6 @@ public class AdvisorInferenceWorker {
      * (never inferred), and budget-risk inputs plus classification arrive precomputed. Mutable
      * subject rows are never consulted here.
      */
-    private String buildPrompt(AdvisorJobMapper.SnapshotRow snapshot) {
-        try {
-            var factsNode = objectMapper.readTree(snapshot.factsJson());
-            var driversNode = objectMapper.readTree(snapshot.driversJson());
-            var summaryNode = objectMapper.readTree(snapshot.summaryJson());
-            if (factsNode == null || !factsNode.isArray() || factsNode.isEmpty()
-                    || driversNode == null || !driversNode.isArray()
-                    || summaryNode == null || !summaryNode.isObject()) {
-                return null;
-            }
-            var envelope = objectMapper.createObjectNode();
-            envelope.put("schema_version", snapshot.schemaVersion());
-            envelope.put("subject", snapshot.subjectType());
-            envelope.put("subject_id", snapshot.subjectId());
-            envelope.put("currency", snapshot.currency());
-            var factsArray = envelope.putArray("facts");
-            for (var fact : factsNode) {
-                var id = fact.path("factId").asText("");
-                var label = fact.path("label").asText("");
-                var amount = fact.path("amount").asText("");
-                if (id.isBlank() || label.isBlank() || amount.isBlank()) {
-                    return null;
-                }
-                var node = objectMapper.createObjectNode();
-                node.put("id", id);
-                node.put("label", label);
-                node.put("amount", amount);
-                node.put("currency", fact.path("currency").asText(snapshot.currency()));
-                factsArray.add(node);
-            }
-            var driversArray = envelope.putArray("drivers");
-            for (var driver : driversNode) {
-                var id = driver.path("id").asText("");
-                var dimension = driver.path("dimension").asText("");
-                var key = driver.path("key").asText("");
-                var delta = driver.path("deltaAmount").asText("");
-                if (id.isBlank() || dimension.isBlank() || key.isBlank() || delta.isBlank()) {
-                    return null;
-                }
-                var node = objectMapper.createObjectNode();
-                node.put("id", id);
-                node.put("dimension", dimension);
-                node.put("key", key);
-                node.put("deltaAmount", delta);
-                node.put("currency", driver.path("currency").asText(snapshot.currency()));
-                driversArray.add(node);
-            }
-            envelope.put("forecastSummary", summaryNode.path("forecastSummary").asText(""));
-            envelope.put("savingsSummary", summaryNode.path("savingsSummary").asText(""));
-            var instruction = new StringBuilder("Explain the cost facts briefly. Reply with JSON object "
-                    + "containing only: summary, driversExplanation, recommendedActions (array of strings), "
-                    + "warnings (array of strings), factReferences (array of strings). "
-                    + "Never invent amounts; never include money fields. "
-                    + "factReferences may only contain the fact/driver IDs listed above. "
-                    + "Drivers are deterministic analysis results; never invent drivers.");
-            if ("BUDGET_RISK".equals(snapshot.subjectType())) {
-                final JsonNode risk;
-                try {
-                    risk = objectMapper.readTree(summaryNode.path("budgetRiskSummary").asText(""));
-                } catch (Exception ex) {
-                    return null;
-                }
-                if (risk == null || !risk.isObject() || risk.path("risk").asText("").isBlank()) {
-                    return null;
-                }
-                var riskNode = objectMapper.createObjectNode();
-                for (var field : List.of("scope", "actual", "committed", "reservations",
-                        "forecastFuture", "immediate", "projected", "total", "risk")) {
-                    riskNode.put(field, risk.path(field).asText(""));
-                }
-                envelope.set("budgetRisk", riskNode);
-                instruction.append(" The budget risk inputs and classification are precomputed; "
-                        + "explain them only and never recompute projected spend or risk.");
-            } else {
-                envelope.put("budgetRiskSummary", summaryNode.path("budgetRiskSummary").asText(""));
-            }
-            envelope.put("instruction", instruction.toString());
-            return objectMapper.writeValueAsString(envelope);
-        } catch (RuntimeException ex) {
-            LOG.warn("Advisor prompt build failed for snapshot {}", snapshot.id(), ex);
-            return null;
-        }
-    }
-
-    private Set<String> knownRefs(ClaimedJob claimed) {
-        return parseRefs(claimed.evidenceRefsJson());
-    }
-
-    private Set<String> parseRefs(String refsJson) {
-        try {
-            var refs = new java.util.HashSet<String>();
-            var raw = refsJson == null ? "[]" : refsJson;
-            var node = objectMapper.readTree(raw);
-            if (node != null && node.isArray()) {
-                for (var item : node) refs.add(item.stringValue());
-            }
-            return Set.copyOf(refs);
-        } catch (Exception ex) {
-            return Set.of();
-        }
-    }
-
-    private Set<String> snapshotDerivedRefs(AdvisorJobMapper.SnapshotRow snapshot) {
-        try {
-            var refs = new java.util.HashSet<String>();
-            var factsNode = objectMapper.readTree(snapshot.factsJson());
-            var driversNode = objectMapper.readTree(snapshot.driversJson());
-            if (factsNode == null || !factsNode.isArray() || driversNode == null || !driversNode.isArray()) {
-                throw new IllegalArgumentException("Advisor snapshot refs are unreadable");
-            }
-            for (var item : factsNode) {
-                var id = item.path("factId").asText("");
-                if (id.isBlank()) {
-                    throw new IllegalArgumentException("Advisor snapshot fact ref is missing");
-                }
-                refs.add(id);
-            }
-            for (var item : driversNode) {
-                var id = item.path("id").asText("");
-                if (id.isBlank()) {
-                    throw new IllegalArgumentException("Advisor snapshot driver ref is missing");
-                }
-                refs.add(id);
-            }
-            return Set.copyOf(refs);
-        } catch (IllegalArgumentException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new IllegalArgumentException("Advisor snapshot refs are unreadable", ex);
-        }
-    }
-
-    private ValidatedNarrative validateNarrative(String narrative, Set<String> knownRefs) {
-        if (narrative == null || narrative.isBlank() || narrative.length() > 32768) {
-            throw new IllegalArgumentException("Advisor narrative is missing or oversized.");
-        }
-        final ObjectNode tree;
-        try {
-            var parsed = objectMapper.readTree(narrative);
-            if (parsed == null || !parsed.isObject()) throw new IllegalArgumentException("Not an object.");
-            tree = (ObjectNode) parsed;
-        } catch (IllegalArgumentException ex) {
-            throw ex;
-        } catch (Exception ex) {
-            throw new IllegalArgumentException("Advisor narrative is not JSON.", ex);
-        }
-        var allowed = Set.of("summary", "driversExplanation", "recommendedActions", "warnings",
-                "factReferences");
-        for (var entry : tree.properties()) {
-            var field = entry.getKey().toLowerCase(Locale.ROOT);
-            if (!allowed.contains(entry.getKey())) {
-                throw new IllegalArgumentException("Advisor field not allowed: " + entry.getKey());
-            }
-            if (field.contains("amount") || field.contains("cost") || field.contains("saving")
-                    || field.contains("price") || field.contains("budget") || field.contains("forecast")) {
-                throw new IllegalArgumentException("Advisor must not carry money: " + entry.getKey());
-            }
-        }
-        var summary = text(tree, "summary");
-        if (summary.isBlank()) throw new IllegalArgumentException("Advisor summary required.");
-        var refs = strings(tree, "factReferences");
-        for (var ref : refs) {
-            if (!knownRefs.contains(ref)) throw new IllegalArgumentException("Unknown fact ref: " + ref);
-        }
-        return new ValidatedNarrative(sanitize(summary, 2000),
-                sanitize(text(tree, "driversExplanation"), 4000),
-                strings(tree, "recommendedActions").stream().map(v -> sanitize(v, 500)).toList(),
-                strings(tree, "warnings").stream().map(v -> sanitize(v, 500)).toList(), refs);
-    }
-
-    private static String text(ObjectNode tree, String field) {
-        var node = tree.get(field);
-        if (node == null || node.isNull()) return "";
-        if (!node.isString()) throw new IllegalArgumentException("Not text: " + field);
-        return node.stringValue();
-    }
-
-    private static List<String> strings(ObjectNode tree, String field) {
-        var node = tree.get(field);
-        if (node == null || node.isNull()) return List.of();
-        if (!node.isArray()) throw new IllegalArgumentException("Not a list: " + field);
-        var values = new ArrayList<String>();
-        for (var item : node) {
-            if (!item.isString()) throw new IllegalArgumentException("Not text item: " + field);
-            values.add(item.stringValue());
-        }
-        return List.copyOf(values);
-    }
-
-    private static String sanitize(String value, int max) {
-        var cleaned = value.strip().replaceAll("[\\p{Cntrl}&&[^\n\t]]", "");
-        return cleaned.length() <= max ? cleaned : cleaned.substring(0, max);
-    }
 
     private String toJson(Object value) {
         try {
@@ -691,7 +499,4 @@ public class AdvisorInferenceWorker {
             String subjectType, long subjectId, String evidenceRefsJson) {
     }
 
-    private record ValidatedNarrative(String summary, String drivers, List<String> actions,
-            List<String> warnings, List<String> refs) {
-    }
 }
