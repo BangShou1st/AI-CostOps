@@ -30,7 +30,7 @@
 | `docs/03-acceptance/m18-openapi.yaml` | V3 接口描述；结合实际 Controller、响应 records 和前端类型核对 |
 | `frontend/src/features/intelligence/api/intelligenceTypes.ts` | 前端消费的响应形状，必须保持兼容 |
 
-此前工作区结构审查记录为 `2026-10-10-directory-structure-review.md`，未纳入本次模块提交。本设计针对其中第 5 项；不表示其余事项已完成。
+此前结构审查位于 [目录结构审查](2026-10-10-directory-structure-review.md)。本设计针对其中第 5 项；不表示其余事项已完成。
 
 ## 3. 目标文件与职责
 

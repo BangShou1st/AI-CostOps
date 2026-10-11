@@ -2,11 +2,17 @@
 
 当前稳定版本：`v3.0.0`，开发已完成，进入维护阶段。V1/V2 的设计、计划和验收记录保留为历史证据；不能把其中的阶段状态解释为当前待办。当前状态以根 [README](../README.md) 和 [PROJECT_CONTEXT](../PROJECT_CONTEXT.md) 为入口。
 
+第一次阅读建议先看 [项目阅读指南](project-reading-guide.md)，沿一个具体业务找到页面、接口、服务、SQL 和测试。
+
+目录职责：[结构审查](02-development/2026-10-10-directory-structure-review.md)、[公共权限与对账表单整理结果](03-acceptance/2026-10-10-frontend-structure-refactor.md)。
+
 成本分析整理：[职责与事务设计](02-development/2026-10-10-cost-intelligence-refactor-design.md)、[交给其他 AI 的执行提示词](02-development/prompts/2026-10-10-cost-intelligence-refactor-prompt.md)、[实施与验证结果](03-acceptance/2026-10-10-cost-intelligence-refactor.md)。
 
 成本分析收尾：[补测与打包复核](03-acceptance/2026-10-11-cost-intelligence-review.md)、[MinIO 默认测试镜像](03-acceptance/2026-10-11-minio-test-image.md)。
 
 三个模块收尾：[联合审查、边界修复与模块提交](03-acceptance/2026-10-11-cross-module-review.md)。
+
+前端收尾：[路由、对账表单与样式审查](03-acceptance/2026-10-11-frontend-review.md)，包含失败恢复、草稿保留、幂等重试与生产构建验收。
 
 Advisor 维护：[模块阅读与事务边界](02-development/advisor-module-walkthrough.md)、[完整整理与验证](03-acceptance/2026-10-11-advisor-module-refactor.md)、[第一阶段证据整理](03-acceptance/2026-10-11-advisor-evidence-refactor.md)。
 
