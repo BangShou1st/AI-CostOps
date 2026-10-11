@@ -2,39 +2,6 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
 import { ForgotPasswordPage, InvitationPage, LoginPage, RegisterPage, ResetPasswordPage } from '../../features/auth/AuthPages'
-import { EvidenceDetailPage } from '../../features/evidence/EvidenceDetailPage'
-import { EvidenceListPage } from '../../features/evidence/EvidenceListPage'
-import { ImportDetailPage } from '../../features/imports/ImportDetailPage'
-import { ImportListPage } from '../../features/imports/ImportListPage'
-import { CostDetailPage } from '../../features/costs/CostDetailPage'
-import { CostsListPage } from '../../features/costs/CostsListPage'
-import { DuplicatesPage } from '../../features/duplicates/DuplicatesPage'
-import { RulesPage } from '../../features/allocation-rules/RulesPage'
-import { RolesPage } from '../../features/settings/roles/RolesPage'
-import { ProjectsPage } from '../../features/settings/projects/ProjectsPage'
-import { TeamsPage } from '../../features/settings/teams/TeamsPage'
-import { CostCentersPage } from '../../features/settings/costCenters/CostCentersPage'
-import { ProviderAccountsPage } from '../../features/settings/providerAccounts/ProviderAccountsPage'
-import { ProviderGalleryPage } from '../../features/provider/ProviderGalleryPage'
-import { ProviderConnectionsPage } from '../../features/provider/ProviderConnectionsPage'
-import { ConnectionDetailPage } from '../../features/provider/ConnectionDetailPage'
-import { ProviderModelsPage } from '../../features/provider/ProviderModelsPage'
-import { UsersPage } from '../../features/settings/users/UsersPage'
-import { ExpensesListPage } from '../../features/expenses/ExpensesListPage'
-import { ExpensesNewPage } from '../../features/expenses/ExpensesNewPage'
-import { ExpenseDetailPage } from '../../features/expenses/ExpenseDetailPage'
-import { ExpenseReviewQueuePage } from '../../features/expenses/ExpenseReviewQueuePage'
-import { ExpenseReviewDetailPage } from '../../features/expenses/ExpenseReviewDetailPage'
-import { BudgetsListPage } from '../../features/budgets/BudgetsListPage'
-import { BudgetDetailPage } from '../../features/budgets/BudgetDetailPage'
-import { BudgetCommitmentDetailPage } from '../../features/budgets/BudgetCommitmentDetailPage'
-import { LedgerListPage } from '../../features/ledger/LedgerListPage'
-import { LedgerPostingDetailPage } from '../../features/ledger/LedgerPostingDetailPage'
-import { LedgerEntryDetailPage } from '../../features/ledger/LedgerEntryDetailPage'
-import { ReconciliationCaseDetailPage } from '../../features/reconciliation/ReconciliationCaseDetailPage'
-import { ReconciliationPage } from '../../features/reconciliation/ReconciliationPage'
-import { ReconciliationRunDetailPage } from '../../features/reconciliation/ReconciliationRunDetailPage'
-import { PeriodClosePage } from '../../features/period-close/PeriodClosePage'
 import { AuthenticatedLayout } from '../layout/AuthenticatedLayout'
 import { ApplicationLanding } from './ApplicationLanding'
 import { ProtectedRoute } from './ProtectedRoute'
@@ -42,15 +9,54 @@ import { PublicRoute } from './PublicRoute'
 import { PermissionRoute } from './PermissionRoute'
 import { SettingsRedirect } from './SettingsRedirect'
 import { WorkbenchPage } from '../../features/workbench/WorkbenchPage'
-import { RoutingPoliciesPage } from '../../features/settings/routingPolicies/RoutingPoliciesPage'
-import { ServiceIdentitiesPage } from '../../features/gateway/ServiceIdentitiesPage'
-import { GatewayCredentialsPage } from '../../features/gateway/GatewayCredentialsPage'
-import { ModelPricingPage } from '../../features/gateway/ModelPricingPage'
-import { OverviewPage } from '../../features/intelligence/OverviewPage'
-import { AnomaliesPage } from '../../features/intelligence/AnomaliesPage'
-import { ForecastsPage } from '../../features/intelligence/ForecastsPage'
-import { SavingsPage } from '../../features/intelligence/SavingsPage'
-import { AdvisorPage } from '../../features/advisor/AdvisorPage'
+
+/* Route-level code splitting: every feature page is a lazy chunk so the
+   initial bundle carries only the shell, auth pages and the workbench.
+   Auth pages stay eager — they are the first paint for signed-out users.
+   The Suspense boundary lives in AuthenticatedLayout around <Outlet />, so
+   the sidebar stays put while a page chunk loads. */
+const EvidenceDetailPage = lazy(() => import('../../features/evidence/EvidenceDetailPage').then((m) => ({ default: m.EvidenceDetailPage })))
+const EvidenceListPage = lazy(() => import('../../features/evidence/EvidenceListPage').then((m) => ({ default: m.EvidenceListPage })))
+const ImportDetailPage = lazy(() => import('../../features/imports/ImportDetailPage').then((m) => ({ default: m.ImportDetailPage })))
+const ImportListPage = lazy(() => import('../../features/imports/ImportListPage').then((m) => ({ default: m.ImportListPage })))
+const CostDetailPage = lazy(() => import('../../features/costs/CostDetailPage').then((m) => ({ default: m.CostDetailPage })))
+const CostsListPage = lazy(() => import('../../features/costs/CostsListPage').then((m) => ({ default: m.CostsListPage })))
+const DuplicatesPage = lazy(() => import('../../features/duplicates/DuplicatesPage').then((m) => ({ default: m.DuplicatesPage })))
+const RulesPage = lazy(() => import('../../features/allocation-rules/RulesPage').then((m) => ({ default: m.RulesPage })))
+const RolesPage = lazy(() => import('../../features/settings/roles/RolesPage').then((m) => ({ default: m.RolesPage })))
+const ProjectsPage = lazy(() => import('../../features/settings/projects/ProjectsPage').then((m) => ({ default: m.ProjectsPage })))
+const TeamsPage = lazy(() => import('../../features/settings/teams/TeamsPage').then((m) => ({ default: m.TeamsPage })))
+const CostCentersPage = lazy(() => import('../../features/settings/costCenters/CostCentersPage').then((m) => ({ default: m.CostCentersPage })))
+const ProviderAccountsPage = lazy(() => import('../../features/settings/providerAccounts/ProviderAccountsPage').then((m) => ({ default: m.ProviderAccountsPage })))
+const ProviderGalleryPage = lazy(() => import('../../features/provider/ProviderGalleryPage').then((m) => ({ default: m.ProviderGalleryPage })))
+const ProviderConnectionsPage = lazy(() => import('../../features/provider/ProviderConnectionsPage').then((m) => ({ default: m.ProviderConnectionsPage })))
+const ConnectionDetailPage = lazy(() => import('../../features/provider/ConnectionDetailPage').then((m) => ({ default: m.ConnectionDetailPage })))
+const ProviderModelsPage = lazy(() => import('../../features/provider/ProviderModelsPage').then((m) => ({ default: m.ProviderModelsPage })))
+const UsersPage = lazy(() => import('../../features/settings/users/UsersPage').then((m) => ({ default: m.UsersPage })))
+const ExpensesListPage = lazy(() => import('../../features/expenses/ExpensesListPage').then((m) => ({ default: m.ExpensesListPage })))
+const ExpensesNewPage = lazy(() => import('../../features/expenses/ExpensesNewPage').then((m) => ({ default: m.ExpensesNewPage })))
+const ExpenseDetailPage = lazy(() => import('../../features/expenses/ExpenseDetailPage').then((m) => ({ default: m.ExpenseDetailPage })))
+const ExpenseReviewQueuePage = lazy(() => import('../../features/expenses/ExpenseReviewQueuePage').then((m) => ({ default: m.ExpenseReviewQueuePage })))
+const ExpenseReviewDetailPage = lazy(() => import('../../features/expenses/ExpenseReviewDetailPage').then((m) => ({ default: m.ExpenseReviewDetailPage })))
+const BudgetsListPage = lazy(() => import('../../features/budgets/BudgetsListPage').then((m) => ({ default: m.BudgetsListPage })))
+const BudgetDetailPage = lazy(() => import('../../features/budgets/BudgetDetailPage').then((m) => ({ default: m.BudgetDetailPage })))
+const BudgetCommitmentDetailPage = lazy(() => import('../../features/budgets/BudgetCommitmentDetailPage').then((m) => ({ default: m.BudgetCommitmentDetailPage })))
+const LedgerListPage = lazy(() => import('../../features/ledger/LedgerListPage').then((m) => ({ default: m.LedgerListPage })))
+const LedgerPostingDetailPage = lazy(() => import('../../features/ledger/LedgerPostingDetailPage').then((m) => ({ default: m.LedgerPostingDetailPage })))
+const LedgerEntryDetailPage = lazy(() => import('../../features/ledger/LedgerEntryDetailPage').then((m) => ({ default: m.LedgerEntryDetailPage })))
+const ReconciliationCaseDetailPage = lazy(() => import('../../features/reconciliation/ReconciliationCaseDetailPage').then((m) => ({ default: m.ReconciliationCaseDetailPage })))
+const ReconciliationPage = lazy(() => import('../../features/reconciliation/ReconciliationPage').then((m) => ({ default: m.ReconciliationPage })))
+const ReconciliationRunDetailPage = lazy(() => import('../../features/reconciliation/ReconciliationRunDetailPage').then((m) => ({ default: m.ReconciliationRunDetailPage })))
+const PeriodClosePage = lazy(() => import('../../features/period-close/PeriodClosePage').then((m) => ({ default: m.PeriodClosePage })))
+const RoutingPoliciesPage = lazy(() => import('../../features/settings/routingPolicies/RoutingPoliciesPage').then((m) => ({ default: m.RoutingPoliciesPage })))
+const ServiceIdentitiesPage = lazy(() => import('../../features/gateway/ServiceIdentitiesPage').then((m) => ({ default: m.ServiceIdentitiesPage })))
+const GatewayCredentialsPage = lazy(() => import('../../features/gateway/GatewayCredentialsPage').then((m) => ({ default: m.GatewayCredentialsPage })))
+const ModelPricingPage = lazy(() => import('../../features/gateway/ModelPricingPage').then((m) => ({ default: m.ModelPricingPage })))
+const OverviewPage = lazy(() => import('../../features/intelligence/OverviewPage').then((m) => ({ default: m.OverviewPage })))
+const AnomaliesPage = lazy(() => import('../../features/intelligence/AnomaliesPage').then((m) => ({ default: m.AnomaliesPage })))
+const ForecastsPage = lazy(() => import('../../features/intelligence/ForecastsPage').then((m) => ({ default: m.ForecastsPage })))
+const SavingsPage = lazy(() => import('../../features/intelligence/SavingsPage').then((m) => ({ default: m.SavingsPage })))
+const AdvisorPage = lazy(() => import('../../features/advisor/AdvisorPage').then((m) => ({ default: m.AdvisorPage })))
 
 const DevV3Overview = import.meta.env.DEV
   ? lazy(() => import('../../features/intelligence/benchmark/V3OverviewBenchmark').then((m) => ({ default: m.V3OverviewBenchmark })))

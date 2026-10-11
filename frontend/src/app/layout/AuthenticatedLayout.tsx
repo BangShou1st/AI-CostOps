@@ -34,6 +34,7 @@ import { visibleSettingsNav } from '../../features/settings/permissions'
 import { FINANCE_NAV_PATHS, visibleBusinessNav, visibleIntelligenceNav } from './appNavigation'
 import { SETTINGS_COPY } from '../../features/settings/presentation'
 import { useMediaQuery } from './useMediaQuery'
+import { RouteContent } from './RouteContent'
 
 const SIDEBAR_COLLAPSED_KEY = 'aicostops:settings-sidebar-collapsed'
 const DESKTOP_QUERY = '(min-width: 1024px)'
@@ -147,93 +148,94 @@ export function AuthenticatedLayout() {
 
   const initials = auth.user.displayName.trim().charAt(0).toUpperCase() || 'U'
 
-  if (!isDesktop) {
-    return (
-      <div className="app-shell-mobile">
-        <header className="settings-topbar">
-          <Button
-            type="text"
-            className="settings-topbar-menu"
-            aria-label={SETTINGS_COPY.menu}
-            icon={<MenuOutlined />}
-            onClick={() => setDrawerOpen(true)}
-          />
-          <span className="settings-topbar-brand">{SETTINGS_COPY.brand}</span>
-          <span className="settings-topbar-page">{currentLabel}</span>
-        </header>
-        <Drawer
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          placement="left"
-          size={280}
-          title={SETTINGS_COPY.brand}
-        >
-          <div className="settings-drawer-body">
-            <Menu
-              className="settings-menu settings-menu-drawer"
-              mode="inline"
-              selectedKeys={selectedKey ? [selectedKey] : []}
-              items={menuItems}
-              onClick={({ key }) => selectRoute(key)}
-            />
-            <div className="settings-identity">
-              <span className="settings-identity-user">{auth.user.displayName}</span>
-              <button onClick={() => void auth.logout()}>{SETTINGS_COPY.signOut}</button>
-            </div>
-          </div>
-        </Drawer>
-        <main className="settings-content"><Outlet /></main>
-      </div>
-    )
-  }
-
-  return (
-    <Layout className={`settings-shell${collapsed ? ' settings-shell-collapsed' : ''}`}>
-      <aside className="settings-sider">
-        <div className="settings-brand">
-          {collapsed
-            ? <span className="settings-brand-mark">AC</span>
-            : <span className="settings-brand-name">{SETTINGS_COPY.brand}</span>}
-          <button
-            type="button"
-            className="settings-collapse"
-            aria-label={collapsed ? SETTINGS_COPY.expandSidebar : SETTINGS_COPY.collapseSidebar}
-            onClick={toggleCollapsed}
-          >
-            {collapsed ? <RightOutlined /> : <LeftOutlined />}
-          </button>
-        </div>
-        <div className="settings-nav-scroll">
+  const mobileNavigation = (
+    <>
+      <header className="settings-topbar">
+        <Button
+          type="text"
+          className="settings-topbar-menu"
+          aria-label={SETTINGS_COPY.menu}
+          icon={<MenuOutlined />}
+          onClick={() => setDrawerOpen(true)}
+        />
+        <span className="settings-topbar-brand">{SETTINGS_COPY.brand}</span>
+        <span className="settings-topbar-page">{currentLabel}</span>
+      </header>
+      <Drawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        placement="left"
+        size={280}
+        title={SETTINGS_COPY.brand}
+      >
+        <div className="settings-drawer-body">
           <Menu
-            className="settings-menu"
+            className="settings-menu settings-menu-drawer"
             mode="inline"
-            inlineCollapsed={collapsed}
             selectedKeys={selectedKey ? [selectedKey] : []}
             items={menuItems}
             onClick={({ key }) => selectRoute(key)}
           />
+          <div className="settings-identity">
+            <span className="settings-identity-user">{auth.user.displayName}</span>
+            <button onClick={() => void auth.logout()}>{SETTINGS_COPY.signOut}</button>
+          </div>
         </div>
-        <div className="settings-identity">
-          {collapsed ? (
-            <>
-              <span className="settings-avatar" aria-hidden="true">{initials}</span>
-              <Tooltip title={SETTINGS_COPY.signOut} placement="right">
-                <button type="button" className="settings-logout-icon" aria-label={SETTINGS_COPY.signOut} onClick={() => void auth.logout()}>
-                  <LogoutOutlined />
-                </button>
-              </Tooltip>
-            </>
-          ) : (
-            <>
-              <Tooltip title={auth.user.displayName} placement="top">
-                <span className="settings-identity-user">{auth.user.displayName}</span>
-              </Tooltip>
-              <button type="button" onClick={() => void auth.logout()}>{SETTINGS_COPY.signOut}</button>
-            </>
-          )}
-        </div>
-      </aside>
-      <Layout.Content className="settings-content"><Outlet /></Layout.Content>
+      </Drawer>
+    </>
+  )
+
+  const desktopNavigation = (
+    <aside className="settings-sider">
+      <div className="settings-brand">
+        {collapsed
+          ? <span className="settings-brand-mark">AC</span>
+          : <span className="settings-brand-name">{SETTINGS_COPY.brand}</span>}
+        <button
+          type="button"
+          className="settings-collapse"
+          aria-label={collapsed ? SETTINGS_COPY.expandSidebar : SETTINGS_COPY.collapseSidebar}
+          onClick={toggleCollapsed}
+        >
+          {collapsed ? <RightOutlined /> : <LeftOutlined />}
+        </button>
+      </div>
+      <div className="settings-nav-scroll">
+        <Menu
+          className="settings-menu"
+          mode="inline"
+          inlineCollapsed={collapsed}
+          selectedKeys={selectedKey ? [selectedKey] : []}
+          items={menuItems}
+          onClick={({ key }) => selectRoute(key)}
+        />
+      </div>
+      <div className="settings-identity">
+        {collapsed ? (
+          <>
+            <span className="settings-avatar" aria-hidden="true">{initials}</span>
+            <Tooltip title={SETTINGS_COPY.signOut} placement="right">
+              <button type="button" className="settings-logout-icon" aria-label={SETTINGS_COPY.signOut} onClick={() => void auth.logout()}>
+                <LogoutOutlined />
+              </button>
+            </Tooltip>
+          </>
+        ) : (
+          <>
+            <Tooltip title={auth.user.displayName} placement="top">
+              <span className="settings-identity-user">{auth.user.displayName}</span>
+            </Tooltip>
+            <button type="button" onClick={() => void auth.logout()}>{SETTINGS_COPY.signOut}</button>
+          </>
+        )}
+      </div>
+    </aside>
+  )
+
+  return (
+    <Layout className={isDesktop ? `settings-shell${collapsed ? ' settings-shell-collapsed' : ''}` : 'app-shell-mobile'}>
+      {isDesktop ? desktopNavigation : mobileNavigation}
+      <Layout.Content className="settings-content"><RouteContent><Outlet /></RouteContent></Layout.Content>
     </Layout>
   )
 }

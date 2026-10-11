@@ -76,187 +76,187 @@ beforeEach(() => {
 })
 
 describe('AppRouter permission gates', () => {
-  it('directEvidenceRouteWithoutEvidenceReadRendersForbiddenAndNeverMountsChildPage', () => {
+  it('directEvidenceRouteWithoutEvidenceReadRendersForbiddenAndNeverMountsChildPage', async () => {
     renderRouter([], '/evidence/5')
 
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Evidence detail page' })).not.toBeInTheDocument()
   })
 
-  it('directImportRouteWithoutImportReadRendersForbiddenAndNeverMountsChildPage', () => {
+  it('directImportRouteWithoutImportReadRendersForbiddenAndNeverMountsChildPage', async () => {
     renderRouter(['EVIDENCE_READ'], '/imports/123')
 
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Import detail page' })).not.toBeInTheDocument()
   })
 
-  it('evidenceListRouteMountsPageWithEvidenceRead', () => {
+  it('evidenceListRouteMountsPageWithEvidenceRead', async () => {
     renderRouter(['EVIDENCE_READ'], '/evidence')
 
-    expect(screen.getByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
   })
 
-  it('importListRouteMountsPageWithImportRead', () => {
+  it('importListRouteMountsPageWithImportRead', async () => {
     renderRouter(['IMPORT_READ'], '/imports')
 
-    expect(screen.getByRole('heading', { name: 'Import list page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Import list page' })).toBeInTheDocument()
   })
 
-  it('evidenceDetailWithoutImportReadStillMountsDetailPage', () => {
+  it('evidenceDetailWithoutImportReadStillMountsDetailPage', async () => {
     renderRouter(['EVIDENCE_READ'], '/evidence/5')
 
-    expect(screen.getByRole('heading', { name: 'Evidence detail page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Evidence detail page' })).toBeInTheDocument()
   })
 
-  it('importDetailWithoutEvidenceReadStillMountsDetailPage', () => {
+  it('importDetailWithoutEvidenceReadStillMountsDetailPage', async () => {
     renderRouter(['IMPORT_READ'], '/imports/123')
 
-    expect(screen.getByRole('heading', { name: 'Import detail page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Import detail page' })).toBeInTheDocument()
   })
 
-  it('costsRouteWithoutCostReadRendersForbidden', () => {
+  it('costsRouteWithoutCostReadRendersForbidden', async () => {
     renderRouter([], '/costs')
 
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Costs list page' })).not.toBeInTheDocument()
   })
 
-  it('costsListMountsWithCostRead', () => {
+  it('costsListMountsWithCostRead', async () => {
     renderRouter(['COST_READ'], '/costs')
 
-    expect(screen.getByRole('heading', { name: 'Costs list page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Costs list page' })).toBeInTheDocument()
   })
 
-  it('costDetailMountsWithCostRead', () => {
+  it('costDetailMountsWithCostRead', async () => {
     renderRouter(['COST_READ'], '/costs/123')
 
-    expect(screen.getByRole('heading', { name: 'Cost detail page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Cost detail page' })).toBeInTheDocument()
   })
 
-  it('duplicatesRouteRequiresDuplicateReviewEvenWithCostRead', () => {
+  it('duplicatesRouteRequiresDuplicateReviewEvenWithCostRead', async () => {
     renderRouter(['COST_READ'], '/costs/duplicates')
 
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
   })
 
-  it('duplicatesRouteMountsWithDuplicateReview', () => {
+  it('duplicatesRouteMountsWithDuplicateReview', async () => {
     renderRouter(['COST_READ', 'DUPLICATE_REVIEW'], '/costs/duplicates')
 
-    expect(screen.getByRole('heading', { name: 'Duplicates page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Duplicates page' })).toBeInTheDocument()
   })
 
-  it('allocationRulesRouteRequiresRuleManage', () => {
+  it('allocationRulesRouteRequiresRuleManage', async () => {
     renderRouter([], '/allocation-rules')
 
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
   })
 
-  it('allocationRulesRouteMountsWithRuleManage', () => {
+  it('allocationRulesRouteMountsWithRuleManage', async () => {
     renderRouter(['ALLOCATION_RULE_MANAGE'], '/allocation-rules')
 
-    expect(screen.getByRole('heading', { name: 'Rules page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Rules page' })).toBeInTheDocument()
   })
 })
 
 describe('AppRouter application landing', () => {
-  it('appRootLandsOnEvidenceForEvidenceReadOnlyUser', () => {
+  it('appRootLandsOnEvidenceForEvidenceReadOnlyUser', async () => {
     renderRouter(['EVIDENCE_READ'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnImportsForImportReadOnlyUser', () => {
+  it('appRootLandsOnImportsForImportReadOnlyUser', async () => {
     renderRouter(['IMPORT_READ'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Import list page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Import list page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnWorkbenchForCostReadOnlyUser', () => {
+  it('appRootLandsOnWorkbenchForCostReadOnlyUser', async () => {
     renderRouter(['COST_READ'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnRulesForRuleManageOnlyUser', () => {
+  it('appRootLandsOnRulesForRuleManageOnlyUser', async () => {
     renderRouter(['ALLOCATION_RULE_MANAGE'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Rules page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Rules page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnFirstSettingsRouteForSettingsOnlyUser', () => {
+  it('appRootLandsOnFirstSettingsRouteForSettingsOnlyUser', async () => {
     renderRouter(['USER_READ'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Users page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Users page' })).toBeInTheDocument()
   })
 
-  it('authenticatedWildcardReturnsToAppLanding', () => {
+  it('authenticatedWildcardReturnsToAppLanding', async () => {
     renderRouter(['EVIDENCE_READ'], '/unknown-route')
 
-    expect(screen.getByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Evidence list page' })).toBeInTheDocument()
   })
 })
 describe('AppRouter budget gates', () => {
-  it('budgetsRouteWithoutBudgetReadRendersForbiddenAndNeverMountsChildPage', () => {
+  it('budgetsRouteWithoutBudgetReadRendersForbiddenAndNeverMountsChildPage', async () => {
     renderRouter([], '/budgets/5')
 
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Budget detail page' })).not.toBeInTheDocument()
   })
 
-  it('budgetsRouteWithoutBudgetReadStillForbiddenWithManagePermissionsOnly', () => {
+  it('budgetsRouteWithoutBudgetReadStillForbiddenWithManagePermissionsOnly', async () => {
     renderRouter(['BUDGET_MANAGE', 'COMMITMENT_APPROVE'], '/budgets')
 
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Budgets list page' })).not.toBeInTheDocument()
   })
 
-  it('budgetsListMountsWithBudgetRead', () => {
+  it('budgetsListMountsWithBudgetRead', async () => {
     renderRouter(['BUDGET_READ'], '/budgets')
 
-    expect(screen.getByRole('heading', { name: 'Budgets list page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Budgets list page' })).toBeInTheDocument()
   })
 
-  it('budgetDetailMountsWithBudgetRead', () => {
+  it('budgetDetailMountsWithBudgetRead', async () => {
     renderRouter(['BUDGET_READ'], '/budgets/5')
 
-    expect(screen.getByRole('heading', { name: 'Budget detail page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Budget detail page' })).toBeInTheDocument()
   })
 
-  it('commitmentDetailRouteWithoutBudgetReadRendersForbidden', () => {
+  it('commitmentDetailRouteWithoutBudgetReadRendersForbidden', async () => {
     renderRouter([], '/budget-commitments/9')
 
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Commitment detail page' })).not.toBeInTheDocument()
   })
 
-  it('commitmentDetailMountsWithBudgetRead', () => {
+  it('commitmentDetailMountsWithBudgetRead', async () => {
     renderRouter(['BUDGET_READ'], '/budget-commitments/9')
 
-    expect(screen.getByRole('heading', { name: 'Commitment detail page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Commitment detail page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnWorkbenchForBudgetReadOnlyUser', () => {
+  it('appRootLandsOnWorkbenchForBudgetReadOnlyUser', async () => {
     renderRouter(['BUDGET_READ'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 
-  it('appRootLandsOnWorkbenchWhenBudgetsAndExpensesAreReadable', () => {
+  it('appRootLandsOnWorkbenchWhenBudgetsAndExpensesAreReadable', async () => {
     renderRouter(['BUDGET_READ', 'EXPENSE_READ_OWN'], '/app')
 
-    expect(screen.getByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Workbench page' })).toBeInTheDocument()
   })
 })
 
 describe('AppRouter ledger gates', () => {
-  it('ledgerRouteWithoutLedgerReadRendersForbidden', () => {
+  it('ledgerRouteWithoutLedgerReadRendersForbidden', async () => {
     renderRouter([], '/ledger')
-    expect(screen.getByRole('heading', { name: '403' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '403' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Ledger list page' })).not.toBeInTheDocument()
   })
 
-  it('ledgerRoutesMountWithLedgerRead', () => {
+  it('ledgerRoutesMountWithLedgerRead', async () => {
     renderRouter(['LEDGER_READ'], '/ledger/postings/900')
-    expect(screen.getByRole('heading', { name: 'Ledger posting page' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Ledger posting page' })).toBeInTheDocument()
   })
 })
