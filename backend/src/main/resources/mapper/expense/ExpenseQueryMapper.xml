@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aicostops.expense.infrastructure.ExpenseQueryMapper">
+    <!-- Column order matches the ExpenseSummary record constructor. -->
+    <sql id="summaryColumns">
+        ec.id, ec.org_id, ec.claimant_member_id, ec.evidence_id,
+        ec.expense_date, ec.amount, ec.currency, ec.status,
+        ac.status AS approval_status,
+        (ec.status = 'APPROVED' AND ad.status = 'CONFIRMED') IS TRUE AS posting_ready,
+        ec.version, ec.created_at, ec.updated_at
+    </sql>
+
+    <sql id="summaryJoins">
+        LEFT JOIN approval_case ac ON ac.id = ec.approval_case_id AND ac.org_id = ec.org_id
+        LEFT JOIN allocation_decision ad ON ad.id = ec.current_allocation_decision_id AND ad.org_id = ec.org_id
+    </sql>
+
+    <sql id="claimantFilter">
+        WHERE ec.org_id = #{organizationId} AND ec.claimant_member_id = #{claimantMemberId}
+    </sql>
+
+    <!-- Shared by rows and count: approved claims stay visible until POSTED. -->
+    <sql id="reviewFilter">
+        WHERE ec.org_id = #{organizationId}
+        <choose>
+            <when test="statusFilter == 'SUBMITTED'">AND ec.status = 'SUBMITTED'</when>
+            <when test="statusFilter == 'NEEDS_INFO'">AND ec.status = 'NEEDS_INFO'</when>
+            <when test="statusFilter == 'APPROVED'">AND ec.status = 'APPROVED'</when>
+            <otherwise>AND ec.status IN ('SUBMITTED', 'NEEDS_INFO', 'APPROVED')</otherwise>
+        </choose>
+    </sql>
+
+    <select id="selectSummariesByClaimant" resultType="com.aicostops.expense.application.ExpenseReadModels$ExpenseSummary">
+        SELECT <include refid="summaryColumns"/>
+        FROM expense_claim ec
+        <include refid="summaryJoins"/>
+        <include refid="claimantFilter"/>
+        ORDER BY ec.created_at DESC, ec.id DESC
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countByClaimant" resultType="long">
+        SELECT COUNT(*) FROM expense_claim ec
+        <include refid="claimantFilter"/>
+    </select>
+
+    <select id="selectReviewSummaries" resultType="com.aicostops.expense.application.ExpenseReadModels$ExpenseSummary">
+        SELECT <include refid="summaryColumns"/>
+        FROM expense_claim ec
+        <include refid="summaryJoins"/>
+        <include refid="reviewFilter"/>
+        ORDER BY ec.created_at ASC, ec.id ASC
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countReviewQueue" resultType="long">
+        SELECT COUNT(*) FROM expense_claim ec
+        <include refid="reviewFilter"/>
+    </select>
+</mapper>

@@ -9,6 +9,7 @@ import com.aicostops.expense.domain.ApprovalCaseStatus;
 import com.aicostops.expense.domain.ExpenseClaim;
 import com.aicostops.expense.domain.ExpenseClaimStatus;
 import com.aicostops.expense.infrastructure.ExpenseClaimMapper;
+import com.aicostops.expense.infrastructure.ExpenseApprovalMapper;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.iam.domain.AuthorizationContext;
@@ -18,46 +19,61 @@ import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.List;
-import java.util.function.Supplier;
-import org.springframework.dao.DeadlockLoserDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class ExpenseReviewCommandService {
 
-    private static final int DEADLOCK_RETRIES = 3;
+    /** Each review action starts from SUBMITTED/PENDING and owns both target states. */
+    private enum ReviewAction {
+        REQUEST_INFO(ExpenseClaimStatus.NEEDS_INFO, ApprovalCaseStatus.NEEDS_INFO),
+        APPROVE(ExpenseClaimStatus.APPROVED, ApprovalCaseStatus.APPROVED),
+        REJECT(ExpenseClaimStatus.REJECTED, ApprovalCaseStatus.REJECTED);
+
+        private final ExpenseClaimStatus expenseStatus;
+        private final ApprovalCaseStatus approvalStatus;
+
+        ReviewAction(ExpenseClaimStatus expenseStatus, ApprovalCaseStatus approvalStatus) {
+            this.expenseStatus = expenseStatus;
+            this.approvalStatus = approvalStatus;
+        }
+    }
+
     private static final String PERMISSION_EXPENSE_REVIEW = "EXPENSE_REVIEW";
 
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final ExpenseClaimMapper mapper;
+    private final ExpenseApprovalMapper approvals;
     private final ExpenseCloseAdmissionPort closeAdmission;
     private final ExpenseIdempotency idempotency;
     private final ExpenseAuditPort audit;
     private final ExpenseResponseCodec responseCodec;
-    private final TransactionTemplate transactions;
+    private final ExpenseCommandTransactions transactions;
+    private final ExpenseDetailAssembler details;
     private final Clock clock;
 
     public ExpenseReviewCommandService(
             AuthorizationContextService authorizationContexts,
             ExpenseClaimMapper mapper,
+            ExpenseApprovalMapper approvals,
             ExpenseCloseAdmissionPort closeAdmission,
             ExpenseIdempotency idempotency,
             ExpenseAuditPort audit,
             ExpenseResponseCodec responseCodec,
-            PlatformTransactionManager transactionManager,
+            ExpenseCommandTransactions transactions,
+            ExpenseDetailAssembler details,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
+        this.approvals = approvals;
         this.closeAdmission = closeAdmission;
         this.idempotency = idempotency;
         this.audit = audit;
         this.responseCodec = responseCodec;
-        this.transactions = new TransactionTemplate(transactionManager);
+        this.transactions = transactions;
+        this.details = details;
         this.clock = clock;
     }
 
@@ -69,7 +85,7 @@ public class ExpenseReviewCommandService {
         var requestHash = idempotency.requestInfoRequestHash(context.organizationId(),
                 context.organizationMemberId(), expenseId, command.expectedVersion(),
                 command.comment());
-        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+        return transactions.execute(() -> {
             var decision = idempotency.reserve(context.organizationId(),
                     context.organizationMemberId(), ExpenseIdempotency.OPERATION_REQUEST_INFO,
                     idempotencyKey, requestHash);
@@ -77,13 +93,11 @@ public class ExpenseReviewCommandService {
                 return responseCodec.fromJson(decision.responseBody());
             }
             var result = reviewTransition(context, expenseId, command.expectedVersion(),
-                    ExpenseClaimStatus.SUBMITTED, ExpenseClaimStatus.NEEDS_INFO,
-                    ApprovalCaseStatus.PENDING, ApprovalCaseStatus.NEEDS_INFO,
-                    "REQUEST_INFO", command.comment(), decision, null);
+                    ReviewAction.REQUEST_INFO, command.comment(), decision, null);
             audit.reviewed(context.organizationId(), context.userId(), expenseId,
                     result.version(), "REQUEST_INFO", command.comment());
             return result;
-        }));
+        });
     }
 
     public ExpenseDetail approve(AuthenticatedUser user, long expenseId,
@@ -98,7 +112,7 @@ public class ExpenseReviewCommandService {
         var effectiveAt = identity.expenseDate().atStartOfDay(ZoneOffset.UTC).toInstant();
         var requestHash = idempotency.approveRequestHash(context.organizationId(),
                 context.organizationMemberId(), expenseId, command.expectedVersion());
-        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+        return transactions.execute(() -> {
             var decision = idempotency.reserve(context.organizationId(),
                     context.organizationMemberId(), ExpenseIdempotency.OPERATION_APPROVE,
                     idempotencyKey, requestHash);
@@ -106,13 +120,11 @@ public class ExpenseReviewCommandService {
                 return responseCodec.fromJson(decision.responseBody());
             }
             var result = reviewTransition(context, expenseId, command.expectedVersion(),
-                    ExpenseClaimStatus.SUBMITTED, ExpenseClaimStatus.APPROVED,
-                    ApprovalCaseStatus.PENDING, ApprovalCaseStatus.APPROVED,
-                    "APPROVE", null, decision, effectiveAt);
+                    ReviewAction.APPROVE, null, decision, effectiveAt);
             audit.reviewed(context.organizationId(), context.userId(), expenseId,
                     result.version(), "APPROVE", null);
             return result;
-        }));
+        });
     }
 
     public ExpenseDetail reject(AuthenticatedUser user, long expenseId,
@@ -123,7 +135,7 @@ public class ExpenseReviewCommandService {
         var requestHash = idempotency.rejectRequestHash(context.organizationId(),
                 context.organizationMemberId(), expenseId, command.expectedVersion(),
                 command.comment());
-        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+        return transactions.execute(() -> {
             var decision = idempotency.reserve(context.organizationId(),
                     context.organizationMemberId(), ExpenseIdempotency.OPERATION_REJECT,
                     idempotencyKey, requestHash);
@@ -131,19 +143,15 @@ public class ExpenseReviewCommandService {
                 return responseCodec.fromJson(decision.responseBody());
             }
             var result = reviewTransition(context, expenseId, command.expectedVersion(),
-                    ExpenseClaimStatus.SUBMITTED, ExpenseClaimStatus.REJECTED,
-                    ApprovalCaseStatus.PENDING, ApprovalCaseStatus.REJECTED,
-                    "REJECT", command.comment(), decision, null);
+                    ReviewAction.REJECT, command.comment(), decision, null);
             audit.reviewed(context.organizationId(), context.userId(), expenseId,
                     result.version(), "REJECT", command.comment());
             return result;
-        }));
+        });
     }
 
     private ExpenseDetail reviewTransition(AuthorizationContext context, long expenseId,
-            long expectedVersion, ExpenseClaimStatus fromExpense, ExpenseClaimStatus toExpense,
-            ApprovalCaseStatus fromCase, ApprovalCaseStatus toCase,
-            String actionType, String comment, IdempotencyDecision decision,
+            long expectedVersion, ReviewAction action, String comment, IdempotencyDecision decision,
             Instant financialEffectiveAt) {
         if (financialEffectiveAt != null) {
             closeAdmission.lockOpenAt(context.organizationId(), financialEffectiveAt);
@@ -161,7 +169,7 @@ public class ExpenseReviewCommandService {
         if (claim.approvalCaseId() == null) {
             throw new IllegalStateException("A reviewable expense must have an approval case");
         }
-        var approvalCase = mapper.selectApprovalCaseByExpenseForUpdate(
+        var approvalCase = approvals.selectApprovalCaseByExpenseForUpdate(
                 context.organizationId(), claim.id());
         if (approvalCase == null) {
             throw new IllegalStateException("The approval case of a reviewable expense must exist");
@@ -169,38 +177,27 @@ public class ExpenseReviewCommandService {
         if (claim.version() != expectedVersion) {
             throw staleVersion();
         }
-        if (claim.status() != fromExpense || approvalCase.status() != fromCase) {
+        if (claim.status() != ExpenseClaimStatus.SUBMITTED || approvalCase.status() != ApprovalCaseStatus.PENDING) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                     "Expense review conflict",
                     "The expense is no longer in the expected review state.");
         }
         var now = clock.instant();
         if (mapper.updateStatusVersioned(context.organizationId(), expenseId, expectedVersion,
-                fromExpense.name(), toExpense.name(), claim.approvalCaseId(), now) != 1) {
+                ExpenseClaimStatus.SUBMITTED.name(), action.expenseStatus.name(), claim.approvalCaseId(), now) != 1) {
             throw staleVersion();
         }
-        if (mapper.updateApprovalCaseStatus(context.organizationId(), approvalCase.id(),
-                fromCase.name(), toCase.name(), now) != 1) {
+        if (approvals.updateApprovalCaseStatus(context.organizationId(), approvalCase.id(),
+                ApprovalCaseStatus.PENDING.name(), action.approvalStatus.name(), now) != 1) {
             throw staleVersion();
         }
-        mapper.insertApprovalAction(context.organizationId(), approvalCase.id(),
-                context.organizationMemberId(), actionType, fromExpense.name(), toExpense.name(),
+        approvals.insertApprovalAction(context.organizationId(), approvalCase.id(),
+                context.organizationMemberId(), action.name(), ExpenseClaimStatus.SUBMITTED.name(), action.expenseStatus.name(),
                 comment, now);
         var updated = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
-        var detail = toDetail(updated);
+        var detail = details.assemble(updated);
         idempotency.finalize(decision.id(), 200, responseCodec.toJson(detail));
         return detail;
-    }
-
-    private ExpenseDetail toDetail(ExpenseClaim claim) {
-        var approvalStatus = claim.approvalCaseId() == null ? null
-                : mapper.selectApprovalCaseByExpense(claim.organizationId(), claim.id()).status();
-        var decisionConfirmed = claim.currentAllocationDecisionId() == null ? false
-                : "CONFIRMED".equals(mapper.selectDecisionStatus(
-                        claim.organizationId(), claim.currentAllocationDecisionId()));
-        var history = claim.approvalCaseId() == null ? List.<com.aicostops.expense.domain.ApprovalAction>of()
-                : mapper.selectApprovalActionsByCase(claim.organizationId(), claim.approvalCaseId());
-        return ExpenseDetail.from(claim, approvalStatus, decisionConfirmed, history);
     }
 
     private static DomainException notFound() {
@@ -215,15 +212,4 @@ public class ExpenseReviewCommandService {
                 "The expense was modified by another request; reload and retry.");
     }
 
-    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
-        for (var attempt = 1; ; attempt++) {
-            try {
-                return operation.get();
-            } catch (DeadlockLoserDataAccessException deadlock) {
-                if (attempt >= DEADLOCK_RETRIES) {
-                    throw deadlock;
-                }
-            }
-        }
-    }
 }

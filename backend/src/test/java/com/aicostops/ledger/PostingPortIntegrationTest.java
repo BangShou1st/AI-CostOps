@@ -31,7 +31,7 @@ import com.aicostops.cost.application.ChargePostingPort.ChargePostingSource;
 import com.aicostops.cost.domain.ReviewStatus;
 import com.aicostops.cost.infrastructure.ChargePostingAdapter;
 import com.aicostops.cost.infrastructure.ChargePostingMapper;
-import com.aicostops.expense.application.ExpensePostingService;
+import com.aicostops.expense.infrastructure.ExpensePostingAdapter;
 import com.aicostops.expense.domain.ExpenseClaim;
 import com.aicostops.expense.domain.ExpenseClaimStatus;
 import com.aicostops.expense.infrastructure.ExpenseClaimMapper;
@@ -94,7 +94,7 @@ class PostingPortIntegrationTest {
         when(mapper.selectByIdForUpdate(9L, 22L)).thenReturn(claim);
         when(mapper.markPosted(9L, 22L, 4L, EFFECTIVE_AT)).thenReturn(1);
 
-        var service = new ExpensePostingService(mapper);
+        var service = new ExpensePostingAdapter(mapper);
         assertThat(service.lockAndRequireApproved(9L, 22L, 71L).version()).isEqualTo(4L);
         service.markPosted(9L, 22L, 4L, EFFECTIVE_AT);
 

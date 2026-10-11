@@ -97,6 +97,21 @@ class ExpenseEvidenceIntegrationTest extends ExpenseTestSupport {
     }
 
     @Test
+    void alreadyStaleUploadDoesNotStoreEvidenceOrChangeTheClaim() throws Exception {
+        var expenseId = insertExpenseDraft();
+        var before = jdbc.queryForObject("SELECT COUNT(*) FROM evidence WHERE org_id=?", Long.class, orgId);
+        mockMvc.perform(multipart("/api/v1/expenses/{expenseId}/evidence", expenseId)
+                        .file(new MockMultipartFile("file", "new.pdf", "application/pdf",
+                                "stale-new-receipt".getBytes(StandardCharsets.UTF_8)))
+                        .param("expectedVersion", "99")
+                        .header("Authorization", employeeBearer()))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM evidence WHERE org_id=?", Long.class, orgId)).isEqualTo(before);
+        assertThat(expenseVersion(expenseId)).isZero();
+        assertThat(auditCount("EXPENSE_EVIDENCE_ATTACHED")).isZero();
+    }
+
+    @Test
     void ownerDownloadsOwnEvidenceAndForeignIs404() throws Exception {
         var expenseId = insertExpenseDraft();
         attachEvidence(expenseId);
@@ -107,6 +122,11 @@ class ExpenseEvidenceIntegrationTest extends ExpenseTestSupport {
         var foreignClaimant = insertMember(orgId, foreignUserId);
         var foreignExpenseId = insertExpenseDraftFor(orgId, foreignClaimant,
                 "50.00000000", "CNY", "DRAFT");
+        // Give the other employee's claim real, AVAILABLE evidence so a 404
+        // proves ownership enforcement rather than merely a missing attachment.
+        jdbc.update("UPDATE expense_claim SET evidence_id=(SELECT evidence_id FROM"
+                + " (SELECT evidence_id FROM expense_claim WHERE id=?) source) WHERE id=?",
+                expenseId, foreignExpenseId);
         mockMvc.perform(get("/api/v1/expenses/{expenseId}/evidence/download", foreignExpenseId)
                         .header("Authorization", employeeBearer()))
                 .andExpect(status().isNotFound())

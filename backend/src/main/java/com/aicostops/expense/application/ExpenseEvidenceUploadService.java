@@ -12,13 +12,8 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.io.InputStream;
 import java.time.Clock;
-import java.util.List;
-import java.util.function.Supplier;
-import org.springframework.dao.DeadlockLoserDataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Employee primary-evidence upload. The evidence bytes are staged and stored
@@ -30,7 +25,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class ExpenseEvidenceUploadService {
 
-    private static final int DEADLOCK_RETRIES = 3;
     private static final String PERMISSION_EVIDENCE_UPLOAD_OWN = "EVIDENCE_UPLOAD_OWN";
 
     private final AuthorizationContextService authorizationContexts;
@@ -38,8 +32,8 @@ public class ExpenseEvidenceUploadService {
     private final EvidenceStorageService evidenceStorage;
     private final ExpenseClaimMapper mapper;
     private final ExpenseAuditPort audit;
-    private final ExpenseResponseCodec responseCodec;
-    private final TransactionTemplate transactions;
+    private final ExpenseCommandTransactions transactions;
+    private final ExpenseDetailAssembler details;
     private final Clock clock;
 
     public ExpenseEvidenceUploadService(
@@ -47,15 +41,15 @@ public class ExpenseEvidenceUploadService {
             EvidenceStorageService evidenceStorage,
             ExpenseClaimMapper mapper,
             ExpenseAuditPort audit,
-            ExpenseResponseCodec responseCodec,
-            PlatformTransactionManager transactionManager,
+            ExpenseCommandTransactions transactions,
+            ExpenseDetailAssembler details,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.evidenceStorage = evidenceStorage;
         this.mapper = mapper;
         this.audit = audit;
-        this.responseCodec = responseCodec;
-        this.transactions = new TransactionTemplate(transactionManager);
+        this.transactions = transactions;
+        this.details = details;
         this.clock = clock;
     }
 
@@ -71,13 +65,18 @@ public class ExpenseEvidenceUploadService {
 
         var claim = mapper.selectByIdAndOrganization(context.organizationId(), expenseId);
         requireOwnedEditable(context, claim);
+        // Reject a page that is already stale before storing a new object.
+        // The locked check below remains necessary for edits during upload.
+        if (claim.version() != expectedVersion) {
+            throw staleVersion();
+        }
 
         // Evidence storage runs outside the expense lock and its own short
         // transactions; the attach below rechecks the expense state.
         var stored = evidenceStorage.store(context.organizationId(),
                 context.organizationMemberId(), originalFilename, mediaType, content);
 
-        return executeWithDeadlockRetry(() -> transactions.execute(status -> {
+        return transactions.execute(() -> {
             var locked = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
             requireOwnedEditable(context, locked);
             if (locked.version() != expectedVersion) {
@@ -88,11 +87,11 @@ public class ExpenseEvidenceUploadService {
                 throw staleVersion();
             }
             var updated = mapper.selectByIdForUpdate(context.organizationId(), expenseId);
-            var detail = toDetail(context.organizationId(), updated);
+            var detail = details.assemble(updated);
             audit.evidenceAttached(context.organizationId(), context.userId(), detail.id(),
                     detail.evidenceId(), detail.version());
             return detail;
-        }));
+        });
     }
 
     private void requireOwnedEditable(AuthorizationContext context, ExpenseClaim claim) {
@@ -104,17 +103,6 @@ public class ExpenseEvidenceUploadService {
                     "Expense is not editable",
                     "Evidence can only be attached to a DRAFT or NEEDS_INFO expense.");
         }
-    }
-
-    private ExpenseDetail toDetail(long organizationId, ExpenseClaim claim) {
-        var approvalStatus = claim.approvalCaseId() == null ? null
-                : mapper.selectApprovalCaseByExpense(organizationId, claim.id()).status();
-        var decisionConfirmed = claim.currentAllocationDecisionId() == null ? false
-                : "CONFIRMED".equals(mapper.selectDecisionStatus(
-                        organizationId, claim.currentAllocationDecisionId()));
-        var history = claim.approvalCaseId() == null ? List.<com.aicostops.expense.domain.ApprovalAction>of()
-                : mapper.selectApprovalActionsByCase(organizationId, claim.approvalCaseId());
-        return ExpenseDetail.from(claim, approvalStatus, decisionConfirmed, history);
     }
 
     private static DomainException notFound() {
@@ -129,15 +117,4 @@ public class ExpenseEvidenceUploadService {
                 "The expense was modified by another request; reload and retry.");
     }
 
-    private <T> T executeWithDeadlockRetry(Supplier<T> operation) {
-        for (var attempt = 1; ; attempt++) {
-            try {
-                return operation.get();
-            } catch (DeadlockLoserDataAccessException deadlock) {
-                if (attempt >= DEADLOCK_RETRIES) {
-                    throw deadlock;
-                }
-            }
-        }
-    }
 }

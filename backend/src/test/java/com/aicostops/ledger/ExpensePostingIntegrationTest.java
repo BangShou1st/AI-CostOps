@@ -74,6 +74,63 @@ class ExpensePostingIntegrationTest extends AllocationApiTestSupport {
         assertThat(auditCount("LEDGER_EXPENSE_POSTED")).isEqualTo(1);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"CLOSING", "CLOSED"})
+    void firstPostingIsBlockedOutsideOpenPeriodWithoutChangingAnyFinancialData(String periodStatus) {
+        jdbc.update("UPDATE billing_period SET status=? WHERE id=?", periodStatus, periodId);
+        assertThatThrownBy(() -> postings.post(new AuthenticatedUser(actorUserId, 7), expenseId,
+                new PostSourceCommand(java.util.List.of())))
+                .isInstanceOf(DomainException.class)
+                .satisfies(error -> assertThat(((DomainException) error).code().name()).isEqualTo("PERIOD_NOT_OPEN"));
+        assertNoFinancialWrites();
+    }
+
+    @Test
+    void anApprovedExpenseWithoutConfirmedAllocationCannotPost() {
+        jdbc.update("UPDATE allocation_decision SET status='DRAFT' WHERE id=?", decisionId);
+        assertThatThrownBy(() -> postings.post(new AuthenticatedUser(actorUserId, 7), expenseId,
+                new PostSourceCommand(java.util.List.of())))
+                .isInstanceOf(DomainException.class)
+                .hasMessageContaining("CONFIRMED");
+        assertNoFinancialWrites();
+    }
+
+    @Test
+    void concurrentPostingReturnsOneResultAndIncrementsBudgetOnlyOnce() throws Exception {
+        var actor = new AuthenticatedUser(actorUserId, 7);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        try (var pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Long> task = () -> {
+                start.await();
+                return postings.post(actor, expenseId, new PostSourceCommand(java.util.List.of())).posting().id();
+            };
+            var first = pool.submit(task);
+            var second = pool.submit(task);
+            start.countDown();
+            assertThat(first.get(30, java.util.concurrent.TimeUnit.SECONDS))
+                    .isEqualTo(second.get(30, java.util.concurrent.TimeUnit.SECONDS));
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?", Integer.class, orgId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_entry WHERE org_id=?", Integer.class, orgId)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?", BigDecimal.class, exactBudgetId))
+                .isEqualByComparingTo("6.00000000");
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?", BigDecimal.class, orgBudgetId))
+                .isEqualByComparingTo("4.00000000");
+        assertThat(expenseVersion(expenseId)).isEqualTo(1);
+        assertThat(auditCount("LEDGER_EXPENSE_POSTED")).isEqualTo(1);
+    }
+
+    private void assertNoFinancialWrites() {
+        assertThat(expenseStatus(expenseId)).isEqualTo("APPROVED");
+        assertThat(expenseVersion(expenseId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_posting WHERE org_id=?", Integer.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ledger_entry WHERE org_id=?", Integer.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?", BigDecimal.class, exactBudgetId)).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?", BigDecimal.class, orgBudgetId)).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT remaining_amount FROM budget_commitment WHERE id=?", BigDecimal.class, commitmentId)).isEqualByComparingTo("3");
+        assertThat(auditCount("LEDGER_EXPENSE_POSTED")).isZero();
+    }
+
     @Test
     void committedPostingReplaysAfterPeriodClosesWithoutMutation() {
         var actor = new AuthenticatedUser(actorUserId, 7);

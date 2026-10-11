@@ -1,6 +1,7 @@
 package com.aicostops.expense.api;
 
 import com.aicostops.expense.application.ExpenseReadModels.ExpenseDetail;
+import com.aicostops.expense.application.ExpenseReadModels.ExpenseSummary;
 import com.aicostops.shared.json.ApiId;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -69,6 +70,14 @@ public final class ExpenseResponses {
             boolean postingReady,
             long version,
             Instant createdAt) {
+
+        public static ExpenseSummaryResponse from(ExpenseSummary summary) {
+            return new ExpenseSummaryResponse(ApiId.of(summary.id()), summary.status().name(),
+                    summary.evidenceId() == null ? null : ApiId.of(summary.evidenceId()),
+                    summary.expenseDate(), summary.amount().toPlainString(), summary.currency(),
+                    summary.approvalStatus() == null ? null : summary.approvalStatus().name(),
+                    summary.postingReady(), summary.version(), summary.createdAt());
+        }
 
         public static ExpenseSummaryResponse from(ExpenseDetail detail) {
             return new ExpenseSummaryResponse(

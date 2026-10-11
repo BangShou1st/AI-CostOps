@@ -1,21 +1,21 @@
 package com.aicostops.expense.application;
 
-import com.aicostops.expense.domain.ApprovalAction;
-import com.aicostops.expense.domain.ExpenseClaim;
 import com.aicostops.expense.infrastructure.ExpenseClaimMapper;
+import com.aicostops.expense.infrastructure.ExpenseQueryMapper;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.iam.domain.AuthorizationContext;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
+import com.aicostops.shared.web.PageRequest;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Expense reads. Authorization runs in the HTTP layer before any resource
+ * Expense reads. Authorization runs in this service before any resource
  * lookup (403 for a missing grant, privacy-preserving 404 otherwise); the OWN
  * guard compares the claimant against the current organization member.
  */
@@ -28,30 +28,34 @@ public class ExpenseQueryService {
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final ExpenseClaimMapper mapper;
+    private final ExpenseQueryMapper listQueries;
+    private final ExpenseDetailAssembler details;
 
     public ExpenseQueryService(
             AuthorizationContextService authorizationContexts,
-            ExpenseClaimMapper mapper) {
+            ExpenseClaimMapper mapper,
+            ExpenseQueryMapper listQueries,
+            ExpenseDetailAssembler details) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
+        this.listQueries = listQueries;
+        this.details = details;
     }
 
     @Transactional(readOnly = true)
-    public List<ExpenseReadModels.ExpenseDetail> listMine(
+    public List<ExpenseReadModels.ExpenseSummary> listMine(
             AuthenticatedUser user, int page, int size) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_EXPENSE_READ_OWN);
-        var offset = Math.max(page, 0) * Math.max(size, 1);
-        return mapper.selectByClaimant(context.organizationId(), context.organizationMemberId(),
-                        Math.max(size, 1), offset).stream()
-                .map(claim -> toDetail(context.organizationId(), claim))
-                .toList();
+        var pagination = PageRequest.of(page, size);
+        return listQueries.selectSummariesByClaimant(context.organizationId(),
+                context.organizationMemberId(), pagination.size(), pagination.offset());
     }
 
     public long countMine(AuthenticatedUser user) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, PERMISSION_EXPENSE_READ_OWN);
-        return mapper.countByClaimant(context.organizationId(), context.organizationMemberId());
+        return listQueries.countByClaimant(context.organizationId(), context.organizationMemberId());
     }
 
     /**
@@ -66,7 +70,7 @@ public class ExpenseQueryService {
         if (claim == null || !claim.isOwnedBy(context.organizationMemberId())) {
             throw notFound();
         }
-        return toDetail(context.organizationId(), claim);
+        return details.assemble(claim);
     }
 
     /**
@@ -81,18 +85,7 @@ public class ExpenseQueryService {
         if (claim == null) {
             throw notFound();
         }
-        return toDetail(context.organizationId(), claim);
-    }
-
-    public ExpenseReadModels.ExpenseDetail toDetail(long organizationId, ExpenseClaim claim) {
-        var approvalStatus = claim.approvalCaseId() == null ? null
-                : mapper.selectApprovalCaseByExpense(organizationId, claim.id()).status();
-        var decisionConfirmed = claim.currentAllocationDecisionId() == null ? false
-                : "CONFIRMED".equals(mapper.selectDecisionStatus(
-                        organizationId, claim.currentAllocationDecisionId()));
-        var history = claim.approvalCaseId() == null ? List.<ApprovalAction>of()
-                : mapper.selectApprovalActionsByCase(organizationId, claim.approvalCaseId());
-        return ExpenseReadModels.ExpenseDetail.from(claim, approvalStatus, decisionConfirmed, history);
+        return details.assemble(claim);
     }
 
     private static DomainException notFound() {

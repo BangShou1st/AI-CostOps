@@ -1,8 +1,9 @@
-package com.aicostops.expense.application;
+package com.aicostops.expense.infrastructure;
+
+import com.aicostops.expense.application.ExpensePostingPort;
 
 import com.aicostops.expense.domain.ExpenseClaim;
 import com.aicostops.expense.domain.ExpenseClaimStatus;
-import com.aicostops.expense.infrastructure.ExpenseClaimMapper;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Instant;
@@ -10,12 +11,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 /** Adapter/service that owns the ExpenseClaim posting state transition. */
-@Service
-public class ExpensePostingService implements ExpensePostingPort {
+@Service("expensePostingService")
+public class ExpensePostingAdapter implements ExpensePostingPort {
 
     private final ExpenseClaimMapper mapper;
 
-    public ExpensePostingService(ExpenseClaimMapper mapper) {
+    public ExpensePostingAdapter(ExpenseClaimMapper mapper) {
         this.mapper = mapper;
     }
 

@@ -11,6 +11,7 @@ import com.aicostops.expense.application.ExpenseReviewCommandService;
 import com.aicostops.expense.application.ExpenseReviewQueryService;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.PageResponse;
+import com.aicostops.shared.web.PageRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -47,12 +48,12 @@ public class ExpenseReviewController {
             @RequestParam(defaultValue = "ALL") String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
+        var pagination = PageRequest.of(page, size);
         var total = queries.countQueue(authenticatedUser, status);
         var items = queries.listQueue(authenticatedUser, status, page, size).stream()
                 .map(ExpenseSummaryResponse::from)
                 .toList();
-        var totalPages = total == 0 ? 0 : ((total - 1) / Math.max(size, 1)) + 1;
-        return new PageResponse<>(items, Math.max(page, 0), Math.max(size, 1), total, totalPages);
+        return PageResponse.of(items, pagination, total);
     }
 
     @GetMapping("/expense-reviews/{expenseId}")
