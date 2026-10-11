@@ -38,7 +38,7 @@ public class AdvisorService {
     private final AuthorizationContextService authorizationContexts;
     private final AdvisorMapper mapper;
     private final AdvisorOutputValidator outputValidator;
-    private final com.aicostops.intelligence.application.CostIntelligenceService intelligence;
+    private final com.aicostops.intelligence.application.BudgetRiskQueryService budgetRisks;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -49,14 +49,14 @@ public class AdvisorService {
             AuthorizationContextService authorizationContexts,
             AdvisorMapper mapper,
             AdvisorOutputValidator outputValidator,
-            com.aicostops.intelligence.application.CostIntelligenceService intelligence,
+            com.aicostops.intelligence.application.BudgetRiskQueryService budgetRisks,
             AuditService audit,
             ObjectMapper objectMapper,
             Clock clock) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.outputValidator = outputValidator;
-        this.intelligence = intelligence;
+        this.budgetRisks = budgetRisks;
         this.audit = audit;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -513,7 +513,7 @@ public class AdvisorService {
                 }
                 // P1: risk inputs and classification are precomputed deterministically here and
                 // frozen into the snapshot; the model only explains them.
-                var evidence = intelligence.assessScopeBudget(organizationId, row.scopeType(),
+                var evidence = budgetRisks.assessScopeBudget(organizationId, row.scopeType(),
                         row.scopeId(), row.actualAmount(), row.committedAmount(), row.totalAmount(),
                         row.currency(), row.id());
                 var facts = List.of(

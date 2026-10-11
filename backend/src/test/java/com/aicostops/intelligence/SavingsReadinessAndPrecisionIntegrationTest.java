@@ -2,7 +2,8 @@ package com.aicostops.intelligence;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.aicostops.intelligence.application.CostIntelligenceService;
+import com.aicostops.intelligence.application.CostIntelligenceAnalysisService;
+import com.aicostops.intelligence.application.CostIntelligenceValidation;
 import com.aicostops.intelligence.infrastructure.CostFactsMapper;
 import com.aicostops.intelligence.infrastructure.IntelligenceMapper;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
@@ -28,7 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContainersSupport {
 
     @Autowired
-    private CostIntelligenceService intelligence;
+    private CostIntelligenceAnalysisService intelligence;
     @Autowired
     private IntelligenceMapper store;
     @Autowired
@@ -54,7 +55,7 @@ class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContaine
         var outcome = intelligence.runAnalysis(org, yesterday, "USD");
         assertEquals("COMPLETED", outcome.status());
         var runId = store.findRunId(org, yesterday, "USD",
-                CostIntelligenceService.RUN_VERSION);
+                CostIntelligenceValidation.RUN_VERSION);
         assertNotNull(runId);
         var recs = store.listRecommendations(org, runId);
         assertEquals(1, recs.size());
@@ -105,7 +106,7 @@ class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContaine
         var yesterday = LocalDate.now().minusDays(1);
         var outcome = intelligence.runAnalysis(org, yesterday, "USD");
         assertEquals("COMPLETED", outcome.status());
-        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceService.RUN_VERSION);
+        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceValidation.RUN_VERSION);
         assertNotNull(runId);
         assertEquals(0, store.listRecommendations(org, runId).size());
     }
@@ -134,7 +135,7 @@ class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContaine
         var yesterday = LocalDate.now().minusDays(1);
         var outcome = intelligence.runAnalysis(org, yesterday, "USD");
         assertEquals("COMPLETED", outcome.status());
-        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceService.RUN_VERSION);
+        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceValidation.RUN_VERSION);
         assertNotNull(runId);
         assertEquals(1, store.listRecommendations(org, runId).size());
     }
