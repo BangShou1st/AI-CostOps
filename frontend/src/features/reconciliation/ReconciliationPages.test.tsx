@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, cleanup } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, cleanup, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { periodCloseApi } from '../period-close/api/periodCloseApi'
@@ -126,7 +126,7 @@ const exactEvidenceRow = {
 }
 const caseRow = {
   id: '9', reconciliationRunId: '7', providerAccountId: '5', currency: 'USD', caseType: 'AMOUNT_MISMATCH',
-  externalAmount: '0.00000001', internalAmount: '0.00000000', differenceAmount: '0.00000001',
+  externalAmount: '0.00000001', internalAmount: '0.00000000', differenceAmount: '-0.00000001',
   externalRowCount: 1, internalRowCount: 1, status: 'OPEN' as const, reasonCode: null,
   resolutionNote: null, resolvedByMemberId: null, resolvedAt: null,
   createdAt: '2026-08-21T01:00:01Z', updatedAt: '2026-08-21T01:00:01Z',
@@ -528,6 +528,109 @@ function renderCasePage(permissions: string[] = ['RECONCILIATION_READ']) {
 }
 
 describe('ReconciliationCaseDetailPage', () => {
+  it('does not fetch adjustment targets while the adjustment form is closed', async () => {
+    renderCasePage(['RECONCILIATION_READ'])
+    expect(await screen.findByText('对账案例详情')).toBeInTheDocument()
+    expect(mockedAllocationApi.listTargets).not.toHaveBeenCalled()
+  })
+
+  it('locks resolve fields and cancellation until the pending request finishes', async () => {
+    let finish!: (value: Awaited<ReturnType<typeof reconciliationApi.getCase>>) => void
+    mockedReconciliationApi.getCase.mockResolvedValue({ ...caseRow, status: 'INVESTIGATING' })
+    mockedReconciliationApi.resolveCase.mockImplementation(() => new Promise(resolve => { finish = resolve }))
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE'])
+    fireEvent.click(await screen.findByRole('button', { name: '接受差异并解决' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    fireEvent.change(dialog.getByLabelText('处理原因'), { target: { value: 'reviewed' } })
+    fireEvent.change(dialog.getByLabelText('解决说明'), { target: { value: 'verified evidence' } })
+    fireEvent.click(dialog.getByRole('button', { name: '确认解决' }))
+    await waitFor(() => expect(dialog.getByLabelText('处理原因')).toBeDisabled())
+    expect(dialog.getByLabelText('解决说明')).toBeDisabled()
+    expect(dialog.getByRole('button', { name: /Cancel|取消/ })).toBeDisabled()
+    expect(mockedReconciliationApi.resolveCase).toHaveBeenCalledTimes(1)
+    finish({ ...caseRow, status: 'RESOLVED' })
+    await waitFor(() => expect(mockedReconciliationApi.getCase.mock.calls.length).toBeGreaterThan(1))
+  })
+
+  it('submits the extracted resolve form, blocks incomplete input and refreshes case state', async () => {
+    mockedReconciliationApi.getCase.mockResolvedValue({ ...caseRow, status: 'INVESTIGATING' })
+    mockedReconciliationApi.resolveCase.mockImplementation(async (_id, body) => {
+      const updated = { ...caseRow, ...body, status: 'RESOLVED' as const }
+      mockedReconciliationApi.getCase.mockResolvedValue(updated)
+      return updated
+    })
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE'])
+    fireEvent.click(await screen.findByRole('button', { name: '接受差异并解决' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(dialog.getByRole('button', { name: '确认解决' })).toBeDisabled()
+    fireEvent.change(dialog.getByPlaceholderText('请输入处理原因'), { target: { value: ' reviewed ' } })
+    fireEvent.change(dialog.getByPlaceholderText('请说明本次案例的处理结论'), { target: { value: ' verified evidence ' } })
+    fireEvent.click(dialog.getByRole('button', { name: '确认解决' }))
+    await waitFor(() => expect(mockedReconciliationApi.resolveCase).toHaveBeenCalledWith(
+      '9', { reasonCode: 'reviewed', resolutionNote: 'verified evidence' }, expect.any(String),
+    ))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '接受差异并解决' })).not.toBeInTheDocument())
+    expect(screen.getByText('verified evidence', { selector: '.m6-note-block' })).toBeInTheDocument()
+  })
+
+  it.each([
+    { externalAmount: '0.00000001', internalAmount: '0.00000000', differenceAmount: '-0.00000001', required: '0.00000001', wrong: '-0.00000001' },
+    { externalAmount: '0.00000000', internalAmount: '0.00000001', differenceAmount: '0.00000001', required: '-0.00000001', wrong: '0.00000001' },
+  ])('preserves exact CASE_FULL amount $required and its explicit allocation', async ({ externalAmount, internalAmount, differenceAmount, required, wrong }) => {
+    mockedReconciliationApi.getCase.mockResolvedValue({ ...caseRow, externalAmount, internalAmount, differenceAmount, status: 'INVESTIGATING' })
+    mockedReconciliationApi.postCaseAdjustment.mockResolvedValue({
+      id: '88', caseId: '9', runId: '7', adjustmentScope: 'CASE_FULL', amount: required,
+      currency: 'USD', adjustmentPeriodId: '10',
+    })
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
+    fireEvent.click(await screen.findByRole('button', { name: '提交 CASE_FULL 调整' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    fireEvent.mouseDown(dialog.getByRole('combobox', { name: '调整账期' }))
+    fireEvent.click(await screen.findByText('#10 · OPEN'))
+    fireEvent.mouseDown(dialog.getByRole('combobox', { name: '分配目标' }))
+    fireEvent.click(await screen.findByText('#4 · Alpha'))
+    fireEvent.change(dialog.getByLabelText('调整原因代码'), { target: { value: ' rounding ' } })
+    fireEvent.change(dialog.getByLabelText('调整说明'), { target: { value: ' precision adjustment ' } })
+    fireEvent.change(dialog.getByLabelText('分配行金额'), { target: { value: wrong } })
+    expect(dialog.getByRole('button', { name: '确认提交' })).toBeDisabled()
+    fireEvent.change(dialog.getByLabelText('分配行金额'), { target: { value: required } })
+    fireEvent.click(dialog.getByRole('button', { name: '确认提交' }))
+    await waitFor(() => expect(mockedReconciliationApi.postCaseAdjustment).toHaveBeenCalledWith('9', {
+      amount: required, adjustmentPeriodId: '10',
+      lines: [{ lineIndex: 0, scopeType: 'PROJECT', scopeId: '4', amount: required }],
+      reasonCode: 'rounding', reasonNote: 'precision adjustment',
+    }, expect.any(String)))
+    await waitFor(() => expect(mockedReconciliationApi.listCaseEvidence.mock.calls.length).toBeGreaterThan(1))
+  })
+
+  it('keeps disposition input on failure and refreshes evidence after successful retry', async () => {
+    mockedReconciliationApi.listCaseEvidence.mockResolvedValue({
+      items: [{ ...exactEvidenceRow, reconciliationCaseId: '9' }], page: 0, size: 50, totalElements: 1, totalPages: 1,
+    })
+    mockedReconciliationApi.decideChargeDisposition.mockRejectedValueOnce(new Error('disposition unavailable'))
+    mockedReconciliationApi.decideChargeDisposition.mockResolvedValueOnce({
+      id: '90', caseId: '9', chargeFactId: '33', disposition: 'RECONCILIATION_EVIDENCE', decisionSource: 'MANUAL',
+    })
+    renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE'])
+    fireEvent.click(await screen.findByRole('button', { name: '决定费用处理方式' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(dialog.getByRole('button', { name: '确认决定' })).toBeDisabled()
+    fireEvent.change(dialog.getByLabelText('处理原因代码'), { target: { value: ' evidence ' } })
+    fireEvent.change(dialog.getByLabelText('处理说明'), { target: { value: ' reviewed statement ' } })
+    fireEvent.click(dialog.getByRole('button', { name: '确认决定' }))
+    expect(await dialog.findByRole('alert')).toHaveTextContent('案例操作未完成')
+    expect(dialog.getByLabelText('处理说明')).toHaveValue(' reviewed statement ')
+    fireEvent.click(dialog.getByRole('button', { name: '确认决定' }))
+    await waitFor(() => expect(mockedReconciliationApi.decideChargeDisposition).toHaveBeenCalledTimes(2))
+    expect(mockedReconciliationApi.decideChargeDisposition.mock.calls[1][2])
+      .toBe(mockedReconciliationApi.decideChargeDisposition.mock.calls[0][2])
+    expect(mockedReconciliationApi.decideChargeDisposition).toHaveBeenLastCalledWith('9', {
+      chargeFactId: '33', disposition: 'RECONCILIATION_EVIDENCE', reasonCode: 'evidence', reasonNote: 'reviewed statement',
+    }, expect.any(String))
+    await waitFor(() => expect(mockedReconciliationApi.listCaseEvidence.mock.calls.length).toBeGreaterThan(1))
+    expect(screen.queryByText('案例操作未完成')).not.toBeInTheDocument()
+  })
+
   it('survives the loading-to-loaded transition without a Rules-of-Hooks violation', async () => {
     let resolveCase!: (value: typeof caseRow) => void
     mockedReconciliationApi.getCase.mockImplementation(

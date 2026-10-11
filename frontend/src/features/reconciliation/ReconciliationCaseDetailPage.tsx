@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Col, Descriptions, Divider, Empty, Form, Input, Modal, Row, Select, Skeleton, Space, Statistic, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Col, Descriptions, Divider, Empty, Input, Row, Skeleton, Space, Statistic, Table, Tag, Typography } from 'antd'
 import { useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 import { formatEventDateTime } from '../../lib/dateTime'
 import { formatMoney } from '../../lib/money'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../auth/permissions'
 import { periodCloseApi } from '../period-close/api/periodCloseApi'
-import { allocationApi } from '../allocation/api/allocationApi'
+import { ResolveCaseModal } from './components/ResolveCaseModal'
+import { CaseError } from './components/CaseError'
+import { CaseAdjustmentModal } from './components/CaseAdjustmentModal'
+import { ChargeDispositionModal } from './components/ChargeDispositionModal'
 import { GatewayResolutionModal } from './GatewayResolutionModal'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
@@ -36,11 +38,6 @@ const DIFFERENCE_KIND_LABEL: Record<string, string> = {
   UNCLASSIFIED: '未分类',
 }
 
-function CaseError({ error }: { error: unknown }) {
-  const problem = toProblemDetail(error)
-  return <Alert type="error" showIcon title="案例操作未完成" description={problemDetail(problem) ?? problemTitle(problem)} />
-}
-
 export function ReconciliationCaseDetailPage() {
   const { caseId = '' } = useParams<{ caseId: string }>()
   const navigate = useNavigate()
@@ -51,22 +48,10 @@ export function ReconciliationCaseDetailPage() {
   const canPostAdjustment = canResolve && canLedgerCorrect
   const canResolveGateway = canResolve && canLedgerCorrect
   const [resolveOpen, setResolveOpen] = useState(false)
-  const [reasonCode, setReasonCode] = useState('')
-  const [resolutionNote, setResolutionNote] = useState('')
-  // 财务调整（CASE_FULL）表单状态：金额由服务端当前差异决定，行必须显式拆分。
   const [adjustmentOpen, setAdjustmentOpen] = useState(false)
-  const [adjustmentPeriodId, setAdjustmentPeriodId] = useState('')
-  const [adjustmentScopeType, setAdjustmentScopeType] = useState<'PROJECT' | 'COST_CENTER' | 'TEAM'>('PROJECT')
-  const [adjustmentScopeId, setAdjustmentScopeId] = useState('')
-  const [adjustmentLineAmount, setAdjustmentLineAmount] = useState('')
-  const [adjustmentReasonCode, setAdjustmentReasonCode] = useState('')
-  const [adjustmentReasonNote, setAdjustmentReasonNote] = useState('')
-  const targets = useQuery({ queryKey: ['allocation', 'targets'], queryFn: () => allocationApi.listTargets(), retry: false })
-  // 证据项操作状态。
   const [dispositionTarget, setDispositionTarget] = useState<ReconciliationEvidenceResponse | null>(null)
-  const [dispositionValue, setDispositionValue] = useState<'RECONCILIATION_EVIDENCE' | 'DIRECT_PROVIDER_CHARGE'>('RECONCILIATION_EVIDENCE')
-  const [dispositionReasonCode, setDispositionReasonCode] = useState('')
-  const [dispositionReasonNote, setDispositionReasonNote] = useState('')
+  const [resolvePending, setResolvePending] = useState(false)
+  const [formError, setFormError] = useState<unknown>(null)
   const [gatewayTarget, setGatewayTarget] = useState<ReconciliationEvidenceResponse | null>(null)
   const [correctionGroupId, setCorrectionGroupId] = useState('')
   // Case evidence is paginated by the server; the pager drives real requests.
@@ -109,45 +94,6 @@ export function ReconciliationCaseDetailPage() {
   }
   const investigate = useMutation({ mutationFn: () => reconciliationApi.investigateCase(caseId, createIdempotencyKey()), retry: false, onSuccess: refresh })
   const returnOpen = useMutation({ mutationFn: () => reconciliationApi.returnCaseToOpen(caseId, createIdempotencyKey()), retry: false, onSuccess: refresh })
-  const resolve = useMutation({
-    mutationFn: () => reconciliationApi.resolveCase(caseId, { reasonCode: reasonCode.trim(), resolutionNote: resolutionNote.trim() }, createIdempotencyKey()),
-    retry: false,
-    onSuccess: (updated) => { refresh(updated); setResolveOpen(false); setReasonCode(''); setResolutionNote('') },
-  })
-  const postAdjustment = useMutation({
-    mutationFn: () => reconciliationApi.postCaseAdjustment(caseId, {
-      amount: requiredDifference,
-      adjustmentPeriodId,
-      lines: [{ lineIndex: 0, scopeType: adjustmentScopeType, scopeId: adjustmentScopeId, amount: requiredDifference }],
-      reasonCode: adjustmentReasonCode.trim(),
-      reasonNote: adjustmentReasonNote.trim(),
-    }, createIdempotencyKey()),
-    retry: false,
-    onSuccess: () => {
-      setAdjustmentOpen(false)
-      setAdjustmentPeriodId('')
-      setAdjustmentScopeId('')
-      setAdjustmentLineAmount('')
-      setAdjustmentReasonCode('')
-      setAdjustmentReasonNote('')
-      refreshEvidence()
-    },
-  })
-  const decideDisposition = useMutation({
-    mutationFn: () => reconciliationApi.decideChargeDisposition(caseId, {
-      chargeFactId: dispositionTarget?.chargeFactId ?? '',
-      disposition: dispositionValue,
-      reasonCode: dispositionReasonCode.trim(),
-      reasonNote: dispositionReasonNote.trim(),
-    }, createIdempotencyKey()),
-    retry: false,
-    onSuccess: () => {
-      setDispositionTarget(null)
-      setDispositionReasonCode('')
-      setDispositionReasonNote('')
-      refreshEvidence()
-    },
-  })
   const linkCorrectionMutation = useMutation({
     mutationFn: () => reconciliationApi.linkCorrection(caseId, { correctionGroupId: correctionGroupId.trim() }),
     retry: false,
@@ -160,13 +106,11 @@ export function ReconciliationCaseDetailPage() {
   if (detail.isLoading) return <main className="settings-page m6-page"><Skeleton active paragraph={{ rows: 8 }} /></main>
   if (detail.error || !detail.data) return <main className="settings-page m6-page"><CaseError error={detail.error ?? new Error('missing case')} /></main>
   const data = detail.data
-  const actionError = investigate.error ?? returnOpen.error ?? resolve.error
-    ?? postAdjustment.error ?? decideDisposition.error
-    ?? linkCorrectionMutation.error
+  const actionError = investigate.error ?? returnOpen.error ?? formError ?? linkCorrectionMutation.error
   const periodClosed = (periods.data ?? []).some(
     (period) => period.id === runDetail.data?.billingPeriodId && period.status === 'CLOSED',
   )
-  const busy = investigate.isPending || returnOpen.isPending || resolve.isPending
+  const busy = investigate.isPending || returnOpen.isPending || resolvePending
   // The server-required CASE_FULL amount is external - internal, i.e. the
   // exact negation of the canonical M6 difference (internal - external).
   const requiredDifference = data.differenceAmount === '0.00000000'
@@ -174,13 +118,6 @@ export function ReconciliationCaseDetailPage() {
     : data.differenceAmount.startsWith('-')
       ? data.differenceAmount.slice(1)
       : '-' + data.differenceAmount
-  const adjustmentInvalid = !adjustmentPeriodId.trim()
-    || !adjustmentScopeId.trim()
-    || !adjustmentLineAmount.trim()
-    || adjustmentLineAmount.trim() !== requiredDifference
-    || !adjustmentReasonCode.trim()
-    || !adjustmentReasonNote.trim()
-    || postAdjustment.isPending
   const evidenceItems = evidence.data?.items ?? []
 
   return (
@@ -196,7 +133,7 @@ export function ReconciliationCaseDetailPage() {
           <Space wrap>
             {data.status === 'OPEN' && <Button type="primary" loading={investigate.isPending} disabled={busy} onClick={() => investigate.mutate()}>开始调查</Button>}
             {data.status === 'INVESTIGATING' && <Button loading={returnOpen.isPending} disabled={busy} onClick={() => returnOpen.mutate()}>退回待处理</Button>}
-            {data.status === 'INVESTIGATING' && <Button type="primary" loading={resolve.isPending} disabled={busy} onClick={() => setResolveOpen(true)}>接受差异并解决</Button>}
+            {data.status === 'INVESTIGATING' && <Button type="primary" loading={resolvePending} disabled={busy} onClick={() => setResolveOpen(true)}>接受差异并解决</Button>}
           </Space>
         )}
       </header>
@@ -294,7 +231,7 @@ export function ReconciliationCaseDetailPage() {
                   return (
                     <Button
                       size="small"
-                      onClick={() => { setDispositionTarget(row); setDispositionValue('RECONCILIATION_EVIDENCE') }}
+                      onClick={() => setDispositionTarget(row)}
                     >
                       决定费用处理方式
                     </Button>
@@ -364,116 +301,31 @@ export function ReconciliationCaseDetailPage() {
         <Typography.Paragraph className="m6-note-block">{data.resolutionNote ?? '尚未填写解决说明。'}</Typography.Paragraph>
       </Card>
 
-      <Modal
+      <ResolveCaseModal
+        caseId={caseId}
         open={resolveOpen}
-        title="接受已解释差异（ACCEPT_EXPLAINED_DIFFERENCE）"
-        okText={resolve.isPending ? '正在提交…' : '确认解决'}
-        okButtonProps={{ disabled: !reasonCode.trim() || !resolutionNote.trim() || resolve.isPending }}
-        onOk={() => resolve.mutate()}
-        onCancel={() => setResolveOpen(false)}
-      >
-        <Form layout="vertical">
-          <Form.Item label="处理原因" required>
-            <Input value={reasonCode} maxLength={100} placeholder="请输入处理原因" onChange={(event) => setReasonCode(event.target.value)} />
-          </Form.Item>
-          <Form.Item label="解决说明" required>
-            <Input.TextArea value={resolutionNote} maxLength={2000} rows={5} placeholder="请说明本次案例的处理结论" onChange={(event) => setResolutionNote(event.target.value)} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
+        onClose={() => setResolveOpen(false)}
+        onSuccess={refresh}
+        onPendingChange={setResolvePending}
+        onError={setFormError}
+      />
+      <CaseAdjustmentModal
+        caseId={caseId}
         open={adjustmentOpen}
-        title="提交 CASE_FULL 调整"
-        okText={postAdjustment.isPending ? '正在提交…' : '确认提交'}
-        okButtonProps={{ disabled: adjustmentInvalid }}
-        onOk={() => postAdjustment.mutate()}
-        onCancel={() => setAdjustmentOpen(false)}
-        width={640}
-      >
-        <Alert
-          type="info"
-          showIcon
-          className="m6-section-card"
-          title={`服务端要求金额：${formatMoney(requiredDifference || null, data.currency)}`}
-          description="调整金额必须等于当前外部金额 − 内部金额，且分配行金额之和必须精确等于该金额；提交后运行基准将失效，需要重新对账。"
-        />
-        <Form layout="vertical">
-          <Form.Item label="调整入账账期（必须为开启账期）" required>
-            <Select
-              value={adjustmentPeriodId || undefined}
-              placeholder="选择调整账期"
-              options={(periods.data ?? []).filter((period) => period.status === 'OPEN').map((period) => ({ value: period.id, label: `#${period.id} · ${period.status}` }))}
-              onChange={(value) => setAdjustmentPeriodId(value)}
-              aria-label="调整账期"
-            />
-          </Form.Item>
-          <Form.Item label="分配目标（恰好一个 PROJECT / COST_CENTER / TEAM）" required>
-            <Space.Compact style={{ width: '100%' }}>
-              <Select
-                style={{ width: 180 }}
-                value={adjustmentScopeType}
-                options={(["PROJECT", "COST_CENTER", "TEAM"] as const).map((value) => ({ value, label: value }))}
-                onChange={(value) => { setAdjustmentScopeType(value); setAdjustmentScopeId('') }}
-                aria-label="分配目标类型"
-              />
-              <Select
-                style={{ width: 280 }}
-                showSearch
-                value={adjustmentScopeId || undefined}
-                placeholder="选择 ACTIVE 同组织目标"
-                options={(targets.data ?? []).filter((target) => target.type === adjustmentScopeType).map((target) => ({ value: target.id, label: `#${target.id} · ${target.name}` }))}
-                onChange={(value) => setAdjustmentScopeId(value)}
-                aria-label="分配目标"
-              />
-            </Space.Compact>
-          </Form.Item>
-          <Form.Item label={`分配行金额（必须等于 ${formatMoney(requiredDifference || null, data.currency)}）`} required>
-            <Input
-              value={adjustmentLineAmount}
-              maxLength={32}
-              placeholder={requiredDifference || '0.00000000'}
-              onChange={(event) => setAdjustmentLineAmount(event.target.value)}
-              aria-label="分配行金额"
-            />
-          </Form.Item>
-          <Form.Item label="原因代码" required>
-            <Input value={adjustmentReasonCode} maxLength={64} onChange={(event) => setAdjustmentReasonCode(event.target.value)} aria-label="调整原因代码" />
-          </Form.Item>
-          <Form.Item label="说明" required>
-            <Input.TextArea value={adjustmentReasonNote} maxLength={2000} rows={3} onChange={(event) => setAdjustmentReasonNote(event.target.value)} aria-label="调整说明" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        open={dispositionTarget !== null}
-        title={`决定费用处理方式（费用 #${dispositionTarget?.chargeFactId ?? ''}）`}
-        okText={decideDisposition.isPending ? '正在提交…' : '确认决定'}
-        okButtonProps={{ disabled: !dispositionReasonCode.trim() || !dispositionReasonNote.trim() || decideDisposition.isPending }}
-        onOk={() => decideDisposition.mutate()}
-        onCancel={() => setDispositionTarget(null)}
-      >
-        <Form layout="vertical">
-          <Form.Item label="处理方式" required>
-            <Select
-              value={dispositionValue}
-              options={[
-                { value: 'RECONCILIATION_EVIDENCE', label: 'RECONCILIATION_EVIDENCE（作为对账证据，不再直接入账）' },
-                { value: 'DIRECT_PROVIDER_CHARGE', label: 'DIRECT_PROVIDER_CHARGE（作为直接供应商费用入账）' },
-              ]}
-              onChange={(value) => setDispositionValue(value)}
-              aria-label="费用处理方式"
-            />
-          </Form.Item>
-          <Form.Item label="原因代码" required>
-            <Input value={dispositionReasonCode} maxLength={64} onChange={(event) => setDispositionReasonCode(event.target.value)} aria-label="处理原因代码" />
-          </Form.Item>
-          <Form.Item label="说明" required>
-            <Input.TextArea value={dispositionReasonNote} maxLength={2000} rows={3} onChange={(event) => setDispositionReasonNote(event.target.value)} aria-label="处理说明" />
-          </Form.Item>
-        </Form>
-      </Modal>
+        currency={data.currency}
+        requiredDifference={requiredDifference}
+        periods={periods.data ?? []}
+        onClose={() => setAdjustmentOpen(false)}
+        onSuccess={refreshEvidence}
+        onError={setFormError}
+      />
+      <ChargeDispositionModal
+        caseId={caseId}
+        target={dispositionTarget}
+        onClose={() => setDispositionTarget(null)}
+        onSuccess={refreshEvidence}
+        onError={setFormError}
+      />
 
       <GatewayResolutionModal
         runId={reconciliationRunId}
