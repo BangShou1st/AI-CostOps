@@ -1,5 +1,6 @@
+import { EXPENSE_STATUS_LABEL as STATUS_LABEL, EXPENSE_STATUS_COLOR as STATUS_COLOR } from './presentation'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, Table, Tag } from 'antd'
+import { Alert, Button, Card, Table, Tag } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { expenseApi, expenseKeys, type ExpenseClaimStatus, type ExpenseSummaryResponse } from './api/expenseApi'
@@ -7,26 +8,9 @@ import { formatMoney } from '../../lib/money'
 import { hasPermission } from '../auth/permissions'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { useState } from 'react'
+import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 
-const STATUS_COLOR: Record<ExpenseClaimStatus, string> = {
-  DRAFT: 'default',
-  SUBMITTED: 'processing',
-  NEEDS_INFO: 'warning',
-  APPROVED: 'success',
-  POSTED: 'blue',
-  REJECTED: 'error',
-  CANCELED: 'default',
-}
 
-const STATUS_LABEL: Record<ExpenseClaimStatus, string> = {
-  DRAFT: '草稿',
-  SUBMITTED: '已提交',
-  NEEDS_INFO: '需补充',
-  APPROVED: '已批准',
-  POSTED: '已记账',
-  REJECTED: '已拒绝',
-  CANCELED: '已取消',
-}
 
 export function ExpensesListPage() {
   const auth = useAuth()
@@ -35,9 +19,10 @@ export function ExpensesListPage() {
   const [page, setPage] = useState(0)
   const size = 20
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: expenseKeys.mine(page, size),
     queryFn: () => expenseApi.listMine(page, size),
+    retry: false,
   })
 
   return (
@@ -48,7 +33,11 @@ export function ExpensesListPage() {
         </Button>
       )
     }>
-      <Table
+      {error ? (
+        <Alert type="error" showIcon title="报销列表加载失败"
+          description={problemDetail(toProblemDetail(error)) ?? problemTitle(toProblemDetail(error))}
+          action={<Button onClick={() => { void refetch() }} loading={isFetching}>重试</Button>} />
+      ) : <Table
         loading={isLoading}
         dataSource={data?.items ?? []}
         rowKey="id"
@@ -79,7 +68,7 @@ export function ExpensesListPage() {
             ),
           },
         ]}
-      />
+      />}
     </Card>
   )
 }

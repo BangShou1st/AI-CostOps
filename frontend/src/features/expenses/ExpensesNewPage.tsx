@@ -5,23 +5,25 @@ import { expenseApi } from './api/expenseApi'
 import { ExpenseForm } from './components/ExpenseForm'
 import { problemDetail as presentProblemDetail, toProblemDetail } from '../../api/problem'
 import type { CreateExpenseBody } from './api/expenseApi'
+import { useExpenseCommand } from './hooks/useExpenseCommand'
 
 export function ExpensesNewPage() {
   const navigate = useNavigate()
+  const execute = useExpenseCommand()
   const [loading, setLoading] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
 
   const handleSubmit = useCallback(async (body: CreateExpenseBody) => {
     setLoading(true); setProblem(null)
     try {
-      const result = await expenseApi.create(body, crypto.randomUUID())
-      navigate(`/expenses/${result.id}`)
+      const result = await execute('create', body, key => expenseApi.create(body, key))
+      if (result) navigate(`/expenses/${result.id}`)
     } catch (e) {
       setProblem(presentProblemDetail(toProblemDetail(e)) ?? '创建失败')
     } finally {
       setLoading(false)
     }
-  }, [navigate])
+  }, [navigate, execute])
 
   return (
     <Card title="新建报销">

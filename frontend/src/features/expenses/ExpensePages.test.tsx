@@ -198,6 +198,36 @@ afterEach(() => {
 // -- tests ------------------------------------------------------------------
 
 describe('ExpensePages', () => {
+  it.each([
+    { Page: ExpenseDetailPage, method: 'get' as const, title: '报销详情加载失败', path: '/expenses/exp-1' },
+    { Page: ExpenseReviewDetailPage, method: 'getForReview' as const, title: '审核详情加载失败', path: '/expense-reviews/exp-1' },
+  ])('$title is visible and retry loads the detail', async ({ Page, method, title, path }) => {
+    mockedExpenseApi[method].mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(makeExpense())
+    renderWithRouter(<Page />, path)
+    expect(await screen.findByText(title)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /重\s*试/ }))
+    expect(await screen.findByText(/报销.*exp-1/)).toBeInTheDocument()
+    expect(screen.queryByText(title)).not.toBeInTheDocument()
+  })
+
+  it('does not present a new allocation draft or posting when allocation loading fails', async () => {
+    currentUser = { ...FINANCE, permissions: [...FINANCE.permissions, 'EXPENSE_POST', 'LEDGER_POST'] }
+    mockedExpenseApi.getForReview.mockResolvedValue(makeExpense({ status: 'APPROVED', postingReady: true, canEdit: false }))
+    mockedAllocationApi.listDecisionsByExpense.mockRejectedValue(new Error('offline'))
+    renderWithRouter(<ExpenseReviewDetailPage />, '/expense-reviews/exp-1')
+    expect(await screen.findByText('分摊信息加载失败')).toBeInTheDocument()
+    expect(screen.queryByText('手动分摊')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /记\s*账/ })).not.toBeInTheDocument()
+  })
+
+  it('employee sees the posted status and no further mutation controls after posting', async () => {
+    mockedExpenseApi.get.mockResolvedValue(makeExpense({ status: 'POSTED', evidenceId: 'ev-1', canEdit: false }))
+    renderWithRouter(<ExpenseDetailPage />)
+    expect(await screen.findByText('已记账')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /提\s*交|重新提交|保\s*存|替换凭证|取\s*消/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /下载凭证/ })).toBeInTheDocument()
+  })
+
   it('employee DRAFT shows submit and evidence upload, but no allocation controls', async () => {
     mockedExpenseApi.get.mockResolvedValue(makeExpense({ status: 'DRAFT', evidenceId: null }))
     mockedExpenseApi.downloadEvidence.mockResolvedValue(new Blob(['x']))
@@ -650,6 +680,21 @@ describe('ExpensePages', () => {
 })
 
 describe('Employee expense mutations', () => {
+  it('refreshing after a version conflict replaces the old form values before the next edit', async () => {
+    mockedExpenseApi.get.mockResolvedValueOnce(makeExpense({ amount: '100.00000000', version: 1 }))
+      .mockResolvedValue(makeExpense({ amount: '105.00000000', version: 2 }))
+    mockedExpenseApi.edit.mockRejectedValueOnce({ title: 'Conflict', status: 409, code: 'STATE_CONFLICT', detail: '请刷新后重试', traceId: null })
+      .mockResolvedValue(makeExpense({ amount: '105.00000000', version: 3 }))
+    renderWithRouter(<ExpenseDetailPage />)
+    fireEvent.click(await screen.findByRole('button', { name: /^保\s*存$/ }))
+    expect(await screen.findByText('请刷新后重试')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '刷新详情' }))
+    await waitFor(() => expect(screen.getByRole('spinbutton')).toHaveValue('105.00'))
+    fireEvent.click(screen.getByRole('button', { name: /^保\s*存$/ }))
+    await waitFor(() => expect(mockedExpenseApi.edit).toHaveBeenCalledTimes(2))
+    expect(mockedExpenseApi.edit.mock.calls[1][1]).toEqual(expect.objectContaining({ amount: '105.00000000', expectedVersion: 2 }))
+  })
+
   // antd inserts a space between two Chinese characters in Button text, so
   // two-character button names are matched with a whitespace-tolerant regex.
   it('create: employee fills the form and expenseApi.create is called with an Idempotency-Key', async () => {

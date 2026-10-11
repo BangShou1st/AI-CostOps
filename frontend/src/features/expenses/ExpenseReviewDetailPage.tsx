@@ -1,3 +1,4 @@
+import { EXPENSE_STATUS_LABEL as STATUS_LABEL, EXPENSE_STATUS_COLOR as STATUS_COLOR } from './presentation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -18,13 +19,8 @@ import { ledgerApi } from '../ledger/api/ledgerApi'
 import { ledgerKeys } from '../ledger/api/ledgerKeys'
 import type { CommitmentLinkRequest } from '../ledger/api/ledgerApi'
 import { CommitmentLinkPicker } from '../ledger/CommitmentLinkPicker'
+import { useExpenseCommand } from './hooks/useExpenseCommand'
 
-const STATUS_LABEL: Record<string, string> = {
-  DRAFT: '草稿', SUBMITTED: '已提交', NEEDS_INFO: '需补充', APPROVED: '已批准', POSTED: '已记账', REJECTED: '已拒绝', CANCELED: '已取消',
-}
-const STATUS_COLOR: Record<string, string> = {
-  DRAFT: 'default', SUBMITTED: 'processing', NEEDS_INFO: 'warning', APPROVED: 'success', POSTED: 'blue', REJECTED: 'error', CANCELED: 'default',
-}
 
 export function ExpenseReviewDetailPage() {
   const { expenseId } = useParams<{ expenseId: string }>()
@@ -35,6 +31,7 @@ export function ExpenseReviewDetailPage() {
   const canReview = hasPermission(auth.user?.permissions, 'EXPENSE_REVIEW')
   const canPost = hasPermission(auth.user?.permissions, 'EXPENSE_POST') && hasPermission(auth.user?.permissions, 'LEDGER_POST')
   const qc = useQueryClient()
+  const execute = useExpenseCommand()
   const [problem, setProblem] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [comment, setComment] = useState('')
@@ -42,7 +39,7 @@ export function ExpenseReviewDetailPage() {
   const [requestInfoModal, setRequestInfoModal] = useState(false)
   const [commitmentLinks, setCommitmentLinks] = useState<CommitmentLinkRequest[]>([])
 
-  const { data: expense, isLoading } = useQuery({
+  const { data: expense, isLoading, error, refetch: reload } = useQuery({
     queryKey: expenseKeys.reviewDetail(expenseId!),
     queryFn: () => expenseApi.getForReview(expenseId!),
     enabled: !!expenseId,
@@ -52,7 +49,7 @@ export function ExpenseReviewDetailPage() {
   // local state), so a Finance reviewer can continue a MANUAL DRAFT that was
   // created earlier and confirm it. Posting readiness is re-read from the
   // backend after every mutation; it is never faked from frontend state.
-  const { data: decisions } = useQuery({
+  const { data: decisions, error: allocationError, isLoading: allocationLoading, refetch: reloadAllocation } = useQuery({
     queryKey: allocationKeys.byExpense(expenseId!),
     queryFn: () => allocationApi.listDecisionsByExpense(expenseId!),
     enabled: !!expenseId && canReadAllocation,
@@ -64,6 +61,9 @@ export function ExpenseReviewDetailPage() {
     qc.invalidateQueries({ queryKey: ledgerKeys.lists() })
   }, [qc, expenseId])
 
+  if (error) return <Alert type="error" showIcon title="审核详情加载失败"
+    description={presentProblemDetail(toProblemDetail(error))}
+    action={<Button onClick={() => { void reload() }}>重试</Button>} />
   if (isLoading || !expense) return <Card loading={isLoading} />
   const isSubmitted = expense.status === 'SUBMITTED'
 
@@ -81,7 +81,8 @@ export function ExpenseReviewDetailPage() {
   const handleApprove = async () => {
     setLoading(true); setProblem(null)
     try {
-      await expenseApi.approve(expense.id, { expectedVersion: expense.version }, crypto.randomUUID())
+      const body = { expectedVersion: expense.version }
+      await execute(`approve:${expense.id}`, body, key => expenseApi.approve(expense.id, body, key))
       refetch()
     } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '操作失败') }
     finally { setLoading(false) }
@@ -90,7 +91,8 @@ export function ExpenseReviewDetailPage() {
   const handleReject = async () => {
     setLoading(true); setProblem(null)
     try {
-      await expenseApi.reject(expense.id, { expectedVersion: expense.version, comment }, crypto.randomUUID())
+      const body = { expectedVersion: expense.version, comment }
+      await execute(`reject:${expense.id}`, body, key => expenseApi.reject(expense.id, body, key))
       refetch(); setRejectModal(false); setComment('')
     } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '操作失败') }
     finally { setLoading(false) }
@@ -99,7 +101,8 @@ export function ExpenseReviewDetailPage() {
   const handleRequestInfo = async () => {
     setLoading(true); setProblem(null)
     try {
-      await expenseApi.requestInfo(expense.id, { expectedVersion: expense.version, comment }, crypto.randomUUID())
+      const body = { expectedVersion: expense.version, comment }
+      await execute(`requestInfo:${expense.id}`, body, key => expenseApi.requestInfo(expense.id, body, key))
       refetch(); setRequestInfoModal(false); setComment('')
     } catch (e) { setProblem(presentProblemDetail(toProblemDetail(e)) ?? '操作失败') }
     finally { setLoading(false) }
@@ -107,11 +110,12 @@ export function ExpenseReviewDetailPage() {
 
   return (
     <Space orientation="vertical" style={{ width: '100%' }} size="middle">
-      {problem && <Alert type="error" showIcon title={problem} closable onClose={() => setProblem(null)} />}
+      {problem && <Alert type="error" showIcon title={problem} closable onClose={() => setProblem(null)}
+        action={<Button onClick={() => { void reload() }}>刷新详情</Button>} />}
       <Card title={`报销审核 ${expense.id}`} extra={
         <Space>
           <Tag color={STATUS_COLOR[expense.status]}>{STATUS_LABEL[expense.status]}</Tag>
-          {expense.status === 'APPROVED' && expense.postingReady && canPost && (
+          {expense.status === 'APPROVED' && expense.postingReady && canPost && !allocationError && !allocationLoading && (
             <>
               <CommitmentLinkPicker
                 lines={confirmedDecision?.lines ?? []}
@@ -153,7 +157,10 @@ export function ExpenseReviewDetailPage() {
       <Card title="审批历史" size="small">
         <ApprovalHistory history={expense.history} />
       </Card>
-      {expense.status === 'APPROVED' && canReview && canReadAllocation && canAllocate && (
+      {allocationError && <Alert type="error" showIcon title="分摊信息加载失败"
+        description={presentProblemDetail(toProblemDetail(allocationError))}
+        action={<Button onClick={() => { void reloadAllocation() }}>重试</Button>} />}
+      {expense.status === 'APPROVED' && canReview && canReadAllocation && canAllocate && !allocationError && !allocationLoading && (
         <Card title="手动分摊" size="small">
           <AllocationEditor
             chargeId=""
