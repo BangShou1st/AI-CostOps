@@ -32,6 +32,9 @@ class LedgerCostFactsIntegrationTest extends AuthenticationContainersSupport {
 
     @Autowired
     private CostFactsMapper facts;
+    @Autowired private com.aicostops.intelligence.infrastructure.CostHistoryCoverageMapper coverage;
+    @Autowired private com.aicostops.intelligence.application.CostAnalysisInputService inputs;
+    @Autowired private org.mybatis.spring.SqlSessionTemplate sqlSession;
     @Autowired
     private JdbcTemplate jdbc;
 
@@ -130,6 +133,56 @@ class LedgerCostFactsIntegrationTest extends AuthenticationContainersSupport {
     private record PostedIds(long postingId, long entryId) {
     }
 
+    @Test
+    void coverageIdentityUsesTheSameCostRootsAndCurrencyAsTheMoneySeries() {
+        setUp();
+        postGatewayEntry("COST", "10", projectA);
+        var charge = postEntry("COST", "3", "charge", 7009L, projectA);
+        postEntry("COST", "90", "expense", 7010L, projectA);
+        var stamp = coverage.ledgerStamp(org, "USD", "PROJECT", projectA, day, day.plusDays(1));
+        assertEquals(2, stamp.entryCount());
+        assertEquals(charge.entryId(), stamp.maximumEntryId());
+        assertAmount("13", orgTotal());
+        assertEquals(0, coverage.ledgerStamp(org, "CNY", "PROJECT", projectA, day, day.plusDays(1)).entryCount());
+    }
+
+    @Test
+    void advisorOwnSpendDoesNotInvalidateCostHistoryButAnotherCostPostingDoes() {
+        setUp();
+        postGatewayEntry("COST", "10", projectA);
+        var date = day.plusDays(1);
+        var original = inputs.currentFingerprint(org, "USD", date,
+                com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
+        jdbc.execute("SET FOREIGN_KEY_CHECKS=0");
+        try {
+            jdbc.update("INSERT INTO service_identity(org_id,code,name,status,created_at,updated_at) "
+                    + "VALUES (?,'AICOSTOPS_ADVISOR','Advisor fixture','ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))", org);
+            var serviceId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            jdbc.update("INSERT INTO gateway_request(org_id,public_request_id,credential_id,principal_type,"
+                    + "service_identity_id,project_id,financial_scope_type,financial_scope_id,logical_model_id,"
+                    + "api_surface,idempotency_key_digest,request_fingerprint,request_hmac_version,state,created_at,validated_at,updated_at) "
+                    + "VALUES (?, ?,999,'SERVICE',?,?,'PROJECT',?,1,'CHAT_COMPLETIONS',UNHEX(REPEAT('01',32)),"
+                    + "UNHEX(REPEAT('02',32)),1,'TRANSPORT_COMPLETED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
+                    org, java.util.UUID.randomUUID().toString().replace("-", ""), serviceId, projectA, projectA);
+            var requestId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+            var advisor = postGatewayEntry("COST", "900", projectA);
+            jdbc.update("UPDATE gateway_settlement SET request_id=? WHERE org_id=? AND id="
+                    + "(SELECT source_gateway_settlement_id FROM ledger_entry WHERE id=?)", requestId, org, advisor.entryId());
+        } finally {
+            jdbc.execute("SET FOREIGN_KEY_CHECKS=1");
+        }
+        // Fixture writes bypass MyBatis; invalidate its first-level cache before re-reading.
+        sqlSession.clearCache();
+        assertAmount("10", orgTotal());
+        assertEquals(original, inputs.currentFingerprint(org, "USD", date,
+                com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION));
+        postGatewayEntry("COST", "1", projectA);
+        sqlSession.clearCache();
+        assertAmount("11", orgTotal());
+        assertNotEquals(original, inputs.currentFingerprint(org, "USD", date,
+                com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION));
+    }
+
     private PostedIds postGatewayEntry(String type, String amount, long project) {
         var settlementId = insertSettlement();
         var posting = postPosting("GATEWAY_SETTLEMENT", settlementId);
@@ -161,6 +214,7 @@ class LedgerCostFactsIntegrationTest extends AuthenticationContainersSupport {
         var postingType = switch (sourceKind) {
             case "gateway" -> "GATEWAY_SETTLEMENT";
             case "adjustment" -> "RECONCILIATION_ADJUSTMENT";
+            case "expense" -> "EXPENSE_CLAIM";
             default -> "PROVIDER_CHARGE";
         };
         var posting = postPosting(postingType, sourceId);
@@ -187,6 +241,7 @@ class LedgerCostFactsIntegrationTest extends AuthenticationContainersSupport {
         Long gatewayId = "gateway".equals(sourceKind) ? sourceId : null;
         Long adjustmentId = "adjustment".equals(sourceKind) ? sourceId : null;
         Long chargeId = "charge".equals(sourceKind) ? sourceId : null;
+        Long expenseId = "expense".equals(sourceKind) ? sourceId : null;
         jdbc.execute("SET FOREIGN_KEY_CHECKS=0");
         try {
             jdbc.update("INSERT INTO ledger_entry(org_id,posting_id,entry_index,entry_type,amount,currency,"
@@ -194,8 +249,8 @@ class LedgerCostFactsIntegrationTest extends AuthenticationContainersSupport {
                     + "source_expense_claim_id,source_gateway_settlement_id,"
                     + "source_reconciliation_adjustment_id,allocation_line_id,correction_group_id,"
                     + "reverses_entry_id,created_at)"
-                    + " VALUES (?,?,?, ?,?,'USD',?,NULL,NULL,NULL,?,NULL,?,?,NULL,?,?,UTC_TIMESTAMP(6))",
-                    org, postingId, index, type, new BigDecimal(amount), project, chargeId, gatewayId,
+                    + " VALUES (?,?,?, ?,?,'USD',?,NULL,NULL,NULL,?,?,?,?,NULL,?,?,UTC_TIMESTAMP(6))",
+                    org, postingId, index, type, new BigDecimal(amount), project, chargeId, expenseId, gatewayId,
                     adjustmentId, correctionGroupId, reversesEntryId);
             return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         } finally {

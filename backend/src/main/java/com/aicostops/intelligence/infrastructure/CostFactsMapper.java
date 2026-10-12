@@ -243,6 +243,7 @@ public interface CostFactsMapper {
               AND (le.source_gateway_settlement_id IS NOT NULL
                 OR le.source_reconciliation_adjustment_id IS NOT NULL
                 OR le.source_charge_fact_id IS NOT NULL)
+            UNION SELECT DISTINCT currency FROM cost_history_coverage WHERE org_id=#{organizationId}
             """)
     List<String> settledCurrencies(@Param("organizationId") long organizationId);
 
@@ -265,6 +266,7 @@ public interface CostFactsMapper {
               AND (le.source_gateway_settlement_id IS NOT NULL
                 OR le.source_reconciliation_adjustment_id IS NOT NULL
                 OR le.source_charge_fact_id IS NOT NULL)
+            UNION SELECT DISTINCT org_id FROM cost_history_coverage WHERE updated_at >= #{since}
             LIMIT #{limit}
             """)
     List<Long> recentlyActiveOrgs(@Param("since") LocalDate since, @Param("limit") int limit);

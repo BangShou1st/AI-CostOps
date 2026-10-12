@@ -13,6 +13,8 @@ import java.time.Clock;
 import java.time.LocalDate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Budget-risk projection for the HTTP read entry point and the Advisor evidence entry point
@@ -26,20 +28,23 @@ import org.springframework.stereotype.Service;
  * {@link BudgetRiskService}.
  */
 @Service
+@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class BudgetRiskQueryService {
 
     private final AuthorizationContextService authorizationContexts;
     private final CostFactsMapper facts;
     private final IntelligenceMapper store;
     private final Clock clock;
+    private final CostAnalysisInputService inputs;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public BudgetRiskQueryService(AuthorizationContextService authorizationContexts,
-            CostFactsMapper facts, IntelligenceMapper store, Clock clock) {
+            CostFactsMapper facts, IntelligenceMapper store, Clock clock, CostAnalysisInputService inputs) {
         this.authorizationContexts = authorizationContexts;
         this.facts = facts;
         this.store = store;
         this.clock = clock;
+        this.inputs = inputs;
     }
 
     public CostIntelligenceReadModels.BudgetRiskResponse budgetRisk(AuthenticatedUser user,
@@ -89,7 +94,8 @@ public class BudgetRiskQueryService {
             String currency) {
         var runDate = LocalDate.now(clock).minusDays(1);
         var runId = store.findRunId(organizationId, runDate, currency,
-                CostIntelligenceValidation.RUN_VERSION);
+                CostIntelligenceValidation.RUN_VERSION,
+                inputs.currentFingerprint(organizationId, currency, runDate, CostIntelligenceValidation.RUN_VERSION));
         if (runId == null) return java.util.Optional.empty();
         final String key = switch (scopeType) {
             case "PROJECT" -> "project:" + scopeId;

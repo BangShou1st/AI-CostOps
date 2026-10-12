@@ -34,6 +34,7 @@ public final class M1AdminPermissionPolicy {
             Map.entry("IMPORT_CONFIRM", Set.of(ScopeType.ORG)),
             Map.entry("IMPORT_CANCEL", Set.of(ScopeType.ORG)),
             Map.entry("COST_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
+            Map.entry("COST_COVERAGE_MANAGE", Set.of(ScopeType.ORG)),
             Map.entry("DUPLICATE_REVIEW", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
             Map.entry("ALLOCATION_READ", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),
             Map.entry("ALLOCATION_EDIT", Set.of(ScopeType.ORG, ScopeType.PROJECT, ScopeType.COST_CENTER)),

@@ -36,6 +36,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 @Tag("integration")
 class AdvisorBudgetRiskEvidenceIntegrationTest extends ControlPlaneFixtureSupport {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aicostops.intelligence.application.CostAnalysisInputService inputs;
+
 
     @Autowired
     private MockMvc mockMvc;
@@ -177,6 +180,9 @@ class AdvisorBudgetRiskEvidenceIntegrationTest extends ControlPlaneFixtureSuppor
         jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,"
                 + "created_at) VALUES (?,?,'USD',?,'COMPLETED',UTC_TIMESTAMP(6))", organizationId, yesterday,
                 com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
+        jdbc.update("UPDATE cost_intelligence_run SET input_fingerprint=? WHERE org_id=? AND run_version=?",
+                inputs.currentFingerprint(organizationId, "USD", yesterday, com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION),
+                organizationId, com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
         return jdbc.queryForObject("SELECT id FROM cost_intelligence_run WHERE org_id=?", Long.class,
                 organizationId);
     }

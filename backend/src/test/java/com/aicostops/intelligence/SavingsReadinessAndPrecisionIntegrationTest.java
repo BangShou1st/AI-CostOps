@@ -32,6 +32,7 @@ class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContaine
     private CostIntelligenceAnalysisService intelligence;
     @Autowired
     private IntelligenceMapper store;
+    @Autowired private com.aicostops.intelligence.application.CostAnalysisInputService inputs;
     @Autowired
     private CostFactsMapper facts;
     @Autowired
@@ -55,7 +56,7 @@ class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContaine
         var outcome = intelligence.runAnalysis(org, yesterday, "USD");
         assertEquals("COMPLETED", outcome.status());
         var runId = store.findRunId(org, yesterday, "USD",
-                CostIntelligenceValidation.RUN_VERSION);
+                CostIntelligenceValidation.RUN_VERSION, inputs.currentFingerprint(org, "USD", yesterday, CostIntelligenceValidation.RUN_VERSION));
         assertNotNull(runId);
         var recs = store.listRecommendations(org, runId);
         assertEquals(1, recs.size());
@@ -106,7 +107,7 @@ class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContaine
         var yesterday = LocalDate.now().minusDays(1);
         var outcome = intelligence.runAnalysis(org, yesterday, "USD");
         assertEquals("COMPLETED", outcome.status());
-        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceValidation.RUN_VERSION);
+        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceValidation.RUN_VERSION, inputs.currentFingerprint(org, "USD", yesterday, CostIntelligenceValidation.RUN_VERSION));
         assertNotNull(runId);
         assertEquals(0, store.listRecommendations(org, runId).size());
     }
@@ -135,7 +136,7 @@ class SavingsReadinessAndPrecisionIntegrationTest extends AuthenticationContaine
         var yesterday = LocalDate.now().minusDays(1);
         var outcome = intelligence.runAnalysis(org, yesterday, "USD");
         assertEquals("COMPLETED", outcome.status());
-        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceValidation.RUN_VERSION);
+        var runId = store.findRunId(org, yesterday, "USD", CostIntelligenceValidation.RUN_VERSION, inputs.currentFingerprint(org, "USD", yesterday, CostIntelligenceValidation.RUN_VERSION));
         assertNotNull(runId);
         assertEquals(1, store.listRecommendations(org, runId).size());
     }

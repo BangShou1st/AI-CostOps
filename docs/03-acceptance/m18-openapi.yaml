@@ -174,6 +174,68 @@ paths:
       responses:
         '200':
           description: 'Forecasts with decimal-string money'
+  /cost-intelligence/history-coverage:
+    get:
+      summary: Read observations and explicit manual coverage reviews for past UTC posting days
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      parameters:
+        - { name: currency, in: query, required: true, schema: { type: string, pattern: '^[A-Z]{3}$' } }
+        - { name: scope, in: query, required: true, schema: { type: string, enum: [ORGANIZATION, PROJECT, TEAM, COST_CENTER] } }
+        - { name: scopeId, in: query, required: true, schema: { type: integer, format: int64, minimum: 1 } }
+        - { name: start, in: query, required: true, schema: { type: string, format: date }, description: Inclusive UTC posting day }
+        - { name: end, in: query, required: true, schema: { type: string, format: date }, description: Exclusive UTC posting day; window bounded to 31 days }
+      responses:
+        '200':
+          description: Coverage revision and daily OBSERVED, REVIEWED_ZERO or UNKNOWN state; unknown amount is null, known amounts are decimal strings. Review declarations are manual financial assertions, not automatic provider collection proofs.
+        '400': { description: Invalid or unfinished UTC window }
+        '403': { description: COST_READ not granted at organization scope }
+        '404': { description: Scope does not belong to the current organization }
+    put:
+      summary: Confirm or revoke one exact scope and UTC posting day's manual review
+      security: [bearerAuth: []]
+      x-permission: COST_COVERAGE_MANAGE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currency, scope, scopeId, postingDay, status, reviewNote, expectedRevision]
+              properties:
+                currency: { type: string, pattern: '^[A-Z]{3}$' }
+                scope: { type: string, enum: [ORGANIZATION, PROJECT, TEAM, COST_CENTER] }
+                scopeId: { type: integer, format: int64, minimum: 1 }
+                postingDay: { type: string, format: date, description: A completed UTC posting day }
+                status: { type: string, enum: [REVIEWED_COMPLETE, REVOKED] }
+                reviewNote: { type: string, minLength: 1, maxLength: 500 }
+                expectedRevision: { type: integer, format: int64, minimum: 0 }
+      responses:
+        '200': { description: Review and new revision; equivalent reviews keep the revision unchanged }
+        '400': { description: Invalid review, note or UTC posting day }
+        '403': { description: COST_COVERAGE_MANAGE not granted at organization scope }
+        '404': { description: Foreign or nonexistent scope }
+        '409': { description: Stale input revision or no declaration to revoke }
+  /cost-intelligence/history-coverage/scopes:
+    get:
+      summary: Search authorized organization financial scope names
+      security: [bearerAuth: []]
+      x-permission: COST_READ
+      parameters:
+        - { name: search, in: query, required: false, schema: { type: string, maxLength: 100 } }
+      responses:
+        '200': { description: Up to 50 scope choices with scope type, string scopeId and name; search to narrow the list }
+        '403': { description: Organization-level COST_READ required }
+  /cost-intelligence/history-coverage/analyze:
+    post:
+      summary: Regenerate yesterday's analysis using current coverage and ledger inputs
+      security: [bearerAuth: []]
+      x-permission: COST_COVERAGE_MANAGE
+      parameters:
+        - { name: currency, in: query, required: true, schema: { type: string, pattern: '^[A-Z]{3}$' } }
+      responses:
+        '200': { description: Analysis identity and status; identical inputs converge to the existing run }
+        '403': { description: Organization-level COST_COVERAGE_MANAGE and COST_READ are both required }
   /cost-intelligence/budget-risks:
     get:
       summary: Immediate exposure vs projected period end + risk enum

@@ -8,27 +8,32 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Organization-scoped Cost Intelligence reads (M18 V3).
  *
  * <p>Every entry point requires organization-level COST_READ before any lookup and reads exactly
- * yesterday's version-1 run. "No run yet" is a first-class answer: summary reports STALE and the
+ * yesterday's current algorithm/input run. "No run yet" is a first-class answer: summary reports STALE and the
  * lists stay empty — never a silent fallback to the most recent successful run.
  */
 @Service
+@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class CostIntelligenceQueryService {
 
     private final AuthorizationContextService authorizationContexts;
     private final IntelligenceMapper store;
     private final Clock clock;
+    private final CostAnalysisInputService inputs;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public CostIntelligenceQueryService(AuthorizationContextService authorizationContexts,
-            IntelligenceMapper store, Clock clock) {
+            IntelligenceMapper store, Clock clock, CostAnalysisInputService inputs) {
         this.authorizationContexts = authorizationContexts;
         this.store = store;
         this.clock = clock;
+        this.inputs = inputs;
     }
 
     public CostIntelligenceReadModels.SummaryResponse summary(AuthenticatedUser user, String currency) {
@@ -37,12 +42,14 @@ public class CostIntelligenceQueryService {
         var runDate = LocalDate.now(clock).minusDays(1);
         var validated = CostIntelligenceValidation.validatedCurrency(currency);
         var runId = store.findRunId(context.organizationId(), runDate, validated,
-                CostIntelligenceValidation.RUN_VERSION);
+                CostIntelligenceValidation.RUN_VERSION, inputs.currentFingerprint(context.organizationId(), validated,
+                        runDate, CostIntelligenceValidation.RUN_VERSION));
         if (runId == null) {
             return new CostIntelligenceReadModels.SummaryResponse(null, "STALE", 0, 0, 0);
         }
         var status = store.findRunStatus(context.organizationId(), runDate, validated,
-                CostIntelligenceValidation.RUN_VERSION);
+                CostIntelligenceValidation.RUN_VERSION, inputs.currentFingerprint(context.organizationId(), validated,
+                        runDate, CostIntelligenceValidation.RUN_VERSION));
         return new CostIntelligenceReadModels.SummaryResponse(runId, status,
                 store.listAnomalies(context.organizationId(), runId).size(),
                 store.listForecasts(context.organizationId(), runId).size(),
@@ -57,7 +64,8 @@ public class CostIntelligenceQueryService {
         var runDate = LocalDate.now(clock).minusDays(1);
         var runId = store.findRunId(context.organizationId(), runDate,
                 CostIntelligenceValidation.validatedCurrency(currency),
-                CostIntelligenceValidation.RUN_VERSION);
+                CostIntelligenceValidation.RUN_VERSION, inputs.currentFingerprint(context.organizationId(),
+                        CostIntelligenceValidation.validatedCurrency(currency), runDate, CostIntelligenceValidation.RUN_VERSION));
         if (runId == null) return List.of();
         return store.listAnomalies(context.organizationId(), runId).stream()
                 .map(CostIntelligenceReadModels.AnomalyResponse::from)
@@ -71,7 +79,8 @@ public class CostIntelligenceQueryService {
         var runDate = LocalDate.now(clock).minusDays(1);
         var runId = store.findRunId(context.organizationId(), runDate,
                 CostIntelligenceValidation.validatedCurrency(currency),
-                CostIntelligenceValidation.RUN_VERSION);
+                CostIntelligenceValidation.RUN_VERSION, inputs.currentFingerprint(context.organizationId(),
+                        CostIntelligenceValidation.validatedCurrency(currency), runDate, CostIntelligenceValidation.RUN_VERSION));
         if (runId == null) return List.of();
         return store.listForecasts(context.organizationId(), runId).stream()
                 .map(CostIntelligenceReadModels.ForecastResponse::from)
@@ -85,7 +94,8 @@ public class CostIntelligenceQueryService {
         var runDate = LocalDate.now(clock).minusDays(1);
         var runId = store.findRunId(context.organizationId(), runDate,
                 CostIntelligenceValidation.validatedCurrency(currency),
-                CostIntelligenceValidation.RUN_VERSION);
+                CostIntelligenceValidation.RUN_VERSION, inputs.currentFingerprint(context.organizationId(),
+                        CostIntelligenceValidation.validatedCurrency(currency), runDate, CostIntelligenceValidation.RUN_VERSION));
         if (runId == null) return List.of();
         return store.listRecommendations(context.organizationId(), runId).stream()
                 .map(CostIntelligenceReadModels.RecommendationResponse::from).toList();

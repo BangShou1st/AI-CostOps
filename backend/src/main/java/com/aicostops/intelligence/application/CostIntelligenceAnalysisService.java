@@ -6,6 +6,7 @@ import com.aicostops.intelligence.domain.CostAnomalyEngine;
 import com.aicostops.intelligence.domain.CostAnomalyEngine.Contribution;
 import com.aicostops.intelligence.domain.CostAnomalyEngine.DailyBucket;
 import com.aicostops.intelligence.domain.ForecastEngine;
+import com.aicostops.intelligence.domain.CostHistoryCoverage.Scope;
 import com.aicostops.intelligence.infrastructure.CostFactsMapper;
 import com.aicostops.intelligence.infrastructure.IntelligenceMapper;
 import com.aicostops.shared.security.AuthenticatedUser;
@@ -36,7 +37,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class CostIntelligenceAnalysisService {
 
-    private static final int HISTORY_DAYS = 29;
+    private static final int HISTORY_DAYS = CostAnalysisInputService.HISTORY_DAYS;
 
     private static final Map<String, BigDecimal> MATERIALITY = Map.of(
             "USD", new BigDecimal("5.00"), "EUR", new BigDecimal("5.00"),
@@ -71,7 +72,7 @@ public class CostIntelligenceAnalysisService {
     /** Runs (or converges on) one deterministic analysis. Scheduler + API share this. */
     public AnalysisRunOutcome runAnalysis(long organizationId, LocalDate analysisDate, String currency) {
         return runs.run(organizationId, analysisDate, currency, CostIntelligenceValidation.RUN_VERSION,
-                runId -> analyze(organizationId, runId, analysisDate, currency, clock.instant()));
+                (runId, input) -> analyze(organizationId, runId, analysisDate, currency, clock.instant(), input));
     }
 
     public AnalysisRunOutcome runAnalysis(AuthenticatedUser user, LocalDate analysisDate, String currency) {
@@ -96,7 +97,8 @@ public class CostIntelligenceAnalysisService {
         }
     }
 
-    private void analyze(long organizationId, long runId, LocalDate analysisDate, String currency, Instant now) {
+    private void analyze(long organizationId, long runId, LocalDate analysisDate, String currency, Instant now,
+            CostAnalysisInputService.Input input) {
         var end = analysisDate;
         var start = end.minusDays(HISTORY_DAYS);
         var materiality = MATERIALITY.getOrDefault(currency, new BigDecimal("5.00"));
@@ -132,19 +134,22 @@ public class CostIntelligenceAnalysisService {
         var observedThrough = end.minusDays(1);
         var remaining = remainingDays(analysisDate);
         persistForecast(organizationId, runId, "ORGANIZATION", "org:" + organizationId,
-                orgSeries, remaining, observedThrough, currency, now);
-        for (var grain : projectGrains(organizationId, currency, start, end)) {
+                orgSeries, remaining, observedThrough, currency, now, input);
+        for (var grain : includeReviewedGrains(projectGrains(organizationId, currency, start, end),
+                input, Scope.PROJECT, start, end, currency)) {
             persistForecast(organizationId, runId, "PROJECT", grain.key(),
-                    grain.series(), remaining, observedThrough, currency, now);
+                    grain.series(), remaining, observedThrough, currency, now, input);
         }
         // P1: TEAM / COST_CENTER scoped forecast grains (never fall back to whole-org).
-        for (var grain : teamGrains(organizationId, currency, start, end)) {
+        for (var grain : includeReviewedGrains(teamGrains(organizationId, currency, start, end),
+                input, Scope.TEAM, start, end, currency)) {
             persistForecast(organizationId, runId, "TEAM", grain.key(),
-                    grain.series(), remaining, observedThrough, currency, now);
+                    grain.series(), remaining, observedThrough, currency, now, input);
         }
-        for (var grain : costCenterGrains(organizationId, currency, start, end)) {
+        for (var grain : includeReviewedGrains(costCenterGrains(organizationId, currency, start, end),
+                input, Scope.COST_CENTER, start, end, currency)) {
             persistForecast(organizationId, runId, "COST_CENTER", grain.key(),
-                    grain.series(), remaining, observedThrough, currency, now);
+                    grain.series(), remaining, observedThrough, currency, now, input);
         }
         savings.generate(organizationId, runId, start, end, currency, materiality, now);
     }
@@ -189,7 +194,15 @@ public class CostIntelligenceAnalysisService {
 
     private void persistForecast(long organizationId, long runId, String scopeType, String scopeKey,
             List<DailyBucket> series, int remainingDays, LocalDate observedThrough,
-            String currency, Instant now) {
+            String currency, Instant now, CostAnalysisInputService.Input input) {
+        var scope = Scope.valueOf(scopeType);
+        var scopeId = scope == Scope.ORGANIZATION ? organizationId
+                : Long.parseLong(scopeKey.substring(scopeKey.indexOf(':') + 1));
+        var reviewed = input.days(scope, scopeId);
+        if (!reviewed.isEmpty()) {
+            series = series.stream().map(bucket -> new DailyBucket(bucket.date(), bucket.amount(), bucket.currency(),
+                    bucket.observed() || reviewed.contains(bucket.date()))).toList();
+        }
         if (series.size() < ForecastEngine.MIN_FALLBACK_BUCKETS) return;
         final ForecastEngine.Forecast forecast;
         try {
@@ -200,6 +213,19 @@ public class CostIntelligenceAnalysisService {
         store.insertForecast(organizationId, runId, scopeType, scopeKey, currency,
                 forecast.projectedAmount(), forecast.method(), forecast.historyBucketCount(),
                 forecast.confidence(), forecast.observedThrough(), now);
+    }
+
+    private List<GrainSeries> includeReviewedGrains(List<GrainSeries> existing, CostAnalysisInputService.Input input,
+            Scope scope, LocalDate start, LocalDate end, String currency) {
+        var grains = new LinkedHashMap<String, GrainSeries>();
+        existing.forEach(grain -> grains.put(grain.key(), grain));
+        var prefix = scope.name().toLowerCase(java.util.Locale.ROOT) + ":";
+        input.reviewedDays().keySet().stream().filter(key -> key.scope() == scope).forEach(key -> {
+            var name = prefix + key.id();
+            grains.putIfAbsent(name, new GrainSeries(name, key.id(), name,
+                    completeSeries(Map.of(), start, end, currency)));
+        });
+        return List.copyOf(grains.values());
     }
 
     private List<GrainSeries> projectGrains(long organizationId, String currency, LocalDate start, LocalDate end) {

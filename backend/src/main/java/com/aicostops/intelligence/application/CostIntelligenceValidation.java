@@ -14,8 +14,8 @@ import org.springframework.http.HttpStatus;
  */
 public final class CostIntelligenceValidation {
 
-    /** Version 2 excludes unobserved calendar padding from forecast sample counts. */
-    public static final int RUN_VERSION = 2;
+    /** Version 3 adds explicit coverage reviews and immutable input identities. */
+    public static final int RUN_VERSION = 3;
 
     private CostIntelligenceValidation() {
     }

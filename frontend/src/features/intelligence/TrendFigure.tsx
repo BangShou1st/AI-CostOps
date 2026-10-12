@@ -148,7 +148,7 @@ export function TrendFigure(props: TrendFigureProps) {
       </div>
       <figcaption>
         <strong>{`Deterministic ${props.forecastMethod} projection with ${props.forecastConfidence} confidence`}</strong>
-        {`, from ${props.historyBucketCount} consecutive observed days through ${props.observedThrough}; missing dates are excluded. Immediate and Projected are independent backend measures; reservations are never extrapolated. Forecast is derived evidence, not Ledger truth.`}
+        {`, from ${props.historyBucketCount} consecutive observed days through ${props.observedThrough}; unknown dates are excluded. Immediate and Projected are independent backend measures; reservations are never extrapolated. Forecast is derived evidence, not Ledger truth.`}
       </figcaption>
     </figure>
   )

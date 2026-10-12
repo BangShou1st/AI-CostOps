@@ -40,6 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest
 @Tag("integration")
 class CostIntelligenceAnalysisPipelineIntegrationTest extends AuthenticationContainersSupport {
+    @Autowired private com.aicostops.intelligence.application.CostAnalysisInputService inputs;
 
     private static final LocalDate ANALYSIS_DATE = LocalDate.now().minusDays(1);
 
@@ -101,6 +102,7 @@ class CostIntelligenceAnalysisPipelineIntegrationTest extends AuthenticationCont
         jdbc.update("DELETE FROM model_catalog WHERE model_key LIKE 'pipeline-logical-%'");
         jdbc.update("DELETE FROM provider_account WHERE org_id=?", org);
         jdbc.update("DELETE FROM project WHERE org_id=?", org);
+        jdbc.update("DELETE FROM cost_history_coverage_revision WHERE org_id=?", org);
         jdbc.update("DELETE FROM organization WHERE id=?", org);
     }
 
@@ -194,6 +196,25 @@ class CostIntelligenceAnalysisPipelineIntegrationTest extends AuthenticationCont
         assertThat(derivedCounts()).containsExactly(0, 0, 0);
     }
 
+    @Test
+    void lateAppendRequiresNewInputIdentityAndPreservesEarlierForecasts() {
+        var first = analysis.runAnalysis(org, ANALYSIS_DATE, "USD");
+        var original = jdbc.queryForObject("SELECT input_fingerprint FROM cost_intelligence_run WHERE id=?",
+                String.class, first.runId());
+        var originalForecasts = jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
+                Integer.class, first.runId());
+        jdbc.update("INSERT INTO ledger_entry(org_id,posting_id,entry_index,entry_type,amount,currency,project_id,"
+                + "source_gateway_settlement_id,created_at) SELECT org_id,posting_id,999,'COST',1,currency,project_id,"
+                + "source_gateway_settlement_id,UTC_TIMESTAMP(6) FROM ledger_entry WHERE org_id=? ORDER BY id DESC LIMIT 1", org);
+        assertThat(inputs.currentFingerprint(org, "USD", ANALYSIS_DATE,
+                com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION)).isNotEqualTo(original);
+        var second = analysis.runAnalysis(org, ANALYSIS_DATE, "USD");
+        assertThat(second.runId()).isNotEqualTo(first.runId());
+        assertThat(second.status()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
+                Integer.class, first.runId())).isEqualTo(originalForecasts);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     @Test
@@ -212,7 +233,7 @@ class CostIntelligenceAnalysisPipelineIntegrationTest extends AuthenticationCont
         assertThat(outcome.status()).isEqualTo("COMPLETED");
         assertThat(outcome.runId()).isNotEqualTo(oldId);
         assertThat(jdbc.queryForObject("SELECT run_version FROM cost_intelligence_run WHERE id=?",
-                Integer.class, outcome.runId())).isEqualTo(2);
+                Integer.class, outcome.runId())).isEqualTo(com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
                 Integer.class, outcome.runId())).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",

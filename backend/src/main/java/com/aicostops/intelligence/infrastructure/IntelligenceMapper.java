@@ -13,26 +13,28 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface IntelligenceMapper {
 
-    @Insert("INSERT IGNORE INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,started_at,completed_at,failure_code,created_at) VALUES(#{organizationId},#{date},#{currency},#{version},'PENDING',NULL,NULL,NULL,#{now})")
+    @Insert("INSERT IGNORE INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,input_fingerprint,status,started_at,completed_at,failure_code,created_at) VALUES(#{organizationId},#{date},#{currency},#{version},#{fingerprint},'PENDING',NULL,NULL,NULL,#{now})")
     int insertRunIfMissing(@Param("organizationId") long organizationId, @Param("date") LocalDate date,
-            @Param("currency") String currency, @Param("version") int version, @Param("now") Instant now);
-
-    @Update("UPDATE cost_intelligence_run SET status='RUNNING',started_at=#{now} WHERE org_id=#{organizationId} AND analysis_date=#{date} AND currency=#{currency} AND run_version=#{version} AND status='PENDING'")
-    int claimRun(@Param("organizationId") long organizationId, @Param("date") LocalDate date,
-            @Param("currency") String currency, @Param("version") int version, @Param("now") Instant now);
-
-    @Update("UPDATE cost_intelligence_run SET status=#{status},completed_at=#{now},failure_code=#{failureCode} WHERE org_id=#{organizationId} AND analysis_date=#{date} AND currency=#{currency} AND run_version=#{version} AND status='RUNNING'")
-    int finishRun(@Param("organizationId") long organizationId, @Param("date") LocalDate date,
             @Param("currency") String currency, @Param("version") int version,
+            @Param("fingerprint") String fingerprint, @Param("now") Instant now);
+
+    @Update("UPDATE cost_intelligence_run SET status='RUNNING',started_at=#{now} WHERE org_id=#{organizationId} AND analysis_date=#{date} AND currency=#{currency} AND run_version=#{version} AND input_fingerprint=#{fingerprint} AND status='PENDING'")
+    int claimRun(@Param("organizationId") long organizationId, @Param("date") LocalDate date,
+            @Param("currency") String currency, @Param("version") int version,
+            @Param("fingerprint") String fingerprint, @Param("now") Instant now);
+
+    @Update("UPDATE cost_intelligence_run SET status=#{status},completed_at=#{now},failure_code=#{failureCode} WHERE org_id=#{organizationId} AND analysis_date=#{date} AND currency=#{currency} AND run_version=#{version} AND input_fingerprint=#{fingerprint} AND status='RUNNING'")
+    int finishRun(@Param("organizationId") long organizationId, @Param("date") LocalDate date,
+            @Param("currency") String currency, @Param("version") int version, @Param("fingerprint") String fingerprint,
             @Param("status") String status, @Param("failureCode") String failureCode, @Param("now") Instant now);
 
-    @Select("SELECT id FROM cost_intelligence_run WHERE org_id=#{organizationId} AND analysis_date=#{date} AND currency=#{currency} AND run_version=#{version}")
+    @Select("SELECT id FROM cost_intelligence_run WHERE org_id=#{organizationId} AND analysis_date=#{date} AND currency=#{currency} AND run_version=#{version} AND input_fingerprint=#{fingerprint}")
     Long findRunId(@Param("organizationId") long organizationId, @Param("date") LocalDate date,
-            @Param("currency") String currency, @Param("version") int version);
+            @Param("currency") String currency, @Param("version") int version, @Param("fingerprint") String fingerprint);
 
-    @Select("SELECT status FROM cost_intelligence_run WHERE org_id=#{organizationId} AND analysis_date=#{date} AND currency=#{currency} AND run_version=#{version}")
+    @Select("SELECT status FROM cost_intelligence_run WHERE org_id=#{organizationId} AND analysis_date=#{date} AND currency=#{currency} AND run_version=#{version} AND input_fingerprint=#{fingerprint}")
     String findRunStatus(@Param("organizationId") long organizationId, @Param("date") LocalDate date,
-            @Param("currency") String currency, @Param("version") int version);
+            @Param("currency") String currency, @Param("version") int version, @Param("fingerprint") String fingerprint);
 
     @Insert("""
             INSERT INTO cost_anomaly(org_id,run_id,grain_type,grain_key,currency,observed_amount,

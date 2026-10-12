@@ -212,12 +212,17 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.PUT,
                                 "/api/v1/provider-connections/{id}").authenticated()
                         .requestMatchers(HttpMethod.GET,
+                                "/api/v1/cost-intelligence/history-coverage",
+                                "/api/v1/cost-intelligence/history-coverage/scopes",
                                 "/api/v1/cost-intelligence/summary",
                                 "/api/v1/cost-intelligence/anomalies",
                                 "/api/v1/cost-intelligence/forecasts",
                                 "/api/v1/cost-intelligence/budget-risks",
                                 "/api/v1/cost-intelligence/recommendations").authenticated()
+                        .requestMatchers(HttpMethod.PUT,
+                                "/api/v1/cost-intelligence/history-coverage").authenticated()
                         .requestMatchers(HttpMethod.POST,
+                                "/api/v1/cost-intelligence/history-coverage/analyze",
                                 "/api/v1/cost-intelligence/recommendations/{id}/acknowledge",
                                 "/api/v1/cost-intelligence/recommendations/{id}/dismiss",
                                 "/api/v1/cost-intelligence/recommendations/{id}/mark-applied").authenticated()

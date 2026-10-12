@@ -8,6 +8,7 @@ import type { CostForecast } from './api/intelligenceTypes'
 import { formatMoney } from './format'
 import { OverviewSkeleton } from './OverviewSections'
 import './v3-tokens.css'
+import { HistoryCoverageSection } from './HistoryCoverageSection'
 
 export interface ForecastsPreview {
   currency: string
@@ -64,7 +65,7 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
         <div className="v3-section-head">
           <span className="v3-eyebrow">Method</span>
           <h2 id="v3-forecast-method">方法与口径</h2>
-          <p>缺失日期不算有效观测；连续有效观测不足 3 天时不生成预测，3–13 天使用低置信度 RECENT_RUN_RATE，14 天起使用 DAMPED_HOLT。有效的零金额记录仍计入观测。</p>
+          <p>未知日期不算有效观测；连续有效观测不足 3 天时不生成预测，3–13 天使用低置信度 RECENT_RUN_RATE，14 天起使用 DAMPED_HOLT。实际零金额记录和有效复核确认的零金额日期均计入观测。</p>
         </div>
       </section>
       {org && (
@@ -85,7 +86,7 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
       {loadProblem && <div role="alert"><Alert type="error" showIcon message={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
       {isLoading && <OverviewSkeleton />}
       {!isLoading && !loadProblem && visible.length === 0 && (
-        <div style={{ marginTop: 20 }}><Empty description="暂无预测。需要截至观测日连续至少 3 天的有效观测，补零日期不计入样本。" /></div>
+        <div style={{ marginTop: 20 }}><Empty description="暂无预测。需要截至观测日连续至少 3 天的有效观测，未经复核的补零日期不计入样本。" /></div>
       )}
       {!isLoading && !loadProblem && visible.length > 0 && (
         <ul className="v3-list" style={{ marginTop: 16 }}>
@@ -100,6 +101,7 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
           ))}
         </ul>
       )}
+      {!preview && <HistoryCoverageSection key={activeCurrency} currency={activeCurrency} />}
       <p className="v3-footnote">预测金额由后端 BigDecimal 计算，前端只做呈现；同一逻辑口径内比较，不做跨币种换算。</p>
     </main>
   )
