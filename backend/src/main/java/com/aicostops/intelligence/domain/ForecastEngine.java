@@ -77,8 +77,12 @@ public final class ForecastEngine {
             return new Forecast(projected, currency, "DAMPED_HOLT", completedBuckets.size(),
                     completedBuckets.size() >= 21 ? "HIGH" : "MEDIUM", observedThrough);
         }
+        // The fallback extrapolates from the trailing window only, so eligibility must hold for
+        // that exact window too: a positive whole-history net can hide a reversal-dominated
+        // tail whose run rate would still produce a negative forecast.
         var window = completedBuckets.subList(
                 Math.max(0, completedBuckets.size() - FALLBACK_WINDOW), completedBuckets.size());
+        requireExtrapolatableHistory(window);
         var sum = window.stream().map(CostAnomalyEngine.DailyBucket::amount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         var daily = sum.divide(BigDecimal.valueOf(window.size()), 8, RoundingMode.HALF_UP);

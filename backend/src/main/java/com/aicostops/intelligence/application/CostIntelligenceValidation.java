@@ -15,10 +15,13 @@ import org.springframework.http.HttpStatus;
 public final class CostIntelligenceValidation {
 
     /** Version 3 added explicit coverage reviews and immutable input identities.
-     * Version 4 adds the forecast eligibility rule that withholds reversal-dominated
-     * (non-positive net) histories from future-usage snapshots; old version-3 snapshots
-     * stop being consumed because the input fingerprint includes the version. */
-    public static final int RUN_VERSION = 4;
+     * Version 4 added the forecast eligibility rule that withholds reversal-dominated
+     * (non-positive net) histories from future-usage snapshots.
+     * Version 5 aligns eligibility with the actual extrapolation window (the trailing
+     * RECENT_RUN_RATE window, not the whole suffix) and lets budget risk accept a negative
+     * signed actual; old version-4 snapshots stop being consumed because the input
+     * fingerprint includes the version. */
+    public static final int RUN_VERSION = 5;
 
     private CostIntelligenceValidation() {
     }

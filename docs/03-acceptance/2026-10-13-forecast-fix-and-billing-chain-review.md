@@ -1,7 +1,12 @@
 # 2026-10-13 维护记录：预测资格修复与文件账单主链审查
 
-基线：`codex/history-coverage-20261012@435b0bd`（三本地提交保持未发布）。本次在其上追加一个提交；
-未跟踪的 `.freebuff/`、`CHANGELOG.md`、`LICENSE` 保持原样，无 reset/clean。
+基线：`codex/history-coverage-20261012@435b0bd`（三本地提交保持未发布）。本次追加两个提交
+（`8abb96f` 修复与口径、`724e3d6` 断言对齐与记录）；未跟踪的 `.freebuff/`、`CHANGELOG.md`、
+`LICENSE` 保持原样，无 reset/clean。
+
+> 2026-10-13 交付复核后补充修正：本记录初版混用了两次完整 verify 的数字（见验证范围表
+> 更正），且预测资格规则在复核中发现两处遗漏（外推窗口资格、合法负 actual），已在同日
+> 后续提交修复并升级 RUN_VERSION 至 5，见文末"交付复核补充"一节。
 
 ## 阶段 A：预测负金额故障修复与展示口径
 
@@ -73,7 +78,7 @@
 | intelligence 领域单测（5 类，36 项含新资格规则） | 通过 |
 | intelligence 定向集成回归（8 类 34 项） | 通过 |
 | Advisor 集成回归（3 类 13 项） | 通过 |
-| 完整 backend verify（1208 项） | 1202 通过；26 项 V10/V11 迁移测试因与三端 dev+浏览器验收并行抢占 Docker/WSL2 资源连接超时，资源释放后单独重跑 26 项全通过（错误时间为 17:45–18:06，与 dev 启动 17:38 及验收窗口重合；`Connection timed out: getsockopt`） |
+| 完整 backend verify（Failsafe 集成 1208 项） | 1182 通过、0 failures、26 errors——26 项为 V10/V11 迁移测试的 JDBC 连接超时（错误时间 17:45–18:06，与本机 dev 三端启动 17:38 及浏览器验收窗口重合；资源竞争是合理假设，时间重合与定向重跑通过支持但不能单独证明全部根因）。随后在同一代码上单独重跑 V10（10 项）+ V11（16 项）全部通过。初版记录误写为"1202 通过 + 26 错误"，1202 来自另一轮有 6 项断言失败的运行，两者不能混用；1208 是 Failsafe 集成数量，不是单元与集成合计 |
 | `npm run test`：脚本测试 + backend 单元/架构 637 项 + gateway 174 项 + 前端 547 项 | 全部通过 |
 | 前端 lint + 生产 build（tsc+vite） | 通过 |
 | 启动验证：Testcontainers 迁移（29 版）+ 本机三端 `npm run dev`（backend/gateway/frontend 全部 200） | 通过 |
@@ -87,3 +92,26 @@
 - 阶段 B 审查的两条记录在案设计选择（replaceLines 无幂等键、keep 依赖行锁）不构成缺陷，
   后续批次如触及可再评估；
 - 撤销后本地合成数据已清（三天覆盖全部 REVOKED），dev 环境进程已停止。
+
+## 交付复核补充（同日，RUN_VERSION 5）
+
+交付复核发现两处消费边界遗漏（组件级复现成立），已在后续提交修复：
+
+1. **资格窗口与外推窗口不一致**（P1）：RECENT_RUN_RATE 只外推最近 7 天，但资格检查此前
+   只覆盖完整连续后缀。复现：6 天 +10 + 7 天 -1（整体净 +53 通过资格，尾部净 -7 外推出
+   -20 CNY）。修复：`ForecastEngine` 对实际计算窗口（尾部 7 天窗口）单独应用
+   `requireExtrapolatableHistory`；DAMPED_HOLT 路径维持全后缀检查。
+2. **合法负预算 actual 被风险算法拒绝**（P1）：V11 schema 有意允许 credits/reversals 使
+   `actual_amount < 0`，但 `BudgetRiskService` 统一拒绝所有负分量；组件复现 actual=-1
+   无预测仍抛异常。修复：`actual` 按带符号净额参与敞口累计；承诺、预占、未来消费、总额
+   仍是纯敞口分量，继续拒绝负值。
+3. **RUN_VERSION 4→5**：资格语义再次变化，旧 v4 快照经含版本指纹自动退出当前消费。
+4. **消费链补测**：`NegativeLedgerConsumptionChainIntegrationTest` 增至 4 项——新增
+   "正整体历史 + 负尾部不落预测且风险链可用"（API 层复现复核场景）与"合法负 actual 经
+   风险 API 与 Advisor 冻结证据返回 -1.00000000 敞口"；领域测试新增双窗口组合与负
+   actual/非负分量断言（`ForecastHistoryEvidenceTest`、`CostIntelligenceEnginesTest`）。
+5. **记录更正**：预测资格文档中"合法零历史不生成预测"的矛盾描述（与表格/源码/测试相反）、
+   "LOW/MEDIUM/HOLD"笔误与残留"置信度"措辞已更正；本记录初版的 verify 计数混用已按
+   Failsafe 原始报告更正（见上表）。复核同时指出"Gateway 结算非负 CHECK 不足以推出所有
+   账本负金额只能来自冲正/对账调整（Provider 入账另有 CREDIT 分支）"，夹具注释已按完整
+   血统口径修正理解，正文相应表述以血统枚举为准。

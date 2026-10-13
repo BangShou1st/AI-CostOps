@@ -92,4 +92,31 @@ class ForecastHistoryEvidenceTest {
         assertThrows(ForecastEngine.ForecastUnavailableException.class,
                 () -> ForecastEngine.forecast(negative, 20, END));
     }
+
+    /**
+     * The fallback extrapolates only the trailing 7-day window, so eligibility must hold for
+     * that window too: six +10 days followed by seven -1 days nets +53 over the whole suffix
+     * (eligible) while the trailing window nets -7 and would extrapolate to a negative forecast
+     * without its own gate.
+     */
+    @Test void trailingWindowEligibilityGatesPositiveWholeHistoryWithNegativeTail() {
+        var mixed = padded(13, "10.00");
+        for (var i = 22; i <= 28; i++) {
+            mixed.set(i, new CostAnomalyEngine.DailyBucket(END.minusDays(28 - i), new BigDecimal("-1"), "CNY", true));
+        }
+        assertThrows(ForecastEngine.ForecastUnavailableException.class,
+                () -> ForecastEngine.forecast(mixed, 20, END));
+    }
+
+    /** Positive trailing window over an eligible whole history still forecasts normally. */
+    @Test void positiveTailOverPositiveHistoryStaysEligible() {
+        var mixed = padded(13, "1.00");
+        for (var i = 22; i <= 28; i++) {
+            mixed.set(i, new CostAnomalyEngine.DailyBucket(END.minusDays(28 - i), new BigDecimal("2.00"), "CNY", true));
+        }
+        var forecast = ForecastEngine.forecast(mixed, 7, END);
+        assertEquals("RECENT_RUN_RATE", forecast.method());
+        // trailing window: 7 * 2.00 = 14.00 / 7 = 2.00/day; 2.00 * 7 = 14.00
+        assertEquals(0, forecast.projectedAmount().compareTo(new BigDecimal("14.00000000")));
+    }
 }
