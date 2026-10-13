@@ -65,14 +65,14 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
         <div className="v3-section-head">
           <span className="v3-eyebrow">Method</span>
           <h2 id="v3-forecast-method">方法与口径</h2>
-          <p>未知日期不算有效观测；连续有效观测不足 3 天时不生成预测，3–13 天使用低置信度 RECENT_RUN_RATE，14 天起使用 DAMPED_HOLT。实际零金额记录和有效复核确认的零金额日期均计入观测。</p>
+          <p>未知日期不算有效观测；连续有效观测不足 3 天时不生成预测，3–13 天使用低样本等级 RECENT_RUN_RATE，14 天起使用 DAMPED_HOLT。实际零金额记录和有效复核确认的零金额日期均计入观测。冲正主导（净额非正）的历史不生成预测——预测缺席表示未来费用估计不可用，不是未来费用为零。</p>
         </div>
       </section>
       {org && (
         <section className="v3-hero-figure" aria-label="组织级预测">
-          <div className="k">组织周期预计</div>
+          <div className="k">组织剩余期间预计费用</div>
           <div className="v">{formatMoney(org.projectedAmount, activeCurrency)}</div>
-          <div className="s">{org.method} · {org.confidence} 置信度 · 连续有效观测 {org.historyBucketCount} 天 · 观测至 {org.observedThrough}</div>
+          <div className="s">{org.method} · {org.confidence}（历史样本等级，未经准确率校准）· 连续有效观测 {org.historyBucketCount} 天 · 观测至 {org.observedThrough}</div>
         </section>
       )}
       <section className="v3-section" aria-label="筛选">
@@ -93,8 +93,8 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
           {visible.map((f) => (
             <li key={`${f.scopeType}-${f.scopeKey}`} className="v3-row">
               <div className="v3-row-main">
-                <p className="v3-row-title"><span className={`v3-pill ${CONFIDENCE_PILL[f.confidence] ?? 'v3-pill-neutral'}`}>{f.confidence} 置信度</span>{' '}{f.scopeType} · {f.scopeKey}</p>
-                <p className="v3-row-detail">{f.method} · {METHOD_NOTE[f.method] ?? '确定性方法。'}连续有效观测 {f.historyBucketCount} 天 · 观测至 {f.observedThrough}</p>
+                <p className="v3-row-title"><span className={`v3-pill ${CONFIDENCE_PILL[f.confidence] ?? 'v3-pill-neutral'}`}>{f.confidence}（样本等级）</span>{' '}{f.scopeType} · {f.scopeKey}</p>
+                <p className="v3-row-detail">{f.method} · {METHOD_NOTE[f.method] ?? '确定性方法。'}剩余期间预计费用 · 连续有效观测 {f.historyBucketCount} 天 · 观测至 {f.observedThrough}</p>
               </div>
               <div className="v3-row-amount"><div className="a">{formatMoney(f.projectedAmount, activeCurrency)}</div></div>
             </li>

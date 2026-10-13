@@ -14,8 +14,11 @@ import org.springframework.http.HttpStatus;
  */
 public final class CostIntelligenceValidation {
 
-    /** Version 3 adds explicit coverage reviews and immutable input identities. */
-    public static final int RUN_VERSION = 3;
+    /** Version 3 added explicit coverage reviews and immutable input identities.
+     * Version 4 adds the forecast eligibility rule that withholds reversal-dominated
+     * (non-positive net) histories from future-usage snapshots; old version-3 snapshots
+     * stop being consumed because the input fingerprint includes the version. */
+    public static final int RUN_VERSION = 4;
 
     private CostIntelligenceValidation() {
     }

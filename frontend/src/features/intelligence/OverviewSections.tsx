@@ -78,8 +78,8 @@ export function AnswerStrip(props: {
       tone: 'info',
       icon: <InfoCircleOutlined />,
       body: forecast
-        ? <>周期预计 <strong>{formatMoney(forecast.projectedAmount, currency)}</strong>（{forecast.method}·{forecast.confidence}）</>
-        : <>暂无预测，历史粒度不足。</>,
+        ? <>剩余期间预计费用 <strong>{formatMoney(forecast.projectedAmount, currency)}</strong>（{forecast.method}·{forecast.confidence} 样本等级）</>
+        : <>暂无预测，历史粒度不足或为冲正主导。</>,
     },
     {
       key: 'do',
@@ -170,7 +170,7 @@ export function ExposureSection(props: {
           />
           <div className="v3-rail">
             <div className="v3-rail-item"><div className="k">即时敞口</div><div className="v">{formatMoney(risk.immediateExposure, currency)}</div><div className="s">实际＋已提交＋预占</div></div>
-            <div className="v3-rail-item"><div className="k">预计周期末</div><div className="v">{formatMoney(risk.projectedPeriodEnd, currency)}</div><div className="s">{forecast.method} · {forecast.confidence} 置信度</div></div>
+            <div className="v3-rail-item"><div className="k">预计周期末</div><div className="v">{formatMoney(risk.projectedPeriodEnd, currency)}</div><div className="s">{forecast.method} · {forecast.confidence}（样本等级）</div></div>
             <div className="v3-rail-item"><div className="k">预算风险</div><div className="v"><span className={`v3-pill ${riskMeta.pill}`}>{riskMeta.text}</span></div><div className="s">预算 {formatMoney(risk.budgetTotal, currency)}</div></div>
           </div>
         </>

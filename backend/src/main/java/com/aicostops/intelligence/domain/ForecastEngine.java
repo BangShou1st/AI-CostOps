@@ -6,8 +6,13 @@ import java.time.LocalDate;
 import java.util.List;
 
 /**
- * Deterministic forecast (M18 V3): DAMPED_HOLT primary with a bounded
+ * Deterministic forecast (RUN_VERSION 4): DAMPED_HOLT primary with a bounded
  * RECENT_RUN_RATE fallback. Output is a DERIVED_ESTIMATE, never Ledger truth.
+ *
+ * <p>Eligibility: a signed ledger net below or equal to zero cannot support a positive
+ * future-usage extrapolation. Reversal-dominated history yields no forecast at all
+ * ({@link ForecastUnavailableException}), while an all-zero observed history legitimately
+ * projects zero future spend. Negative projected amounts can never leave this engine.
  */
 public final class ForecastEngine {
 
@@ -62,22 +67,43 @@ public final class ForecastEngine {
             firstObserved--;
         }
         completedBuckets = completedBuckets.subList(firstObserved, completedBuckets.size());
+        if (completedBuckets.size() < MIN_FALLBACK_BUCKETS) {
+            throw new IllegalArgumentException("Insufficient history for a forecast");
+        }
+        requireExtrapolatableHistory(completedBuckets);
         if (completedBuckets.size() >= MIN_DAMPED_HOLT_BUCKETS) {
             var daily = dampedHoltDaily(completedBuckets);
             var projected = daily.multiply(BigDecimal.valueOf(Math.max(remainingDays, 0)));
             return new Forecast(projected, currency, "DAMPED_HOLT", completedBuckets.size(),
                     completedBuckets.size() >= 21 ? "HIGH" : "MEDIUM", observedThrough);
         }
-        if (completedBuckets.size() >= MIN_FALLBACK_BUCKETS) {
-            var window = completedBuckets.subList(
-                    Math.max(0, completedBuckets.size() - FALLBACK_WINDOW), completedBuckets.size());
-            var sum = window.stream().map(CostAnomalyEngine.DailyBucket::amount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            var daily = sum.divide(BigDecimal.valueOf(window.size()), 8, RoundingMode.HALF_UP);
-            return new Forecast(daily.multiply(BigDecimal.valueOf(Math.max(remainingDays, 0))),
-                    currency, "RECENT_RUN_RATE", completedBuckets.size(), "LOW", observedThrough);
+        var window = completedBuckets.subList(
+                Math.max(0, completedBuckets.size() - FALLBACK_WINDOW), completedBuckets.size());
+        var sum = window.stream().map(CostAnomalyEngine.DailyBucket::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        var daily = sum.divide(BigDecimal.valueOf(window.size()), 8, RoundingMode.HALF_UP);
+        return new Forecast(daily.multiply(BigDecimal.valueOf(Math.max(remainingDays, 0))),
+                currency, "RECENT_RUN_RATE", completedBuckets.size(), "LOW", observedThrough);
+    }
+
+    /**
+     * A reversal-dominated window (net below zero, or netting to zero while containing signed
+     * negative observations) cannot be extrapolated into a future-usage estimate in either
+     * direction: negative amounts are meaningless, positive ones are unsupported. An observed
+     * all-zero window is a legitimate zero forecast, distinct from unavailable.
+     */
+    private static void requireExtrapolatableHistory(List<CostAnomalyEngine.DailyBucket> buckets) {
+        var net = buckets.stream().map(CostAnomalyEngine.DailyBucket::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (net.compareTo(BigDecimal.ZERO) > 0) {
+            return;
         }
-        throw new IllegalArgumentException("Insufficient history for a forecast");
+        var hasNegative = buckets.stream().map(CostAnomalyEngine.DailyBucket::amount)
+                .anyMatch(a -> a.compareTo(BigDecimal.ZERO) < 0);
+        if (hasNegative) {
+            throw new ForecastUnavailableException(
+                    "Observed net " + net.toPlainString() + " cannot support a future-usage forecast");
+        }
     }
 
     static BigDecimal dampedHoltDaily(List<CostAnomalyEngine.DailyBucket> buckets) {
@@ -91,5 +117,12 @@ public final class ForecastEngine {
         }
         var oneStep = level + PHI * trend;
         return BigDecimal.valueOf(Math.max(oneStep, 0.0));
+    }
+
+    /** Eligibility signal: the history cannot support any future-usage estimate. */
+    public static final class ForecastUnavailableException extends RuntimeException {
+        public ForecastUnavailableException(String message) {
+            super(message);
+        }
     }
 }

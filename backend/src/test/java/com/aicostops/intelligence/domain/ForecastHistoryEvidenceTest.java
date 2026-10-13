@@ -59,4 +59,37 @@ class ForecastHistoryEvidenceTest {
         assertThrows(IllegalArgumentException.class, () -> ForecastEngine.forecast(gaps, 5, END));
         assertThrows(IllegalArgumentException.class, () -> ForecastEngine.forecast(padded(29,"2.00"), 5, END.plusDays(1)));
     }
+
+    /**
+     * U1 eligibility: reversal-dominated (non-positive net) history cannot be extrapolated into
+     * future usage. Negative nets never produce a forecast; mixed signs qualify only when the
+     * window nets positive; observed all-zero history legitimately projects zero.
+     */
+    @Test void nonPositiveNetsAreUnavailableWhileAllZeroHistoryProjectsZero() {
+        for (var days : new int[] {3, 7, 13, 14, 21}) {
+            assertThrows(ForecastEngine.ForecastUnavailableException.class,
+                    () -> ForecastEngine.forecast(padded(days, "-1"), 20, END),
+                    () -> days + " days of -1.00 must not become a negative forecast");
+        }
+        // Mixed signs that net positive stay eligible (one -1 among +2 days):
+        // window net 5.00 over 4 days = 1.25/day; 1.25 * 5 remaining days = 6.25.
+        var mixed = padded(4, "2.00");
+        mixed.set(28, new CostAnomalyEngine.DailyBucket(END, new BigDecimal("-1"), "CNY", true));
+        var mixedForecast = ForecastEngine.forecast(mixed, 5, END);
+        assertEquals(0, mixedForecast.projectedAmount().compareTo(new BigDecimal("6.25000000")));
+        // Mixed signs that net to zero or below are unavailable.
+        var netZero = padded(4, "0.50");
+        netZero.set(28, new CostAnomalyEngine.DailyBucket(END, new BigDecimal("-1.50"), "CNY", true));
+        assertThrows(ForecastEngine.ForecastUnavailableException.class,
+                () -> ForecastEngine.forecast(netZero, 20, END));
+        // Observed all-zero history is a legitimate zero forecast, not unavailable.
+        var zeros = ForecastEngine.forecast(padded(3, "0"), 20, END);
+        assertEquals(0, zeros.projectedAmount().compareTo(BigDecimal.ZERO));
+    }
+
+    @Test void dampedHoltPathAlsoRefusesNegativeNetHistory() {
+        var negative = padded(21, "-1");
+        assertThrows(ForecastEngine.ForecastUnavailableException.class,
+                () -> ForecastEngine.forecast(negative, 20, END));
+    }
 }

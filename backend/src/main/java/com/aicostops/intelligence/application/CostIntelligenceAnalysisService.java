@@ -209,6 +209,10 @@ public class CostIntelligenceAnalysisService {
             forecast = ForecastEngine.forecast(series, remainingDays, observedThrough);
         } catch (IllegalArgumentException ex) {
             return;
+        } catch (ForecastEngine.ForecastUnavailableException ex) {
+            // Reversal-dominated history: no forecast row is persisted, so budget risk and
+            // Advisor report forecastAvailable=false instead of a truncated zero estimate.
+            return;
         }
         store.insertForecast(organizationId, runId, scopeType, scopeKey, currency,
                 forecast.projectedAmount(), forecast.method(), forecast.historyBucketCount(),
