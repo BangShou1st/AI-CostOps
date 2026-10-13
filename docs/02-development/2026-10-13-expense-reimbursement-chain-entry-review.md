@@ -25,6 +25,7 @@
 - **幂等身份**：`(org_id, actor_member_id, operation, hex(SHA-256(key)))`；不同请求体复用同键 → 409。
 - **锁序**：幂等 `reserve`（首写）→ `expense_claim` 行 `FOR UPDATE`（提交/撤回）→ `approval_case` 行 `FOR UPDATE`。
 - **撤权下的幂等重放**：权限门在 reserve/replay 之前，撤权后同键重放返回 **403**，不会返回缓存成功（新增测试确认）。
+  测试直接删除权限映射并清空测试 Redis，证明的是重新加载后的权限门顺序；真实撤权命令的缓存失效、失效失败和多实例传播尚未由这两个用例验证。
 - **失败恢复**：异常整体回滚（含 reserve 行）；`ExpenseCommandTransactions` 对死锁重试 3 次并包裹**整**事务，从不重试外部存储。
 - **状态机**：由 `ExpenseClaimStatus.canTransitionTo` 冻结；`POSTED/REJECTED/CANCELED` 为终态。
 - **结论**：无问题。`resubmitRequestHash`/`OPERATION_RESUBMIT` 常量为未使用的预留（提交恒用 `EXPENSE_SUBMIT`），属一致性设计，不计为缺陷。
@@ -33,7 +34,7 @@
 
 - **谁可操作**：组织级 `EXPENSE_REVIEW`（`requireOrg`，在 `reserve` 之前；同组织无 owner 比较）。
 - **动作 / 状态迁移**：`REQUEST_INFO`、`APPROVE`、`REJECT` 均自 `SUBMITTED + PENDING` 出发；同事务写 `expense_claim.status`、`approval_case.status`、`approval_action`、审计、幂等 finalize。
-- **幂等身份**：`EXPENSE_REQUEST_INFO` / `EXPENSE_APPROVE` / `EXPENSE_REJECT` + 请求哈希（含 `expectedVersion`、`comment`）。
+- **幂等身份**：`EXPENSE_REQUEST_INFO` / `EXPENSE_APPROVE` / `EXPENSE_REJECT` + 请求哈希；全部包含 `expectedVersion`，`requestInfo` / `reject` 另含 `comment`，`approve` 没有评论参数。
 - **锁序**：`approve` 先 `closeAdmission.lockOpenAt(org, expense_date)`（关账准入，要求覆盖账期 **OPEN**）→ `expense_claim` 行 `FOR UPDATE` → `approval_case` 行 `FOR UPDATE`；`requestInfo`/`reject` 不产生财务事实，不开关账门。
 - **与关账竞争**：`approve` 对账期上锁并要求 OPEN；CLOSING/CLOSED 一律拒绝且不改任何行（`ExpenseFailureAtomicityIntegrationTest` 参数化覆盖）。已提交结果重放早于关账门返回，不改财务事实。
 - **过期版本 / 已变化状态**：`version` CAS + `SUBMITTED/PENDING` 状态检查，均 409。
@@ -78,5 +79,5 @@
 
 ## 8. 待验证风险（记录，非缺陷）
 
-- **同键并发时 winner 回滚**：若先到达的同键请求因业务原因（如关账 409）回滚，后到达者会收到 `DuplicateKeyException` 而非同一业务错误。这是 expense / import / duplicate-review 各模块**一致的既有幂等实现选择**（`insertProvisional` 冲突后 `findByNaturalKeyForUpdate` 返回 null 即重抛），超出本链范围，未修改；如后续统一处理需跨模块评估。
+- **同键并发时先到请求回滚**：源码中存在捕获 `DuplicateKeyException` 后锁读返回 null 则重抛的防御分支，不能由此推断“先到请求回滚，后到请求必然收到重复键异常”。2026-10-14 的独立 MySQL 8.4 诊断使用生产 Mapper / Store / 事务辅助类及真实 V1–V29 迁移，在观察到唯一键 `LOCK WAIT` 后令先到事务回滚：后到事务成功新预占并提交，仅留一次副作用；提交对照组则正确重放。原先必然异常的断言撤回。该证据覆盖双请求组件行为，完整 API 故障注入、多请求竞争及该防御分支的可达性仍待验证，详见[后续复核](../03-acceptance/2026-10-14-expense-review-followup.md)。
 - **孤儿证据无回收**：绑定失败后保留的证据行不回收，属"不得删除共享去重证据"的设计选择。

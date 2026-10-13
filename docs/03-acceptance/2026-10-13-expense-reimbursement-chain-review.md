@@ -3,6 +3,10 @@
 基线：`codex/history-coverage-20261012@0039452`（此前本地提交仍未发布）。本批只新增测试与文档，
 未修改生产代码。未跟踪的 `.freebuff/`、`CHANGELOG.md`、`LICENSE` 保持原样，无 reset/clean。
 
+2026-10-14 后续复核已补强证据恢复与前端测试，并完成一次退出码 0 的完整 `npm run verify`。
+独立 MySQL 诊断也更正了并发回滚的推断，见[后续复核记录](2026-10-14-expense-review-followup.md)。
+下文保留本批原始验证结果与限制，不用后续成功替换历史失败。
+
 ## 1. 范围与本批结论
 
 沿实际调用链审查报销链五个写入口：证据上传与绑定 → 创建/编辑 → 提交/撤回/重新提交 → 审批 →
@@ -40,18 +44,19 @@
 | 最终结论 | `BUILD FAILURE`（后端 failsafe 阶段），总耗时 56:31 |
 
 27 个 error = `V22LegacyRoutingBackfillIntegrationTest` 1 + `V10MigrationIntegrationTest` 10 +
-`V11MigrationIntegrationTest` 16，全部为 **Docker/Testcontainers 环境故障**，非代码回归：
+`V11MigrationIntegrationTest` 16，失败直接表现为 **Docker/Testcontainers 启动与数据库连接错误**：
 
 - V22：`ContainerLaunchException: Container startup failed for image mysql:8.4`，Docker 引擎返回 `Status 500`
   （新建容器无法启动）；
 - V10/V11：`HikariPool-6 - Connection is not available, request timed out after 30009ms` /
   `Communications link failure`（共享 MySQL 容器在运行后段失联）。
 
-本机 Docker Desktop VM 内存实测约 **1.9 GB**；完整 verify 期间 184 个 Spring 上下文产生的多个 HikariPool
-与多个容器叠加，后段出现容器启动失败与连接丢失。本批改动仅涉及 `expense`/`ledger` 测试与文档，与 V10/V11/V22
-迁移/路由测试无交集。
+本机 Docker Desktop VM 内存实测约 **1.9 GB**；多个缓存上下文、连接池与容器叠加可能造成资源压力，
+但上下文数量、OOM 或容器退出根因尚缺直接证据，不能把报告中的测试类数量等同于 Spring 上下文数量。
+本批改动仅涉及 `expense`/`ledger` 测试与文档，与 V10/V11/V22 迁移/路由测试无直接代码交集；这有助于定位，
+但不能排除整套运行中的测试生命周期或资源管理问题。
 
-**同一代码上的隔离重跑（确认非回归）**：
+**同一代码上的隔离重跑（确认单独运行通过）**：
 
 | 验证 | 结果 |
 | --- | --- |
@@ -64,7 +69,7 @@
 | 验证 | 结果 |
 | --- | --- |
 | gateway `mvnw verify`：surefire 174 + failsafe 84 | **258 项、0 failures、0 errors、0 skipped**（日志里的 `reclaimOrphans` JDBC 报错来自后台 `@Scheduled` 任务，未计为测试失败） |
-| frontend `npm run test`（vitest） | **547 项：546 通过、1 失败**——`ExpensePages.test.tsx` 的「403 forbidden」用例以默认 5s 超时（隔离单跑仍超时；用 20s 预算诊断 7.5s 通过）。根因：该文件未 mock `allocationApi.listTargets`，React Query 对 `undefined` 查询重试导致页面渲染延迟；**该文件本批未改动**，属既有测试对机器速度敏感。按"不放宽超时制造通过"的要求未修改用例。 |
+| frontend `npm run test`（vitest） | **547 项：546 通过、1 失败**——`ExpensePages.test.tsx` 的「403 forbidden」用例以默认 5s 超时（隔离单跑仍超时；用 20s 预算诊断 7.5s 通过）。该用例存在分摊目标 mock 不完整及重复 DOM 查询，但耗时根因未由这些结果证明；测试 QueryClient 已配置 `retry: false`，原先“React Query 重试导致延迟”的归因不成立。**该文件本批未改动**；没有修改超时或断言。2026-10-14 后续复核另补测试依赖和查询方式，结果单独记录。 |
 | frontend `npm run lint` | 通过 |
 | frontend `npm run build`（tsc + vite） | 通过 |
 
@@ -91,17 +96,17 @@
 
 ## 4. 验证限制与遗留
 
-- **Docker/Testcontainers 环境**：完整 verify 的 27 个错误来自容器启动失败/失联（Docker VM 约 1.9 GB 内存），
-  已用同代码隔离重跑证明非回归；未降低断言、未放宽超时、未跳过测试。
-- **前端单元 1 项超时**：`ExpensePages.test.tsx` 的 403 用例（本批未改），测速敏感；已确定可修复方向
-  （补 mock `listTargets`，或比照同文件 409 用例给本地预算），但未在本批改动。
+- **Docker/Testcontainers 环境**：完整 verify 的 27 个错误直接表现为容器启动失败/失联（Docker VM 约 1.9 GB 内存），
+  同代码隔离重跑通过；具体根因及整套运行稳定性仍需验证。未降低断言、未放宽超时、未跳过测试。
+- **前端单元 1 项超时**：`ExpensePages.test.tsx` 的 403 用例（本批未改）；后续先补齐 mock 并减少重复 DOM 查询，
+  保持原断言和默认超时，验证稳定性，避免仅凭提高预算认定问题关闭。
 - **浏览器验收为单组织、单身份**：同一管理员驱动员工与财务动作，不构成独立身份环境的组织隔离证据。
   真实 Provider/OpenCode 联调与独立浏览器组织隔离验收维持 **DEFERRED**。
 - **合成数据**：报销 38 已 POSTED（账本不可变），保留在 dev 库中，**不做删除**（删除已入账事实会破坏账本不可变性）。
   本次启动的本机三端进程已停止，临时凭证文件已删除；未清理任何数据卷或既有配置。
 - 未推送、未创建 PR、未合并、未部署；远程 CI 未执行。
-- 两条记录在案的既有设计选择（同键并发 winner 回滚时 loser 收到 `DuplicateKeyException`；孤儿证据不回收）
-  不属本链缺陷，未改，详见入口审查 §8。
+- 后续独立 MySQL 组件诊断已验证双请求回滚后重新预占、提交后重放；完整 API 与多请求边界仍待补测，
+  孤儿证据暂不回收属于当前保留策略，后续回收需要引用检查与保留规则。详见入口审查 §8。
 
 ## 5. 建议下一步
 

@@ -3,6 +3,7 @@ package com.aicostops.expense;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doThrow;
 
 import com.aicostops.expense.application.ExpenseAuditPort;
@@ -55,7 +56,7 @@ class ExpenseEvidenceBindingRecoveryIntegrationTest extends ExpenseTestSupport {
      * object storage effects are not undone by a database rollback.
      */
     @Test
-    void auditFailureOnAttachRollsBackTheBindingButKeepsTheStoredEvidence() {
+    void auditFailureOnAttachRollsBackTheBindingButKeepsTheStoredEvidence() throws Exception {
         var expenseId = insertExpenseDraft();
         var sha = sha256Of(RECEIPT);
         doThrow(new IllegalStateException("audit unavailable")).when(audit)
@@ -74,6 +75,22 @@ class ExpenseEvidenceBindingRecoveryIntegrationTest extends ExpenseTestSupport {
         assertThat(jdbc.queryForObject(
                 "SELECT storage_status FROM evidence WHERE org_id=? AND sha256=?",
                 String.class, orgId, sha)).isEqualTo("AVAILABLE");
+        var retainedEvidenceId = jdbc.queryForObject(
+                "SELECT id FROM evidence WHERE org_id=? AND sha256=?", Long.class, orgId, sha);
+
+        // Recover within this same failure scenario, rather than inferring
+        // object retention from the AVAILABLE row or from a different test.
+        doCallRealMethod().when(audit)
+                .evidenceAttached(anyLong(), anyLong(), anyLong(), anyLong(), anyLong());
+        var recovered = uploads.attach(employeeUser(), expenseId, 0,
+                "receipt.pdf", "application/pdf", new ByteArrayInputStream(RECEIPT));
+        assertThat(recovered.version()).isEqualTo(1);
+        assertThat(recovered.evidenceId()).isEqualTo(retainedEvidenceId);
+        assertThat(countEvidenceBySha(sha)).isEqualTo(1);
+        assertThat(auditCount("EXPENSE_EVIDENCE_ATTACHED")).isEqualTo(1);
+        try (var stream = downloads.download(employeeUser(), expenseId).stream()) {
+            assertThat(stream.readAllBytes()).isEqualTo(RECEIPT);
+        }
     }
 
     /**
