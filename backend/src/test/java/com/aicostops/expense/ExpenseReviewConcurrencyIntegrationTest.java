@@ -79,6 +79,54 @@ class ExpenseReviewConcurrencyIntegrationTest extends ExpenseTestSupport {
                 """, Integer.class, expenseId)).isEqualTo(1);
     }
 
+    /**
+     * Two concurrent approvals carrying the SAME Idempotency-Key from the same
+     * actor: the reserve collision must replay the winner's response, so both
+     * callers observe one identical APPROVED result and the database records a
+     * single transition, a single action and a single audit event.
+     */
+    @Test
+    void concurrentDuplicateApproveWithSameKeyReplaysExactlyOnce() throws Exception {
+        var expenseId = commands.create(employeeUser(), createCommand(), "dup-create").id();
+        evidenceUploads.attach(employeeUser(), expenseId, 0,
+                "receipt.pdf", "application/pdf", new ByteArrayInputStream(RECEIPT));
+        commands.submit(employeeUser(), expenseId, new SubmitExpenseCommand(1), "dup-submit");
+
+        var results = runConcurrentDuplicateApprove(expenseId, "dup-approve-key");
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0)).isEqualTo(results.get(1));
+        assertThat(results.get(0).status().name()).isEqualTo("APPROVED");
+        assertThat(expenseStatus(expenseId)).isEqualTo("APPROVED");
+        assertThat(expenseVersion(expenseId)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM approval_action aa
+                JOIN approval_case ac ON aa.approval_case_id=ac.id
+                JOIN expense_claim ec ON ec.approval_case_id=ac.id
+                WHERE ec.id=? AND aa.action_type='APPROVE'
+                """, Integer.class, expenseId)).isEqualTo(1);
+        assertThat(auditCount("EXPENSE_REVIEWED")).isEqualTo(1);
+    }
+
+    private java.util.List<com.aicostops.expense.application.ExpenseReadModels.ExpenseDetail>
+            runConcurrentDuplicateApprove(long expenseId, String key) throws Exception {
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            CountDownLatch start = new CountDownLatch(1);
+            java.util.concurrent.Callable<com.aicostops.expense.application.ExpenseReadModels.ExpenseDetail>
+                    call = () -> {
+                        start.await();
+                        return reviews.approve(financeUser(), expenseId,
+                                new ApproveExpenseCommand(2), key);
+                    };
+            var first = pool.submit(call);
+            var second = pool.submit(call);
+            start.countDown();
+            var firstResult = first.get(30, TimeUnit.SECONDS);
+            var secondResult = second.get(30, TimeUnit.SECONDS);
+            return java.util.List.of(firstResult, secondResult);
+        }
+    }
+
     private AuthenticatedUser secondFinanceReviewer() {
         var userId = insertUser("finance-b-" + System.nanoTime() + "@example.com");
         var memberId = insertMember(orgId, userId);

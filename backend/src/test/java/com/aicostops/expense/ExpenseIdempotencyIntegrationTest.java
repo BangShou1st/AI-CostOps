@@ -123,6 +123,63 @@ class ExpenseIdempotencyIntegrationTest extends ExpenseTestSupport {
                 });
     }
 
+    /**
+     * The authorization gate runs before the idempotency reserve/replay, so a
+     * revoked permission is never bypassed by replaying a previously successful
+     * Idempotency-Key: the cached success must not be returned.
+     */
+    @Test
+    void submitReplayAfterRevokingSubmitPermissionIsStillForbidden() {
+        var expenseId = commands.create(employeeUser(), createCommand(), "rev-create").id();
+        evidenceUploads.attach(employeeUser(), expenseId, 0,
+                "receipt.pdf", "application/pdf", new ByteArrayInputStream(RECEIPT));
+        commands.submit(employeeUser(), expenseId, new SubmitExpenseCommand(1), "rev-submit");
+
+        revokePermission("EXPENSE_EMPLOYEE", "EXPENSE_SUBMIT_OWN");
+
+        assertThatThrownBy(() -> commands.submit(employeeUser(), expenseId,
+                new SubmitExpenseCommand(1), "rev-submit"))
+                .satisfies(thrown -> {
+                    var domain = (DomainException) thrown;
+                    assertThat(domain.status().value()).isEqualTo(403);
+                    assertThat(domain.code().name()).isEqualTo("FORBIDDEN");
+                });
+        assertThat(expenseStatus(expenseId)).isEqualTo("SUBMITTED");
+        assertThat(approvalActionCount(expenseId, "SUBMIT")).isEqualTo(1);
+    }
+
+    /** Same replay-after-revocation guarantee for the review approve command. */
+    @Test
+    void approveReplayAfterRevokingReviewPermissionIsStillForbidden() {
+        var expenseId = commands.create(employeeUser(), createCommand(), "rev-ap-create").id();
+        evidenceUploads.attach(employeeUser(), expenseId, 0,
+                "receipt.pdf", "application/pdf", new ByteArrayInputStream(RECEIPT));
+        commands.submit(employeeUser(), expenseId, new SubmitExpenseCommand(1), "rev-ap-submit");
+        reviews.approve(financeUser(), expenseId, new ApproveExpenseCommand(2), "rev-ap-key");
+
+        revokePermission("EXPENSE_FINANCE", "EXPENSE_REVIEW");
+
+        assertThatThrownBy(() -> reviews.approve(financeUser(), expenseId,
+                new ApproveExpenseCommand(2), "rev-ap-key"))
+                .satisfies(thrown -> {
+                    var domain = (DomainException) thrown;
+                    assertThat(domain.status().value()).isEqualTo(403);
+                    assertThat(domain.code().name()).isEqualTo("FORBIDDEN");
+                });
+        assertThat(expenseStatus(expenseId)).isEqualTo("APPROVED");
+        assertThat(approvalActionCount(expenseId, "APPROVE")).isEqualTo(1);
+    }
+
+    private void revokePermission(String roleCode, String permissionCode) {
+        jdbc.update("""
+                DELETE rp FROM role_permission rp
+                JOIN `role` r ON r.id=rp.role_id
+                JOIN permission p ON p.id=rp.permission_id
+                WHERE r.code=? AND p.code=?
+                """, roleCode, permissionCode);
+        redis.getConnectionFactory().getConnection().serverCommands().flushAll();
+    }
+
     private int approvalActionCount(long expenseId, String actionType) {
         return jdbc.queryForObject("""
                 SELECT COUNT(*) FROM approval_action aa
