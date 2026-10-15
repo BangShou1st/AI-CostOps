@@ -136,7 +136,8 @@ public class AiCostOpsMetrics {
                     "RESERVATION_FINALIZATION_CONFLICT", "SETTLEMENT_STATE_CONFLICT",
                     "SETTLEMENT_LINEAGE_MISSING", "SETTLEMENT_LINEAGE_CHANGED",
                     "BILLING_PERIOD_LINEAGE_CONFLICT", "LEDGER_ENTRY_CARDINALITY",
-                    "DATABASE_TRANSIENT", "RETRY_EXHAUSTED" -> reasonCode;
+                    "DATABASE_TRANSIENT", "SETTLEMENT_ISOLATED_FAILURE",
+                    "SETTLEMENT_ERROR", "RETRY_EXHAUSTED" -> reasonCode;
             default -> "UNKNOWN";
         };
     }

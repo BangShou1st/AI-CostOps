@@ -123,6 +123,8 @@ class AiCostOpsMetricsTest {
         metrics.gatewaySettlement("untrusted-settlement-id", "untrusted-error");
         metrics.gatewaySettlementRetry("request-123");
         metrics.gatewaySettlementReconciliationRequired("RETRY_EXHAUSTED");
+        metrics.gatewaySettlementRetry("SETTLEMENT_ISOLATED_FAILURE");
+        metrics.gatewaySettlementRetry("SETTLEMENT_ERROR");
         metrics.gatewayReservationOverrun("raw-provider-account");
 
         assertThat(registry.get("aicostops.gateway.settlement")
@@ -131,6 +133,10 @@ class AiCostOpsMetricsTest {
                 .tags("status", "UNKNOWN", "outcome", "UNKNOWN").counter().count()).isEqualTo(1.0);
         assertThat(registry.get("aicostops.gateway.settlement.retry")
                 .tag("reason_code", "UNKNOWN").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("aicostops.gateway.settlement.retry")
+                .tag("reason_code", "SETTLEMENT_ISOLATED_FAILURE").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("aicostops.gateway.settlement.retry")
+                .tag("reason_code", "SETTLEMENT_ERROR").counter().count()).isEqualTo(1.0);
         assertThat(registry.get("aicostops.gateway.settlement.reconciliation_required")
                 .tag("reason_code", "RETRY_EXHAUSTED").counter().count()).isEqualTo(1.0);
         assertThat(registry.get("aicostops.gateway.reservation.overrun")
