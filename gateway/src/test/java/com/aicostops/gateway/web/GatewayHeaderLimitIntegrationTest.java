@@ -112,7 +112,12 @@ class GatewayHeaderLimitIntegrationTest extends GatewayMySqlContainerSupport {
     void normalHeadersReachBusinessPath() throws Exception {
         var response = post(body(env), "hdr-idem-1", null);
 
-        assertThat(response.statusCode()).isEqualTo(200);
+        // A non-200 here must name the frozen Gateway error envelope so a
+        // regression is attributable to one layer (auth / routing / dependency)
+        // instead of only reporting the bare status.
+        assertThat(response.statusCode())
+                .as("unexpected Gateway status; body=%s", response.body())
+                .isEqualTo(200);
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM gateway_request WHERE org_id=? AND state='TRANSPORT_COMPLETED'",

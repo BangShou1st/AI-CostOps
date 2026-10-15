@@ -33,8 +33,43 @@ public final class GatewayTestFixture {
     }
 
     /** Extended seed for controller tests: real encryption + mock upstream base URL. */
-    public static SeededEnv seed(JdbcTemplate jdbc, String suffix, String hmacKeyBase64, String rawKey,
+    public static SeededEnv seed(JdbcTemplate sharedJdbc, String suffix, String hmacKeyBase64, String rawKey,
             String kekBase64, String providerSecret, String baseUrl) {
+        return onOneConnection(sharedJdbc, jdbc -> seedWithinOneConnection(jdbc, suffix, hmacKeyBase64,
+                rawKey, kekBase64, providerSecret, baseUrl));
+    }
+
+    /**
+     * Runs a fixture body on one borrowed physical connection.
+     *
+     * <p>{@code LAST_INSERT_ID()} is connection-scoped, and this fixture derives
+     * every generated id from it. Read through a pooled {@code JdbcTemplate},
+     * whose statements each borrow and release their own connection, that value
+     * can be answered by a different connection than the insert which produced
+     * it (HikariCP hands a released connection straight to a waiting borrower).
+     * A corrupted id either trips a foreign key -- or, for the columns that carry
+     * no foreign key ({@code gateway_credential.project_id} and
+     * {@code financial_scope_id}), is persisted silently and only surfaces later
+     * as a 403 {@code GATEWAY_FORBIDDEN "Project is not active"}. Pinning the
+     * whole body to one connection removes that flake class.
+     */
+    private static <T> T onOneConnection(JdbcTemplate sharedJdbc,
+            java.util.function.Function<JdbcTemplate, T> body) {
+        var dataSource = sharedJdbc.getDataSource();
+        if (dataSource == null) {
+            throw new IllegalStateException("The shared JdbcTemplate has no DataSource");
+        }
+        try (var connection = dataSource.getConnection()) {
+            var scoped = new JdbcTemplate(
+                    new org.springframework.jdbc.datasource.SingleConnectionDataSource(connection, true));
+            return body.apply(scoped);
+        } catch (java.sql.SQLException ex) {
+            throw new IllegalStateException("Could not pin one connection for the gateway test fixture", ex);
+        }
+    }
+
+    private static SeededEnv seedWithinOneConnection(JdbcTemplate jdbc, String suffix, String hmacKeyBase64,
+            String rawKey, String kekBase64, String providerSecret, String baseUrl) {
         var orgId = insertId(jdbc, "organization(name,slug,status,settings_json,created_at,updated_at)",
                 "VALUES (?,?,'ACTIVE',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
                 "M11 " + suffix, "gw-test-" + suffix);
@@ -245,7 +280,13 @@ public final class GatewayTestFixture {
     }
 
     /** Add a second certified MiMo-compatible account to the seeded policy. */
-    public static long addMimoCompatibleCandidate(JdbcTemplate jdbc, SeededEnv env,
+    public static long addMimoCompatibleCandidate(JdbcTemplate sharedJdbc, SeededEnv env,
+            String baseUrl, int priority) {
+        return onOneConnection(sharedJdbc,
+                jdbc -> addMimoCompatibleCandidateWithinOneConnection(jdbc, env, baseUrl, priority));
+    }
+
+    private static long addMimoCompatibleCandidateWithinOneConnection(JdbcTemplate jdbc, SeededEnv env,
             String baseUrl, int priority) {
         var providerCode = "MIMO_TEST_" + priority + "_" + System.nanoTime();
         jdbc.update("""
