@@ -167,4 +167,9 @@
 - 起始 HEAD：`7a14d717f87f9916af8058bd1ad8c1672846344a`
 - 本批分支：`codex/history-coverage-20261012`，**非强制**推送；未建 PR、未合并 main、未部署。
 - 本批提交内容：`OpenCodeEndpointContractTest`（Gateway 3 项）、`OpenCodeZenEndpointContractTest`（Backend 5 项）、本记录。
-- 提交 SHA 与推送结果：见仓库 `git log` 与本批报告（末次提交为 `docs(acceptance): record OpenCode Zen endpoint compatibility maintenance`）。
+- 本批提交（2 个）：
+  - `8376a119c67d43769d7315e674c46a9db48d2373` → `test(opencode): pin OpenCode Zen endpoint contract and proxy relay boundary`
+  - `1e0d38bb9f316dab7d054907ec3e97346406bf86` → `docs(acceptance): record OpenCode Zen endpoint compatibility maintenance`
+- 最终 HEAD：`1e0d38bb9f316dab7d054907ec3e97346406bf86`
+- 推送：`7a14d71..1e0d38b  codex/history-coverage-20261012 -> codex/history-coverage-20261012`（**非强制** fast-forward，退出码 0）；
+  远端 `refs/heads/codex/history-coverage-20261012` = `1e0d38bb9f316dab7d054907ec3e97346406bf86`。未建 PR、未合并 main、未部署。
