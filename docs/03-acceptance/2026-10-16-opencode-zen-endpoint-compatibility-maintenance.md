@@ -5,12 +5,29 @@
 未跟踪的 `.freebuff/` 原样保留；无 `reset --hard` / `git clean` / 强制推送；未建 PR、未合并 main、未部署、未调用真实付费 OpenCode Provider。
 本批不改动上一批 Gateway 403 修复提交（`3244dd3` / `4f2d389`）及其测试。
 
+> **更正声明（2026-10-16，独立复核批次追加；原文未改写、未删除）**
+>
+> 后续独立复核发现：本记录把 `/inference` 体系笼统称为「代理专有」，**该表述不准确**。
+> `/inference` 主机路径族是 **OpenCode 官方 V2 Console** 产品（官方 Chat 端点为
+> `https://opencode.ai/inference/openai/v1/chat/completions`，目录为 `https://opencode.ai/inference/v1/models`，
+> 认证使用 Console 服务账号密钥 `oc_sk_...`），**不是第三方中转**。
+> 真正属于本地代理专有的是：**匿名 `Bearer public` 凭证**、**会话模拟头**，以及
+> **「base 已含 `/v1`、无 API 家族前缀」的拼接方式**（`/inference/v1/chat/completions`，该组合未记载于官方文档）。
+> 另经实测：**V1 Zen 端点仍存活**，`https://opencode.ai/docs/zen/` 现 302 重定向至 V2 文档属**文档合并**，不构成端点退役证据。
+>
+> 完整证据、三方差异表与判定见 `docs/03-acceptance/2026-10-16-opencode-v1v2-endpoint-review.md`。
+> 本记录**结论中被推翻的仅是「`/inference` = 代理专有」这一句**；其余结论（内置模板 URL 正确、`joinBase` 无重复 `/v1`、
+> 协议分流 fail closed、`DIRECT_ONLY`、`Bearer <secret>`、不复刻代理匿名凭证/会话头/占位工具/`-free` 推断/回退代理/中转架构）
+> **仍然成立**。被推翻处已在 §1、§3.1、§3.2、§4、§9 就地标注。
+
 ## 1. 本批结论（先给结果）
 
 - **项目当前 OpenCode URL 是正确的，不替换**。项目 `base_url = https://opencode.ai/zen/v1` + `completion_path = /chat/completions`
   = `https://opencode.ai/zen/v1/chat/completions`，与官方文档逐字一致。
 - **本地 Python 代理用的是另一套、代理专有的中转 base**：`https://opencode.ai/inference/v1`（见 §3.1）。它是社区第三方
   「Zen Free」代理，**不属于** OpenCode 官方协议证据，**不得**据此替换项目常量。
+  > ⚠️ **更正（见文首更正声明）**：`/inference` **主机路径族本身是官方 V2 Console 体系**，不是代理专有；
+  > 代理专有的是其**匿名凭证**与**无家族前缀的拼接方式**。V1 Zen 端点经实测**仍存活**。
 - 项目中**未发现需修复的请求地址/路径/重复 `/v1`/多段拼接缺陷**；`/models` 与 `/chat/completions` 均按「base 已含 `/v1`」
   组合，无重复 `/v1`。
 - 项目的**协议分流与失败兜底已经正确**：只有 Chat Completions 家族可探针/晋级；Responses、Messages、Gemini 原生、
@@ -37,7 +54,7 @@
 
 | # | 维度 | Python 代理（文件:行） | Java 项目（文件:行） | 是否需要改 | 判定与理由 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 上游域名 / Base URL | `BASE = "https://opencode.ai/inference/v1"`（`opencode-zen-proxy.py:32`） | `OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"`（`ProviderTemplateRegistry.java:21`）；DB seed 同值（`V24__m18_provider_hub.sql:41`） | **否** | 官方文档端点族均为 `https://opencode.ai/zen/v1/...`，项目已与官方一致；`inference/v1` 是代理专有中转 base，非官方协议证据，**不替换** |
+| 1 | 上游域名 / Base URL | `BASE = "https://opencode.ai/inference/v1"`（`opencode-zen-proxy.py:32`） | `OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1"`（`ProviderTemplateRegistry.java:21`）；DB seed 同值（`V24__m18_provider_hub.sql:41`） | **否** | 官方文档端点族均为 `https://opencode.ai/zen/v1/...`，项目已与官方一致；`inference/v1` 是代理专有中转 base，非官方协议证据，**不替换** <br>⚠️ **更正**：官方另有 **V2 Console** 体系 `https://opencode.ai/inference`（家族前缀 `/openai`、`/anthropic`、`/google`、`/systemone`）——`inference` 族**是官方的**；代理专有的是「含 `/v1`、无家族前缀」的拼接。不替换的结论**不变** |
 | 2 | HTTP Method 与完整路径 | `POST` + `PATHS["chat"]="/chat/completions"`（`:44`、`:811`）→ `/inference/v1/chat/completions` | `POST` + `targetUrl = base + completionPath`（`AbstractOpenAiCompatibleAdapter.java:152-157`）→ `/zen/v1/chat/completions` | **否** | 方法/后缀一致；差异只在 base，见 #1；Gateway 组合逻辑无重复 `/v1`（契约测试固化） |
 | 3 | 按模型的端点/协议族 | 三族 + 原生：chat `/chat/completions`、responses `/responses`、anthropic `/messages`（`:44`）；`systemone`（`:54`、`:181`） | 仅 `OPENAI_CHAT_COMPLETIONS` 走 Chat 适配器；Responses/Messages/Gemini/SystemOne 在清单中 `UNSUPPORTED`（`OpenCodeModelManifest.java:56-96`） | **否**（仅补测试） | 项目能力边界是**有意**的（M17/M18 冻结）：不具备 Responses/Messages/Gemini 原生实现，故一律 fail closed，绝不按 Chat 复用 |
 | 4 | Bearer / API Key 传递 | 匿名 `Authorization: Bearer public`（`:810`）；anthropic 用 `x-api-key: public`（`:805`） | 连接配置的 `BEARER` 凭证（真实密钥）；`Authorization: Bearer <secret>`（`AbstractOpenAiCompatibleAdapter.java:140-145`）；内置模板仅接受 `BEARER_TOKEN`（`OpenCodeZenChatAdapter.java:54-60`） | **否** | 代理的匿名 `public` 属于绕过/未授权语义，**禁止复制**；项目保持真实凭证 + 严格凭证类型校验 |
@@ -51,6 +68,7 @@
 ### 3.2 属于「代理专有、明确不复刻」的部分（清单）
 
 1. 代理专有 base `https://opencode.ai/inference/v1` 与 `ZEN_FALLBACK_PROXY` 回退代理（`:32`、`:35`、`:77-86`）。
+   > ⚠️ **更正**：`inference` 族为**官方**（V2 Console）；代理专有的是**匿名凭证**与**无家族前缀的 `/inference/v1` 拼接形状**。
 2. 匿名 `Bearer public` / `x-api-key: public` 鉴权（`:805`、`:810`）。
 3. 合成 `ses_…` 会话 ID 与 `x-opencode-session(-id)` / `x-opencode-project` / `x-opencode-request` 头（`:235-268`、`:799-810`）。
 4. 占位工具注入（bash/edit/glob/grep/read 作为「Never call this tool」）与工具名改写告警（`:287-324`）。
@@ -69,6 +87,8 @@
 | 关键核实结论 | 官方端点表逐条给出：Chat Completions 家族（DeepSeek V4 / MiniMax / GLM / Kimi / Big Pickle / MiMo 等）→ `https://opencode.ai/zen/v1/chat/completions`；Responses 家族（GPT-5.x / Grok / Muse Spark）→ `/zen/v1/responses`；Anthropic Messages 家族（Claude / Qwen3.x Plus·Max）→ `/zen/v1/messages`；Gemini 原生 → `/zen/v1/models/<model>`；System One（Jev）→ `/zen/v1/systemone`；模型目录 → `https://opencode.ai/zen/v1/models` |
 | 与项目比对 | 项目 `base_url=https://opencode.ai/zen/v1` 与官方**同主机、同路径前缀**一致；`completion_path=/chat/completions`、`models_path=/models` 组合后与官方两条 URL 逐字一致 |
 | OpenCode Go | **不适用**：本地参考代理为 Zen Free（无 Go 语义），故未查阅 `https://docs.opencode.ai/docs/go/`；项目未引入 Go 账号/路由/产品语义 |
+| ⚠️ **更正（2026-10-16）** | 该 `docs.opencode.ai` URL 现返回 **404**；`https://opencode.ai/docs/zen/` 现 **302** 重定向至 `https://opencode.ai/v2/docs/console/models/`。V1 **文档**已被 V2 取代（**文档合并**），但 V1 **端点**经实测**仍存活**（`/zen/v1/chat/completions` POST 进入存活处理器；伪造同级路径 404）。**不得**据文档重定向推断 V1 退役 |
+| ⚠️ **更正：V2 端点族（本批新核实）** | 官方 V2 Console：Chat `https://opencode.ai/inference/openai/v1/chat/completions`；Responses `/inference/openai/v1/responses`；Messages `/inference/anthropic/v1/messages`；Gemini `/inference/google/v1beta/models/<model>:generateContent`；SystemOne `/inference/systemone/v1/systemone`；目录 `https://opencode.ai/inference/v1/models`；认证为 Console 服务账号密钥 `oc_sk_...`。 **V2 与 V1 是并存的两个官方产品族**，凭证产品不同，**不得混用** |
 
 ## 5. 实际修改内容
 
@@ -157,6 +177,10 @@
 - 仅 **Chat Completions** 家族在项目内可用；**Responses、Anthropic Messages、Gemini 原生、System One（Jev）均未实现**，
   在受控清单中保持 `UNSUPPORTED`，未知模型 `UNKNOWN`，一律 fail closed。
 - 未验证代理专有 `inference/v1` 中转 base 的可用性/语义（本批不采用）。
+  > ⚠️ **更正（2026-10-16）**：已补验。`/inference/v1/chat/completions` **存在存活处理器**
+  > （POST 无家族前缀路径 → 400，伪造同级路径 → 404），因此「不存在」的说法**不成立**；
+  > 但它**未记载于官方文档**，官方 V2 路径为 `/inference/openai/v1/chat/completions`。
+  > 结论修正为：**该组合不是官方 V2 协议证据，但确实是存活路由**。
 - 未独立核验 UA 版本号 `opencode/1.18.21` 的「官方正确值」——官方文档不规定 UA；该值沿用项目既有 server-owned 策略，
   本批不据代理版本号改动。
 - 未执行真实网络请求，未对真实 OpenCode 上游做联调。
