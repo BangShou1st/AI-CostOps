@@ -9,6 +9,7 @@ import com.aicostops.intelligence.domain.ForecastEngine;
 import com.aicostops.intelligence.domain.CostHistoryCoverage.Scope;
 import com.aicostops.intelligence.infrastructure.CostFactsMapper;
 import com.aicostops.intelligence.infrastructure.IntelligenceMapper;
+import com.aicostops.ingestion.application.SecretShapes;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -21,6 +22,8 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
@@ -38,6 +41,18 @@ import tools.jackson.databind.ObjectMapper;
 public class CostIntelligenceAnalysisService {
 
     private static final int HISTORY_DAYS = CostAnalysisInputService.HISTORY_DAYS;
+
+    /** Deterministic keyset page size for the scheduled organization sweep. */
+    private static final int SCHEDULER_ORG_PAGE_SIZE = 100;
+
+    /**
+     * Bound on consecutive page-fetch recovery attempts before the round gives up.
+     * Keeps a persistently unavailable datasource from turning the scheduler
+     * thread into a tight retry loop.
+     */
+    private static final int MAX_PAGE_FETCH_RECOVERY_ATTEMPTS = 3;
+    private static final Logger LOG =
+            LoggerFactory.getLogger(CostIntelligenceAnalysisService.class);
 
     private static final Map<String, BigDecimal> MATERIALITY = Map.of(
             "USD", new BigDecimal("5.00"), "EUR", new BigDecimal("5.00"),
@@ -84,16 +99,95 @@ public class CostIntelligenceAnalysisService {
 
     /** Scheduler entry: recently active orgs x settled currencies for yesterday. */
     public void runDueAnalyses() {
+        // The round's date and activity window are fixed once so every page walks the same
+        // deterministic org_id ordering. Pages advance by keyset (org_id > last saw) until a
+        // short page proves the end of the round, so an org is never skipped or revisited no
+        // matter how many organizations are active.
+        //
+        // Every query that could fail is confined so one organization (or one page fetch)
+        // can never stop the round: runAnalysis failures are caught per org/currency, the
+        // per-org settledCurrencies lookup is caught per organization, and a page-fetch
+        // failure is caught and retried past the page's last org_id. Otherwise a transient
+        // query error for one org would silently abort the sweep and every later
+        // organization and page would be skipped for the whole round.
         var yesterday = LocalDate.now(clock).minusDays(1);
-        for (var orgId : facts.recentlyActiveOrgs(yesterday.minusDays(30), 100)) {
-            for (var currency : facts.settledCurrencies(orgId)) {
+        var since = yesterday.minusDays(30);
+        long afterOrgId = 0L;
+        int pageRecoveryAttempts = 0;
+        while (true) {
+            List<Long> page;
+            try {
+                page = facts.recentlyActiveOrgs(since, afterOrgId, SCHEDULER_ORG_PAGE_SIZE);
+                pageRecoveryAttempts = 0;
+            } catch (RuntimeException failure) {
+                LOG.warn("Cost Intelligence scheduled organization page fetch failed after "
+                                + "organization {}: {}", afterOrgId,
+                        SecretShapes.redact(failure.toString()));
+                // A persistently failing datasource would otherwise turn this
+                // recovery into a tight loop holding the scheduler thread: retry
+                // a bounded number of times, then give up this round (the next
+                // scheduled round naturally retries).
+                if (++pageRecoveryAttempts > MAX_PAGE_FETCH_RECOVERY_ATTEMPTS) {
+                    LOG.warn("Cost Intelligence scheduled round abandoned after {} "
+                            + "consecutive page fetch failures at organization {}",
+                            pageRecoveryAttempts - 1, afterOrgId);
+                    return;
+                }
+                // Retry past the last organization this round already walked so a
+                // transiently failing page cannot loop forever.
+                afterOrgId = advancePastCurrentPage(facts, since, afterOrgId);
+                continue;
+            }
+            for (var orgId : page) {
+                List<String> currencies;
                 try {
-                    runAnalysis(orgId, yesterday, currency);
-                } catch (RuntimeException ignored) {
-                    // One org/currency failure never blocks the remaining runs;
-                    // the FAILED run row records the outcome for operators.
+                    currencies = facts.settledCurrencies(orgId);
+                } catch (RuntimeException failure) {
+                    LOG.warn("Cost Intelligence scheduled currency lookup failed for "
+                                    + "organization {}: {}", orgId,
+                            SecretShapes.redact(failure.toString()));
+                    continue;
+                }
+                for (var currency : currencies) {
+                    try {
+                        runAnalysis(orgId, yesterday, currency);
+                    } catch (RuntimeException failure) {
+                        // One org/currency failure never blocks the remaining runs, including the
+                        // rest of the current page and every later page. Runs that already
+                        // captured an input identity leave a FAILED run row; failures before
+                        // identity capture (e.g. during coverage revision acquisition) leave no
+                        // run row, so this log is the only trace those failures ever had. The
+                        // failure text passes the shared fail-closed secret redactor: the
+                        // scheduler must never write credential-shaped substrings into logs.
+                        LOG.warn("Cost Intelligence scheduled analysis failed for organization {} "
+                                + "currency {} date {}: {}", orgId, currency, yesterday,
+                                SecretShapes.redact(failure.toString()));
+                    }
                 }
             }
+            if (page.size() < SCHEDULER_ORG_PAGE_SIZE) {
+                return;
+            }
+            afterOrgId = page.getLast();
+        }
+    }
+
+    /**
+     * Recovers the keyset cursor past a failed page fetch by querying just the
+     * page's last org_id (a minimal full-page read); if that probe fails too, the
+     * round advances past the org_id the failed fetch started from so the next
+     * page at least tries a later slice instead of stalling the whole sweep.
+     */
+    private long advancePastCurrentPage(CostFactsMapper facts, LocalDate since, long afterOrgId) {
+        try {
+            var page = facts.recentlyActiveOrgs(since, afterOrgId, SCHEDULER_ORG_PAGE_SIZE);
+            if (page.size() < SCHEDULER_ORG_PAGE_SIZE) {
+                // The failing page was the final, short one: the round is done.
+                return -1L;
+            }
+            return page.getLast();
+        } catch (RuntimeException probeFailure) {
+            return afterOrgId;
         }
     }
 
