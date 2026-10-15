@@ -12,16 +12,26 @@ import org.junit.jupiter.api.Test;
  *
  * <p>Locks the server-owned OpenCode Zen base URL, paths, protocol, User-Agent and locked
  * fields, plus the exact URL composition (single {@code /v1}, no lost segment, no
- * multi-concatenation). Verified against the official OpenCode Zen endpoint table
- * ({@code https://docs.opencode.ai/docs/zen/}) on 2026-10-16, where every Chat Completions
- * model maps to {@code https://opencode.ai/zen/v1/chat/completions} and the catalog lives at
- * {@code https://opencode.ai/zen/v1/models}.
+ * multi-concatenation). Cross-checked on 2026-10-16 against the surviving first-party V1 endpoint
+ * evidence, where every Chat Completions model maps to
+ * {@code https://opencode.ai/zen/v1/chat/completions} and the catalog lives at
+ * {@code https://opencode.ai/zen/v1/models}. The former V1 doc URL
+ * ({@code https://docs.opencode.ai/docs/zen/}) is now 404 and {@code https://opencode.ai/docs/zen/}
+ * 302-redirects to the V2 Console pages — a docs consolidation, not a V1 endpoint retirement: the
+ * V1 routes were re-verified live on 2026-10-16 (routed POSTs reach a handler; bogus sibling paths 404).
  *
- * <p>The local reference proxy is an unofficial relay that forwards to a different,
- * proxy-only base ({@code https://opencode.ai/inference/v1}) with anonymous
- * {@code Bearer public} credentials. That base is deliberately NOT adopted here: the official
- * endpoint is {@code https://opencode.ai/zen/v1}, and the proxy-only relay must never become
- * the project's default template.
+ * <p>OpenCode ships two coexisting first-party products: the V1 Zen family at
+ * {@code https://opencode.ai/zen/v1} (this template) and the V2 Console family at
+ * {@code https://opencode.ai/inference}, whose inference routes carry an API-family prefix
+ * ({@code /inference/openai/v1/chat/completions}, {@code /inference/anthropic/v1/messages},
+ * {@code /inference/google/v1beta/...}) with an unprefixed catalog at {@code /inference/v1/models}.
+ * <b>The V2 family is official</b>; it is not a third-party relay.
+ *
+ * <p>The local reference proxy is an unofficial relay that happens to target the <em>unprefixed</em>
+ * {@code https://opencode.ai/inference/v1} combination with anonymous {@code Bearer public}
+ * credentials — a shape OpenCode does not document for inference, and distinct from the official V2
+ * routes. What must never be adopted here is that anonymous credential and unprefixed relay shape:
+ * the built-in template stays on V1 Zen until a deliberate, separately versioned V2 template exists.
  */
 class OpenCodeZenEndpointContractTest {
 
@@ -41,14 +51,18 @@ class OpenCodeZenEndpointContractTest {
     }
 
     @Test
-    void proxyOnlyRelayBaseIsNeverAdoptedAsTheDefaultTemplate() {
+    void noRelayOrUnprefixedInferenceShapeIsAdoptedAsTheDefaultTemplate() {
         var template = registry.require(ProviderTemplateRegistry.OPENCODE_ZEN);
-        assertFalse(template.baseUrl().contains("inference"),
-                "The unofficial /inference/v1 proxy relay must not become the OpenCode base URL");
+        // Guards the *unprefixed* relay shape only. The V2 family prefix "/inference/openai" is
+        // official and belongs to a future versioned V2 template, not to this V1 template.
+        assertFalse(template.baseUrl().contains("/inference"),
+                "The relay-style /inference path must not become the V1 OpenCode base URL");
         assertFalse(template.baseUrl().startsWith("http://127.0.0.1"),
                 "A loopback proxy base must never be a server-owned provider default");
         assertTrue(template.baseUrl().startsWith("https://opencode.ai/"),
                 "OpenCode traffic must target the official https://opencode.ai origin");
+        assertEquals("https://opencode.ai/zen/v1", template.baseUrl(),
+                "The built-in template stays on the V1 Zen product base");
     }
 
     @Test

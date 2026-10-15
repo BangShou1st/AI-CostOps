@@ -31,10 +31,12 @@ import tools.jackson.databind.ObjectMapper;
  * the Bearer credential header, {@code stream_options.include_usage}, and the
  * no-JVM/OS-proxy (DIRECT_ONLY) transport policy.
  *
- * <p>The reference local proxy is an unofficial {@code /inference/v1} relay that sends
- * anonymous {@code Bearer public} traffic; the official OpenCode Zen endpoint is
- * {@code https://opencode.ai/zen/v1}. This test locks the official shape and must never be
- * relaxed to accommodate a proxy-only relay base.
+ * <p>The reference local proxy is an unofficial relay that targets the <em>unprefixed</em>
+ * {@code https://opencode.ai/inference/v1} combination with anonymous {@code Bearer public} traffic.
+ * That is not the official V2 Console route shape: OpenCode Console serves
+ * {@code https://opencode.ai/inference/openai/v1/chat/completions}. The official V1 Zen product base
+ * is {@code https://opencode.ai/zen/v1}, which this test locks. It must never be relaxed to
+ * accommodate a relay base or an anonymous credential.
  */
 class OpenCodeEndpointContractTest {
 
