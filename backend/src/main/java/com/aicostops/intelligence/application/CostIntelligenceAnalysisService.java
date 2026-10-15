@@ -46,11 +46,12 @@ public class CostIntelligenceAnalysisService {
     private static final int SCHEDULER_ORG_PAGE_SIZE = 100;
 
     /**
-     * Bound on consecutive page-fetch recovery attempts before the round gives up.
-     * Keeps a persistently unavailable datasource from turning the scheduler
-     * thread into a tight retry loop.
+     * Bound on total page-fetch queries for one cursor before the round gives
+     * up: 1 initial query + 3 retries of the same page. Keeps a persistently
+     * unavailable datasource from turning the scheduler thread into a tight
+     * retry loop.
      */
-    private static final int MAX_PAGE_FETCH_RECOVERY_ATTEMPTS = 3;
+    private static final int MAX_PAGE_FETCH_ATTEMPTS = 4;
     private static final Logger LOG =
             LoggerFactory.getLogger(CostIntelligenceAnalysisService.class);
 
@@ -105,39 +106,38 @@ public class CostIntelligenceAnalysisService {
         // matter how many organizations are active.
         //
         // Every query that could fail is confined so one organization (or one page fetch)
-        // can never stop the round: runAnalysis failures are caught per org/currency, the
-        // per-org settledCurrencies lookup is caught per organization, and a page-fetch
-        // failure is caught and retried past the page's last org_id. Otherwise a transient
-        // query error for one org would silently abort the sweep and every later
-        // organization and page would be skipped for the whole round.
+        // can never stop the round: runAnalysis failures are caught per org/currency and
+        // the per-org settledCurrencies lookup is caught per organization. A page-fetch
+        // failure keeps the cursor unchanged and retries the SAME page in place (at most
+        // 1 initial query + 3 retries): the cursor may only move after a page was fetched
+        // and fully processed, so no organization is ever skipped or revisited. If the
+        // page keeps failing the round is abandoned with WARN — the next scheduled round
+        // naturally retries — instead of looping or rescanning earlier pages.
         var yesterday = LocalDate.now(clock).minusDays(1);
         var since = yesterday.minusDays(30);
         long afterOrgId = 0L;
-        int pageRecoveryAttempts = 0;
+        int pageFetchFailures = 0;
         while (true) {
             List<Long> page;
             try {
                 page = facts.recentlyActiveOrgs(since, afterOrgId, SCHEDULER_ORG_PAGE_SIZE);
-                pageRecoveryAttempts = 0;
             } catch (RuntimeException failure) {
                 LOG.warn("Cost Intelligence scheduled organization page fetch failed after "
-                                + "organization {}: {}", afterOrgId,
+                                + "organization {} (attempt {} of {}): {}", afterOrgId,
+                        pageFetchFailures + 1, MAX_PAGE_FETCH_ATTEMPTS,
                         SecretShapes.redact(failure.toString()));
-                // A persistently failing datasource would otherwise turn this
-                // recovery into a tight loop holding the scheduler thread: retry
-                // a bounded number of times, then give up this round (the next
-                // scheduled round naturally retries).
-                if (++pageRecoveryAttempts > MAX_PAGE_FETCH_RECOVERY_ATTEMPTS) {
+                // The cursor stays where it was: the retry re-reads the same page,
+                // so a transient failure can neither skip unprocessed organizations
+                // nor rewind to already-processed ones.
+                if (++pageFetchFailures >= MAX_PAGE_FETCH_ATTEMPTS) {
                     LOG.warn("Cost Intelligence scheduled round abandoned after {} "
-                            + "consecutive page fetch failures at organization {}",
-                            pageRecoveryAttempts - 1, afterOrgId);
+                                    + "consecutive page fetch failures at organization {}",
+                            pageFetchFailures, afterOrgId);
                     return;
                 }
-                // Retry past the last organization this round already walked so a
-                // transiently failing page cannot loop forever.
-                afterOrgId = advancePastCurrentPage(facts, since, afterOrgId);
                 continue;
             }
+            pageFetchFailures = 0;
             for (var orgId : page) {
                 List<String> currencies;
                 try {
@@ -169,25 +169,6 @@ public class CostIntelligenceAnalysisService {
                 return;
             }
             afterOrgId = page.getLast();
-        }
-    }
-
-    /**
-     * Recovers the keyset cursor past a failed page fetch by querying just the
-     * page's last org_id (a minimal full-page read); if that probe fails too, the
-     * round advances past the org_id the failed fetch started from so the next
-     * page at least tries a later slice instead of stalling the whole sweep.
-     */
-    private long advancePastCurrentPage(CostFactsMapper facts, LocalDate since, long afterOrgId) {
-        try {
-            var page = facts.recentlyActiveOrgs(since, afterOrgId, SCHEDULER_ORG_PAGE_SIZE);
-            if (page.size() < SCHEDULER_ORG_PAGE_SIZE) {
-                // The failing page was the final, short one: the round is done.
-                return -1L;
-            }
-            return page.getLast();
-        } catch (RuntimeException probeFailure) {
-            return afterOrgId;
         }
     }
 
