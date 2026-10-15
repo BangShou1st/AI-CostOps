@@ -6,6 +6,7 @@ import com.aicostops.observability.AiCostOpsMetrics;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -85,8 +86,23 @@ public final class GatewaySettlementWorker {
     /** Runs one bounded poll and returns the number of settlement attempts. */
     public int runOnce() {
         var now = Instant.now(clock);
-        var organizations = settlements.selectOrganizationsWithWork(
-                now, afterOrgId, MAX_ORGANIZATIONS_PER_POLL);
+        final List<Long> organizations;
+        try {
+            organizations = settlements.selectOrganizationsWithWork(
+                    now, afterOrgId, MAX_ORGANIZATIONS_PER_POLL);
+        } catch (DataAccessResourceFailureException initialScanFailure) {
+            // The very first query is not inside the per-organization loop, so it
+            // needs its own handling. A datasource that is unreachable here is a
+            // global dependency failure — distinct from a single organization's
+            // discovery/settlement failure — and must never be mistaken for "no
+            // pending work": signal it and end the round before the cursor moves,
+            // so the next scheduled poll re-reads the same page.
+            metrics.dependencyError("DATABASE");
+            LOG.warn("Gateway Settlement round stopped, datasource unavailable during the "
+                            + "initial organization scan: {}",
+                    SecretShapes.redact(initialScanFailure.toString()));
+            return 0;
+        }
         var attempted = 0;
         for (var organizationId : organizations) {
             try {

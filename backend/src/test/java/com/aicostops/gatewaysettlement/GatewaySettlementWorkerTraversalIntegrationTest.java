@@ -2,12 +2,14 @@ package com.aicostops.gatewaysettlement;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.aicostops.gatewaysettlement.application.GatewaySettlementDiscoveryService;
 import com.aicostops.gatewaysettlement.application.GatewaySettlementService;
@@ -184,7 +186,47 @@ class GatewaySettlementWorkerTraversalIntegrationTest extends MySqlContainerSupp
         assertThat(visited).containsExactlyInAnyOrderElementsOf(orgs);
     }
 
+    @Test
+    void initialScanDatasourceFailureStopsTheRoundSafelyAndRecovers() {
+        var orgs = seedOrganizationsWithPendingSettlements(2);
+        var scanWrapper = Mockito.mock(GatewaySettlementMapper.class);
+        when(scanWrapper.selectOrganizationsWithWork(any(), anyLong(), anyInt()))
+                .thenThrow(new DataAccessResourceFailureException("database unreachable"))
+                .thenAnswer(invocation -> settlements.selectOrganizationsWithWork(
+                        invocation.getArgument(0), invocation.getArgument(1),
+                        invocation.getArgument(2)));
+        var service = Mockito.mock(GatewaySettlementService.class);
+        var visited = new LinkedHashSet<Long>();
+        recordVisited(service, visited);
+        var metrics = Mockito.mock(AiCostOpsMetrics.class);
+        var worker = worker(scanWrapper, service, discovery, metrics);
+
+        // The initial organization scan runs before the per-organization try/catch.
+        assertThat(worker.runOnce()).isZero();
+        assertThat(visited).isEmpty();
+        verify(metrics).dependencyError("DATABASE");
+        // A datasource outage must never be mistaken for "no pending work": every
+        // organization's durable work survives untouched.
+        for (var orgId : orgs) {
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM gateway_settlement WHERE org_id=?", Integer.class, orgId))
+                    .isEqualTo(1);
+        }
+
+        // The cursor did not advance, so the very same organizations are traversed
+        // once the datasource recovers.
+        worker.runOnce();
+        assertThat(visited).containsExactlyInAnyOrderElementsOf(orgs);
+    }
+
     // -- helpers ---------------------------------------------------------------
+
+    private GatewaySettlementWorker worker(GatewaySettlementMapper mapper,
+            GatewaySettlementService service,
+            GatewaySettlementDiscoveryService discoveryService, AiCostOpsMetrics metrics) {
+        return new GatewaySettlementWorker(mapper, discoveryService, service, metrics,
+                transactionManager, clock);
+    }
 
     private GatewaySettlementWorker worker(GatewaySettlementService service,
             GatewaySettlementDiscoveryService discoveryService, AiCostOpsMetrics metrics) {
