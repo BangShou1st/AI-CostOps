@@ -95,14 +95,17 @@ public class ModelProbeService {
         if (row == null || row.providerConnectionProfileId() != profileId) {
             throw notFound("Model discovery was not found.");
         }
-        // P1-4 OpenCode manifest gate: unknown/unsupported stays AVAILABLE but cannot take the
-        // Chat probe path. Zero Provider I/O here; custom connections skip the manifest because
-        // their connection itself is the explicit Chat contract.
+        // P1-4 OpenCode manifest gate + FREE_ONLY (2026-10-16): the built-in template is admitted
+        // for free dispatch only, so Chat compatibility is necessary but never sufficient. PAID,
+        // UNKNOWN, UNSUPPORTED and delisted ids must not reach Provider HTTP I/O at all. Zero
+        // Provider I/O happens here; custom connections skip the manifest because their connection
+        // itself is the explicit Chat contract.
         if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())
-                && !openCodeManifest.isChatCompatible(row.providerModelName())) {
+                && !openCodeManifest.isFreeEligible(row.providerModelName())) {
             throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.MODEL_NOT_VERIFIED,
                     "Model not probed",
-                    "OpenCode model is not classified for Chat Completions in the controlled manifest.");
+                    "OpenCode Zen is admitted for verified-free Chat Completions models only;"
+                            + " this model has no current free evidence in the controlled manifest.");
         }
         var outcome = execute(profile, row.providerModelName());
         var verifiedJson = capabilitiesJson(outcome.capabilities());

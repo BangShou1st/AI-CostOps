@@ -10,15 +10,23 @@ import org.springframework.stereotype.Component;
 public class CandidateEligibilityEvaluator {
 
     private final ProviderChatAdapterRegistry adapterRegistry;
+    private final OpenCodeFreeOnlyAdmission openCodeFreeAdmission;
 
     /** Lightweight constructor retained for pure evaluator tests. */
     public CandidateEligibilityEvaluator() {
         this.adapterRegistry = null;
+        this.openCodeFreeAdmission = OpenCodeFreeOnlyAdmission.production();
     }
 
     @Autowired
     public CandidateEligibilityEvaluator(ProviderChatAdapterRegistry adapterRegistry) {
+        this(adapterRegistry, OpenCodeFreeOnlyAdmission.production());
+    }
+
+    public CandidateEligibilityEvaluator(ProviderChatAdapterRegistry adapterRegistry,
+            OpenCodeFreeOnlyAdmission openCodeFreeAdmission) {
         this.adapterRegistry = adapterRegistry;
+        this.openCodeFreeAdmission = openCodeFreeAdmission;
     }
 
     public CandidateEligibility evaluateWithoutRuntimeModel(ResolvedRoutingPolicy.Candidate candidate,
@@ -63,6 +71,13 @@ public class CandidateEligibilityEvaluator {
         if (adapterRegistry != null && !adapterRegistry.contains(candidate.adapterCode())) {
             return CandidateEligibility.rejected(EligibilityReason.ADAPTER_UNAVAILABLE);
         }
+        // Independent OpenCode Zen FREE_ONLY barrier (2026-10-16): a model promoted before this
+        // round, carrying an ACTIVE Pricing Version and sitting on an already-activated routing
+        // policy must still never reach Provider I/O. This is evaluated from server-owned Gateway
+        // state, never from Control Plane facts or the model name suffix.
+        if (!openCodeFreeAdmission.admits(candidate.adapterCode(), candidate.providerModelName())) {
+            return CandidateEligibility.rejected(EligibilityReason.FREE_ADMISSION_REQUIRED);
+        }
         if (!capabilities.chatCompletions() || !candidate.chatCapable()) {
             return CandidateEligibility.rejected(EligibilityReason.CHAT_CAPABILITY_MISMATCH);
         }
@@ -93,6 +108,7 @@ public class CandidateEligibilityEvaluator {
         CHAT_CAPABILITY_MISMATCH,
         STREAM_CAPABILITY_MISMATCH,
         PRICING_UNAVAILABLE,
+        FREE_ADMISSION_REQUIRED,
         ALREADY_ATTEMPTED,
         CONNECTION_PROFILE_MISSING
     }

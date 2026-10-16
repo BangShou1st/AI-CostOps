@@ -112,9 +112,12 @@ class OpenCodeManifestIntegrationTest extends ControlPlaneFixtureSupport {
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isCreated());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM pricing_version WHERE org_id=?", Integer.class, org).intValue());
     }
-    @Test void realChatModelWithSimulatedProbePromotes() throws Exception {
+    @Test void admittedFreeChatModelWithSimulatedProbePromotes() throws Exception {
+        // FREE_ONLY (2026-10-16): promotion requires current free evidence, not Chat compatibility
+        // alone, so a PAID model such as kimi-k2.6 can no longer be promoted. Its refusal is pinned
+        // by OpenCodeFreeOnlyAdmissionIntegrationTest.
         var conn = createOpenCodeConnection();
-        var id = manualModel(conn, "kimi-k2.6");
+        var id = manualModel(conn, "nemotron-3.5-lightning-free");
         jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS', verified_capabilities_json=CAST(\'{\"capabilities\":[\"CHAT_COMPLETIONS\"]}\' AS JSON) WHERE id=? AND org_id=?", id, org);
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isCreated());
     }

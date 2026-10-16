@@ -258,15 +258,17 @@ public class ModelDiscoveryService {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
                     "Model not promotable", "Only OPENAI_CHAT_COMPLETIONS models can be promoted.");
         }
-        // P1-4 OpenCode manifest gate: promotion requires controlled Chat compatibility plus
-        // successful probe plus verified CHAT. Unknown/unsupported stays AVAILABLE but never
-        // becomes routable via the Chat adapter. Custom connections skip the manifest because
-        // their connection itself is the explicit Chat contract.
+        // P1-4 OpenCode manifest gate + FREE_ONLY (2026-10-16): promotion requires controlled
+        // FREE-ELIGIBLE Chat compatibility plus a successful probe plus verified CHAT. PAID,
+        // UNKNOWN, UNSUPPORTED and delisted ids stay AVAILABLE but never become routable through
+        // the built-in template. Custom connections skip the manifest because their connection
+        // itself is the explicit Chat contract.
         if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())
-                && !openCodeManifest.isChatCompatible(discovery.providerModelName())) {
+                && !openCodeManifest.isFreeEligible(discovery.providerModelName())) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
                     "Model not promotable",
-                    "OpenCode model is not classified for Chat Completions in the controlled manifest.");
+                    "OpenCode Zen is admitted for verified-free Chat Completions models only;"
+                            + " this model has no current free evidence in the controlled manifest.");
         }
         if (!"PASS".equals(discovery.lastProbeStatus())) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,

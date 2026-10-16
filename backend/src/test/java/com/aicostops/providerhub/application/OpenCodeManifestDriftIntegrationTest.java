@@ -130,15 +130,20 @@ class OpenCodeManifestDriftIntegrationTest extends ControlPlaneFixtureSupport {
     }
 
     /**
-     * A newly evidenced Chat model passes the manifest gate end to end: with the probe verdict
-     * recorded, promotion succeeds while still creating zero pricing versions.
+     * A newly evidenced <em>free</em> Chat model passes the free-admission gate end to end: with the
+     * probe verdict recorded, promotion succeeds while still creating zero pricing versions.
+     *
+     * <p>Updated for FREE_ONLY (2026-10-16): this case previously used the PAID {@code glm-5.3},
+     * which the manifest still classifies as Chat/PAID but which no longer holds a dispatch right.
+     * The paid counterpart is now asserted as refused by
+     * {@link OpenCodeFreeOnlyAdmissionIntegrationTest}.
      */
     @Test
-    void newlyEvidencedChatModelPromotesWithZeroPricingCreated() throws Exception {
+    void newlyEvidencedFreeChatModelPromotesWithZeroPricingCreated() throws Exception {
         var conn = openCodeConnection();
-        var discovery = manualModel(conn, "glm-5.3");
-        assertTrue(manifest.isChatCompatible("glm-5.3"),
-                "The manifest gate must admit the newly evidenced model");
+        var discovery = manualModel(conn, "space-bunny-free");
+        assertTrue(manifest.isFreeEligible("space-bunny-free"),
+                "The free-admission gate must admit the newly evidenced free model");
         jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS',"
                 + " verified_capabilities_json=CAST('{\"capabilities\":[\"CHAT_COMPLETIONS\"]}' AS JSON)"
                 + " WHERE id=? AND org_id=?", discovery, org);
@@ -148,6 +153,29 @@ class OpenCodeManifestDriftIntegrationTest extends ControlPlaneFixtureSupport {
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM pricing_version WHERE org_id=?",
                 Integer.class, org).intValue(),
                 "PAID/VERIFIED_FREE classification must never auto-create a Pricing Version");
+    }
+
+    /**
+     * A newly evidenced PAID Chat model keeps its reviewed classification but is refused by the
+     * free-admission gate, so the drift repair can never widen paid dispatch.
+     */
+    @Test
+    void newlyEvidencedPaidChatModelIsRefusedByFreeAdmission() throws Exception {
+        var conn = openCodeConnection();
+        for (var model : List.of("deepseek-v4.1-flash", "glm-5.3", "qwen3.8-max")) {
+            var discovery = manualModel(conn, model);
+            assertTrue(manifest.isChatCompatible(model), model);
+            assertFalse(manifest.isFreeEligible(model), model);
+            mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/probe", conn, discovery)
+                            .header("Authorization", bearerFor(user)))
+                    .andExpect(status().isBadRequest());
+            jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS',"
+                    + " verified_capabilities_json=CAST('{\"capabilities\":[\"CHAT_COMPLETIONS\"]}' AS JSON)"
+                    + " WHERE id=? AND org_id=?", discovery, org);
+            mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, discovery)
+                            .header("Authorization", bearerFor(user)))
+                    .andExpect(status().isConflict());
+        }
     }
 
     /**

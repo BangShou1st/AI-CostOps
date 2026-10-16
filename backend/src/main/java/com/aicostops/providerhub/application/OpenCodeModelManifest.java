@@ -23,6 +23,14 @@ import org.springframework.stereotype.Component;
  * Unknown live models stay AVAILABLE with UNKNOWN compatibility and cannot take the Chat path.
  * Custom OpenAI-compatible connections do not use this manifest.
  *
+ * <p><b>FREE_ONLY admission (2026-10-16).</b> The built-in template is admitted for free dispatch
+ * only, so Chat compatibility is necessary but never sufficient: {@link #isFreeEligible(String)}
+ * is the strictly stronger predicate used by the probe and promotion gates. An id is eligible only
+ * when it is Chat classified, its official V1 Zen pricing row is Free, and it is still served by
+ * the live V1 Zen catalog at {@link #FREE_ADMISSION_POLICY_VERSION}. PAID, UNKNOWN, UNSUPPORTED and
+ * delisted ids therefore gain no probe or routing right even though their reviewed classification
+ * is preserved as metadata: classification is history, admission is a right.
+ *
  * <p>V1 Zen, V2 Console and Go are separate first-party products with separate credentials,
  * entitlements and price sheets. A model listed as free on the V2 Console is never thereby free on
  * V1 Zen, so Console-only ids are not classified here even when the two catalogs are byte-identical.
@@ -33,12 +41,36 @@ public class OpenCodeModelManifest {
     public static final String VERIFIED_AT = "2026-10-16";
     public static final String SOURCE = "OpenCode Zen (V1) official endpoint and pricing tables";
     public static final String SOURCE_REVISION = "2026-10-11";
+    /**
+     * Reviewed revision of the FREE_ONLY admission policy. Deliberately separate from
+     * {@link #MANIFEST_VERSION}: the manifest records reviewed classification history, while this
+     * policy records the narrower right to dispatch without cost. Both advance together today, but
+     * a future catalog-only change must be able to move the policy without rewriting lineage.
+     */
+    public static final String FREE_ADMISSION_POLICY_VERSION = "2026-10-16-v1";
     public static final String PROTOCOL_CHAT = "OPENAI_CHAT_COMPLETIONS";
     public static final String PROTOCOL_UNSUPPORTED = "UNSUPPORTED";
     public static final String PROTOCOL_UNKNOWN = "UNKNOWN";
     public static final String PRICING_VERIFIED_FREE = "VERIFIED_FREE";
     public static final String PRICING_PAID = "PAID";
     public static final String PRICING_UNKNOWN = "UNKNOWN";
+    /**
+     * Ids the live V1 Zen catalog actually served at {@link #FREE_ADMISSION_POLICY_VERSION}
+     * (2026-10-16: {@code GET https://opencode.ai/zen/v1/models}, 86 ids, SHA-256
+     * {@code 6a4fc13e81fd7a7905c5934cef9781e39255a9aa93e2da406fc4f02b682e2685}).
+     *
+     * <p>Only the free-classified subset is materialised: admission additionally requires the Chat
+     * protocol and the {@code VERIFIED_FREE} pricing row, so {@link #isFreeEligible(String)} is a
+     * conjunction over three independently attested facts (family, price, current service) rather
+     * than a standalone allow-list. A delisted id fails the third fact automatically and therefore
+     * loses admission without losing its classification.
+     */
+    private static final java.util.Set<String> SERVED_FREE_CHAT_AT_REVIEW = java.util.Set.of(
+            "big-pickle",
+            "longcat-2.5-preview-free",
+            "mimo-v2.6-flash-free",
+            "nemotron-3.5-lightning-free",
+            "space-bunny-free");
     public record Entry(String protocol, String pricing) {
     }
     private static final java.util.Map<String, Entry> PRODUCTION_ENTRIES = java.util.Map.ofEntries(
@@ -137,6 +169,20 @@ public class OpenCodeModelManifest {
         return f != null ? f : new Entry(PROTOCOL_UNKNOWN, PRICING_UNKNOWN);
     }
     public boolean isChatCompatible(String name) { return PROTOCOL_CHAT.equals(classify(name).protocol()); }
+    /**
+     * FREE_ONLY admission for the built-in OpenCode Zen template: the single predicate the probe,
+     * the promotion and (independently) the Gateway must agree on. Requires all three attested
+     * facts — Chat family, Free pricing row, and current service by the V1 catalog. Anything else
+     * (PAID, UNKNOWN, UNSUPPORTED, delisted, Console-only, suffix-invented) fails closed.
+     */
+    public boolean isFreeEligible(String name) {
+        var entry = classify(name);
+        if (!PROTOCOL_CHAT.equals(entry.protocol())
+                || !PRICING_VERIFIED_FREE.equals(entry.pricing())) {
+            return false;
+        }
+        return SERVED_FREE_CHAT_AT_REVIEW.contains(name.strip());
+    }
     public String protocolFor(String name) { return classify(name).protocol(); }
     public String pricingFor(String name) { return classify(name).pricing(); }
 }
