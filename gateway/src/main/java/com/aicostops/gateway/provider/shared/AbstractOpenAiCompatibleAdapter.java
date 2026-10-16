@@ -129,7 +129,7 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
         });
     }
 
-    private void applyHeaders(org.springframework.http.HttpHeaders headers, ProviderCallContext context) {
+    protected void applyHeaders(org.springframework.http.HttpHeaders headers, ProviderCallContext context) {
         if ("NONE".equals(context.credentialType())) {
             headers.add("X-Client-Request-Id", boundedRouteDecisionId(context.routeDecisionId()));
             if (userAgent() != null) {
@@ -149,7 +149,7 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
         }
     }
 
-    static String targetUrl(ProviderCallContext context) {
+    protected static String targetUrl(ProviderCallContext context) {
         var base = context.baseUrl().endsWith("/")
                 ? context.baseUrl().substring(0, context.baseUrl().length() - 1) : context.baseUrl();
         var path = context.completionPath() == null ? "/chat/completions" : context.completionPath();

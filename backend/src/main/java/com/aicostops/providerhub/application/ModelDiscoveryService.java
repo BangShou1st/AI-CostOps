@@ -41,6 +41,7 @@ public class ModelDiscoveryService {
     private final ModelDiscoveryService self;
     private final String providerKek;
     private final OpenCodeModelManifest openCodeManifest;
+    private final OpenCodeZenTransportHeaders openCodeZenHeaders;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ModelDiscoveryService(
@@ -54,7 +55,8 @@ public class ModelDiscoveryService {
             Clock clock,
             @Lazy ModelDiscoveryService self,
             @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
-            OpenCodeModelManifest openCodeManifest) {
+            OpenCodeModelManifest openCodeManifest,
+            OpenCodeZenTransportHeaders openCodeZenHeaders) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.mapper = mapper;
@@ -66,6 +68,7 @@ public class ModelDiscoveryService {
         this.self = self;
         this.providerKek = providerKek;
         this.openCodeManifest = openCodeManifest;
+        this.openCodeZenHeaders = openCodeZenHeaders;
     }
 
     public List<DiscoveryResponse> list(AuthenticatedUser user, long profileId) {
@@ -367,14 +370,15 @@ public class ModelDiscoveryService {
         endpointValidator.validateEndpoint(target);
         var origin = java.net.URI.create(target);
         var secret = resolveSecret(profile);
-        var authenticated = secret != null;
+        var openCodeZen = ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode());
+        var authenticated = secret != null || openCodeZen;
         var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
                 profile.templateCode());
         var current = target;
         for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
             final ProviderControlPlaneTransport.Result response;
             try {
-                response = transport.get(current, discoveryHeaders(profile, userAgent, secret),
+                response = transport.get(current, discoveryHeaders(profile, userAgent, secret, current),
                         profile.connectTimeoutMs(), profile.responseTimeoutMs());
             } catch (ProviderControlPlaneTransport.TransportException ex) {
                 throw mapTransportFailure(ex);
@@ -418,6 +422,9 @@ public class ModelDiscoveryService {
         }
         var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
         if (credential == null) {
+            if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
+                return null;
+            }
             throw authFailed("Provider credential is not available.");
         }
         if (providerKek == null || providerKek.isBlank()) {
@@ -435,7 +442,10 @@ public class ModelDiscoveryService {
 
     private java.util.Map<String, String> discoveryHeaders(
             com.aicostops.providerhub.domain.ProviderConnection profile, String userAgent,
-            String secret) {
+            String secret, String endpoint) {
+        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
+            return openCodeZenHeaders.catalog(java.net.URI.create(endpoint), secret, "application/json");
+        }
         var headers = new java.util.LinkedHashMap<String, String>();
         headers.put("Accept", "application/json");
         headers.put("User-Agent", userAgent);

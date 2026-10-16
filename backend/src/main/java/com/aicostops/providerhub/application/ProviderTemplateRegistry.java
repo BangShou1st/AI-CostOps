@@ -1,5 +1,6 @@
 package com.aicostops.providerhub.application;
 
+import com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,7 +19,7 @@ public class ProviderTemplateRegistry {
     public static final String OPENCODE_ZEN = "OPENCODE_ZEN";
     public static final String CUSTOM_OPENAI_COMPATIBLE = "CUSTOM_OPENAI_COMPATIBLE";
     public static final String PROTOCOL_OPENAI_CHAT_COMPLETIONS = "OPENAI_CHAT_COMPLETIONS";
-    public static final String OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
+    public static final String OPENCODE_ZEN_BASE_URL = OpenCodeZenProtocolPolicy.DEFAULT_BASE_URL;
     /** Server-owned OpenCode Zen User-Agent. Inherits the known working sibling-project policy. */
     public static final String OPENCODE_ZEN_USER_AGENT = "opencode/1.18.21";
 
@@ -26,7 +27,8 @@ public class ProviderTemplateRegistry {
             OPENCODE_ZEN, new ProviderTemplate(
                     OPENCODE_ZEN, "OpenCode Zen", "BUILTIN",
                     PROTOCOL_OPENAI_CHAT_COMPLETIONS, OPENCODE_ZEN_BASE_URL,
-                    "/chat/completions", "/models", "BEARER", null,
+                    OpenCodeZenProtocolPolicy.CHAT_COMPLETIONS_PATH,
+                    OpenCodeZenProtocolPolicy.MODELS_PATH, "BEARER", null,
                     "DIRECT_ONLY", OPENCODE_ZEN_USER_AGENT, 5000, 60000,
                     Set.of("baseUrl", "networkPolicy", "userAgent", "authType",
                             "completionPath", "modelsPath")),

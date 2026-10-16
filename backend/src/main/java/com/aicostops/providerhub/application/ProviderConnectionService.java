@@ -43,6 +43,7 @@ public class ProviderConnectionService {
     private final Clock clock;
     private final String providerKek;
     private final ProviderConnectionService self;
+    private final OpenCodeZenTransportHeaders openCodeZenHeaders;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProviderConnectionService(
@@ -55,7 +56,8 @@ public class ProviderConnectionService {
             AuditService audit,
             Clock clock,
             @Lazy ProviderConnectionService self,
-            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
+            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            OpenCodeZenTransportHeaders openCodeZenHeaders) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.templates = templates;
@@ -66,6 +68,7 @@ public class ProviderConnectionService {
         this.clock = clock;
         this.self = self;
         this.providerKek = providerKek;
+        this.openCodeZenHeaders = openCodeZenHeaders;
     }
 
     public List<TemplateResponse> templates(AuthenticatedUser user) {
@@ -330,14 +333,19 @@ public class ProviderConnectionService {
                     profile.modelsPath() == null ? "" : profile.modelsPath());
             endpointValidator.validateEndpoint(initial);
             var origin = java.net.URI.create(initial);
-            // P1 fail-closed: a configured BEARER/API_KEY_HEADER connection without a usable
-            // credential must FAIL here with zero outbound requests, never downgrade to an
-            // anonymous request that could false-PASS against an open endpoint.
+            // P1 fail-closed for ordinary providers: a configured BEARER/API_KEY_HEADER
+            // connection without a usable credential must fail before I/O. OpenCode Zen is the
+            // explicit exception: its shared protocol sends Bearer public when no user key exists.
             var secret = resolveProbeSecretOrThrow(profile);
-            var authenticated = secret != null;
+            // Zen's public bearer value is still attached to the request, so redirects remain
+            // same-origin even when the organization has no stored user credential.
+            var openCodeZen = ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode());
+            var authenticated = secret != null || openCodeZen;
             var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
                     profile.templateCode());
-            var headers = probeHeaders(profile, userAgent, secret);
+            var headers = openCodeZen
+                    ? openCodeZenHeaders.catalog(java.net.URI.create(initial), secret, "application/json")
+                    : probeHeaders(profile, userAgent, secret);
             var current = initial;
             int code = -1;
             for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
@@ -437,8 +445,9 @@ public class ProviderConnectionService {
     }
 
     /**
-     * Fail-closed credential resolution: BEARER/API_KEY_HEADER without a usable secret throws
-     * before any outbound request is emitted. NONE expects no credential.
+     * Fail-closed credential resolution for ordinary providers. OpenCode Zen may use its shared
+     * public credential when no user key is stored; an existing but undecryptable key still fails.
+     * NONE expects no stored credential.
      */
     private String resolveProbeSecretOrThrow(com.aicostops.providerhub.domain.ProviderConnection profile)
             throws ProbeAuthException {
@@ -446,6 +455,9 @@ public class ProviderConnectionService {
             return null;
         }
         var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
+        if (credential == null && ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
+            return null;
+        }
         if (credential == null || providerKek == null || providerKek.isBlank()) {
             throw new ProbeAuthException();
         }

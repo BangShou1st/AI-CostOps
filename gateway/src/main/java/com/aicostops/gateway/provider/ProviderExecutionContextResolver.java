@@ -2,8 +2,10 @@ package com.aicostops.gateway.provider;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
+import com.aicostops.gateway.routing.OpenCodeFreeOnlyAdmission;
 import com.aicostops.gateway.request.GatewayRequestService.DispatchResult;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,11 +20,21 @@ public class ProviderExecutionContextResolver {
 
     private final GatewayReadMapper readMapper;
     private final ProviderCredentialDecryptor credentialDecryptor;
+    private final OpenCodeFreeOnlyAdmission openCodeFreeOnlyAdmission;
 
     public ProviderExecutionContextResolver(
             GatewayReadMapper readMapper, ProviderCredentialDecryptor credentialDecryptor) {
+        this(readMapper, credentialDecryptor, OpenCodeFreeOnlyAdmission.production());
+    }
+
+    @Autowired
+    public ProviderExecutionContextResolver(
+            GatewayReadMapper readMapper,
+            ProviderCredentialDecryptor credentialDecryptor,
+            OpenCodeFreeOnlyAdmission openCodeFreeOnlyAdmission) {
         this.readMapper = readMapper;
         this.credentialDecryptor = credentialDecryptor;
+        this.openCodeFreeOnlyAdmission = openCodeFreeOnlyAdmission;
     }
 
     public ProviderCallContext resolve(GatewayPrincipal principal, DispatchResult result) {
@@ -43,7 +55,11 @@ public class ProviderExecutionContextResolver {
 
         final String credentialType;
         final byte[] secret;
-        if ("NONE".equals(profile.authType())) {
+        boolean keylessFreeZenModel = OpenCodeFreeOnlyAdmission.OPENCODE_ZEN_ADAPTER.equals(result.adapterCode())
+                && openCodeFreeOnlyAdmission.admits(result.adapterCode(), result.providerModelName());
+        if ("NONE".equals(profile.authType()) || keylessFreeZenModel) {
+            // The shared Zen policy will send Bearer public for an admitted free model. Do not
+            // decrypt or attach a stored user key to a request that must use the public credential.
             credentialType = "NONE";
             secret = null;
         } else {

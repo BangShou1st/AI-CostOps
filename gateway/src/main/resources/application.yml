@@ -1,6 +1,11 @@
 # AI CostOps V2 Data Plane runtime configuration. The Gateway is a bounded
 # OpenAI-compatible edge: every correctness-sensitive limit is explicit and
 # bounded; a non-positive or unbounded value rejects startup.
+opencode:
+  zen:
+    # Keep the Gateway and Control Plane server identity aligned with the reviewed provider profile.
+    user-agent: opencode/1.18.21
+
 spring:
   application:
     name: ai-costops-gateway

@@ -2,6 +2,7 @@ package com.aicostops.providerhub.application;
 
 import com.aicostops.audit.application.AuditService;
 import com.aicostops.gatewayadmin.security.ProviderCredentialEncryptor;
+import com.sharedlibs.opencodezen.autoconfigure.OpenCodeZenRequestFactory;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.providerhub.infrastructure.ModelDiscoveryMapper;
@@ -57,8 +58,10 @@ public class ModelProbeService {
     private final Clock clock;
     private final String providerKek;
     private final OpenCodeModelManifest openCodeManifest;
+    private final OpenCodeZenTransportHeaders openCodeZenHeaders;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
+    /** Test and legacy constructor; production wiring uses the auto-configured shared request factory. */
     public ModelProbeService(
             AuthorizationContextService authorizationContexts,
             ProviderConnectionMapper connections,
@@ -71,6 +74,26 @@ public class ModelProbeService {
             Clock clock,
             @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
             OpenCodeModelManifest openCodeManifest) {
+        this(authorizationContexts, connections, discovery, credentials, endpointValidator, transport,
+                audit, objectMapper, clock, providerKek, openCodeManifest,
+                new OpenCodeZenTransportHeaders(new OpenCodeZenRequestFactory(
+                        ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT)));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ModelProbeService(
+            AuthorizationContextService authorizationContexts,
+            ProviderConnectionMapper connections,
+            ModelDiscoveryMapper discovery,
+            ProbeCredentialMapper credentials,
+            CustomEndpointValidator endpointValidator,
+            ProviderControlPlaneTransport transport,
+            AuditService audit,
+            ObjectMapper objectMapper,
+            Clock clock,
+            @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            OpenCodeModelManifest openCodeManifest,
+            OpenCodeZenTransportHeaders openCodeZenHeaders) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.discovery = discovery;
@@ -82,6 +105,7 @@ public class ModelProbeService {
         this.clock = clock;
         this.providerKek = providerKek;
         this.openCodeManifest = openCodeManifest;
+        this.openCodeZenHeaders = openCodeZenHeaders;
     }
 
     public ProbeResult probe(AuthenticatedUser user, long profileId, long discoveryId) {
@@ -132,7 +156,11 @@ public class ModelProbeService {
         }
         final String secret;
         final String secretKind;
-        if ("NONE".equals(profile.authType())) {
+        var openCodeZen = ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode());
+        var freeOpenCodeZenModel = openCodeZen && openCodeManifest.isFreeEligible(modelName);
+        if (freeOpenCodeZenModel || "NONE".equals(profile.authType())) {
+            // Free Zen probes always use the shared public credential. Do not read or decrypt a
+            // stored organization key for a request that must not use it.
             secret = null;
             secretKind = null;
         } else {
@@ -200,13 +228,15 @@ public class ModelProbeService {
         var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
                 profile.templateCode());
         var payload = SYNTHETIC_BODY.formatted(escapeJson(modelName));
-        var authenticated = secret != null && !"NONE".equals(profile.authType());
+        var authenticated = (secret != null && !"NONE".equals(profile.authType()))
+                || ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode());
         var current = target;
         for (var hop = 0; hop <= MAX_REDIRECTS; hop++) {
             final ProviderControlPlaneTransport.Result response;
             try {
                 response = transport.post(current,
-                        probeHeaders(profile, userAgent, secret, secretKind, "application/json"),
+                        probeHeaders(profile, userAgent, secret, secretKind, "application/json",
+                                modelName, current),
                         payload, profile.connectTimeoutMs(), profile.responseTimeoutMs());
             } catch (ProviderControlPlaneTransport.TransportException ex) {
                 throw mapProbeTransport(ex);
@@ -264,7 +294,8 @@ public class ModelProbeService {
             var target = join(profile.baseUrl(), profile.completionPath());
             endpointValidator.validateEndpoint(target);
             var origin = URI.create(target);
-            var authenticated = secret != null && !"NONE".equals(profile.authType());
+            var authenticated = (secret != null && !"NONE".equals(profile.authType()))
+                    || ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode());
             var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
                     profile.templateCode());
             var current = target;
@@ -272,7 +303,8 @@ public class ModelProbeService {
                 final ProviderControlPlaneTransport.Result response;
                 try {
                     response = transport.post(current,
-                            probeHeaders(profile, userAgent, secret, secretKind, "text/event-stream"),
+                            probeHeaders(profile, userAgent, secret, secretKind, "text/event-stream",
+                                    modelName, current),
                             streamPayload, profile.connectTimeoutMs(), profile.responseTimeoutMs());
                 } catch (ProviderControlPlaneTransport.TransportException ex) {
                     return "UNKNOWN";
@@ -537,7 +569,11 @@ public class ModelProbeService {
 
     private java.util.Map<String, String> probeHeaders(
             com.aicostops.providerhub.domain.ProviderConnection profile, String userAgent,
-            String secret, String secretKind, String accept) {
+            String secret, String secretKind, String accept, String modelName, String endpoint) {
+        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
+            return openCodeZenHeaders.model(URI.create(endpoint),
+                    openCodeManifest.isFreeEligible(modelName), secret, accept);
+        }
         var headers = new java.util.LinkedHashMap<String, String>();
         headers.put("Accept", accept);
         headers.put("User-Agent", userAgent);
