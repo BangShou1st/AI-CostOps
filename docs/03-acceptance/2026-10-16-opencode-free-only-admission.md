@@ -352,6 +352,10 @@ chat-capable `provider_model` + 已记录探针 PASS（即「本轮之前就已�
 
 推送结果与最终 SHA 见同目录 `2026-10-16-opencode-free-only-push.md`。
 
+最终 SHA：`e506631a38391de44b948fb3da0857121b720c9a`（`fix(opencode): admit only evidenced free Chat models (FREE_ONLY)`），
+已**非强制** fast-forward 推送至 `codex/history-coverage-20261012`，远端 HEAD 与本地一致。
+本记录自身的提交 SHA 按本目录既有约定不写死在其文内。
+
 <!-- COMMITS -->
 
 （沿用本目录既有约定：验收文档自身的提交不写死在其文内。）
