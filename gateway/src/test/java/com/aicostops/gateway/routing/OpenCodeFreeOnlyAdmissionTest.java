@@ -105,4 +105,17 @@ class OpenCodeFreeOnlyAdmissionTest {
                         "nemotron-3.5-lightning-free",
                         "space-bunny-free"));
     }
+
+    /**
+     * The Gateway barrier and the Backend barrier must execute the same rule. Both derive the free
+     * set and version from the shared component, so the two deployables can never define conflicting
+     * free rules.
+     */
+    @Test
+    void gatewayBarrierExecutesTheSharedAdmissionPolicy() {
+        assertThat(OpenCodeFreeOnlyAdmission.POLICY_VERSION)
+                .isEqualTo(com.sharedlibs.opencodezen.OpenCodeZenFreeAdmissionPolicy.POLICY_VERSION);
+        assertThat(OpenCodeFreeOnlyAdmission.ADMITTED_FREE_CHAT_MODELS)
+                .isSameAs(com.sharedlibs.opencodezen.OpenCodeZenFreeAdmissionPolicy.ADMITTED_FREE_CHAT_MODELS);
+    }
 }

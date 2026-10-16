@@ -86,10 +86,54 @@ class ProviderExecutionContextResolverTest {
         verify(readMapper, never()).findActiveConnectionProfile(anyLong(), anyLong());
     }
 
+    /**
+     * An admitted free OpenCode Zen model is resolved keyless, so the actual request credential
+     * (the shared {@code public} default) matches credential readiness. The stored key is neither
+     * read nor decrypted, and no ACTIVE credential row is fabricated to make dispatch possible.
+     */
+    @Test
+    void admittedFreeZenModelResolvesKeylessWithoutDecryptingAStoredKey() {
+        when(readMapper.findConnectionProfileById(7L, 101L)).thenReturn(
+                new GatewayReadMapper.ConnectionProfileRow(101L, 7L, 10L,
+                        "BEARER", null, "DIRECT_ONLY"));
+
+        var context = resolver().resolve(principal, dispatch(101L, 10L,
+                "https://opencode.ai/zen/v1", "DIRECT_ONLY", "OPENCODE_ZEN", "big-pickle"));
+
+        assertThat(context.credentialType()).isEqualTo("NONE");
+        assertThat(context.providerSecret()).isNull();
+        verify(credentialDecryptor, never()).decrypt(anyLong(), anyLong());
+    }
+
+    /** A non-admitted OpenCode Zen model keeps the stored-key requirement. */
+    @Test
+    void paidNonAdmittedZenModelStillDecryptsTheStoredKey() {
+        when(readMapper.findConnectionProfileById(7L, 101L)).thenReturn(
+                new GatewayReadMapper.ConnectionProfileRow(101L, 7L, 10L,
+                        "BEARER", null, "DIRECT_ONLY"));
+        when(credentialDecryptor.decrypt(7L, 10L)).thenReturn(
+                new ProviderCredentialDecryptor.DecryptedCredential(
+                        "BEARER_TOKEN", "paid-secret".getBytes()));
+
+        var context = resolver().resolve(principal, dispatch(101L, 10L,
+                "https://opencode.ai/zen/v1", "DIRECT_ONLY", "OPENCODE_ZEN", "deepseek-v4-pro"));
+
+        assertThat(context.credentialType()).isEqualTo("BEARER_TOKEN");
+        assertThat(new String(context.providerSecret())).isEqualTo("paid-secret");
+    }
+
     private static DispatchResult dispatch(long profileId, long accountId,
             String baseUrl, String networkPolicy) {
         return new DispatchResult(11L, "public-1", 12L, "decision-1", 13L, accountId,
                 15L, 16L, "USD", baseUrl, "CUSTOM_OPENAI_COMPATIBLE", "model-x", 9L,
+                1024, 512, 17L, profileId, "/chat/completions", "OPENAI_CHAT_COMPLETIONS",
+                networkPolicy);
+    }
+
+    private static DispatchResult dispatch(long profileId, long accountId,
+            String baseUrl, String networkPolicy, String adapterCode, String providerModelName) {
+        return new DispatchResult(11L, "public-1", 12L, "decision-1", 13L, accountId,
+                15L, 16L, "USD", baseUrl, adapterCode, providerModelName, 9L,
                 1024, 512, 17L, profileId, "/chat/completions", "OPENAI_CHAT_COMPLETIONS",
                 networkPolicy);
     }

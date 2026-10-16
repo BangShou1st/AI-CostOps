@@ -196,6 +196,63 @@ class OpenCodeFreeAdmissionDispatchBoundaryIntegrationTest extends GatewayMySqlC
     }
 
     /**
+     * Requirement #4: the Gateway credential-readiness flag requires an ACTIVE Provider credential,
+     * but an admitted free Zen model is dispatched with the shared {@code public} default and needs
+     * none. With no stored credential the admitted free model must still reach dispatch planning —
+     * this is exactly the readiness-versus-selection conflict, and it must not be "fixed" by writing
+     * a fabricated ACTIVE credential row.
+     */
+    @Test
+    void admittedFreeOpenCodeModelDispatchesWithoutAStoredCredential() {
+        retargetRouteToOpenCodeZen("big-pickle");
+        jdbc.update("DELETE FROM provider_credential WHERE org_id=?", env.orgId());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM provider_credential WHERE org_id=?",
+                Integer.class, env.orgId()))
+                .describedAs("this scenario deliberately has no stored Provider credential")
+                .isZero();
+
+        var status = web.post().uri("/v1/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + RAW_KEY)
+                .header("Idempotency-Key", "opencode-free-keyless-1")
+                .bodyValue("{\"model\":\"" + env.modelKey()
+                        + "\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+                .exchange()
+                .returnResult(byte[].class)
+                .getStatus();
+
+        assertThat(status.value())
+                .describedAs("a free keyless Zen model must not be refused for a missing credential")
+                .isNotEqualTo(403);
+        assertThat(countRouteAttempts())
+                .describedAs("it must reach dispatch planning, proving readiness did not block it")
+                .isGreaterThanOrEqualTo(1);
+    }
+
+    /**
+     * The keyless exemption is scoped to admitted free models only: a paid Zen model with no stored
+     * credential stays refused before any Provider HTTP I/O, so readiness is still enforced wherever
+     * the request would actually need a key.
+     */
+    @Test
+    void paidOpenCodeModelWithNoStoredCredentialIsStillRefused() {
+        retargetRouteToOpenCodeZen("deepseek-v4-pro");
+        jdbc.update("DELETE FROM provider_credential WHERE org_id=?", env.orgId());
+
+        web.post().uri("/v1/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + RAW_KEY)
+                .header("Idempotency-Key", "opencode-paid-keyless-1")
+                .bodyValue("{\"model\":\"" + env.modelKey()
+                        + "\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")
+                .exchange()
+                .expectStatus().isForbidden();
+
+        assertThat(upstreamCalls.get()).isZero();
+        assertThat(countRouteAttempts()).isZero();
+    }
+
+    /**
      * Re-points the seeded route at the OpenCode Zen adapter while leaving every other legacy
      * dispatch precondition intact (ACTIVE candidate, ACTIVE pricing version, ACTIVE credential,
      * chat-capable provider model). {@code provider_code} is a foreign key into

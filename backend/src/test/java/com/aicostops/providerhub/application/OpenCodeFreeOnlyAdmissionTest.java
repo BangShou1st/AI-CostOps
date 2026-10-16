@@ -172,4 +172,19 @@ class OpenCodeFreeOnlyAdmissionTest {
                 "the free admission policy and the manifest revision must advance together");
         assertEquals("2026-10-16", manifest.verifiedAt());
     }
+
+    /**
+     * The Backend barrier must execute the shared policy, not its own copy: the reviewed free set
+     * lives in {@link com.sharedlibs.opencodezen.OpenCodeZenFreeAdmissionPolicy} so this gate and the
+     * Gateway dispatch barrier can never drift into two conflicting free rules.
+     */
+    @Test
+    void backendBarrierExecutesTheSharedAdmissionPolicy() {
+        assertEquals(com.sharedlibs.opencodezen.OpenCodeZenFreeAdmissionPolicy.POLICY_VERSION,
+                OpenCodeModelManifest.FREE_ADMISSION_POLICY_VERSION);
+        for (var model : com.sharedlibs.opencodezen.OpenCodeZenFreeAdmissionPolicy.ADMITTED_FREE_CHAT_MODELS) {
+            assertTrue(manifest.isFreeEligible(model),
+                    () -> model + " is in the shared admitted set: the Backend gate must agree");
+        }
+    }
 }

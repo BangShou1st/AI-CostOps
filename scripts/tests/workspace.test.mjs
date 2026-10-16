@@ -76,3 +76,18 @@ test('isolated POM changes only output, retains module basedir and standard targ
   pom.cleanup()
   assert.equal(existsSync(pom.path), false)
 })
+
+test('isolated POM tolerates resource directories but still refuses a top-level build directory', t => {
+  const root = temporary(t)
+  mkdirSync(join(root, 'backend'))
+  const withResource = '<project><build><resources><resource><directory>/shared/res</directory></resource></resources>'
+    + '<plugins><plugin>unchanged</plugin></plugins></build></project>'
+  writeFileSync(join(root, 'backend', 'pom.xml'), withResource)
+  const pom = isolatedPom(root, 'backend', root)
+  assert.match(readFileSync(pom.path, 'utf8'), /<directory>.*\/backend\/target<\/directory>/)
+  pom.cleanup()
+
+  const withBuildDirectory = '<project><build><directory>custom</directory><plugins/></build></project>'
+  writeFileSync(join(root, 'backend', 'pom.xml'), withBuildDirectory)
+  assert.throws(() => isolatedPom(root, 'backend', root), /需要显式审查/)
+})

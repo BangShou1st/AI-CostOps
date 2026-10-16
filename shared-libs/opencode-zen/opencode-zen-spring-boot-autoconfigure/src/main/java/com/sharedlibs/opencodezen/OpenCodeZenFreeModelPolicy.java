@@ -17,8 +17,9 @@ public final class OpenCodeZenFreeModelPolicy {
     }
 
     /**
-     * Uses explicit zero pricing when the catalog is available. A suffix fallback is
-     * allowed only when no catalog is configured or the catalog is unavailable.
+     * Proves a model is explicitly free from authoritative metadata. There is deliberately no
+     * {@code -free} suffix fallback: when the catalog is unconfigured or unavailable nothing can be
+     * proven free, so every lookup fails closed instead of inferring pricing from a model name.
      */
     public static boolean isFreeModel(
             String modelId,
@@ -28,10 +29,11 @@ public final class OpenCodeZenFreeModelPolicy {
         if (modelId == null || modelId.isBlank()) {
             return false;
         }
-        if (!catalogConfigured || !catalogAvailable) {
-            return modelId.endsWith("-free");
-        }
-        return metadata != null && metadata.free() && !metadata.retired();
+        return catalogConfigured
+                && catalogAvailable
+                && metadata != null
+                && metadata.free()
+                && !metadata.retired();
     }
 
     /**
@@ -52,7 +54,11 @@ public final class OpenCodeZenFreeModelPolicy {
         return metadata != null && metadata.chatExecutable();
     }
 
-    /** Runtime execution always requires an available catalog and a verified Chat model. */
+    /**
+     * Runtime execution requires all three facts together: an available catalog, explicit free
+     * evidence, and a verified non-retired Chat model. Chat compatibility alone, or a free price
+     * alone, is never sufficient.
+     */
     public static boolean isVerifiedChatModel(
             String modelId,
             boolean catalogConfigured,
@@ -62,6 +68,7 @@ public final class OpenCodeZenFreeModelPolicy {
                 && catalogConfigured
                 && catalogAvailable
                 && metadata != null
+                && metadata.free()
                 && metadata.chatExecutable();
     }
 

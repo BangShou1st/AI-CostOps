@@ -34,6 +34,18 @@ test('verify runs scripts, both Maven verify lifecycles, frontend tests/lint/pro
   assert.doesNotMatch(output, /excludedGroups|skipTests/)
 })
 
+test('verify runs the shared OpenCode Zen Gradle tests when the snapshot wrapper exists', async t => {
+  const root = fixture(t)
+  const shared = join(root, 'shared-libs', 'opencode-zen')
+  mkdirSync(shared, { recursive: true })
+  writeFileSync(join(shared, isWindows ? 'gradlew.bat' : 'gradlew'),
+    isWindows ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  const output = await invoke(root, 'verify', ['--dry-run'])
+  assert.match(output, /\[shared-lib tests\].*gradlew.* test/)
+  // Without the snapshot the step is absent, so non-OpenCode checkouts are unaffected.
+  assert.doesNotMatch(await invoke(fixture(t), 'verify', ['--dry-run']), /shared-lib tests/)
+})
+
 test('test keeps architecture checks; build packages both Maven modules and frontend', async t => {
   const root = fixture(t)
   const unit = await invoke(root, 'test', ['--dry-run'])

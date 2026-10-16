@@ -1,48 +1,43 @@
 package com.aicostops.gateway.routing;
 
+import com.sharedlibs.opencodezen.OpenCodeZenFreeAdmissionPolicy;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
- * Gateway-owned OpenCode Zen free admission policy (2026-10-16).
+ * Gateway-owned OpenCode Zen free admission barrier (2026-10-16).
  *
  * <p>This is a deliberately <em>independent</em> second barrier. The Control Plane already refuses
  * to probe or promote a paid OpenCode model, but a model that was promoted before this round, that
  * already has an ACTIVE Pricing Version, or that sits on a routing policy activated earlier would
- * otherwise remain dispatchable. The Gateway therefore re-derives admission from its own
- * server-owned list at candidate-evaluation time, before any budget admission, dispatch fence or
- * Provider HTTP I/O.
+ * otherwise remain dispatchable. The Gateway therefore re-derives admission at candidate-evaluation
+ * time, before any budget admission, dispatch fence or Provider HTTP I/O.
  *
- * <p>Admission is an allow-list, never a suffix rule: a {@code -free} name is not evidence, and a
- * {@code PAID}/`UNKNOWN`/`UNSUPPORTED` classification never becomes free here. The list is closed
- * under "officially served by V1 Zen at the reviewed revision <em>and</em> listed Free on the
- * official V1 Zen pricing table".
+ * <p>The barrier is independent in <em>execution</em>, not in <em>definition</em>: the reviewed free
+ * set and predicate live once in the shared {@link OpenCodeZenFreeAdmissionPolicy}, so this barrier
+ * and the Backend probe/promotion gate cannot drift into two conflicting free rules. Admission is an
+ * allow-list, never a suffix rule: a {@code -free} name is not evidence, and a
+ * {@code PAID}/`UNKNOWN`/`UNSUPPORTED` classification never becomes free here.
  *
  * <p>Only the built-in {@code OPENCODE_ZEN} adapter is in scope; every other Provider keeps its
- * existing eligibility behaviour. The list is intentionally duplicated rather than shared with the
- * Backend so that neither deployable can silently widen the other's admission.
+ * existing eligibility behaviour.
  */
 @Component
 public final class OpenCodeFreeOnlyAdmission {
 
     /** Reviewed revision of the free admission policy; must advance with the evidence. */
-    public static final String POLICY_VERSION = "2026-10-16-v1";
+    public static final String POLICY_VERSION = OpenCodeZenFreeAdmissionPolicy.POLICY_VERSION;
 
     /** Built-in OpenCode Zen adapter code; the only adapter this policy constrains. */
     public static final String OPENCODE_ZEN_ADAPTER = "OPENCODE_ZEN";
 
     /**
-     * OpenCode Zen Chat Completions models that carry a currently valid free attestation:
-     * an official {@code /zen/v1/chat/completions} endpoint row, an official V1 Zen pricing row of
-     * {@code Free}, and continued service in the live V1 Zen catalog as of 2026-10-16.
+     * OpenCode Zen Chat Completions models that carry a currently valid free attestation. The set is
+     * owned by the shared component; this alias keeps a single definition instead of a second copy.
      */
-    public static final Set<String> ADMITTED_FREE_CHAT_MODELS = Set.of(
-            "big-pickle",
-            "longcat-2.5-preview-free",
-            "mimo-v2.6-flash-free",
-            "nemotron-3.5-lightning-free",
-            "space-bunny-free");
+    public static final Set<String> ADMITTED_FREE_CHAT_MODELS =
+            OpenCodeZenFreeAdmissionPolicy.ADMITTED_FREE_CHAT_MODELS;
 
     private final Set<String> admitted;
 
@@ -75,6 +70,7 @@ public final class OpenCodeFreeOnlyAdmission {
                 && admitted.contains(providerModelName.strip().toLowerCase(Locale.ROOT));
     }
 
+    /** True only for the built-in OpenCode Zen adapter, the single surface this policy constrains. */
     public boolean isOpenCodeZen(String adapterCode) {
         return adapterCode != null
                 && OPENCODE_ZEN_ADAPTER.equals(adapterCode.strip().toUpperCase(Locale.ROOT));

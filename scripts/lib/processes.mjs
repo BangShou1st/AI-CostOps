@@ -15,7 +15,7 @@ export function npmCommand(args) {
 
 export function spawnCommand(command, args, options = {}) {
   const { group = false, ...spawnOptions } = options
-  if (isWindows && command.endsWith('.cmd')) {
+  if (isWindows && (command.endsWith('.cmd') || command.endsWith('.bat'))) {
     // cmd /s /c requires outer quotes around the entire invocation and separate
     // quotes around every token. Reject expansion/quote characters, disable
     // delayed expansion, and bypass Node's second Windows quoting pass.

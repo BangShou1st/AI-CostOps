@@ -1,4 +1,5 @@
 package com.aicostops.providerhub.application;
+import com.sharedlibs.opencodezen.OpenCodeZenFreeAdmissionPolicy;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 /**
@@ -47,30 +48,21 @@ public class OpenCodeModelManifest {
      * policy records the narrower right to dispatch without cost. Both advance together today, but
      * a future catalog-only change must be able to move the policy without rewriting lineage.
      */
-    public static final String FREE_ADMISSION_POLICY_VERSION = "2026-10-16-v1";
+    public static final String FREE_ADMISSION_POLICY_VERSION = OpenCodeZenFreeAdmissionPolicy.POLICY_VERSION;
     public static final String PROTOCOL_CHAT = "OPENAI_CHAT_COMPLETIONS";
     public static final String PROTOCOL_UNSUPPORTED = "UNSUPPORTED";
     public static final String PROTOCOL_UNKNOWN = "UNKNOWN";
     public static final String PRICING_VERIFIED_FREE = "VERIFIED_FREE";
     public static final String PRICING_PAID = "PAID";
     public static final String PRICING_UNKNOWN = "UNKNOWN";
-    /**
-     * Ids the live V1 Zen catalog actually served at {@link #FREE_ADMISSION_POLICY_VERSION}
-     * (2026-10-16: {@code GET https://opencode.ai/zen/v1/models}, 86 ids, SHA-256
-     * {@code 6a4fc13e81fd7a7905c5934cef9781e39255a9aa93e2da406fc4f02b682e2685}).
-     *
-     * <p>Only the free-classified subset is materialised: admission additionally requires the Chat
-     * protocol and the {@code VERIFIED_FREE} pricing row, so {@link #isFreeEligible(String)} is a
-     * conjunction over three independently attested facts (family, price, current service) rather
-     * than a standalone allow-list. A delisted id fails the third fact automatically and therefore
-     * loses admission without losing its classification.
+    /*
+     * The reviewed "currently served" free set is no longer defined here: it lives in the shared
+     * OpenCodeZenFreeAdmissionPolicy so the Backend probe/promotion gate and the Gateway dispatch
+     * barrier execute the exact same rule instead of two droppable copies. Evidence for the set:
+     * live GET https://opencode.ai/zen/v1/models at FREE_ADMISSION_POLICY_VERSION (2026-10-16,
+     * 86 ids, SHA-256
+     * 6a4fc13e81fd7a7905c5934cef9781e39255a9aa93e2da406fc4f02b682e2685).
      */
-    private static final java.util.Set<String> SERVED_FREE_CHAT_AT_REVIEW = java.util.Set.of(
-            "big-pickle",
-            "longcat-2.5-preview-free",
-            "mimo-v2.6-flash-free",
-            "nemotron-3.5-lightning-free",
-            "space-bunny-free");
     public record Entry(String protocol, String pricing) {
     }
     private static final java.util.Map<String, Entry> PRODUCTION_ENTRIES = java.util.Map.ofEntries(
@@ -172,7 +164,8 @@ public class OpenCodeModelManifest {
     /**
      * FREE_ONLY admission for the built-in OpenCode Zen template: the single predicate the probe,
      * the promotion and (independently) the Gateway must agree on. Requires all three attested
-     * facts — Chat family, Free pricing row, and current service by the V1 catalog. Anything else
+     * facts — Chat family and Free pricing row from this reviewed classification, and current
+     * service by the V1 catalog from the shared {@link OpenCodeZenFreeAdmissionPolicy}. Anything else
      * (PAID, UNKNOWN, UNSUPPORTED, delisted, Console-only, suffix-invented) fails closed.
      */
     public boolean isFreeEligible(String name) {
@@ -181,7 +174,7 @@ public class OpenCodeModelManifest {
                 || !PRICING_VERIFIED_FREE.equals(entry.pricing())) {
             return false;
         }
-        return SERVED_FREE_CHAT_AT_REVIEW.contains(name.strip());
+        return OpenCodeZenFreeAdmissionPolicy.admitsFreeChatModel(name);
     }
     public String protocolFor(String name) { return classify(name).protocol(); }
     public String pricingFor(String name) { return classify(name).pricing(); }

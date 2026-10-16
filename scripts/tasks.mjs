@@ -145,6 +145,13 @@ async function main(signal) {
   if (!dryRun && command === 'verify') await dockerReady(signal)
   if (command !== 'build') await execute('script tests', process.execPath, ['--test', join(ROOT, 'scripts', 'tests', '*.test.mjs')], ROOT, signal)
   if (command === 'verify') await execute('script lifecycle tests', process.execPath, ['--test', join(ROOT, 'scripts', 'tests', '*.integration.mjs')], ROOT, signal)
+  // The shared OpenCode Zen library is consumed as an in-repo source snapshot; its own Gradle
+  // tests must run here so a shared change cannot be merged while its independent test suite is
+  // silently skipped.
+  if (command !== 'build') {
+    const sharedWrapper = join(ROOT, 'shared-libs', 'opencode-zen', isWindows ? 'gradlew.bat' : 'gradlew')
+    if (existsSync(sharedWrapper)) await execute('shared-lib tests', sharedWrapper, ['test', '--console=plain'], join(ROOT, 'shared-libs', 'opencode-zen'), signal)
+  }
   if (!dryRun) console.log(`Maven 隔离输出与测试报告：${output}`)
   for (const module of ['backend', 'gateway']) await step(maven(module, command === 'build' ? ['-DskipTests', 'package'] : [command === 'test' ? 'test' : 'verify']))
   if (command !== 'build') await step(frontend(['run', 'test', '--', '--run']))

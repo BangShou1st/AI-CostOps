@@ -50,7 +50,16 @@ public class CandidateEligibilityEvaluator {
             Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
         if (attempted.contains(candidate.identity())) return CandidateEligibility.rejected(EligibilityReason.ALREADY_ATTEMPTED);
         if (candidate.providerAccountId() < 0) return CandidateEligibility.rejected(EligibilityReason.ACCOUNT_INACTIVE);
-        if (!candidate.credentialReady()) return CandidateEligibility.rejected(EligibilityReason.CREDENTIAL_MISSING);
+        // An admitted free OpenCode Zen model is dispatched with the shared public credential and
+        // needs no stored Provider key, so the DB-derived credential_ready flag must not block it.
+        // This aligns readiness with the actual request credential selection
+        // (ProviderExecutionContextResolver pins the keyless public credential for the same model).
+        // Every other Provider, and every non-admitted OpenCode model, keeps the existing rule.
+        boolean keylessFreeZen = openCodeFreeAdmission.isOpenCodeZen(candidate.adapterCode())
+                && openCodeFreeAdmission.admits(candidate.adapterCode(), candidate.providerModelName());
+        if (!candidate.credentialReady() && !keylessFreeZen) {
+            return CandidateEligibility.rejected(EligibilityReason.CREDENTIAL_MISSING);
+        }
         if (candidate.providerModelId() < 0) return CandidateEligibility.rejected(EligibilityReason.MODEL_INACTIVE);
         if (!candidate.routingEligible()) return CandidateEligibility.rejected(EligibilityReason.MODEL_NOT_ROUTING_ELIGIBLE);
         if (candidate.providerCode() == null || candidate.providerModelName() == null
