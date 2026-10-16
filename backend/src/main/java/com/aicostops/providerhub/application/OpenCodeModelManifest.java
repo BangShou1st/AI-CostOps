@@ -8,7 +8,12 @@ import org.springframework.stereotype.Component;
  * The template-level protocol must never be mistaken for per-model compatibility.
  * Live /models proves availability only; protocol and pricing come from this controlled list.
  *
- * <p>Reviewed against the official OpenCode Zen endpoint table on 2026-09-11.
+ * <p>Reviewed against the official V1 Zen endpoint and pricing tables. The first revision
+ * (2026-09-11) froze the reviewed table of that day; the current revision (2026-10-16) closes the
+ * M-2 catalog drift: ids newly served by V1 Zen that carry <em>both</em> an official
+ * {@code /zen/v1/chat/completions} endpoint row and an official V1 Zen pricing-table row were
+ * classified. Anything attested only by the V2 Console product, or only by a {@code -free} suffix,
+ * deliberately stays UNKNOWN.
  * Chat Completions family is eligible for the bounded V3 Chat probe path; Responses,
  * Messages and Gemini-native families are UNSUPPORTED for V3 and stay AVAILABLE but
  * can never Chat probe/promote. Unknown future models fail closed as UNKNOWN.
@@ -17,13 +22,17 @@ import org.springframework.stereotype.Component;
  * VERIFIED_FREE, and even VERIFIED_FREE never auto-creates production pricing.
  * Unknown live models stay AVAILABLE with UNKNOWN compatibility and cannot take the Chat path.
  * Custom OpenAI-compatible connections do not use this manifest.
+ *
+ * <p>V1 Zen, V2 Console and Go are separate first-party products with separate credentials,
+ * entitlements and price sheets. A model listed as free on the V2 Console is never thereby free on
+ * V1 Zen, so Console-only ids are not classified here even when the two catalogs are byte-identical.
  */
 @Component
 public class OpenCodeModelManifest {
-    public static final String MANIFEST_VERSION = "2026-09-11-v2";
-    public static final String VERIFIED_AT = "2026-09-11";
-    public static final String SOURCE = "OpenCode Zen official endpoint table";
-    public static final String SOURCE_REVISION = "2026-09-11";
+    public static final String MANIFEST_VERSION = "2026-10-16-v1";
+    public static final String VERIFIED_AT = "2026-10-16";
+    public static final String SOURCE = "OpenCode Zen (V1) official endpoint and pricing tables";
+    public static final String SOURCE_REVISION = "2026-10-11";
     public static final String PROTOCOL_CHAT = "OPENAI_CHAT_COMPLETIONS";
     public static final String PROTOCOL_UNSUPPORTED = "UNSUPPORTED";
     public static final String PROTOCOL_UNKNOWN = "UNKNOWN";
@@ -45,7 +54,19 @@ public class OpenCodeModelManifest {
             java.util.Map.entry("kimi-k2.6", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
             java.util.Map.entry("kimi-k2.7-code", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
             java.util.Map.entry("kimi-k3", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
+            // 2026-10-16 drift repair: officially served at /zen/v1/chat/completions with an
+            // official V1 Zen pricing-table row (paid).
+            java.util.Map.entry("deepseek-v4.1-flash", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
+            java.util.Map.entry("glm-5.3", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
+            java.util.Map.entry("glm-5.3-flash", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
+            java.util.Map.entry("mistral-large-4", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
+            java.util.Map.entry("qwen3.8-max", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
             java.util.Map.entry("big-pickle", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            // 2026-10-16 drift repair: official V1 Zen pricing table lists these as Free.
+            java.util.Map.entry("longcat-2.5-preview-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            java.util.Map.entry("mimo-v2.6-flash-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            java.util.Map.entry("nemotron-3.5-lightning-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            java.util.Map.entry("space-bunny-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
             java.util.Map.entry("mimo-v2.5-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
             java.util.Map.entry("laguna-s-2.1-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
             java.util.Map.entry("ling-3.0-tiny-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
