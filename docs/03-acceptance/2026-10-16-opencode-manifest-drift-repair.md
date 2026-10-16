@@ -387,9 +387,12 @@ S1 与 S2 **字节级完全相同**：两者 SHA-256 均为
 ## 10. 提交与推送
 
 - 起始 HEAD：`af7fd6436e5b90297a5fb8e54c4c77ee38ed8260`
-- 目标分支：`codex/history-coverage-20261012`，**非强制**推送；未建 PR、未合并 main、未部署。
+- 目标分支：`codex/history-coverage-20261012`，**非强制**推送（fast-forward）；未建 PR、未合并 main、未部署。
 - 本批内容：`OpenCodeModelManifest`（9 条新增 + 元数据前移 + 注释）、2 个既有测试元数据断言、
-  1 个新增单元测试、1 个新增集成测试、本记录。
+  1 个新增单元测试（8 项）、1 个新增集成测试（7 项）、本记录、上批记录与 M18 冻结文档的**追加**更正标注。
+- 未跟踪的 `.freebuff/` 原样保留，未纳入任何提交。
+
+推送结果与最终 SHA 见同目录 `2026-10-16-opencode-manifest-drift-push.md`。
 
 <!-- COMMITS -->
 
