@@ -15,7 +15,9 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -64,6 +66,8 @@ class OpenCodeEndpointContractTest {
     private final List<String> authorizationHeaders = new CopyOnWriteArrayList<>();
     private final List<String> userAgents = new CopyOnWriteArrayList<>();
     private final AtomicInteger forcedStatus = new AtomicInteger();
+    private final AtomicReference<String> forcedSseBody = new AtomicReference<>();
+    private final AtomicBoolean truncateSseResponse = new AtomicBoolean();
     private int upstreamPort;
 
     @BeforeEach
@@ -92,12 +96,14 @@ class OpenCodeEndpointContractTest {
             byte[] payload;
             if (body.contains("\"stream\":true")) {
                 exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
-                payload = SSE_BODY.getBytes(StandardCharsets.UTF_8);
+                var configuredSseBody = forcedSseBody.get();
+                payload = (configuredSseBody == null ? SSE_BODY : configuredSseBody)
+                        .getBytes(StandardCharsets.UTF_8);
             } else {
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
                 payload = COMPLETION_JSON.getBytes(StandardCharsets.UTF_8);
             }
-            exchange.sendResponseHeaders(200, payload.length);
+            exchange.sendResponseHeaders(200, truncateSseResponse.get() ? payload.length + 64 : payload.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(payload);
             }
@@ -138,6 +144,7 @@ class OpenCodeEndpointContractTest {
             assertThat(completion.choices()).isNotEmpty();
             assertThat(completion.choices().get(0).content()).isEqualTo("hi");
             assertThat(completion.choices().get(0).finishReason()).isEqualTo("stop");
+            assertThat(completion.providerModel()).isEqualTo("zen-model");
             assertThat(completion.usage()).isNotNull();
             assertThat(completion.usage().totalTokens()).isEqualTo(8);
 
@@ -214,6 +221,57 @@ class OpenCodeEndpointContractTest {
             assertThat(completion.usage().promptTokens()).isEqualTo(5);
             assertThat(completion.usage().completionTokens()).isEqualTo(3);
         });
+    }
+
+    @Test
+    void nonStreamingAggregationRejectsDeltaAndUsageWithoutDone() {
+        forcedSseBody.set(SSE_BODY.replace("data: [DONE]\n\n", ""));
+        var adapter = adapter();
+
+        assertThatThrownBy(() -> adapter.complete(context(), command())
+                .block(java.time.Duration.ofSeconds(20)))
+                .isInstanceOf(com.aicostops.gateway.provider.ProviderExecutionException.class)
+                .satisfies(ex -> {
+                    var providerError = (com.aicostops.gateway.provider.ProviderExecutionException) ex;
+                    assertThat(providerError.safetyOutcome())
+                            .isEqualTo(com.aicostops.gateway.provider.ProviderSafetyOutcome.BILLABLE_POSSIBLE);
+                    assertThat(providerError.safetyReason())
+                            .isEqualTo(com.aicostops.gateway.provider.ProviderSafetyReason.MALFORMED_PROVIDER_RESPONSE);
+                    assertThat(providerError.responseStarted()).isTrue();
+                });
+        assertThat(upstreamHits.get()).isEqualTo(1);
+    }
+
+    @Test
+    void nonStreamingAggregationRejectsDoneWithoutCompletionContent() {
+        forcedSseBody.set("data: [DONE]\n\n");
+        var adapter = adapter();
+
+        assertThatThrownBy(() -> adapter.complete(context(), command())
+                .block(java.time.Duration.ofSeconds(20)))
+                .isInstanceOf(com.aicostops.gateway.provider.ProviderExecutionException.class)
+                .satisfies(ex -> {
+                    var providerError = (com.aicostops.gateway.provider.ProviderExecutionException) ex;
+                    assertThat(providerError.safetyReason())
+                            .isEqualTo(com.aicostops.gateway.provider.ProviderSafetyReason.MALFORMED_PROVIDER_RESPONSE);
+                    assertThat(providerError.responseStarted()).isTrue();
+                });
+        assertThat(upstreamHits.get()).isEqualTo(1);
+    }
+
+    @Test
+    void nonStreamingAggregationRejectsAnInterruptedUpstreamStreamWithoutRetry() {
+        forcedSseBody.set(SSE_BODY.replace("data: [DONE]\n\n", ""));
+        truncateSseResponse.set(true);
+        var adapter = adapter();
+
+        assertThatThrownBy(() -> adapter.complete(context(), command())
+                .block(java.time.Duration.ofSeconds(20)))
+                .isInstanceOf(com.aicostops.gateway.provider.ProviderExecutionException.class)
+                .satisfies(ex -> assertThat(((com.aicostops.gateway.provider.ProviderExecutionException) ex)
+                        .safetyOutcome()).isEqualTo(
+                                com.aicostops.gateway.provider.ProviderSafetyOutcome.BILLABLE_POSSIBLE));
+        assertThat(upstreamHits.get()).isEqualTo(1);
     }
 
     @Test

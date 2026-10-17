@@ -130,9 +130,9 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
      * The free tier cannot answer a raw non-streaming request ({@code stream=false} is rejected with
      * {@code 403 FreeTierError}), so a non-streaming caller — a client asking for {@code stream:false}
      * or the Advisor inference worker — is served by consuming the required streaming envelope
-     * upstream and aggregating the deltas into one {@link ProviderChatCompletion}. The terminal reason
-     * is reported as {@code stop} because the aggregated stream completed normally; usage is taken
-     * from the upstream metering event and is never fabricated.
+     * upstream and aggregating the deltas into one {@link ProviderChatCompletion}. Success requires
+     * text content followed by the upstream {@code [DONE]} event; usage is taken from the upstream
+     * metering event and is never fabricated.
      */
     @Override
     public Mono<ProviderChatCompletion> complete(ProviderCallContext context,
@@ -152,11 +152,17 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
         private Integer promptTokens;
         private Integer completionTokens;
         private Integer totalTokens;
+        private boolean hasTextContent;
+        private boolean done;
 
         ZenStreamAggregation accept(ProviderChatStreamEvent event) {
+            if (done) {
+                throw incompleteStream();
+            }
             if (event instanceof ProviderChatStreamEvent.Delta delta) {
                 if (delta.deltaContent() != null) {
                     content.append(delta.deltaContent());
+                    hasTextContent |= !delta.deltaContent().isEmpty();
                 }
                 upstreamId = delta.upstreamId();
                 created = delta.created();
@@ -168,11 +174,16 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
                 promptTokens = metering.promptTokens();
                 completionTokens = metering.completionTokens();
                 totalTokens = metering.totalTokens();
+            } else if (event instanceof ProviderChatStreamEvent.Done) {
+                done = true;
             }
             return this;
         }
 
         ProviderChatCompletion toCompletion(ProviderCallContext context) {
+            if (!done || !hasTextContent) {
+                throw incompleteStream();
+            }
             var usage = promptTokens == null && completionTokens == null && totalTokens == null
                     ? null
                     : new ProviderChatCompletion.ProviderUsage(promptTokens, completionTokens, totalTokens);
@@ -180,6 +191,12 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
                     providerModel == null ? context.providerModelName() : providerModel,
                     List.of(new ProviderChatCompletion.CompletionChoice(0, content.toString(), "stop")),
                     usage);
+        }
+
+        private static ProviderExecutionException incompleteStream() {
+            return new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
+                    ProviderSafetyReason.MALFORMED_PROVIDER_RESPONSE, ProviderHealthSignal.QUALIFYING_FAILURE,
+                    null, null, true, null);
         }
     }
 
