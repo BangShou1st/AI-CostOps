@@ -22,6 +22,7 @@
 | 命令 | 行为 |
 | --- | --- |
 | `npm run setup` | 在 frontend 执行 `npm ci`，仅首次使用或依赖变更时需要 |
+| `npm run maven:settings` | 从本机 Maven settings 生成容器安全副本（`github` server 凭据、loopback 代理改写为 `host.docker.internal`）到 `.local-dev/maven/docker-settings.xml`，供 `docker compose up --build` 构建 backend/gateway 镜像使用 |
 | `npm run doctor` | 检查 Node、Java、npm、Docker 引擎、Maven wrapper、前端依赖、本地配置与三端端口 |
 | `npm run status` | 检查三端端口及 HTTP；端口空闲不代表进程故障，HTTP 通过不证明监听者的项目身份 |
 | `npm run infra:up` | 当前 Compose 项目的 MySQL、Redis、MinIO `up -d --wait`，不停止应用容器 |

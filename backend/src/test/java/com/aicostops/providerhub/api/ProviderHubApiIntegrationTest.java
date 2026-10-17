@@ -81,7 +81,7 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
     void templatesExposeServerOwnedZenDefaults() throws Exception {
         mockMvc.perform(get("/api/v1/provider-templates").header("Authorization", bearer()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.code=='OPENCODE_ZEN')].baseUrl", hasItem("https://opencode.ai/zen/v1")))
+                .andExpect(jsonPath("$[?(@.code=='OPENCODE_ZEN')].baseUrl", hasItem("https://opencode.ai/inference/v1")))
                 .andExpect(jsonPath("$[?(@.code=='OPENCODE_ZEN')].networkPolicy", hasItem("DIRECT_ONLY")));
     }
 

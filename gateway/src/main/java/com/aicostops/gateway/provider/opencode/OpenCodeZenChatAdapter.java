@@ -3,21 +3,27 @@ package com.aicostops.gateway.provider.opencode;
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.provider.DispatchEndpointGuard;
 import com.aicostops.gateway.provider.ProviderCallContext;
+import com.aicostops.gateway.provider.ProviderChatCompletion;
+import com.aicostops.gateway.provider.ProviderChatStreamEvent;
 import com.aicostops.gateway.provider.ProviderExecutionException;
 import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
 import com.aicostops.gateway.provider.ProviderSafetyReason;
-import com.aicostops.gateway.routing.OpenCodeFreeOnlyAdmission;
 import com.aicostops.gateway.provider.shared.AbstractOpenAiCompatibleAdapter;
+import com.aicostops.gateway.request.ChatCompletionCommand;
+import com.aicostops.gateway.routing.OpenCodeFreeOnlyAdmission;
 import com.sharedlibs.opencodezen.OpenCodeZenCredentialPolicy;
+import com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy;
 import com.sharedlibs.opencodezen.OpenCodeZenIdGenerator;
 import com.sharedlibs.opencodezen.autoconfigure.OpenCodeZenRequestFactory;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -34,12 +40,11 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
 
     public static final String ADAPTER_CODE = "OPENCODE_ZEN";
     /**
-     * Server-owned OpenCode Zen User-Agent. Single source of truth lives in
-     * backend {@code ProviderTemplateRegistry#OPENCODE_ZEN_USER_AGENT}; this
-     * constant must stay identical ({@code opencode/1.18.21} unless fresh
-     * OpenCode evidence proves a deliberate replacement).
+     * Server-owned OpenCode Zen User-Agent. Delegated to the shared library's CLI identity policy so
+     * the gateway and the backend control plane cannot drift; the shared default is the verified
+     * {@code opencode/1.19.0 ...} CLI string.
      */
-    public static final String SERVER_USER_AGENT = "opencode/1.18.21";
+    public static final String SERVER_USER_AGENT = OpenCodeZenProtocolPolicy.USER_AGENT;
 
     private final OpenCodeZenRequestFactory requestFactory;
     private final OpenCodeFreeOnlyAdmission freeOnlyAdmission;
@@ -105,6 +110,87 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
                     null, null, false, invalidRequest);
         }
         headers.add("X-Client-Request-Id", boundedRouteDecisionId(context.routeDecisionId()));
+    }
+
+    /**
+     * Applies the required CLI envelope — {@code stream=true} + {@code stream_options.include_usage}
+     * + the 5 reserved tools — to every outbound chat body. Verified live against the real upstream
+     * (2026-10-17): {@code stream=false} is rejected with {@code 403 FreeTierError}, while the full
+     * envelope answers {@code 200}, so the incoming {@code stream} flag is intentionally ignored.
+     */
+    @Override
+    protected Object decorateWirePayload(Object payload, ProviderCallContext context, boolean stream) {
+        var body = objectMapper.convertValue(payload,
+                new tools.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, Object>>() { });
+        OpenCodeZenProtocolPolicy.applyRequiredChatEnvelope(body, true);
+        return body;
+    }
+
+    /**
+     * The free tier cannot answer a raw non-streaming request ({@code stream=false} is rejected with
+     * {@code 403 FreeTierError}), so a non-streaming caller — a client asking for {@code stream:false}
+     * or the Advisor inference worker — is served by consuming the required streaming envelope
+     * upstream and aggregating the deltas into one {@link ProviderChatCompletion}. The terminal reason
+     * is reported as {@code stop} because the aggregated stream completed normally; usage is taken
+     * from the upstream metering event and is never fabricated.
+     */
+    @Override
+    public Mono<ProviderChatCompletion> complete(ProviderCallContext context,
+            ChatCompletionCommand command) {
+        return stream(context, command)
+                .reduce(new ZenStreamAggregation(), (aggregation, event) -> aggregation.accept(event))
+                .map(aggregation -> aggregation.toCompletion(context));
+    }
+
+    /** Sequential accumulator turning the required streaming envelope into one completion. */
+    private static final class ZenStreamAggregation {
+
+        private final StringBuilder content = new StringBuilder();
+        private String upstreamId;
+        private long created;
+        private String providerModel;
+        private Integer promptTokens;
+        private Integer completionTokens;
+        private Integer totalTokens;
+
+        ZenStreamAggregation accept(ProviderChatStreamEvent event) {
+            if (event instanceof ProviderChatStreamEvent.Delta delta) {
+                if (delta.deltaContent() != null) {
+                    content.append(delta.deltaContent());
+                }
+                upstreamId = delta.upstreamId();
+                created = delta.created();
+                providerModel = delta.providerModel();
+            } else if (event instanceof ProviderChatStreamEvent.Metering metering) {
+                upstreamId = metering.upstreamId();
+                created = metering.created();
+                providerModel = metering.providerModel();
+                promptTokens = metering.promptTokens();
+                completionTokens = metering.completionTokens();
+                totalTokens = metering.totalTokens();
+            }
+            return this;
+        }
+
+        ProviderChatCompletion toCompletion(ProviderCallContext context) {
+            var usage = promptTokens == null && completionTokens == null && totalTokens == null
+                    ? null
+                    : new ProviderChatCompletion.ProviderUsage(promptTokens, completionTokens, totalTokens);
+            return new ProviderChatCompletion(null, upstreamId, created,
+                    providerModel == null ? context.providerModelName() : providerModel,
+                    List.of(new ProviderChatCompletion.CompletionChoice(0, content.toString(), "stop")),
+                    usage);
+        }
+    }
+
+    /**
+     * A quota-exhausted {@code 429} is a normal bounded outcome for the Zen free tier, not a provider
+     * fault, so it must not count toward the circuit breaker. Every other status keeps the shared
+     * OpenAI-compatible classification (MiMo / OpenAI / custom adapters are unaffected).
+     */
+    @Override
+    protected ProviderHealthSignal healthSignal(int status) {
+        return status == 429 ? ProviderHealthSignal.NONE : super.healthSignal(status);
     }
 
     private boolean isFreeZenModel(ProviderCallContext context) {

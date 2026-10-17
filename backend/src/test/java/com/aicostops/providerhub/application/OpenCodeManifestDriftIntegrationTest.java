@@ -213,16 +213,19 @@ class OpenCodeManifestDriftIntegrationTest extends ControlPlaneFixtureSupport {
         }
     }
 
-    /** The V1 Zen template still pins the V1 origin and never the V2 Console family. */
+    /**
+     * The built-in OpenCode template pins the sanctioned shared CLI inference base (the explicit
+     * 2026-10-17 endpoint decision) and never an API-family-prefixed Console route.
+     */
     @Test
-    void v1ZenTemplateIsUnchangedByTheDriftRepair() {
+    void inferenceTemplateIsStableAcrossTheDriftRepair() {
         var template = new ProviderTemplateRegistry().require(ProviderTemplateRegistry.OPENCODE_ZEN);
-        assertEquals("https://opencode.ai/zen/v1", template.baseUrl());
+        assertEquals("https://opencode.ai/inference/v1", template.baseUrl());
         assertEquals("/chat/completions", template.completionPath());
         assertEquals("/models", template.modelsPath());
         assertEquals("DIRECT_ONLY", template.networkPolicy());
         assertEquals("BEARER", template.authType());
-        assertFalse(template.baseUrl().contains("/inference"));
+        assertFalse(template.baseUrl().contains("/openai/"));
     }
 
     private long openCodeConnection() throws Exception {

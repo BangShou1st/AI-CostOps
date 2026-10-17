@@ -2,6 +2,7 @@ package com.aicostops.providerhub.application;
 
 import com.aicostops.audit.application.AuditService;
 import com.aicostops.gatewayadmin.security.ProviderCredentialEncryptor;
+import com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy;
 import com.sharedlibs.opencodezen.autoconfigure.OpenCodeZenRequestFactory;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
@@ -20,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.net.ssl.SSLHandshakeException;
 import org.springframework.beans.factory.annotation.Value;
@@ -182,6 +184,12 @@ public class ModelProbeService {
             secretKind = credential.credentialType();
         }
         try {
+            if (openCodeZen) {
+                // OpenCode Zen only answers the required streaming CLI envelope; a non-streaming probe
+                // body is rejected with 403 FreeTierError (verified live 2026-10-17), so the built-in
+                // template is probed through one bounded streaming exchange instead.
+                return probeOpenCodeZen(profile, modelName, secret, secretKind, capabilities);
+            }
             var body = probeOnce(profile, modelName, secret, secretKind);
             if (body == null) {
                 capabilities.put("CHAT_COMPLETIONS", "UNSUPPORTED");
@@ -280,6 +288,180 @@ public class ModelProbeService {
     }
 
     /**
+     * OpenCode Zen CLI-posture probe (2026-10-17). The free tier only answers the required streaming
+     * CLI envelope ({@code stream=true} + {@code stream_options.include_usage} + the reserved tools);
+     * a non-streaming probe body is rejected with {@code 403 FreeTierError} (verified live against
+     * {@code https://opencode.ai/inference/v1}). Because of that, the built-in template is probed
+     * with exactly one bounded streaming exchange and every capability is derived from the observed
+     * SSE, reusing the same legality rules as the bounded streaming probe.
+     */
+    ProbeResult probeOpenCodeZen(
+            com.aicostops.providerhub.domain.ProviderConnection profile, String modelName,
+            String secret, String secretKind, Map<String, String> capabilities) throws Exception {
+        var body = openCodeZenProbeBody(modelName);
+        var target = join(profile.baseUrl(), profile.completionPath());
+        endpointValidator.validateEndpoint(target);
+        var origin = URI.create(target);
+        var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
+                profile.templateCode());
+        var current = target;
+        for (var hop = 0; hop <= MAX_REDIRECTS; hop++) {
+            final ProviderControlPlaneTransport.Result response;
+            try {
+                response = transport.post(current,
+                        probeHeaders(profile, userAgent, secret, secretKind, "text/event-stream",
+                                modelName, current),
+                        body, profile.connectTimeoutMs(), profile.responseTimeoutMs());
+            } catch (ProviderControlPlaneTransport.TransportException ex) {
+                throw mapProbeTransport(ex);
+            }
+            var status = response.statusCode();
+            if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                var location = response.firstHeader("location");
+                if (location.isBlank() || hop == MAX_REDIRECTS) {
+                    throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
+                }
+                final URI resolved;
+                try {
+                    resolved = resolveRedirect(origin, current, location);
+                } catch (IllegalArgumentException ex) {
+                    throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
+                }
+                endpointValidator.validateRedirectTarget(resolved.toString());
+                // Never forward the Zen credential across origins without re-validation.
+                if (!sameOrigin(origin, resolved)) {
+                    throw new ProbeHttpStatus("ENDPOINT_BLOCKED");
+                }
+                current = resolved.toString();
+                continue;
+            }
+            if (status == 401 || status == 403) {
+                throw new ProbeHttpStatus("AUTHENTICATION_FAILED");
+            }
+            if (status == 404) {
+                throw new ProbeHttpStatus("MODEL_NOT_FOUND");
+            }
+            if (status == 429) {
+                // A quota-exhausted free tier is a normal bounded outcome, not a Provider fault, but
+                // it means no capability can be evidenced on this attempt.
+                throw new ProbeHttpStatus("RATE_LIMITED");
+            }
+            if (status < 200 || status >= 300) {
+                throw new ProbeHttpStatus("PROVIDER_UNAVAILABLE");
+            }
+            var contentType = response.firstHeader("content-type");
+            if (!contentType.toLowerCase(java.util.Locale.ROOT).contains("text/event-stream")) {
+                throw new ProbeHttpStatus("PROTOCOL_UNSUPPORTED");
+            }
+            final String text;
+            try (var stream = new java.io.ByteArrayInputStream(response.body())) {
+                text = readBoundedStream(stream);
+            }
+            return classifyOpenCodeZenStream(text, capabilities);
+        }
+        throw new ProbeHttpStatus("PROVIDER_UNAVAILABLE");
+    }
+
+    /** The one serialized probe body carrying the required streaming CLI envelope (contract-tested). */
+    String openCodeZenProbeBody(String modelName) {
+        var payload = new LinkedHashMap<String, Object>();
+        payload.put("model", modelName);
+        payload.put("messages", List.of(Map.of("role", "user",
+                "content", "Reply with exactly: {\"ok\":true}")));
+        payload.put("max_tokens", 16);
+        OpenCodeZenProtocolPolicy.applyRequiredChatEnvelope(payload, true);
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception ex) {
+            throw new IllegalStateException("OpenCode Zen probe body could not be serialized", ex);
+        }
+    }
+
+    /**
+     * Derives every OpenCode Zen capability from one observed SSE body. {@code CHAT_COMPLETIONS} and
+     * {@code SSE_STREAMING} require a legal Chat Completion chunk plus the terminal {@code [DONE]};
+     * {@code USAGE} requires an observed usage object with non-negative token counts; and
+     * {@code STRUCTURED_JSON} requires the concatenated delta content to parse to {@code {"ok":true}}.
+     */
+    ProbeResult classifyOpenCodeZenStream(String sseText, Map<String, String> capabilities) {
+        var streamed = containsChunk(sseText) && containsDone(sseText);
+        capabilities.put("CHAT_COMPLETIONS", streamed ? "VERIFIED" : "UNSUPPORTED");
+        capabilities.put("SSE_STREAMING", streamed ? "VERIFIED" : "UNSUPPORTED");
+        capabilities.put("USAGE", streamObservedUsage(sseText) ? "VERIFIED" : "UNSUPPORTED");
+        capabilities.put("STRUCTURED_JSON", parsesAsOkObject(streamDeltaContent(sseText))
+                ? "VERIFIED" : "UNSUPPORTED");
+        var pass = "VERIFIED".equals(capabilities.get("CHAT_COMPLETIONS"));
+        return new ProbeResult(pass, capabilities, pass ? null : "PROTOCOL_UNSUPPORTED");
+    }
+
+    /** Concatenates the {@code delta.content} fragments of a bounded SSE body. */
+    private String streamDeltaContent(String sseText) {
+        var content = new StringBuilder();
+        for (var line : sseText.split("\n")) {
+            var payload = ssePayload(line);
+            if (payload == null) {
+                continue;
+            }
+            try {
+                var node = objectMapper.readTree(payload);
+                var choices = node.get("choices");
+                if (choices == null || !choices.isArray()) {
+                    continue;
+                }
+                for (var choice : choices) {
+                    var delta = choice.get("delta");
+                    if (delta == null || !delta.isObject()) {
+                        continue;
+                    }
+                    var piece = delta.get("content");
+                    if (piece != null && piece.isString()) {
+                        content.append(piece.stringValue());
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return content.toString();
+    }
+
+    /** True when any SSE data frame carries a valid usage object. */
+    private boolean streamObservedUsage(String sseText) {
+        for (var line : sseText.split("\n")) {
+            var payload = ssePayload(line);
+            if (payload != null && hasValidUsage(payload)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The JSON payload of a single {@code data:} SSE line, or null for fields/blank/{@code [DONE]}. */
+    private static String ssePayload(String line) {
+        var trimmed = line.strip();
+        if (!trimmed.startsWith("data:")) {
+            return null;
+        }
+        var payload = trimmed.substring(5).strip();
+        if (payload.isEmpty() || payload.equals("[DONE]")) {
+            return null;
+        }
+        return payload;
+    }
+
+    private boolean parsesAsOkObject(String content) {
+        try {
+            var node = objectMapper.readTree(content);
+            if (node == null || !node.isObject()) {
+                return false;
+            }
+            var ok = node.get("ok");
+            return ok != null && ok.isBoolean() && ok.booleanValue();
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
      * P1: bounded streaming capability probe. Fixed synthetic prompt with {@code stream=true};
      * requires {@code text/event-stream}, at least one legal Chat Completion chunk and terminal
      * handling; bounded bytes/events/time; never persists prompt/completion/raw bytes.
@@ -332,7 +514,9 @@ public class ModelProbeService {
                     current = resolved.toString();
                     continue;
                 }
-                if (status == 401 || status == 403 || status == 404) {
+                // 429 is a normal bounded outcome for the Zen free tier (quota exhausted), not proof
+                // that the model lacks SSE streaming, so it must not be recorded as UNSUPPORTED.
+                if (status == 401 || status == 403 || status == 404 || status == 429) {
                     return "UNKNOWN";
                 }
                 if (status < 200 || status >= 300) {
@@ -352,7 +536,12 @@ public class ModelProbeService {
         }
     }
 
-    private String readStreamVerdict(java.io.InputStream stream) throws Exception {
+    /**
+     * Reads a bounded SSE body: bounded by bytes, events and a 20s deadline, with an early exit once
+     * both a legal Chat Completion chunk and the terminal {@code [DONE]} marker are observed. Both
+     * must be protocol-valid, so a structurally invalid chunk never triggers an early exit.
+     */
+    private String readBoundedStream(java.io.InputStream stream) throws Exception {
         var buf = new byte[4096];
         var total = new StringBuilder();
         var read = 0;
@@ -373,13 +562,15 @@ public class ModelProbeService {
             if (countEvents(total.toString()) >= MAX_STREAM_EVENTS) {
                 break;
             }
-            // Early exit once a legal chunk + terminal marker are both observed. Both must be
-            // protocol-valid; a structurally invalid chunk must never trigger early VERIFIED.
             if (containsDone(total.toString()) && containsChunk(total.toString())) {
                 break;
             }
         }
-        var text = total.toString();
+        return total.toString();
+    }
+
+    private String readStreamVerdict(java.io.InputStream stream) throws Exception {
+        var text = readBoundedStream(stream);
         if (!containsChunk(text)) {
             return "UNSUPPORTED";
         }

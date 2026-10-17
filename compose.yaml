@@ -4,6 +4,8 @@ services:
   backend:
     build:
       context: ./backend
+      secrets:
+        - zen-maven-settings
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
@@ -144,3 +146,12 @@ volumes:
   redis-data:
   minio-data:
   dev-mailbox-data:
+
+secrets:
+  # Maven settings.xml with the "github" GitHub Packages credentials used to build the backend and
+  # gateway images (the OpenCode Zen shared library is a private package). Defaults to the
+  # container-safe copy produced by `npm run maven:settings`; override with ZEN_MAVEN_SETTINGS_FILE
+  # for CI or a hand-managed file. The file stays out of Git; never commit it. Consumed as a BuildKit
+  # build secret, so it is not baked into any image layer.
+  zen-maven-settings:
+    file: ${ZEN_MAVEN_SETTINGS_FILE:-.local-dev/maven/docker-settings.xml}

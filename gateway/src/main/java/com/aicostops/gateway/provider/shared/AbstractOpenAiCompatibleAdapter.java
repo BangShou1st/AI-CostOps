@@ -89,7 +89,7 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
             ChatCompletionCommand command) {
         validateCredentials(context);
         endpointGuard.check(context.baseUrl(), context.completionPath(), context.networkPolicy());
-        var request = wireRequest(context, command, false);
+        var request = decorateWirePayload(wireRequest(context, command, false), context, false);
         return webClient.post().uri(targetUrl(context))
                 .headers(headers -> applyHeaders(headers, context))
                 .contentType(MediaType.APPLICATION_JSON).bodyValue(request)
@@ -108,7 +108,7 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
             ChatCompletionCommand command) {
         validateCredentials(context);
         endpointGuard.check(context.baseUrl(), context.completionPath(), context.networkPolicy());
-        var request = wireRequest(context, command, true);
+        var request = decorateWirePayload(wireRequest(context, command, true), context, true);
         var decoder = new OpenAiSseDecoder(properties.getMaxInMemoryBytes());
         var hardTimeoutMs = properties.getHardTimeoutMs();
         return Flux.defer(() -> {
@@ -156,7 +156,15 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
         return base + (path.startsWith("/") ? path : "/" + path);
     }
 
-    private Object wireRequest(ProviderCallContext context, ChatCompletionCommand command, boolean stream) {
+    /**
+     * Hook for subclasses that must reshape the outbound body (for example the OpenCode Zen CLI
+     * tool envelope). The default identity keeps OpenAI / MiMo / Generic wire bodies unchanged.
+     */
+    protected Object decorateWirePayload(Object payload, ProviderCallContext context, boolean stream) {
+        return payload;
+    }
+
+    protected Object wireRequest(ProviderCallContext context, ChatCompletionCommand command, boolean stream) {
         var messages = command.messages().stream().map(message -> new OpenAiWireDtos.WireMessage(
                 message.role(), message.content())).toList();
         if (stream) {
@@ -226,7 +234,11 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
                 response.statusCode().value(), providerRequestId(response), true, null);
     }
 
-    private static ProviderHealthSignal healthSignal(int status) {
+    /**
+     * Health classification of an upstream HTTP status. Overridable so a provider whose quota-exhausted
+     * {@code 429} is a normal bounded outcome can stop it counting as a qualifying failure.
+     */
+    protected ProviderHealthSignal healthSignal(int status) {
         return status == 401 || status == 403 || status == 404
                 ? ProviderHealthSignal.ROUTE_CONFIGURATION_FAILURE
                 : status >= 400 && status < 500 && status != 429

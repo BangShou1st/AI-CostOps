@@ -75,10 +75,9 @@ export async function requireFreePorts(ports) {
 
 export function isolatedPom(root, module, outputRoot) {
   const source = readFileSync(join(root, module, 'pom.xml'), 'utf8')
-  // <directory> is legal nested inside <resources>/<testResources> (for example the shared OpenCode
-  // Zen auto-configuration resources added via build-helper). Only a POM that already declares its
-  // own top-level build output directory collides with the isolated <directory> injected below, so
-  // the resource blocks are stripped before the check.
+  // <directory> is legal nested inside <resources>/<testResources>. Only a POM that already declares
+  // its own top-level build output directory collides with the isolated <directory> injected below,
+  // so the resource blocks are stripped before the check.
   const buildScopedSource = source
     .replaceAll(/<resources>[\s\S]*?<\/resources>/g, '')
     .replaceAll(/<testResources>[\s\S]*?<\/testResources>/g, '')

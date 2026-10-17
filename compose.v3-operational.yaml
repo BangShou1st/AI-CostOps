@@ -25,6 +25,8 @@ services:
   gateway:
     build:
       context: ./gateway
+      secrets:
+        - zen-maven-settings
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC

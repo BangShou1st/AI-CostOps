@@ -1,6 +1,7 @@
 package com.aicostops.gateway.provider.opencode;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.provider.DispatchEndpointGuard;
@@ -31,12 +32,11 @@ import tools.jackson.databind.ObjectMapper;
  * the Bearer credential header, {@code stream_options.include_usage}, and the
  * no-JVM/OS-proxy (DIRECT_ONLY) transport policy.
  *
- * <p>The reference local proxy is an unofficial relay that targets the <em>unprefixed</em>
- * {@code https://opencode.ai/inference/v1} combination with anonymous {@code Bearer public} traffic.
- * That is not the official V2 Console route shape: OpenCode Console serves
- * {@code https://opencode.ai/inference/openai/v1/chat/completions}. The official V1 Zen product base
- * is {@code https://opencode.ai/zen/v1}, which this test locks. It must never be relaxed to
- * accommodate a relay base or an anonymous credential.
+ * <p><b>Versioned decision (2026-10-17).</b> The built-in template's inference endpoint is now the
+ * shared CLI inference base {@code https://opencode.ai/inference/v1} (the frozen
+ * {@link ProviderCallContext} stays the dispatch authority). This test also locks the CLI request
+ * body envelope (the 5 reserved tools) and the rule that a quota-exhausted {@code 429} is a normal
+ * bounded outcome for the Zen free tier, not a qualifying provider failure.
  */
 class OpenCodeEndpointContractTest {
 
@@ -63,14 +63,15 @@ class OpenCodeEndpointContractTest {
     private final List<String> requestBodies = new CopyOnWriteArrayList<>();
     private final List<String> authorizationHeaders = new CopyOnWriteArrayList<>();
     private final List<String> userAgents = new CopyOnWriteArrayList<>();
+    private final AtomicInteger forcedStatus = new AtomicInteger();
     private int upstreamPort;
 
     @BeforeEach
     void startServers() throws IOException {
         upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        // Official OpenCode Zen base is https://opencode.ai/zen/v1 ; the local mock keeps the same
-        // "/zen/v1/chat/completions" shape so a duplicated "/v1" or a lost segment would show up here.
-        upstream.createContext("/zen/v1/chat/completions", exchange -> {
+        // The built-in template now uses the CLI inference base .../inference/v1; the local mock keeps
+        // the same "/inference/v1/chat/completions" shape so a duplicated "/v1" would show up here.
+        upstream.createContext("/inference/v1/chat/completions", exchange -> {
             upstreamHits.incrementAndGet();
             requestPaths.add(exchange.getRequestURI().getPath());
             var authorization = exchange.getRequestHeaders().getFirst("Authorization");
@@ -79,6 +80,15 @@ class OpenCodeEndpointContractTest {
             if (agent != null) userAgents.add(agent);
             var body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             requestBodies.add(body);
+            int forced = forcedStatus.get();
+            if (forced != 0) {
+                var forcedPayload = "forced".getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(forced, forcedPayload.length);
+                try (OutputStream out = exchange.getResponseBody()) {
+                    out.write(forcedPayload);
+                }
+                return;
+            }
             byte[] payload;
             if (body.contains("\"stream\":true")) {
                 exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -122,17 +132,20 @@ class OpenCodeEndpointContractTest {
             var adapter = adapter();
             var completion = adapter.complete(context(), command()).block(java.time.Duration.ofSeconds(20));
 
+            // The mock answers the required streaming envelope, so the aggregated completion carries the
+            // concatenated deltas ("hi") and the upstream metering, never a fabricated zero usage.
             assertThat(completion).isNotNull();
             assertThat(completion.choices()).isNotEmpty();
-            assertThat(completion.choices().get(0).content()).isEqualTo("ok");
+            assertThat(completion.choices().get(0).content()).isEqualTo("hi");
+            assertThat(completion.choices().get(0).finishReason()).isEqualTo("stop");
             assertThat(completion.usage()).isNotNull();
             assertThat(completion.usage().totalTokens()).isEqualTo(8);
 
-            assertThat(requestPaths).containsExactly("/zen/v1/chat/completions");
+            assertThat(requestPaths).containsExactly("/inference/v1/chat/completions");
             assertThat(countOccurrences(requestPaths.get(0), "/v1")).isEqualTo(1);
             assertThat(authorizationHeaders).containsExactly("Bearer " + SECRET);
             assertThat(userAgents).allMatch(OpenCodeZenChatAdapter.SERVER_USER_AGENT::equals);
-            assertThat(requestBodies.get(0)).contains("\"stream\":false");
+            assertThat(requestBodies.get(0)).contains("\"stream\":true");
             assertThat(poisonHits.get()).isZero();
             assertThat(upstreamHits.get()).isEqualTo(1);
         });
@@ -153,7 +166,7 @@ class OpenCodeEndpointContractTest {
             assertThat(events).anySatisfy(event ->
                     assertThat(event).isInstanceOf(ProviderChatStreamEvent.Done.class));
 
-            assertThat(requestPaths).containsExactly("/zen/v1/chat/completions");
+            assertThat(requestPaths).containsExactly("/inference/v1/chat/completions");
             assertThat(countOccurrences(requestPaths.get(0), "/v1")).isEqualTo(1);
             assertThat(authorizationHeaders).containsExactly("Bearer " + SECRET);
             assertThat(userAgents).allMatch(OpenCodeZenChatAdapter.SERVER_USER_AGENT::equals);
@@ -162,6 +175,56 @@ class OpenCodeEndpointContractTest {
             assertThat(requestBodies.get(0)).contains("\"include_usage\":true");
             assertThat(poisonHits.get()).isZero();
         });
+    }
+
+    @Test
+    void streamingBodyCarriesTheCliToolEnvelope() {
+        withPoisonedJvmProxy(() -> {
+            var adapter = adapter();
+            adapter.stream(context(), command()).collectList().block(java.time.Duration.ofSeconds(20));
+
+            var body = requestBodies.get(0);
+            assertThat(body).contains("\"stream\":true");
+            assertThat(body).contains("\"include_usage\":true");
+            assertThat(body).contains("\"tools\"");
+            for (var tool : com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy.reservedToolNames()) {
+                assertThat(body).contains("\"" + tool + "\"");
+            }
+        });
+    }
+
+    @Test
+    void nonStreamingCallIsServedByTheRequiredStreamingEnvelopeAndAggregated() {
+        withPoisonedJvmProxy(() -> {
+            var adapter = adapter();
+            var completion = adapter.complete(context(), command()).block(java.time.Duration.ofSeconds(20));
+
+            var body = requestBodies.get(0);
+            // Verified live against the real upstream (2026-10-17): "stream":false is rejected with
+            // 403 FreeTierError, so even a non-streaming caller must be served by the full CLI envelope.
+            assertThat(body).contains("\"stream\":true");
+            assertThat(body).contains("\"include_usage\":true");
+            assertThat(body).contains("\"tools\"");
+
+            assertThat(completion).isNotNull();
+            assertThat(completion.choices()).hasSize(1);
+            assertThat(completion.choices().get(0).content()).isEqualTo("hi");
+            assertThat(completion.choices().get(0).finishReason()).isEqualTo("stop");
+            assertThat(completion.usage()).isNotNull();
+            assertThat(completion.usage().promptTokens()).isEqualTo(5);
+            assertThat(completion.usage().completionTokens()).isEqualTo(3);
+        });
+    }
+
+    @Test
+    void quotaExhausted429IsNotAQualifyingFailure() {
+        forcedStatus.set(429);
+        var adapter = adapter();
+        assertThatThrownBy(() -> adapter.complete(context(), command())
+                .block(java.time.Duration.ofSeconds(20)))
+                .isInstanceOf(com.aicostops.gateway.provider.ProviderExecutionException.class)
+                .satisfies(ex -> assertThat(((com.aicostops.gateway.provider.ProviderExecutionException) ex)
+                        .healthSignal()).isEqualTo(com.aicostops.gateway.provider.ProviderHealthSignal.NONE));
     }
 
     @Test
@@ -183,12 +246,12 @@ class OpenCodeEndpointContractTest {
     }
 
     /**
-     * Base keeps the official {@code /zen/v1} prefix while the path stays {@code /chat/completions};
-     * the adapter must compose them without duplicating {@code /v1}.
+     * Base carries the CLI inference prefix while the path stays {@code /chat/completions}; the
+     * adapter must compose them without duplicating {@code /v1}.
      */
     private ProviderCallContext context() {
         return new ProviderCallContext("OPENCODE_ZEN", 1L, 2L, "zen-model", 3L, "USD",
-                "http://127.0.0.1:" + upstreamPort + "/zen/v1", "BEARER_TOKEN",
+                "http://127.0.0.1:" + upstreamPort + "/inference/v1", "BEARER_TOKEN",
                 SECRET.getBytes(StandardCharsets.UTF_8), "route-decision-test", 7L,
                 "/chat/completions", "OPENAI_CHAT_COMPLETIONS", "DIRECT_ONLY", null);
     }

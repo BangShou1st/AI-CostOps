@@ -8,121 +8,122 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 /**
- * OpenCode V1 Zen / V2 Console endpoint governance (2026-10-16 independent review).
+ * OpenCode endpoint governance.
  *
- * <p>OpenCode currently exposes <em>two coexisting</em> first-party inference products on the same
- * origin, with different bases and different credential products:
+ * <p>OpenCode exposes coexisting first-party products on the same origin:
  *
  * <ul>
- *   <li><b>V1 Zen</b> — base {@code https://opencode.ai/zen/v1}
- *       ({@code /chat/completions}, {@code /responses}, {@code /messages}, {@code /systemone},
- *       {@code /models}).</li>
- *   <li><b>V2 Console</b> — base {@code https://opencode.ai/inference}, with <em>API-family
- *       prefixes</em> {@code /openai/v1}, {@code /anthropic/v1}, {@code /google/v1beta},
- *       {@code /systemone/v1} plus an unprefixed catalog at {@code /inference/v1/models}.</li>
+ *   <li><b>Legacy Zen discovery</b> — {@code https://opencode.ai/zen/v1} — now a <em>discovery-only
+ *       fallback</em> for the catalog; inference traffic must never be sent here.</li>
+ *   <li><b>CLI inference</b> — {@code https://opencode.ai/inference/v1} — the sanctioned inference
+ *       base (shared {@code OpenCodeZenProtocolPolicy.DEFAULT_BASE_URL}); catalog and inference live
+ *       here.</li>
+ *   <li><b>V2 Console</b> — {@code https://opencode.ai/inference} with API-family prefixes
+ *       ({@code /openai/v1}, {@code /anthropic/v1}, ...) plus the unprefixed catalog at
+ *       {@code /inference/v1/models}; a distinct product with its own service-account credentials.</li>
  * </ul>
  *
- * <p>The V2 family is <em>official</em> (not a third-party relay), and the V1 family is
- * <em>still live</em>: routed POSTs against {@code /zen/v1/chat/completions} and
- * {@code /inference/openai/v1/chat/completions} both reached a live handler on 2026-10-16, while
- * deliberately bogus sibling paths returned {@code 404}. Existing V1 documentation now 302-redirects
- * to the V2 Console pages, which is a <em>docs</em> consolidation and not evidence of V1 retirement.
- *
- * <p>This test freezes the resulting governance decision, so that a future maintainer cannot
- * "helpfully" repoint the existing built-in template at the V2 family — which would silently mix a
- * V1 credential product with a V2 service-account product, and would change which models the
- * connection can address without any versioned migration:
+ * <p><b>Versioned decision (2026-10-17).</b> The built-in {@code OPENCODE_ZEN} template was
+ * deliberately repointed from the legacy {@code zen/v1} origin to the shared CLI inference base
+ * {@code https://opencode.ai/inference/v1}, together with the CLI identity/tool-envelope posture and
+ * the shared User-Agent. That decision is recorded in
+ * {@code docs/03-acceptance/2026-10-17-opencode-zen-inference-posture.md}. This test freezes the
+ * resulting invariants so a later maintainer cannot silently drift the endpoint again:
  *
  * <ol>
- *   <li>the built-in OpenCode template stays on the V1 Zen origin;</li>
- *   <li>no server-owned template points into the V2 Console inference family;</li>
- *   <li>V1 and V2 are provably distinct endpoints — adopting V2 requires a <em>new, separately
- *       versioned</em> template code, never an in-place edit of {@code OPENCODE_ZEN};</li>
+ *   <li>the built-in OpenCode template uses the sanctioned {@code inference/v1} inference base;</li>
+ *   <li>only that template may carry the inference base; no other server-owned template joins it;</li>
+ *   <li>the API-family-prefixed Console routes remain a different shape from the unprefixed CLI
+ *       inference base;</li>
+ *   <li>adoption stays a <em>recorded decision</em>, not an ad-hoc half-migrated template code;</li>
  *   <li>OpenCode credentials stay a real {@code BEARER} secret; the reference proxy's anonymous
  *       {@code Bearer public} is never a template default.</li>
  * </ol>
- *
- * <p>Sources (retrieved 2026-10-16):
- * {@code https://opencode.ai/v2/docs/console/models},
- * {@code https://opencode.ai/v2/docs/console/api/inference},
- * {@code https://opencode.ai/v2/docs/console/api} (service-account keys, {@code oc_sk_...}).
  */
 class OpenCodeV1V2EndpointGovernanceTest {
 
-    /** V1 Zen product base, as shipped today. */
-    private static final String V1_ZEN_BASE = "https://opencode.ai/zen/v1";
+    /** Sanctioned CLI inference base now shipped by the built-in template. */
+    private static final String INFERENCE_BASE = "https://opencode.ai/inference/v1";
+    /** Legacy Zen origin, retained as a discovery-only fallback — never for inference. */
+    private static final String LEGACY_ZEN_BASE = "https://opencode.ai/zen/v1";
     /** Official V2 Console inference base (paths carry the API-family prefix). */
-    private static final String V2_INFERENCE_BASE = "https://opencode.ai/inference";
+    private static final String V2_CONSOLE_INFERENCE_BASE = "https://opencode.ai/inference";
     /** Officially documented V2 Console Chat Completions endpoint. */
     private static final String V2_CHAT_COMPLETIONS =
             "https://opencode.ai/inference/openai/v1/chat/completions";
-    /** Officially documented V2 Console catalog endpoint. */
+    /** Officially documented V2 Console catalog endpoint (unprefixed route). */
     private static final String V2_MODELS = "https://opencode.ai/inference/v1/models";
-    /** Officially documented V1 Zen sibling routes, frozen by the earlier endpoint-table review. */
-    private static final String V1_ZEN_RESPONSES = "https://opencode.ai/zen/v1/responses";
-    private static final String V1_ZEN_MESSAGES = "https://opencode.ai/zen/v1/messages";
+    /** Legacy V1 Zen sibling routes, frozen by the earlier endpoint-table review. */
+    private static final String LEGACY_ZEN_RESPONSES = "https://opencode.ai/zen/v1/responses";
+    private static final String LEGACY_ZEN_MESSAGES = "https://opencode.ai/zen/v1/messages";
 
     private final ProviderTemplateRegistry registry = new ProviderTemplateRegistry();
 
     @Test
-    void builtInTemplateStaysOnTheV1ZenOrigin() {
+    void builtInTemplateUsesTheSanctionedCliInferenceBase() {
         var template = registry.require(ProviderTemplateRegistry.OPENCODE_ZEN);
-        assertEquals(V1_ZEN_BASE, ProviderTemplateRegistry.OPENCODE_ZEN_BASE_URL);
-        assertEquals(V1_ZEN_BASE, template.baseUrl());
+        assertEquals(INFERENCE_BASE, ProviderTemplateRegistry.OPENCODE_ZEN_BASE_URL);
+        assertEquals(INFERENCE_BASE, template.baseUrl());
         assertEquals("/chat/completions", template.completionPath());
         assertEquals(ProviderTemplateRegistry.PROTOCOL_OPENAI_CHAT_COMPLETIONS, template.protocolCode());
         assertEquals("DIRECT_ONLY", template.networkPolicy());
+        // The legacy discovery origin must not be the shipped inference base any more.
+        assertNotEquals(LEGACY_ZEN_BASE, template.baseUrl());
     }
 
     @Test
-    void noServerOwnedTemplatePointsAtTheV2ConsoleInferenceFamily() {
+    void onlyTheBuiltInTemplateCarriesTheSanctionedInferenceBase() {
+        var builtIn = registry.require(ProviderTemplateRegistry.OPENCODE_ZEN);
+        assertEquals(INFERENCE_BASE, builtIn.baseUrl());
         for (var template : registry.list()) {
-            var base = template.baseUrl();
-            if (base == null) {
+            if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(template.code())) {
                 continue;
             }
-            assertFalse(base.contains("/inference"),
-                    () -> "Template " + template.code() + " must not point into the V2 Console "
-                            + "inference family without an explicit, versioned decision: " + base);
+            var base = template.baseUrl();
+            assertFalse(base != null && base.contains("/inference"),
+                    () -> "Only the built-in OpenCode Zen template may adopt the inference base: "
+                            + template.code() + " -> " + base);
         }
     }
 
     @Test
-    void v1AndV2AreDistinctEndpointsAndNeverShareOneTemplateCode() {
-        // The two products are genuinely different URL shapes; neither may be silently aliased
-        // to the other, which is exactly the confusion this review resolved.
-        assertNotEquals(V1_ZEN_BASE, V2_INFERENCE_BASE);
-        assertNotEquals(V1_ZEN_BASE, V2_CHAT_COMPLETIONS);
-        assertFalse(V1_ZEN_BASE.startsWith(V2_INFERENCE_BASE),
-                "V1 Zen must not be modelled as a V2 Console sub-path");
-        assertFalse(V2_CHAT_COMPLETIONS.startsWith(V1_ZEN_BASE),
-                "The V2 Console Chat endpoint must not be modelled as a V1 Zen sub-path");
+    void legacyAndConsoleInferenceFamiliesStayDistinctEndpointShapes() {
+        // The products are genuinely different URL shapes; neither may be silently aliased to the
+        // other. In particular the unprefixed CLI base is not the API-family-prefixed Console route.
+        assertNotEquals(LEGACY_ZEN_BASE, INFERENCE_BASE);
+        assertNotEquals(INFERENCE_BASE, V2_CHAT_COMPLETIONS);
+        assertFalse(LEGACY_ZEN_BASE.startsWith(V2_CONSOLE_INFERENCE_BASE),
+                "The legacy Zen origin must not be modelled as a Console sub-path");
+        assertFalse(V2_CHAT_COMPLETIONS.startsWith(LEGACY_ZEN_BASE),
+                "The Console Chat endpoint must not be modelled as a legacy Zen sub-path");
 
-        // V1 keeps its own sibling routes; V2 carries an explicit API-family prefix instead.
-        assertTrue(V1_ZEN_RESPONSES.startsWith(V1_ZEN_BASE + "/"));
-        assertTrue(V1_ZEN_MESSAGES.startsWith(V1_ZEN_BASE + "/"));
-        var v2Family = V2_CHAT_COMPLETIONS.substring(V2_INFERENCE_BASE.length());
-        assertTrue(v2Family.startsWith("/openai/v1/"),
-                () -> "V2 Console routes carry an API-family prefix, not a bare /v1 path: " + v2Family);
-        assertTrue(V2_MODELS.startsWith(V2_INFERENCE_BASE + "/v1/"),
-                "The V2 catalog is the only unprefixed V2 route");
+        // Legacy Zen keeps its own sibling routes; the Console carries an explicit API-family prefix.
+        assertTrue(LEGACY_ZEN_RESPONSES.startsWith(LEGACY_ZEN_BASE + "/"));
+        assertTrue(LEGACY_ZEN_MESSAGES.startsWith(LEGACY_ZEN_BASE + "/"));
+        var consoleFamily = V2_CHAT_COMPLETIONS.substring(V2_CONSOLE_INFERENCE_BASE.length());
+        assertTrue(consoleFamily.startsWith("/openai/v1/"),
+                () -> "Console routes carry an API-family prefix, not a bare /v1 path: " + consoleFamily);
+        assertTrue(V2_MODELS.startsWith(V2_CONSOLE_INFERENCE_BASE + "/v1/"),
+                "The Console catalog is the only unprefixed Console route");
         assertFalse(V2_MODELS.contains("/openai/"),
                 "The catalog lives outside the API-family prefixes");
+        // The shipped base is the unprefixed CLI inference base, i.e. not an API-family Console route.
+        assertFalse(INFERENCE_BASE.contains("/openai/"));
     }
 
     @Test
-    void adoptingV2RequiresANewTemplateCodeNotAnEditOfTheV1Base() {
-        // A V2 template, when it is introduced, must be its own code. Until then the registry must
-        // not contain a half-adopted V2/Console/Inference code that could drift from the V1 one.
+    void theInferenceAdoptionIsAnExplicitVersionedDecisionNotAnAdHocCode() {
+        // The 2026-10-17 decision deliberately adopted the CLI inference base for the built-in
+        // OPENCODE_ZEN template; it is recorded rather than arriving as a new unresolved template.
         for (var template : registry.list()) {
             var code = template.code();
             assertFalse(code.contains("INFERENCE") || code.contains("CONSOLE") || code.contains("V2"),
-                    () -> "V2 Console support must arrive as a deliberate versioned template; "
-                            + "found unresolved code: " + code);
+                    () -> "Inference adoption must stay a recorded decision, not an ad-hoc template: "
+                            + code);
         }
         assertTrue(registry.known(ProviderTemplateRegistry.OPENCODE_ZEN));
         assertEquals(2, registry.list().size(),
-                "Only the frozen V1 Zen and Custom OpenAI-compatible templates exist today");
+                "Only the built-in OpenCode Zen and Custom OpenAI-compatible templates exist today");
     }
 
     @Test
@@ -132,8 +133,7 @@ class OpenCodeV1V2EndpointGovernanceTest {
                 continue;
             }
             assertEquals("BEARER", template.authType(),
-                    "OpenCode connections must keep a real Bearer secret (V1 Zen key or, for a "
-                            + "future V2 template, a Console service-account key)");
+                    "OpenCode connections must keep a real Bearer secret");
             assertNotEquals("NONE", template.authType(),
                     "The reference proxy's anonymous Bearer public must never be a template default");
         }

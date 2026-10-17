@@ -1,7 +1,6 @@
-opencode:
-  zen:
-    # Keep the Gateway and Control Plane server identity aligned with the reviewed provider profile.
-    user-agent: opencode/1.18.21
+# The OpenCode Zen User-Agent now comes from the shared library default
+# (OpenCodeZenProtocolPolicy.USER_AGENT); no per-app override is configured, so the Gateway and
+# Control Plane identities cannot drift.
 
 spring:
   application:

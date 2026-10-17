@@ -19,9 +19,19 @@ public class ProviderTemplateRegistry {
     public static final String OPENCODE_ZEN = "OPENCODE_ZEN";
     public static final String CUSTOM_OPENAI_COMPATIBLE = "CUSTOM_OPENAI_COMPATIBLE";
     public static final String PROTOCOL_OPENAI_CHAT_COMPLETIONS = "OPENAI_CHAT_COMPLETIONS";
+    /**
+     * Server-owned OpenCode Zen base URL. Delegated to the shared library's CLI inference base
+     * ({@code https://opencode.ai/inference/v1}); the legacy {@code https://opencode.ai/zen/v1}
+     * discovery endpoint is deliberately not used for inference. This supersedes the earlier pinned
+     * zen/v1 default as the explicit, versioned endpoint decision recorded in
+     * {@code docs/03-acceptance/2026-10-17-opencode-zen-inference-posture.md}.
+     */
     public static final String OPENCODE_ZEN_BASE_URL = OpenCodeZenProtocolPolicy.DEFAULT_BASE_URL;
-    /** Server-owned OpenCode Zen User-Agent. Inherits the known working sibling-project policy. */
-    public static final String OPENCODE_ZEN_USER_AGENT = "opencode/1.18.21";
+    /**
+     * Server-owned OpenCode Zen User-Agent. Delegated to the shared library's CLI identity policy so
+     * the Backend and the Gateway cannot drift.
+     */
+    public static final String OPENCODE_ZEN_USER_AGENT = OpenCodeZenProtocolPolicy.USER_AGENT;
 
     private final Map<String, ProviderTemplate> templates = Map.of(
             OPENCODE_ZEN, new ProviderTemplate(
