@@ -57,23 +57,16 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Root([string]$Sql) {
-    $env:MYSQL_PWD = $rootPassword
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root $Database -e `"$Sql`" 2>&1"
-        return ($result | Out-String).Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # The root password is read from the mysql container's own environment
+    # (MYSQL_ROOT_PASSWORD): host env does not propagate through `compose exec`,
+    # and the secret never appears on the host command line.
+    $result = docker compose @composeArgs exec -T mysql sh -c "mysql -u root -p`"`$MYSQL_ROOT_PASSWORD`" $Database -e `"$Sql`" 2>&1"
+    return ($result | Out-String).Trim()
 }
 
 function Invoke-Gateway([string]$Sql) {
-    $env:MYSQL_PWD = $GatewayPassword
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
-        return ($result | Out-String).Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    $result = docker compose @composeArgs exec -T mysql sh -c "mysql -u $GatewayUser -p`"`$MYSQL_ROOT_PASSWORD`" $Database -e `"$Sql`" 2>&1"
+    return ($result | Out-String).Trim()
 }
 
 # Step 1: Create user if not exists

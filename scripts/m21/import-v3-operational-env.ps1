@@ -59,7 +59,7 @@ function Import-M21OperationalEnv {
     $content = Get-Content $envFile -Raw
     $varsSet = 0
 
-    foreach ($line -in $content -split "`n") {
+    foreach ($line in ($content -split "`n")) {
         $line = $line.Trim()
         if ($line -match '^(\w+)=(.+)$') {
             $name = $Matches[1]

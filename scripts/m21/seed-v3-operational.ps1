@@ -38,14 +38,11 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Mysql([string]$Sql) {
-    $env:MYSQL_PWD = $env:MYSQL_ROOT_PASSWORD
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root aicostops -N -B -e `"$Sql`" 2>&1"
-        $filtered = ($result | Where-Object { $_ -notmatch "Warning" }) -join "`n"
-        return $filtered.Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # Root password comes from the mysql container's own environment
+    # (MYSQL_ROOT_PASSWORD); host env does not propagate through `compose exec`.
+    $result = docker compose @composeArgs exec -T mysql sh -c "mysql -u root -p`"`$MYSQL_ROOT_PASSWORD`" aicostops -N -B -e `"$Sql`" 2>&1"
+    $filtered = ($result | Where-Object { $_ -notmatch "Warning" }) -join "`n"
+    return $filtered.Trim()
 }
 
 # Step 1: Find existing provider_account (created by DevGatewayBootstrap)
@@ -60,8 +57,9 @@ Write-Output "[M21-SEED] Provider Account: $acctId (MIMO)"
 $orgId = Invoke-Mysql "SELECT org_id FROM provider_account WHERE id=$acctId;"
 Write-Output "[M21-SEED] Organization: $orgId"
 
-# Step 3: Find provider_model_id for this account
-$providerModelId = Invoke-Mysql "SELECT id FROM provider_model WHERE provider_account_id=$acctId AND status='ACTIVE' AND routing_eligible=TRUE LIMIT 1;"
+# Step 3: Find a routing-eligible provider_model (provider_model is provider/org scoped
+# in the current schema; it is not bound to a single provider_account_id).
+$providerModelId = Invoke-Mysql "SELECT id FROM provider_model WHERE provider_code='MIMO' AND status='ACTIVE' AND routing_eligible=TRUE LIMIT 1;"
 if ([string]::IsNullOrEmpty($providerModelId)) {
     Write-Error "[M21-SEED] No eligible provider_model found for MIMO account."
     exit 1
