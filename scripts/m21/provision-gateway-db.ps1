@@ -65,7 +65,12 @@ function Invoke-Root([string]$Sql) {
 }
 
 function Invoke-Gateway([string]$Sql) {
-    $result = docker compose @composeArgs exec -T mysql sh -c "mysql -u $GatewayUser -p`"`$MYSQL_ROOT_PASSWORD`" $Database -e `"$Sql`" 2>&1"
+    # The Gateway password is this account's own secret (never root) and never
+    # appears on the host command line: it is fed to the container on stdin and
+    # consumed by `read`. PowerShell terminates piped stdin with CRLF, so the
+    # trailing CR is stripped before it becomes MYSQL_PWD.
+    $cmd = "read -r pw; MYSQL_PWD=`"`$(printf '%s' `"`$pw`" | tr -d '\r')`" mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
+    $result = $GatewayPassword | docker compose @composeArgs exec -T mysql sh -c $cmd
     return ($result | Out-String).Trim()
 }
 
@@ -107,6 +112,13 @@ $grants = @(
     "GRANT SELECT ON $Database.service_identity TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.gateway_settlement TO '$GatewayUser'@'%';"
 
+    # MySQL 8.4 requires the LOCK TABLES privilege for locking reads
+    # (`SELECT ... FOR UPDATE` is denied for a plain SELECT with
+    # "SELECT with locking clause command denied"). LOCK TABLES is only
+    # grantable at database scope. The Gateway must never hold UPDATE or
+    # DELETE on budget / billing_period, and never on any control-plane table.
+    "GRANT LOCK TABLES ON $Database.* TO '$GatewayUser'@'%';"
+
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_request TO '$GatewayUser'@'%';"
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_route_attempt TO '$GatewayUser'@'%';"
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_usage_fact TO '$GatewayUser'@'%';"
@@ -138,6 +150,20 @@ if ($showGrants -match "(?i)\bDELETE\b") {
 if ($showGrants -match "(?i)\bDROP\b") {
     Write-Error "[M21-DB] FAILED: Gateway user has DROP privilege"
     exit 1
+}
+# MySQL 8.4 contract: LOCK TABLES is required for SELECT ... FOR UPDATE.
+if ($showGrants -notmatch "(?i)\bLOCK\s+TABLES\b") {
+    Write-Error "[M21-DB] FAILED: Gateway user is missing LOCK TABLES (required for SELECT ... FOR UPDATE on MySQL 8.4)"
+    exit 1
+}
+# The Gateway must not be able to mutate budget / billing_period contents.
+foreach ($line in ($showGrants -split "`n")) {
+    if ($line -match "(?i)\bbudget\b|\bbilling_period\b") {
+        if ($line -match "(?i)\bUPDATE\b|\bDELETE\b|\bALL\b") {
+            Write-Error ("[M21-DB] FAILED: forbidden grant on budget/billing_period: " + $line.Trim())
+            exit 1
+        }
+    }
 }
 Write-Output "[M21-DB] Privilege verification PASSED."
 Write-Output "[M21-DB] Gateway DB identity: $GatewayUser (least-privilege)"

@@ -64,7 +64,7 @@
 
 ## 四、环境偏差与发现（如实记录）
 
-1. **M21 权限契约与 MySQL 8.4 冲突（设计发现，未改契约）**：`verify-v3-gateway-privileges.ps1` 期望 `SELECT ... FOR UPDATE` 通过、同时 `UPDATE budget` 被拒。实测 MySQL 8.4 下仅 `SELECT`（或仅 `LOCK TABLES`）不足以执行锁定读，报 `SELECT with locking clause command denied`。为使实时链路可运行，本次在**本地库**临时追加了 `LOCK TABLES ON aicostops.*`、`billing_period/budget` 的 `UPDATE`、以及 `advisor_inference_job/attempt` 的 `SELECT,INSERT,UPDATE`。**这些授权只作用于本次独立 Compose 项目 `aicostops-m21-dev` 的库，未写入仓库、未进入提交。** 该冲突属运维/安全契约问题，非财务正确性问题，留待独立评审裁决。
+1. **M21 权限契约与 MySQL 8.4（已于 2026-10-19 复核修正）**：`verify-v3-gateway-privileges.ps1` 期望 `SELECT ... FOR UPDATE` 通过、同时 `UPDATE budget` 被拒。在**独立 MySQL 8.4.11** 上以真实 Gateway 账号实测：仅 `SELECT` 被拒（`SELECT with locking clause command denied`）；**补上数据库级 `LOCK TABLES` 后锁定读通过，且 `UPDATE budget` 仍被拒**（ERROR 1142）。故正确的最小授权是 `LOCK TABLES`，**不是 `UPDATE`**。首轮记录中“`LOCK TABLES` 亦不足、需 `UPDATE`”的结论**有误**（当时把冗余的 `UPDATE` 误当必需）；现已在 `provision-gateway-db.ps1` 补 `LOCK TABLES` 授权且不授 `UPDATE`。详见 [2026-10-19 运维验收修复记录](2026-10-19-m21-ops-acceptance-fix.md)。
 2. **M21 运行环境需要 `AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED=true`**：env 生成器将其注释，导致 Backend `DevGatewayBootstrap` 不运行、无 `provider_account/routing/pricing`，seed 直接失败。本次在 gitignored 的 `.env.m21.local` 本地启用；该文件不入库。
 3. **env 文件无行尾换行**：向 `.env.m21.local` 追加变量会与末行拼接；已在本地修正并记录，属生成器小缺陷。
 4. 未发现财务正确性问题：正常/重复/失败三场景均符合“MySQL 为最终真相、幂等、不重复入账、失败不按零成本入账”。

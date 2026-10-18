@@ -167,16 +167,21 @@ $rf = ($reqRows -split "`n")[0] -split "`t"
 $requestId = $rf[0].Trim(); $publicRequestId = $rf[1].Trim(); $routeAttemptId = $rf[2].Trim(); $billingPeriodId = $rf[3].Trim()
 Write-Output "[M21-FIN] request_id=$requestId public=$publicRequestId route_attempt=$routeAttemptId period=$billingPeriodId"
 
-# route attempt lineage (exact seeded profile)
+# Route + pricing relations for THIS request must match the seeded chain exactly.
 $ra = (Invoke-Mysql "SELECT provider_connection_profile_id, routing_policy_id, provider_account_id, provider_model_id, pricing_version_id, status FROM gateway_route_attempt WHERE id=$routeAttemptId;") -split "`t"
-Assert-That ($ra[0].Trim() -eq "$($state.connection_profile_id)") "route_attempt.provider_connection_profile_id equals seeded profile"
-$attemptPricing = $ra[4].Trim()
-Write-Output "[M21-FIN] route_attempt status=$($ra[5].Trim()) pricing_version=$attemptPricing"
+$attemptProfile = $ra[0].Trim(); $attemptPolicy = $ra[1].Trim(); $attemptAccount = $ra[2].Trim(); $attemptModel = $ra[3].Trim(); $attemptPricing = $ra[4].Trim(); $attemptStatus = $ra[5].Trim()
+Write-Output "[M21-FIN] route_attempt status=$attemptStatus profile=$attemptProfile account=$attemptAccount model=$attemptModel pricing=$attemptPricing"
+Assert-That ($attemptStatus -eq "COMPLETED") "route_attempt reached COMPLETED (got $attemptStatus)"
+Assert-That ($attemptProfile -eq "$($state.connection_profile_id)") "route_attempt.provider_connection_profile_id equals seeded profile"
+Assert-That ($attemptPolicy -eq "$($state.routing_policy_id)") "route_attempt.routing_policy_id equals seeded policy"
+Assert-That ($attemptAccount -eq "$($state.provider_account_id)") "route_attempt.provider_account_id equals seeded account"
+Assert-That ($attemptModel -eq "$($state.provider_model_id)") "route_attempt.provider_model_id equals seeded model"
+Assert-That ($attemptPricing -eq "$($state.pricing_version_id)") "route_attempt.pricing_version_id equals seeded pricing version"
 
 # FINAL usage fact
 $uf = $null
 for ($i = 0; $i -lt 20; $i++) {
-    $ufRaw = Invoke-Mysql "SELECT id, status, pricing_version_id FROM gateway_usage_fact WHERE org_id=$orgId AND request_id=$requestId AND status='FINAL' ORDER BY sequence DESC LIMIT 1;"
+    $ufRaw = Invoke-Mysql "SELECT id, status, pricing_version_id, route_attempt_id FROM gateway_usage_fact WHERE org_id=$orgId AND request_id=$requestId AND status='FINAL' ORDER BY sequence DESC LIMIT 1;"
     if (-not [string]::IsNullOrWhiteSpace($ufRaw)) { $uf = ($ufRaw -split "`t"); break }
     Start-Sleep -Seconds 2
 }
@@ -184,8 +189,10 @@ Assert-That ($null -ne $uf) "FINAL usage fact exists"
 $usageFactId = ""
 if ($null -ne $uf) {
     $usageFactId = $uf[0].Trim()
-    Write-Output "[M21-FIN] usage_fact_id=$usageFactId status=$($uf[1].Trim()) pricing_version=$($uf[2].Trim())"
+    Write-Output "[M21-FIN] usage_fact_id=$usageFactId status=$($uf[1].Trim()) pricing_version=$($uf[2].Trim()) route_attempt=$($uf[3].Trim())"
+    Assert-That ($uf[1].Trim() -eq "FINAL") "usage_fact status is FINAL (got $($uf[1].Trim()))"
     Assert-That ($uf[2].Trim() -eq "$($state.pricing_version_id)") "usage_fact.pricing_version_id equals seeded active pricing version"
+    Assert-That ($uf[3].Trim() -eq "$routeAttemptId") "usage_fact.route_attempt_id matches the request's route attempt"
     $dims = Invoke-Mysql "SELECT dimension_code, quantity, provenance FROM gateway_usage_dimension WHERE usage_fact_id=$usageFactId ORDER BY dimension_code;"
     Write-Output "[M21-FIN] usage dimensions: $dims"
     Assert-That ($dims -match "INPUT_TOKEN`t5\.0+\s*`tPROVIDER_FINAL|INPUT_TOKEN\s+5\.0+\s+PROVIDER_FINAL") "INPUT_TOKEN=5 PROVIDER_FINAL present"
@@ -195,7 +202,7 @@ if ($null -ne $uf) {
 # Settled settlement
 $settle = $null
 for ($i = 0; $i -lt [math]::Ceiling($SettleTimeoutSeconds / 5); $i++) {
-    $sRaw = Invoke-Mysql "SELECT id, status, calculated_amount_raw, posted_amount, rounding_delta, ledger_posting_id, reservation_id, billing_period_id, currency FROM gateway_settlement WHERE org_id=$orgId AND request_id=$requestId ORDER BY id DESC LIMIT 1;"
+    $sRaw = Invoke-Mysql "SELECT id, status, calculated_amount_raw, posted_amount, rounding_delta, ledger_posting_id, reservation_id, billing_period_id, currency, pricing_version_id FROM gateway_settlement WHERE org_id=$orgId AND request_id=$requestId ORDER BY id DESC LIMIT 1;"
     if (-not [string]::IsNullOrWhiteSpace($sRaw)) {
         $sf = $sRaw -split "`t"
         if ($sf[1].Trim() -eq "SETTLED") { $settle = $sf; break }
@@ -213,6 +220,7 @@ $ledgerPostingId = $settle[5].Trim(); $reservationId = $settle[6].Trim(); $settl
 Write-Output "[M21-FIN] settlement_id=$settlementId calculated=$calcRaw posted=$postedAmount delta=$roundingDelta ledger_posting=$ledgerPostingId reservation=$reservationId currency=$currency"
 Assert-That ($postedAmount -ne "" -and [decimal]$postedAmount -gt 0) "posted_amount is a real positive cost (got $postedAmount)"
 Assert-That ($settlePeriod -eq $billingPeriodId) "settlement.billing_period_id equals request.billing_period_id"
+Assert-That ($settle[9].Trim() -eq "$($state.pricing_version_id)") "settlement.pricing_version_id equals seeded pricing version"
 
 $settleCount = [long](Invoke-Mysql "SELECT COUNT(*) FROM gateway_settlement WHERE org_id=$orgId AND request_id=$requestId;")
 Assert-That ($settleCount -eq 1) "exactly one settlement for the request (got $settleCount)"
@@ -232,10 +240,11 @@ Assert-That ($entryRow[1].Trim() -eq "COST") "ledger entry type is COST"
 Assert-That ([decimal]$entryRow[2].Trim() -eq [decimal]$postedAmount) "ledger entry amount equals posted_amount"
 Assert-That ($entryRow[3].Trim() -eq $currency) "ledger entry currency equals settlement currency"
 
-# Budget actual delta
+# Budget actual delta. A budgeted settlement MUST carry a finalized reservation.
 $budgetAfter = Get-BudgetActuals "SELECT id, actual_amount FROM budget WHERE org_id=$orgId;"
-$boundBudgetId = ""
 $hasReservation = ($reservationId -ne "" -and $reservationId -ne "NULL")
+Assert-That $hasReservation "settlement is bound to a budget reservation (reservation_id=$reservationId)"
+$boundBudgetId = ""
 if ($hasReservation) {
     $boundBudgetId = (Invoke-Mysql "SELECT budget_id FROM budget_reservation WHERE id=$reservationId;").Trim()
 }
@@ -250,8 +259,8 @@ if ($hasReservation -and $budgetAfter.ContainsKey($boundBudgetId) -and $budgetBe
     $boundDelta = [decimal]$budgetAfter[$boundBudgetId] - [decimal]$budgetBefore[$boundBudgetId]
     Assert-That ($boundDelta -eq [decimal]$postedAmount) "the bound reservation budget received the posted amount ($boundDelta)"
 }
-$resStatus = if ($hasReservation) { (Invoke-Mysql "SELECT status FROM budget_reservation WHERE id=$reservationId;").Trim() } else { "NO_RESERVATION" }
-Assert-That (-not $hasReservation -or $resStatus -eq "FINALIZED") "reservation finalized (got $resStatus)"
+$resStatus = if ($hasReservation) { (Invoke-Mysql "SELECT status FROM budget_reservation WHERE id=$reservationId;").Trim() } else { "" }
+Assert-That ($resStatus -eq "FINALIZED") "reservation FINALIZED (got '$resStatus')"
 
 $postCountNormal = [long](Invoke-Mysql "SELECT COUNT(*) FROM ledger_posting WHERE org_id=$orgId;")
 
@@ -262,6 +271,7 @@ Write-Output "[M21-FIN] === DUPLICATE scenario ==="
 $dStats0 = (Invoke-RestMethod -Uri "$MockBase/stats").post_chat_completions
 $dResp = Send-Chat $rawKey $normalIdem
 Write-Output "[M21-FIN] duplicate replay HTTP $($dResp.Status)"
+Assert-That ($dResp.Status -eq 409) "duplicate replay returns 409 (got $($dResp.Status))"
 $dProviderDelta = (Invoke-RestMethod -Uri "$MockBase/stats").post_chat_completions - $dStats0
 Assert-That ($dProviderDelta -eq 0) "duplicate replay does not execute the Provider again (delta $dProviderDelta)"
 Start-Sleep -Seconds 12
@@ -283,12 +293,19 @@ Assert-That ($dBoundActual -eq $nBoundActual) "no second Budget Actual mutation 
 # =========================================================================
 Write-Output "[M21-FIN] === PROVIDER-FAILURE scenario ==="
 Invoke-RestMethod -Method POST -Uri "$MockBase/admin/mode" -Body '{"mode":"http500"}' -ContentType "application/json" | Out-Null
+$mockMode = (Invoke-RestMethod -Uri "$MockBase/stats").mode
+Assert-That ($mockMode -eq "http500") "mock Provider is armed to return HTTP 500 (mode=$mockMode)"
 $failIdem = "m21-fin-fail-" + [guid]::NewGuid().ToString("N").Substring(0, 12)
+$fStats0 = (Invoke-RestMethod -Uri "$MockBase/stats").post_chat_completions
 $fResp = Send-Chat $rawKey $failIdem
-Write-Output "[M21-FIN] provider-failure request HTTP $($fResp.Status)"
-Assert-That ($fResp.Status -ne 200) "provider failure does not return 200 (got $($fResp.Status))"
+$fDelta = (Invoke-RestMethod -Uri "$MockBase/stats").post_chat_completions - $fStats0
+Write-Output "[M21-FIN] provider-failure request HTTP $($fResp.Status) mock_delta=$fDelta"
+Assert-That ($fDelta -eq 1) "the failing request really reached the mock Provider (delta $fDelta)"
+Assert-That ($fResp.Status -ne 200) "the Mock HTTP 500 surfaces as a non-200 gateway response (got $($fResp.Status))"
 Start-Sleep -Seconds 12
 $failDigest = Get-IdemDigestHex $failIdem
+$fReqCount = [long](Invoke-Mysql "SELECT COUNT(*) FROM gateway_request WHERE org_id=$orgId AND idempotency_key_digest=UNHEX('$failDigest');")
+Assert-That ($fReqCount -eq 1) "the failed request is recorded exactly once (got $fReqCount)"
 $fPostCount = [long](Invoke-Mysql "SELECT COUNT(*) FROM ledger_posting WHERE org_id=$orgId;")
 Assert-That ($fPostCount -eq $postCountNormal) "provider failure adds no ledger posting ($fPostCount vs $postCountNormal)"
 $fSettledZero = [long](Invoke-Mysql "SELECT COUNT(*) FROM gateway_settlement s JOIN gateway_request r ON r.id=s.request_id WHERE r.org_id=$orgId AND r.idempotency_key_digest=UNHEX('$failDigest') AND s.status='SETTLED';")

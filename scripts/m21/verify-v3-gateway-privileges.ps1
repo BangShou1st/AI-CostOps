@@ -44,23 +44,20 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Root([string]$Sql) {
-    $env:MYSQL_PWD = $env:MYSQL_ROOT_PASSWORD
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root $Database -e `"$Sql`" 2>&1"
-        return ($result | Out-String).Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # Root password comes from the mysql container's own environment
+    # (MYSQL_ROOT_PASSWORD); host env does not propagate through `compose exec`.
+    $result = docker compose @composeArgs exec -T mysql sh -c "mysql -u root -p`"`$MYSQL_ROOT_PASSWORD`" $Database -e `"$Sql`" 2>&1"
+    return ($result | Out-String).Trim()
 }
 
 function Invoke-Gateway([string]$Sql) {
-    $env:MYSQL_PWD = $env:MYSQL_GATEWAY_PASSWORD
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
-        return ($result | Out-String).Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # The Gateway password is the account's own secret (never root) and never
+    # appears on the host command line: it is fed to the container on stdin and
+    # consumed by `read`. PowerShell terminates piped stdin with CRLF, so the
+    # trailing CR is stripped before it becomes MYSQL_PWD.
+    $cmd = "read -r pw; MYSQL_PWD=`"`$(printf '%s' `"`$pw`" | tr -d '\r')`" mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
+    $result = $env:MYSQL_GATEWAY_PASSWORD | docker compose @composeArgs exec -T mysql sh -c $cmd
+    return ($result | Out-String).Trim()
 }
 
 Write-Output "[M21-PRIVILEGE] Verifying Gateway DB privileges..."
@@ -90,6 +87,26 @@ if ($grants -match "(?i)\bDROP\b") {
     Add-Failure "Gateway identity must not hold DROP."
 } else {
     Add-Pass "No DROP privilege."
+}
+
+# MySQL 8.4 requires LOCK TABLES for locking reads (`SELECT ... FOR UPDATE`).
+if ($grants -notmatch "(?i)\bLOCK\s+TABLES\b") {
+    Add-Failure "Gateway identity must hold LOCK TABLES (required for SELECT ... FOR UPDATE on MySQL 8.4)."
+} else {
+    Add-Pass "LOCK TABLES present (locking reads enabled)."
+}
+
+# The Gateway must never be able to mutate budget / billing_period contents.
+$forbiddenBudgetGrants = @()
+foreach ($line in ($grants -split "`n")) {
+    if ($line -match "(?i)\bbudget\b|\bbilling_period\b") {
+        if ($line -match "(?i)\bUPDATE\b|\bDELETE\b|\bALL\b") { $forbiddenBudgetGrants += $line.Trim() }
+    }
+}
+if ($forbiddenBudgetGrants.Count -gt 0) {
+    Add-Failure ("Gateway identity must not hold UPDATE/DELETE/ALL on budget/billing_period: " + ($forbiddenBudgetGrants -join " | "))
+} else {
+    Add-Pass "No UPDATE/DELETE on budget/billing_period."
 }
 
 # === Phase 2: Positive SELECT matrix ===
