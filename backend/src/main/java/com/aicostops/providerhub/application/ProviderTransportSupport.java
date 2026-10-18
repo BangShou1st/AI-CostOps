@@ -42,6 +42,16 @@ public final class ProviderTransportSupport {
         return NEUTRAL_PROVIDER_USER_AGENT;
     }
 
+    /**
+     * Built-in templates whose free tier may reach Provider endpoints without a stored organization
+     * key. OpenCode Zen carries its shared public credential; Kilo Gateway's free models are called
+     * anonymously. Every other Provider stays fail-closed on a missing key.
+     */
+    public static boolean allowsKeylessCredential(String templateCode) {
+        return ProviderTemplateRegistry.OPENCODE_ZEN.equals(templateCode)
+                || ProviderTemplateRegistry.KILO_GATEWAY.equals(templateCode);
+    }
+
     @Deprecated
     public static String serverUserAgent(String profileUserAgent) {
         return profileUserAgent == null || profileUserAgent.isBlank()

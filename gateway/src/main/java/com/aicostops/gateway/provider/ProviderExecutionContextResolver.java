@@ -2,6 +2,7 @@ package com.aicostops.gateway.provider;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
+import com.aicostops.gateway.routing.KiloGatewayFreeOnlyAdmission;
 import com.aicostops.gateway.routing.OpenCodeFreeOnlyAdmission;
 import com.aicostops.gateway.request.GatewayRequestService.DispatchResult;
 import java.util.Set;
@@ -21,20 +22,24 @@ public class ProviderExecutionContextResolver {
     private final GatewayReadMapper readMapper;
     private final ProviderCredentialDecryptor credentialDecryptor;
     private final OpenCodeFreeOnlyAdmission openCodeFreeOnlyAdmission;
+    private final KiloGatewayFreeOnlyAdmission kiloFreeOnlyAdmission;
 
     public ProviderExecutionContextResolver(
             GatewayReadMapper readMapper, ProviderCredentialDecryptor credentialDecryptor) {
-        this(readMapper, credentialDecryptor, OpenCodeFreeOnlyAdmission.production());
+        this(readMapper, credentialDecryptor, OpenCodeFreeOnlyAdmission.production(),
+                new KiloGatewayFreeOnlyAdmission());
     }
 
     @Autowired
     public ProviderExecutionContextResolver(
             GatewayReadMapper readMapper,
             ProviderCredentialDecryptor credentialDecryptor,
-            OpenCodeFreeOnlyAdmission openCodeFreeOnlyAdmission) {
+            OpenCodeFreeOnlyAdmission openCodeFreeOnlyAdmission,
+            KiloGatewayFreeOnlyAdmission kiloFreeOnlyAdmission) {
         this.readMapper = readMapper;
         this.credentialDecryptor = credentialDecryptor;
         this.openCodeFreeOnlyAdmission = openCodeFreeOnlyAdmission;
+        this.kiloFreeOnlyAdmission = kiloFreeOnlyAdmission;
     }
 
     public ProviderCallContext resolve(GatewayPrincipal principal, DispatchResult result) {
@@ -55,11 +60,14 @@ public class ProviderExecutionContextResolver {
 
         final String credentialType;
         final byte[] secret;
-        boolean keylessFreeZenModel = OpenCodeFreeOnlyAdmission.OPENCODE_ZEN_ADAPTER.equals(result.adapterCode())
-                && openCodeFreeOnlyAdmission.admits(result.adapterCode(), result.providerModelName());
-        if ("NONE".equals(profile.authType()) || keylessFreeZenModel) {
-            // The shared Zen policy will send Bearer public for an admitted free model. Do not
-            // decrypt or attach a stored user key to a request that must use the public credential.
+        // Keyless built-in free models: an admitted OpenCode Zen free model uses the shared public
+        // credential, and an admitted Kilo Gateway free model is called anonymously. Neither may
+        // receive a stored organization key.
+        boolean keylessFreeBuiltInModel = (openCodeFreeOnlyAdmission.isOpenCodeZen(result.adapterCode())
+                && openCodeFreeOnlyAdmission.admits(result.adapterCode(), result.providerModelName()))
+                || (kiloFreeOnlyAdmission.isKiloGateway(result.adapterCode())
+                && kiloFreeOnlyAdmission.admits(result.adapterCode(), result.providerModelName()));
+        if ("NONE".equals(profile.authType()) || keylessFreeBuiltInModel) {
             credentialType = "NONE";
             secret = null;
         } else {

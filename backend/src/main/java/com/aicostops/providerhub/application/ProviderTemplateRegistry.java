@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 public class ProviderTemplateRegistry {
 
     public static final String OPENCODE_ZEN = "OPENCODE_ZEN";
+    public static final String KILO_GATEWAY = "KILO_GATEWAY";
     public static final String CUSTOM_OPENAI_COMPATIBLE = "CUSTOM_OPENAI_COMPATIBLE";
     public static final String PROTOCOL_OPENAI_CHAT_COMPLETIONS = "OPENAI_CHAT_COMPLETIONS";
     /**
@@ -32,6 +33,12 @@ public class ProviderTemplateRegistry {
      * the Backend and the Gateway cannot drift.
      */
     public static final String OPENCODE_ZEN_USER_AGENT = OpenCodeZenProtocolPolicy.USER_AGENT;
+    /**
+     * Server-owned Kilo Gateway base URL, mirroring the Kilo shared library's
+     * {@code kilo.gateway.base-url} default ({@code https://ai-gateway.kilo.ai/api/v1}). Kilo is an
+     * OpenAI-compatible gateway: the same base serves {@code /chat/completions} and {@code /models}.
+     */
+    public static final String KILO_GATEWAY_BASE_URL = "https://ai-gateway.kilo.ai/api/v1";
 
     private final Map<String, ProviderTemplate> templates = Map.of(
             OPENCODE_ZEN, new ProviderTemplate(
@@ -40,6 +47,13 @@ public class ProviderTemplateRegistry {
                     OpenCodeZenProtocolPolicy.CHAT_COMPLETIONS_PATH,
                     OpenCodeZenProtocolPolicy.MODELS_PATH, "BEARER", null,
                     "DIRECT_ONLY", OPENCODE_ZEN_USER_AGENT, 5000, 60000,
+                    Set.of("baseUrl", "networkPolicy", "userAgent", "authType",
+                            "completionPath", "modelsPath")),
+            KILO_GATEWAY, new ProviderTemplate(
+                    KILO_GATEWAY, "Kilo Gateway", "BUILTIN",
+                    PROTOCOL_OPENAI_CHAT_COMPLETIONS, KILO_GATEWAY_BASE_URL,
+                    "/chat/completions", "/models", "BEARER", null,
+                    "DIRECT_ONLY", null, 5000, 60000,
                     Set.of("baseUrl", "networkPolicy", "userAgent", "authType",
                             "completionPath", "modelsPath")),
             CUSTOM_OPENAI_COMPATIBLE, new ProviderTemplate(
@@ -62,6 +76,16 @@ public class ProviderTemplateRegistry {
 
     public boolean known(String templateCode) {
         return templateCode != null && templates.containsKey(templateCode);
+    }
+
+    /**
+     * True when the template is a server-owned built-in whose endpoint/auth/paths/UA fields are
+     * browser-immutable. Covers every current built-in ({@code OPENCODE_ZEN}, {@code KILO_GATEWAY})
+     * without enumerating them at each call site.
+     */
+    public boolean isBuiltIn(String templateCode) {
+        var template = templateCode == null ? null : templates.get(templateCode);
+        return template != null && "BUILTIN".equals(template.connectionKind());
     }
 
     public record ProviderTemplate(

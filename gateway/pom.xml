@@ -32,6 +32,8 @@
     <netty.version>4.2.17.Final</netty.version>
     <!-- Private OpenCode Zen shared library, published to GitHub Packages. -->
     <opencode-zen.version>1.2.0</opencode-zen.version>
+    <!-- Public Kilo Gateway starter, consumed anonymously from JitPack (no credentials). -->
+    <kilo-gateway.version>v0.2.1</kilo-gateway.version>
   </properties>
 
   <dependencyManagement>
@@ -60,6 +62,12 @@
       <id>github</id>
       <url>https://maven.pkg.github.com/BangShou1st/opencode-zen</url>
     </repository>
+    <repository>
+      <!-- Public Kilo Gateway shared library. JitPack serves the Git tag as the version
+           (v0.2.1) and needs no credentials. -->
+      <id>jitpack</id>
+      <url>https://jitpack.io</url>
+    </repository>
   </repositories>
 
   <dependencies>
@@ -76,6 +84,15 @@
       <groupId>com.sharedlibs</groupId>
       <artifactId>opencode-zen-spring-boot-starter</artifactId>
       <version>${opencode-zen.version}</version>
+    </dependency>
+    <dependency>
+      <!-- Kilo Gateway shared library. The Gateway does not call the blocking KiloGatewayClient
+           (the data plane owns its own bounded reactive transport); it reuses the shared
+           server-owned free-model policy so the Backend and Gateway cannot drift. Its
+           auto-configuration is disabled in application.yml. -->
+      <groupId>com.github.BangShou1st.kilo-gateway</groupId>
+      <artifactId>kilo-gateway-spring-boot-starter</artifactId>
+      <version>${kilo-gateway.version}</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>

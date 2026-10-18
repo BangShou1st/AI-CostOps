@@ -8,6 +8,11 @@ export const templateFixture: ProviderTemplate[] = [
     lockedFields: ['baseUrl', 'completionPath', 'modelsPath', 'authType', 'networkPolicy'],
   },
   {
+    code: 'KILO_GATEWAY', name: 'Kilo Gateway', connectionKind: 'BUILTIN', protocolCode: 'OPENAI_CHAT_COMPLETIONS',
+    baseUrl: 'https://ai-gateway.kilo.ai/api/v1', networkPolicy: 'DIRECT_ONLY', authType: 'BEARER',
+    lockedFields: ['baseUrl', 'completionPath', 'modelsPath', 'authType', 'networkPolicy'],
+  },
+  {
     code: 'CUSTOM_OPENAI', name: 'Custom OpenAI-compatible', connectionKind: 'CUSTOM', protocolCode: 'OPENAI_CHAT_COMPLETIONS',
     baseUrl: '', networkPolicy: 'DIRECT_PUBLIC_ONLY', authType: 'BEARER', lockedFields: [],
   },
@@ -25,6 +30,12 @@ export const connectionFixture: ProviderConnection[] = [
     protocolCode: 'OPENAI_CHAT_COMPLETIONS', baseUrl: 'https://llm.example.com', completionPath: '/v1/chat/completions',
     modelsPath: '/v1/models', authType: 'API_KEY_HEADER', networkPolicy: 'DIRECT_PUBLIC_ONLY', connectTimeoutMs: 5000,
     responseTimeoutMs: 120000, status: 'DRAFT', createdAt: '2026-09-09T00:00:00Z', activatedAt: null, retiredAt: null,
+  },
+  {
+    id: 13, providerAccountId: 7, version: 1, connectionKind: 'BUILTIN', templateCode: 'KILO_GATEWAY',
+    protocolCode: 'OPENAI_CHAT_COMPLETIONS', baseUrl: 'https://ai-gateway.kilo.ai/api/v1', completionPath: '/chat/completions',
+    modelsPath: '/models', authType: 'BEARER', networkPolicy: 'DIRECT_ONLY', connectTimeoutMs: 5000,
+    responseTimeoutMs: 60000, status: 'ACTIVE', createdAt: '2026-10-18T00:00:00Z', activatedAt: '2026-10-18T00:00:00Z', retiredAt: null,
   },
 ]
 

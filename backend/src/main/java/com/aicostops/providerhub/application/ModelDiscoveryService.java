@@ -41,6 +41,7 @@ public class ModelDiscoveryService {
     private final ModelDiscoveryService self;
     private final String providerKek;
     private final OpenCodeModelManifest openCodeManifest;
+    private final KiloGatewayModelManifest kiloManifest;
     private final OpenCodeZenTransportHeaders openCodeZenHeaders;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
@@ -56,6 +57,7 @@ public class ModelDiscoveryService {
             @Lazy ModelDiscoveryService self,
             @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
             OpenCodeModelManifest openCodeManifest,
+            KiloGatewayModelManifest kiloManifest,
             OpenCodeZenTransportHeaders openCodeZenHeaders) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
@@ -68,6 +70,7 @@ public class ModelDiscoveryService {
         this.self = self;
         this.providerKek = providerKek;
         this.openCodeManifest = openCodeManifest;
+        this.kiloManifest = kiloManifest;
         this.openCodeZenHeaders = openCodeZenHeaders;
     }
 
@@ -150,6 +153,9 @@ public class ModelDiscoveryService {
             if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
                 protocol = openCodeManifest.protocolFor(name);
                 pricing = openCodeManifest.pricingFor(name);
+            } else if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())) {
+                protocol = kiloManifest.protocolFor(name);
+                pricing = kiloManifest.pricingFor(name);
             }
             mapper.upsertObservation(context.organizationId(), profileId, name, name,
                     "LIVE_DISCOVERY", "AVAILABLE", protocol, pricing,
@@ -223,6 +229,9 @@ public class ModelDiscoveryService {
         if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
             manualProtocol = openCodeManifest.protocolFor(name);
             manualPricing = openCodeManifest.pricingFor(name);
+        } else if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())) {
+            manualProtocol = kiloManifest.protocolFor(name);
+            manualPricing = kiloManifest.pricingFor(name);
         }
         mapper.upsertObservation(context.organizationId(), profileId, name, name,
                 "MANUAL", "AVAILABLE", manualProtocol, manualPricing,
@@ -272,6 +281,16 @@ public class ModelDiscoveryService {
                     "Model not promotable",
                     "OpenCode Zen is admitted for verified-free Chat Completions models only;"
                             + " this model has no current free evidence in the controlled manifest.");
+        }
+        // Kilo Gateway FREE_ONLY (2026-10-18): the built-in template is admitted for free models
+        // only, and free evidence is the shared library policy (single definition shared with the
+        // Gateway barrier). Non-free ids stay discovered/AVAILABLE but never become routable.
+        if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())
+                && !kiloManifest.isFreeEligible(discovery.providerModelName())) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
+                    "Model not promotable",
+                    "Kilo Gateway is admitted for free models only;"
+                            + " this model has no free evidence in the shared free-model policy.");
         }
         if (!"PASS".equals(discovery.lastProbeStatus())) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
@@ -422,7 +441,7 @@ public class ModelDiscoveryService {
         }
         var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
         if (credential == null) {
-            if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
+            if (ProviderTransportSupport.allowsKeylessCredential(profile.templateCode())) {
                 return null;
             }
             throw authFailed("Provider credential is not available.");

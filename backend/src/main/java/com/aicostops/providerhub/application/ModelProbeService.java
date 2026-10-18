@@ -60,6 +60,7 @@ public class ModelProbeService {
     private final Clock clock;
     private final String providerKek;
     private final OpenCodeModelManifest openCodeManifest;
+    private final KiloGatewayModelManifest kiloManifest;
     private final OpenCodeZenTransportHeaders openCodeZenHeaders;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
@@ -78,6 +79,7 @@ public class ModelProbeService {
             OpenCodeModelManifest openCodeManifest) {
         this(authorizationContexts, connections, discovery, credentials, endpointValidator, transport,
                 audit, objectMapper, clock, providerKek, openCodeManifest,
+                new KiloGatewayModelManifest(),
                 new OpenCodeZenTransportHeaders(new OpenCodeZenRequestFactory(
                         ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT)));
     }
@@ -95,6 +97,7 @@ public class ModelProbeService {
             Clock clock,
             @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
             OpenCodeModelManifest openCodeManifest,
+            KiloGatewayModelManifest kiloManifest,
             OpenCodeZenTransportHeaders openCodeZenHeaders) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
@@ -107,6 +110,7 @@ public class ModelProbeService {
         this.clock = clock;
         this.providerKek = providerKek;
         this.openCodeManifest = openCodeManifest;
+        this.kiloManifest = kiloManifest;
         this.openCodeZenHeaders = openCodeZenHeaders;
     }
 
@@ -132,6 +136,16 @@ public class ModelProbeService {
                     "Model not probed",
                     "OpenCode Zen is admitted for verified-free Chat Completions models only;"
                             + " this model has no current free evidence in the controlled manifest.");
+        }
+        // Kilo Gateway FREE_ONLY (2026-10-18): the built-in template is admitted for free models
+        // only, so non-free ids must not reach Provider HTTP I/O at all. Free evidence is the shared
+        // library policy, the same definition the Gateway dispatch barrier executes.
+        if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())
+                && !kiloManifest.isFreeEligible(row.providerModelName())) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.MODEL_NOT_VERIFIED,
+                    "Model not probed",
+                    "Kilo Gateway is admitted for free models only;"
+                            + " this model has no free evidence in the shared free-model policy.");
         }
         var outcome = execute(profile, row.providerModelName());
         var verifiedJson = capabilitiesJson(outcome.capabilities());
@@ -160,9 +174,12 @@ public class ModelProbeService {
         final String secretKind;
         var openCodeZen = ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode());
         var freeOpenCodeZenModel = openCodeZen && openCodeManifest.isFreeEligible(modelName);
-        if (freeOpenCodeZenModel || "NONE".equals(profile.authType())) {
-            // Free Zen probes always use the shared public credential. Do not read or decrypt a
-            // stored organization key for a request that must not use it.
+        var kiloGateway = ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode());
+        var freeKiloGatewayModel = kiloGateway && kiloManifest.isFreeEligible(modelName);
+        if (freeOpenCodeZenModel || freeKiloGatewayModel || "NONE".equals(profile.authType())) {
+            // Free-tier models are probed with the shared public credential (Zen) or anonymously
+            // (Kilo). Do not read or decrypt a stored organization key for a request that must not
+            // use it.
             secret = null;
             secretKind = null;
         } else {

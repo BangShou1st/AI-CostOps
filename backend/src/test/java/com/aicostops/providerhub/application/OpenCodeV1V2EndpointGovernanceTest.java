@@ -122,8 +122,9 @@ class OpenCodeV1V2EndpointGovernanceTest {
                             + code);
         }
         assertTrue(registry.known(ProviderTemplateRegistry.OPENCODE_ZEN));
-        assertEquals(2, registry.list().size(),
-                "Only the built-in OpenCode Zen and Custom OpenAI-compatible templates exist today");
+        assertTrue(registry.known(ProviderTemplateRegistry.KILO_GATEWAY));
+        assertEquals(3, registry.list().size(),
+                "The built-in templates today are OpenCode Zen, Kilo Gateway and Custom OpenAI-compatible");
     }
 
     @Test

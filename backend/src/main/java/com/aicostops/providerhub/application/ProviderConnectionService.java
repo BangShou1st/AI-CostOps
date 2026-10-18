@@ -121,7 +121,7 @@ public class ProviderConnectionService {
                 || request.baseUrl().isBlank()) {
             return null;
         }
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(request.templateCode())) {
+        if (templates.isBuiltIn(request.templateCode())) {
             return null;
         }
         var accountCode = mapper.findActiveAccountProviderCode(organizationId, request.providerAccountId());
@@ -153,9 +153,10 @@ public class ProviderConnectionService {
         final String authHeaderName;
         final String networkPolicy;
         final String userAgent;
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(templateCode)) {
-            if (!ProviderTemplateRegistry.OPENCODE_ZEN.equals(accountCode)) {
-                throw validationFailed("Built-in OpenCode Zen connections require an OPENCODE_ZEN provider account.");
+        if (templates.isBuiltIn(templateCode)) {
+            if (!templateCode.equals(accountCode)) {
+                throw validationFailed("Built-in " + templateCode
+                        + " connections require a " + templateCode + " provider account.");
             }
             var template = templates.require(templateCode);
             rejectBuiltinOverride(request);
@@ -195,7 +196,7 @@ public class ProviderConnectionService {
         var version = mapper.nextVersion(context.organizationId(), request.providerAccountId());
         var now = clock.instant();
         mapper.insert(context.organizationId(), request.providerAccountId(), version, kind,
-                ProviderTemplateRegistry.OPENCODE_ZEN.equals(templateCode) ? templateCode : null,
+                templates.isBuiltIn(templateCode) ? templateCode : null,
                 protocol, baseUrl, completionPath, modelsPath, authType, authHeaderName,
                 networkPolicy, userAgent,
                 request.connectTimeoutMs() == null ? 5000 : request.connectTimeoutMs(),
@@ -236,7 +237,7 @@ public class ProviderConnectionService {
         if (!"DRAFT".equals(current.status())) {
             throw stateConflict("Only DRAFT connections are editable.");
         }
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(current.templateCode())) {
+        if (templates.isBuiltIn(current.templateCode())) {
             if (request.baseUrl() != null || request.authType() != null
                     || request.completionPath() != null || request.modelsPath() != null
                     || request.userAgent() != null) {
@@ -445,9 +446,10 @@ public class ProviderConnectionService {
     }
 
     /**
-     * Fail-closed credential resolution for ordinary providers. OpenCode Zen may use its shared
-     * public credential when no user key is stored; an existing but undecryptable key still fails.
-     * NONE expects no stored credential.
+     * Fail-closed credential resolution for ordinary providers. Built-in free tiers that may call
+     * Provider endpoints without a stored organization key are the explicit exception: OpenCode Zen
+     * uses its shared public credential, Kilo Gateway's free models are called anonymously. An
+     * existing but undecryptable key still fails. NONE expects no stored credential.
      */
     private String resolveProbeSecretOrThrow(com.aicostops.providerhub.domain.ProviderConnection profile)
             throws ProbeAuthException {
@@ -455,7 +457,7 @@ public class ProviderConnectionService {
             return null;
         }
         var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
-        if (credential == null && ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
+        if (credential == null && allowsKeylessCredential(profile.templateCode())) {
             return null;
         }
         if (credential == null || providerKek == null || providerKek.isBlank()) {
@@ -469,6 +471,14 @@ public class ProviderConnectionService {
         } catch (Exception ex) {
             throw new ProbeAuthException();
         }
+    }
+
+    /**
+     * Built-in templates whose free tier may reach Provider endpoints without a stored organization
+     * key. Delegated to the shared transport policy so every caller agrees on one definition.
+     */
+    static boolean allowsKeylessCredential(String templateCode) {
+        return ProviderTransportSupport.allowsKeylessCredential(templateCode);
     }
 
     @Deprecated
