@@ -10,6 +10,7 @@ import com.aicostops.gateway.provider.ProviderChatStreamEvent;
 import com.aicostops.gateway.provider.ProviderExecutionException;
 import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
+import com.aicostops.gateway.provider.ProviderSafetyReason;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -31,10 +32,14 @@ import tools.jackson.databind.ObjectMapper;
  * <p>Pins the exact upstream request the Kilo adapter must emit: the frozen
  * {@link ProviderCallContext} base URL ({@code https://ai-gateway.kilo.ai/api/v1}) plus the profile
  * completion path, with no duplicated {@code /v1} and no lost segment. Kilo is a plain
- * OpenAI-compatible gateway, so the body must NOT carry the OpenCode Zen CLI tool envelope, a free
- * model must be dispatched with no {@code Authorization} header, a paid model must carry the stored
- * Bearer key, DIRECT_ONLY must ignore any JVM proxy, and a quota-exhausted {@code 429} must not be a
- * qualifying failure.
+ * OpenAI-compatible gateway, so the body must NOT carry the OpenCode Zen CLI tool envelope; a free
+ * model must be dispatched with no {@code Authorization} header; DIRECT_ONLY must ignore any JVM
+ * proxy; and a quota-exhausted {@code 429} must not be a qualifying failure.
+ *
+ * <p><b>FREE_ONLY is enforced by the adapter itself (2026-10-18).</b> The adapter rejects every
+ * non-free model before any HTTP I/O — even a fully-formed request carrying a valid stored Bearer
+ * key — so the built-in template can never dispatch a paid Kilo model, independently of the
+ * candidate-eligibility barrier.
  */
 class KiloGatewayChatAdapterTest {
 
@@ -144,15 +149,34 @@ class KiloGatewayChatAdapterTest {
     }
 
     @Test
-    void paidModelCarriesTheStoredBearerKey() {
-        withPoisonedJvmProxy(() -> {
-            var adapter = adapter();
-            adapter.complete(paidContext(), command()).block(java.time.Duration.ofSeconds(20));
+    void paidModelWithAValidBearerKeyIsRefusedBeforeAnyNetworkCall() {
+        // FREE_ONLY is enforced by the adapter itself: a fully-formed paid request with the stored
+        // Bearer key must be refused before any Provider HTTP I/O.
+        var adapter = adapter();
+        assertThatThrownBy(() -> adapter.complete(paidContext(), command()))
+                .isInstanceOf(ProviderExecutionException.class)
+                .satisfies(ex -> {
+                    var failure = (ProviderExecutionException) ex;
+                    assertThat(failure.safetyOutcome())
+                            .isEqualTo(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION);
+                    assertThat(failure.safetyReason())
+                            .isEqualTo(ProviderSafetyReason.LOCAL_PRE_NETWORK_FAILURE);
+                    assertThat(failure.healthSignal()).isEqualTo(ProviderHealthSignal.NONE);
+                });
+        assertThat(upstreamHits.get()).isZero();
+        assertThat(authorizationHeaders).isEmpty();
+        assertThat(poisonHits.get()).isZero();
+    }
 
-            assertThat(requestPaths).containsExactly("/api/v1/chat/completions");
-            assertThat(authorizationHeaders).containsExactly("Bearer " + SECRET);
-            assertThat(poisonHits.get()).isZero();
-        });
+    @Test
+    void paidModelStreamingIsRefusedBeforeAnyNetworkCall() {
+        var adapter = adapter();
+        assertThatThrownBy(() -> adapter.stream(paidContext(), command()))
+                .isInstanceOf(ProviderExecutionException.class)
+                .satisfies(ex -> assertThat(((ProviderExecutionException) ex).safetyOutcome())
+                        .isEqualTo(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION));
+        assertThat(upstreamHits.get()).isZero();
+        assertThat(poisonHits.get()).isZero();
     }
 
     @Test

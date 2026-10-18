@@ -29,6 +29,10 @@ public class KiloGatewayModelManifest {
     public static final String PRICING_VERIFIED_FREE = "VERIFIED_FREE";
     public static final String PRICING_UNKNOWN = "UNKNOWN";
 
+    private static final String KEY_PREFIX = "kilo-";
+    private static final int FINGERPRINT_LENGTH = 16;
+    private static final int MAX_KEY_LENGTH = 100;
+
     public String version() {
         return MANIFEST_VERSION;
     }
@@ -62,5 +66,47 @@ public class KiloGatewayModelManifest {
 
     public boolean isChatCompatible(String name) {
         return PROTOCOL_CHAT.equals(protocolFor(name));
+    }
+
+    /**
+     * Stable, legal, collision-resistant internal logical model_key for a Kilo Provider model id.
+     *
+     * <p>Kilo ids legitimately contain {@code /} and {@code :} (for example
+     * {@code poolside/laguna-s-2.1:free}), which the generic model-key rule rejects. The key is a
+     * bounded, sanitised stem plus a SHA-256 fingerprint of the exact raw id, so the same id always
+     * maps to the same key and two ids that differ only in the characters the sanitiser rewrites can
+     * never collapse onto one another. The raw id is preserved unchanged as the logical display name
+     * and as {@code provider_model.provider_model_name}.
+     */
+    public String logicalModelKey(String providerModelName) {
+        var raw = providerModelName == null ? "" : providerModelName.strip();
+        var stem = raw.toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9._-]+", "-")
+                .replaceAll("^[^a-z0-9]+", "")
+                .replaceAll("[^a-z0-9]+$", "");
+        if (stem.isEmpty()) {
+            stem = "model";
+        }
+        var fingerprint = sha256Hex(raw).substring(0, FINGERPRINT_LENGTH);
+        var maxStemLength = MAX_KEY_LENGTH - KEY_PREFIX.length() - 1 - fingerprint.length();
+        if (stem.length() > maxStemLength) {
+            stem = stem.substring(0, maxStemLength);
+        }
+        return KEY_PREFIX + stem + "-" + fingerprint;
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            var builder = new StringBuilder(digest.length * 2);
+            for (var b : digest) {
+                builder.append(Character.forDigit((b >> 4) & 0xF, 16));
+                builder.append(Character.forDigit(b & 0xF, 16));
+            }
+            return builder.toString();
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is required", ex);
+        }
     }
 }

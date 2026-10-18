@@ -17,7 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /**
  * V19 contract for the M12 MySQL-authoritative budget reservation
  * (AIC-087 / AIC-092 section 12). Real MySQL 8.4: the empty database migrates
- * through the current V31 schema, the reservation table carries per-route-attempt
+ * through the current V32 schema, the reservation table carries per-route-attempt
  * uniqueness plus one-effective-hold-per-request uniqueness, and the M13-B
  * settlement table is present as a forward additive migration.
  */
@@ -37,12 +37,15 @@ class GatewayM12ReservationSchemaIntegrationTest extends MySqlContainerSupport {
     void emptyDatabaseMigratesThroughV23AndV1TablesRemainUsable() {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1",
-                Integer.class)).isEqualTo(31);
+                Integer.class)).isEqualTo(32);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20' AND success = 1",
                 Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '30' AND success = 1",
+                Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '32' AND success = 1",
                 Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '21' AND success = 1",

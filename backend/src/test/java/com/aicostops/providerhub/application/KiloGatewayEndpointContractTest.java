@@ -2,6 +2,7 @@ package com.aicostops.providerhub.application;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Set;
@@ -101,6 +102,25 @@ class KiloGatewayEndpointContractTest {
         assertFalse(manifest.isFreeEligible("deepseek-v4-pro"));
         assertFalse(manifest.isFreeEligible(null));
         assertEquals(KiloGatewayModelManifest.PRICING_UNKNOWN, manifest.pricingFor("deepseek-v4-pro"));
+    }
+
+    @Test
+    void kiloIdsMapToStableLegalCollisionResistantLogicalKeys() {
+        var key = manifest.logicalModelKey(FREE_MODEL);
+        // Legal: the generic model-key rule accepts it even though the raw id carries "/" and ":".
+        assertTrue(key.matches("[a-z0-9][a-z0-9._-]{0,99}"), key);
+        assertTrue(key.length() <= 100, key);
+        assertFalse(key.contains("/"), key);
+        assertFalse(key.contains(":"), key);
+
+        // Stable: the same raw id always maps to the same key.
+        assertEquals(key, manifest.logicalModelKey(FREE_MODEL));
+        assertEquals(key, manifest.logicalModelKey("  " + FREE_MODEL + "  "));
+
+        // Collision-resistant: ids that differ only in the characters the sanitiser rewrites stay distinct.
+        assertNotEquals(key, manifest.logicalModelKey("poolside-laguna-s-2.1-free"));
+        assertNotEquals(manifest.logicalModelKey("a/b"), manifest.logicalModelKey("a:b"));
+        assertNotEquals(manifest.logicalModelKey("a/b"), manifest.logicalModelKey("a-b"));
     }
 
     private static int countOccurrences(String value, String token) {

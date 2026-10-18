@@ -20,9 +20,13 @@ import tools.jackson.databind.ObjectMapper;
  * <p>Kilo Gateway is an OpenAI-compatible universal inference gateway
  * ({@code https://ai-gateway.kilo.ai/api/v1}), so it needs no body transform and no bespoke
  * completion path: the default OpenAI Chat Completions wire contract, the shared DIRECT_ONLY
- * (no proxy) transport policy and a neutral User-Agent are used. Free models are dispatched without
- * an {@code Authorization} header (the Control Plane pins a keyless {@code NONE} credential for an
- * admitted free model); every other model keeps the stored {@code Bearer} key.
+ * (no proxy) transport policy and a neutral User-Agent are used.
+ *
+ * <p><b>FREE_ONLY.</b> Only free models are dispatchable. An admitted free model is called without
+ * an {@code Authorization} header (the Control Plane pins a keyless {@code NONE} credential for it);
+ * every other model is refused here, before any Provider HTTP I/O, even when the frozen context
+ * carries a valid stored Bearer key. The adapter therefore never sends a paid request, independently
+ * of the candidate-eligibility barrier.
  *
  * <p>The blocking {@code KiloGatewayClient} shipped by the shared library is deliberately NOT used
  * here: the data plane owns its own bounded reactive transport, and the client is neither reactive
@@ -65,16 +69,19 @@ public class KiloGatewayChatAdapter extends AbstractOpenAiCompatibleAdapter {
         return null;
     }
 
+    /**
+     * FREE_ONLY is enforced here as well as in the candidate-eligibility barrier: a non-free model is
+     * refused before any Provider HTTP I/O, even when the frozen context carries a valid stored
+     * Bearer key.
+     */
     @Override
     protected void validateCredentials(ProviderCallContext context) {
         if (isFreeAdmitted(context)) {
             return;
         }
-        if (context.providerSecret() == null || !"BEARER_TOKEN".equals(context.credentialType())) {
-            throw new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
-                    ProviderSafetyReason.LOCAL_PRE_NETWORK_FAILURE, ProviderHealthSignal.NONE,
-                    null, null, false, null);
-        }
+        throw new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
+                ProviderSafetyReason.LOCAL_PRE_NETWORK_FAILURE, ProviderHealthSignal.NONE,
+                null, null, false, null);
     }
 
     /**

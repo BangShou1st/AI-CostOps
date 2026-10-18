@@ -85,3 +85,20 @@ lockedFields       = baseUrl/completionPath/modelsPath/userAgent/authType/networ
 1. Kilo 免费集由上游 `:free` 后缀策略决定，非服务端审核白名单；接受该供应商自身契约。若后续需“审核白名单”姿态，需与上游协商新证据版本。
 2. 付费模型当前仅“可发现、不派发”；付费开通需另立变更（ACTIVE 定价版本 + 非 FREE_ONLY 准入）。
 3. Docker/CI 走 `maven:settings` 生成容器安全 settings；若镜像策略变化需回归 JitPack 解析（见 `scripts/tasks.mjs`）。
+
+## 复审修复（2026-10-18，基于提交 e66cebf）
+
+复审发现三处问题，均按“先写测试复现 → 再修复 → 后验证”处理：
+
+1. **Kilo 原始 id 无法晋级**：`poolside/laguna-s-2.1:free` 含 `/`、`:`，被通用 model_key 规则拒绝。
+   现由 `KiloGatewayModelManifest.logicalModelKey` 派生**稳定、合法、防碰撞**的内部键
+   （`kilo-<sanitised-stem>-<sha256-16hex>`，≤100 字符）；`provider_model.provider_model_name`
+   与逻辑模型展示名保留原始 id 不变，其他 Provider 仍用原始小写名。
+   新增真实 MySQL 集成测试 `KiloGatewayPromotionIntegrationTest`（注册 → 模拟探测 → 晋级 → 键正确关联；含非免费拒绝与其他 Provider 回归）。
+2. **迁移计数断言**：`GatewayM12ReservationSchemaIntegrationTest` 的成功迁移总数由 31 修正为 32，并新增 V32 行断言。
+3. **适配器层 FREE_ONLY**：`KiloGatewayChatAdapter` 现在于任何 HTTP I/O 之前拒绝非免费模型，即使携带有效 Bearer 密钥；
+   原“付费请求成功”单测已替换为“付费请求在任何 I/O 前被拒”；新增网关集成测试
+   `KiloFreeAdmissionDispatchBoundaryIntegrationTest`（ACTIVE 定价 + 已有凭证 + 旧路由下付费 Kilo 上游调用为 0；免费匿名流式/非流式保持可用）。
+
+约束遵守：未修改共享 Starter、未改 API 地址、未扩展付费、未调用真实供应商、未新增无关功能、未改财务账本。
+

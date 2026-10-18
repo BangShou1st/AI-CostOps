@@ -300,7 +300,7 @@ public class ModelDiscoveryService {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
                     "Model not promotable", "Only models with verified Chat Completions can be promoted.");
         }
-        var modelKey = discovery.providerModelName().toLowerCase(java.util.Locale.ROOT);
+        var modelKey = logicalModelKey(profile, discovery.providerModelName());
         if (!modelKey.matches("[a-z0-9][a-z0-9._-]{0,99}")) {
             throw validationFailed("Model name cannot become a routable model key.");
         }
@@ -342,6 +342,20 @@ public class ModelDiscoveryService {
         return new DiscoveryResponse(row.id(), row.providerModelName(), row.displayName(),
                 row.source(), row.availability(), row.protocolCode(), row.pricingClassification(),
                 row.lastSeenAt(), row.lastProbedAt(), row.lastProbeStatus(), row.lastProbeErrorCode());
+    }
+
+    /**
+     * Internal logical model key for a discovered Provider model. The built-in Kilo template derives
+     * a stable, legal key because its raw ids carry {@code /} and {@code :} (see
+     * {@link KiloGatewayModelManifest#logicalModelKey(String)}); every other Provider keeps the
+     * historical raw lowercase name.
+     */
+    private String logicalModelKey(
+            com.aicostops.providerhub.domain.ProviderConnection profile, String providerModelName) {
+        if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())) {
+            return kiloManifest.logicalModelKey(providerModelName);
+        }
+        return providerModelName.toLowerCase(java.util.Locale.ROOT);
     }
 
     boolean hasVerifiedChatCompletions(String verifiedCapabilitiesJson) {
