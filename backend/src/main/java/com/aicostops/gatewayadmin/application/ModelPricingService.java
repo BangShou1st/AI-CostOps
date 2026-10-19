@@ -81,12 +81,11 @@ public class ModelPricingService {
                     "Provider account not found", "The provider account is not active in this organization.");
         }
         var providerModel = mapper.selectProviderModel(orgId, request.providerAccountId(), request.providerModelId());
-        if (providerModel == null && mapper.isProviderModelOwnedByAnotherOrganization(orgId,
-                request.providerModelId())) {
+        if (providerModel == null) {
             throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                     "Resource not found", "The resource is not available at the granted scope.");
         }
-        if (providerModel == null || !providerModel.status().equals("ACTIVE")
+        if (!providerModel.status().equals("ACTIVE")
                 || !providerModel.providerCode().equals(account.providerCode())) {
             throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
                     "Provider model is not compatible",

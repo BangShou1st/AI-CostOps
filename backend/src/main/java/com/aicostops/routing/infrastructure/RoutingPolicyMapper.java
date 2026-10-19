@@ -121,15 +121,22 @@ public interface RoutingPolicyMapper {
     String findActiveAccountProviderCode(@Param("organizationId") long organizationId,
             @Param("providerAccountId") long providerAccountId);
 
-    @Select("SELECT provider_code FROM provider_model WHERE id=#{providerModelId} AND model_id=#{modelId} AND status='ACTIVE' AND routing_eligible=TRUE")
-    String findEligibleProviderModelCode(@Param("providerModelId") long providerModelId,
-            @Param("modelId") long modelId);
+    @Select("""
+            SELECT provider_code FROM provider_model
+            WHERE id=#{providerModelId} AND model_id=#{modelId}
+              AND status='ACTIVE' AND routing_eligible=TRUE
+              AND ((owner_org_id IS NULL AND provider_account_id IS NULL)
+                OR (owner_org_id=#{organizationId} AND provider_account_id=#{providerAccountId}))
+            """)
+    String findEligibleProviderModelCode(@Param("organizationId") long organizationId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId, @Param("modelId") long modelId);
 
     @Select("""
             SELECT EXISTS(
               SELECT 1 FROM provider_model pm
               WHERE pm.id=#{providerModelId}
-                AND (pm.owner_org_id IS NULL
+                AND ((pm.owner_org_id IS NULL AND pm.provider_account_id IS NULL)
                   OR (pm.owner_org_id=#{organizationId}
                     AND pm.provider_account_id=#{providerAccountId})))
             """)
@@ -176,6 +183,8 @@ public interface RoutingPolicyMapper {
             JOIN provider_catalog pc ON pc.provider_code=pa.provider_code AND pc.status='ACTIVE'
             JOIN provider_model pm ON pm.provider_code=pa.provider_code
               AND pm.model_id=#{modelId} AND pm.status='ACTIVE'
+              AND ((pm.owner_org_id IS NULL AND pm.provider_account_id IS NULL)
+                OR (pm.owner_org_id=#{organizationId} AND pm.provider_account_id=pa.id))
             WHERE pa.org_id=#{organizationId} AND pa.status='ACTIVE'
             ORDER BY pa.id ASC,pm.id ASC
             """)

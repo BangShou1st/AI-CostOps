@@ -184,16 +184,11 @@ public interface ControlPlaneMapper {
             SELECT id,provider_code,model_id,provider_model_name,status,routing_eligible
             FROM provider_model
             WHERE id=#{providerModelId}
-              AND (owner_org_id IS NULL
+              AND ((owner_org_id IS NULL AND provider_account_id IS NULL)
                 OR (owner_org_id=#{orgId} AND provider_account_id=#{providerAccountId}))
             """)
     ProviderModelRow selectProviderModel(@Param("orgId") long orgId,
             @Param("providerAccountId") long providerAccountId,
-            @Param("providerModelId") long providerModelId);
-
-    @Select("SELECT EXISTS(SELECT 1 FROM provider_model "
-            + "WHERE id=#{providerModelId} AND owner_org_id IS NOT NULL AND owner_org_id<>#{orgId})")
-    boolean isProviderModelOwnedByAnotherOrganization(@Param("orgId") long orgId,
             @Param("providerModelId") long providerModelId);
 
     @Select("""

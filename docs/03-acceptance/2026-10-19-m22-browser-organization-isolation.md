@@ -112,3 +112,58 @@ Playwright 测试分别创建 A、B 和员工三个新的 `BrowserContext`。上
 ## 8. 最终判定
 
 `M22_BROWSER_ORGANIZATION_ISOLATION = PASS`。此状态由最新 `dev` 上真实 Backend、Frontend、MySQL、独立浏览器上下文、双向读取/写入拒绝及 GitHub CI/Security 新增证据支持；历史 M22 的 `DEFERRED` 记录保持不变。停止，等待独立复审。
+
+## 9. 独立复审整改：Provider Model 可见性边界
+
+本节为独立复审后基于 `dev @ 86a3167fd47110aded9d434f4faad9e79b9b04b1` 新增的后续证据。前文第 1–8 节描述的是提交 `550db8f0846e03e192ad288051d45bd27011c059` 时已完成的双组织浏览器验收；本节保留该时间点记录，并补充复审发现及其整改结果。
+
+### 9.1 P1：Routing Options 跨组织 Provider Model 泄露
+
+**修复前真实复现。** 新增真实 MySQL 集成用例，创建全局逻辑模型 G、A/B 两个 `TESTPC` Provider Account，以及绑定 G 的 A、B 私有 Provider Model。A 的有效管理员身份请求 `GET /api/v1/routing-options?modelId=G` 得到 HTTP 200；响应包含全局模型、A 自己绑定的私有模型，同时也泄露了 B 的私有 Provider Model ID 和名称。该 RED 运行中动态 ID 分别为 G=`12`、全局映射=`13`、A 私有映射=`14`、B 私有映射=`15`；这些值仅用于还原该次运行，不被测试固定使用。
+
+根因是 `findRouteOptions()` 只按 Provider Code、逻辑模型 ID 和 ACTIVE 状态关联 Provider Model，未限制 `owner_org_id` 与账户绑定。A 的账户因此匹配到 B 的私有映射。
+
+**关联写入核查。** 同一真实 MySQL 集成测试通过 API 验证：A 使用全局 Provider Model 创建 Routing Policy 返回 201；使用绑定 A 自己账户的私有模型创建返回 201；提交 B 的真实私有 Provider Model ID 返回 400 `VALIDATION_FAILED`，且拒绝后 A 的 Routing Policy 与 Candidate 行数不变。修复前 `isRoutablePair()` 已阻止该跨组织写入，因此未发现第二个可利用的写入绕过。整改同时让 `findEligibleProviderModelCode()` 按调用组织和 Provider Account 过滤，并使 `isRoutablePair()` 对全局模型要求未绑定账户、对私有模型要求当前组织和正确账户，令校验边界保持一致。
+
+| A 的操作 | 期望与实际 | 数据结果 |
+| --- | --- | --- |
+| `GET /api/v1/routing-options?modelId=G`，全局 Provider Model | 200，正常可见 | 保留 |
+| 同一查询，绑定 A 账户的 A 私有 Provider Model | 200，正常可见 | 保留 |
+| 同一查询，绑定 B 账户的 B 私有 Provider Model | 200，列表排除 B 模型 ID 与名称 | 不返回外组织内容 |
+| `POST /api/v1/routing-policies` 关联全局 / A 正确绑定私有模型 | 201 / 201 | 两个合法 Draft 策略及 Candidate 创建成功 |
+| 同一创建接口关联 B 私有 Provider Model | 400 `VALIDATION_FAILED` | A 的策略和 Candidate 行数不变 |
+
+### 9.2 P2：Pricing Version Provider Model ID 存在性探针
+
+**修复前真实复现。** 对以下四个请求使用同一组织 A 管理员身份和同一个 A 的有效 `TESTPC` Provider Account；各 Provider Model ID 均运行时创建或动态计算：
+
+| Provider Model 情况 | 修复前实际 HTTP / code | 修复后期望与实际 HTTP / code |
+| --- | --- | --- |
+| B 的私有模型（RED 运行 ID `20`） | 404 `RESOURCE_NOT_FOUND` | 404 `RESOURCE_NOT_FOUND` |
+| 完全不存在的模型 ID（RED 运行 ID `1021`） | 400 `VALIDATION_FAILED` | 404 `RESOURCE_NOT_FOUND` |
+| 全局可见但 Provider Code 为 `OTHERPC` 的模型（RED 运行 ID `21`） | 400 `VALIDATION_FAILED` | 400 `VALIDATION_FAILED` |
+| 当前组织账户绑定且兼容的私有模型（RED 运行时另用全局兼容模型 ID `19`） | 201 `DRAFT` | 201 `DRAFT`（新增 GREEN 用例改用 A 正确绑定的私有模型） |
+
+修复前 `createPricingVersion()` 通过 `isProviderModelOwnedByAnotherOrganization()` 对外组织真实 ID 特判为 404，而完全不存在的 ID 落入一般校验并返回 400，响应可用于探测存在性。现删除该跨组织存在性查询；`selectProviderModel()` 只接受未绑定账户的全局模型，或当前组织且绑定当前请求账户的私有模型。不可见或不存在都走同一 `RESOURCE_NOT_FOUND`；已可见而 Provider Code 不兼容的模型仍走原 `VALIDATION_FAILED`。
+
+拒绝请求之后，集成测试查询 A 组织的 `pricing_version` 和 `pricing_rate`：外组织私有、不存在、可见不兼容三种拒绝均无新增行；合法私有模型创建增加 1 条 Pricing Version 和 2 条 Rate。金额、版本递增及激活规则未修改。
+
+### 9.3 RED → GREEN 与回归结果
+
+新增/更新 `ModelPricingApiIntegrationTest` 的 RED 运行使用真实 Testcontainers MySQL 8.4 与 Redis：14 tests，12 passed、2 failed、0 errors、0 skipped，exit 1。两个失败分别证实 `routingOptionsExposeGlobalAndCorrectlyBoundPrivateModelsOnly` 收到 B 的私有模型 ID，以及 `pricingCreationDoesNotRevealWhetherAnInvisibleProviderModelExists` 实测状态序列为 `[404, 400, 400, 201]` 而隐私契约要求 `[404, 404, 400, 201]`。修复后同一命令 14 tests，14 passed、0 failures、0 errors、0 skipped，exit 0。
+
+首轮修复后复跑暴露一项旧测试夹具问题：原 `incompatibleProviderModelIsRejectedAndForeignAccountIsInvisible` 将 `model_catalog.id` 误用为 `provider_model.id`，因此该输入现按正确契约返回 404。测试已改成真实可见但 Provider Code 不兼容的 `OTHERPC` Provider Model；业务实现没有为旧错误夹具保留 400。
+
+定向命令：`cd backend; .\mvnw.cmd '-Dtest=ModelPricingApiIntegrationTest' test`。本轮保留的修复前日志仅在本地忽略目录 `.local-dev/m22-review/`，其中 Authorization 与 trace 标识已脱敏，不纳入版本控制。
+
+原 M22 Playwright 测试 `frontend/e2e/m22-browser-organization-isolation.spec.ts` 继续覆盖双组织自己的 Pricing Version / Routing Policy 创建、外组织私有模型路由选项 404、外组织定价关联拒绝，以及 Routing Policy 候选拒绝后的状态不变。本轮没有本地安装或运行 Playwright 浏览器；后续推送 CI 的 `browser-e2e` 作业将对既有完整 Compose 场景做回归，不重复本机 183 条浏览器断言。
+
+### 9.4 本轮结论与远端验证
+
+最终实现提交与本节证据文档提交：`待提交后填写`。根目录 `npm run verify` 已退出 **0**。其中 Backend Surefire 692 项全部通过（1 项按既有配置跳过），Failsafe 集成 1,271/1,271；Gateway Surefire/架构 227/227、Failsafe 集成 98/98；前端 Vitest 72 个文件、547/547，ESLint 与 TypeScript/Vite build 均成功。仓库脚本 unit 27/27、lifecycle 2/2。
+
+全量 Backend Failsafe 期间，`V22LegacyRoutingBackfillIntegrationTest` 首次启动 MySQL 8.4 时 Testcontainers 收到 Docker Engine `InternalServerErrorException: Status 500`。容器启动重试成功，该迁移用例随后 1/1 通过；容器日志未见 OOMKilled，完整 Backend `mvn verify` 用时 45:08 并成功。Gateway 全量日志有一条 Advisor Worker 后台 tick 的 JDBC `Access denied` 警告，未造成用例失败；最终 Gateway `mvn verify` 用时 5:36 并成功。定向整改测试仍为 14/14 通过。浏览器不在本机复跑；等待推送后的 CI `browser-e2e` 完整 Compose 回归。
+
+本次实现提交对应 GitHub CI 14 作业、Security 3 作业：`待推送并运行后填写`。文档证据提交与实现提交的 SHA 将分别记录；远端运行链接记录在实现提交对应工作流中。
+
+本节两项复审问题均已在真实 MySQL 定向集成测试中复现并修复；待 GitHub Actions 结果写入前，不将本次追加证据标记为最终 PASS。前文历史证据与原生产认证文档的 `DEFERRED / NON-BLOCKING` 状态均未倒改。

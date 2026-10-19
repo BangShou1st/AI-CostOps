@@ -182,7 +182,8 @@ public class RoutingPolicyService {
             var key = candidate.providerAccountId() + ":" + candidate.providerModelId();
             if (!unique.add(key)) throw validation("A route candidate may appear only once.");
             var accountCode = mapper.findActiveAccountProviderCode(organizationId, candidate.providerAccountId());
-            var modelCode = mapper.findEligibleProviderModelCode(candidate.providerModelId(), modelId);
+            var modelCode = mapper.findEligibleProviderModelCode(organizationId,
+                    candidate.providerAccountId(), candidate.providerModelId(), modelId);
             if (accountCode == null || modelCode == null || !accountCode.equals(modelCode)
                     || !mapper.isActiveProviderCatalog(accountCode)
                     || !mapper.isRoutablePair(organizationId, candidate.providerAccountId(),
