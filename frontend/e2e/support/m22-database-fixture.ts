@@ -81,10 +81,10 @@ FROM billing_period bp
 WHERE bp.org_id=${firstOrgId} AND bp.status='OPEN'
 ORDER BY bp.period_start DESC
 LIMIT 1;
-SELECT CONCAT(@m22_org_b, '\t', ${memberId}, '\t',
-  (SELECT org_id FROM organization_member WHERE id=${memberId} AND user_id=${userId}), '\t',
-  (SELECT COUNT(*) FROM role_assignment WHERE org_member_id=${memberId} AND scope_type='ORG' AND scope_id=@m22_org_b), '\t',
-  (SELECT COUNT(*) FROM billing_period WHERE org_id=@m22_org_b AND status='OPEN'));
+SELECT @m22_org_b, ${memberId},
+  (SELECT org_id FROM organization_member WHERE id=${memberId} AND user_id=${userId}),
+  (SELECT COUNT(*) FROM role_assignment WHERE org_member_id=${memberId} AND scope_type='ORG' AND scope_id=@m22_org_b),
+  (SELECT COUNT(*) FROM billing_period WHERE org_id=@m22_org_b AND status='OPEN');
 COMMIT;
 `)
 
@@ -125,7 +125,7 @@ VALUES ('OPENCODE_ZEN',@m22_model,'${escapedName}','ACTIVE',TRUE,
   JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS')),
   ${organizationId},${providerAccountId},UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));
 SET @m22_provider_model = LAST_INSERT_ID();
-SELECT CONCAT(@m22_model, '\t', @m22_provider_model);
+SELECT @m22_model, @m22_provider_model;
 COMMIT;
 `)
   const result = output.split(/\r?\n/).at(-1)?.split('\t') ?? []
