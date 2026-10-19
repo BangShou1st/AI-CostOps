@@ -696,14 +696,39 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
     // Org A's connection names, labels, URLs, or synthetic credential value.
     await pageB.goto(`${E2E_BASE_URL}/settings/provider-connections`)
     await expect(pageB.getByRole('heading', { name: '连接配置', level: 1 })).toBeVisible()
-    await expect(pageB.locator('body')).toContainText(orgB.providerAccount.displayName)
+    await expect(pageB.locator('body')).toContainText(`#${orgB.connection.id}`)
+    await expect(pageB.locator('body')).not.toContainText(`#${orgA.connection.id}`)
     await expect(pageB.locator('body')).not.toContainText(orgA.providerAccount.displayName)
     await expect(pageB.locator('body')).not.toContainText(orgA.rawSecret)
+    await pageB.addInitScript((forbiddenValues: string[]) => {
+      const matches: string[] = []
+      Object.defineProperty(window, '__m22ForbiddenTextMatches', { configurable: true, value: matches })
+      const inspect = (text: string) => {
+        for (const value of forbiddenValues) {
+          if (value && text.includes(value) && !matches.includes(value)) matches.push(value)
+        }
+      }
+      inspect(document.documentElement?.textContent ?? '')
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          if (record.type === 'characterData') {
+            inspect(record.oldValue ?? '')
+            inspect(record.target.textContent ?? '')
+          }
+          for (const node of Array.from(record.addedNodes)) inspect(node.textContent ?? '')
+        }
+      })
+      observer.observe(document, { childList: true, subtree: true, characterData: true, characterDataOldValue: true })
+    }, [orgA.providerAccount.displayName, orgA.credential.safeLabel, orgA.rawSecret, orgA.connection.baseUrl])
     const foreignDetailResponse = pageB.waitForResponse((response) =>
       response.url() === `${API_ROOT}/provider-connections/${orgA.connection.id}`
       && response.request().method() === 'GET')
     await pageB.goto(`${E2E_BASE_URL}/settings/provider-connections/${orgA.connection.id}`)
     expect((await foreignDetailResponse).status()).toBe(404)
+    const transientForeignContent = await pageB.evaluate(() => (
+      window as Window & { __m22ForbiddenTextMatches?: string[] }
+    ).__m22ForbiddenTextMatches ?? [])
+    expect(transientForeignContent).toEqual([])
     await expect(pageB.locator('body')).not.toContainText(orgA.providerAccount.displayName)
     await expect(pageB.locator('body')).not.toContainText(orgA.credential.safeLabel)
     await expect(pageB.locator('body')).not.toContainText(orgA.rawSecret)
@@ -735,6 +760,12 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
       body: Buffer.from(JSON.stringify(statuses, null, 2)),
       contentType: 'application/json',
     })
+    const sanitizedStatuses = statuses.map((entry) => ({
+      ...entry,
+      operation: entry.operation.replace(/^[^:]+:\s*/, ''),
+      route: entry.route.replace(/([?&](?:scopeId|billingPeriodId|projectId|modelId)=)[^&]+/g, '$1:id'),
+    }))
+    console.info(`[M22] HTTP status matrix (${sanitizedStatuses.length} requests): ${JSON.stringify(sanitizedStatuses)}`)
   } finally {
     await Promise.all([contextA.close(), contextB.close(), employeeContext.close()])
   }
