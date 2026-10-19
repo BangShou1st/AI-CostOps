@@ -109,6 +109,31 @@ if ($forbiddenBudgetGrants.Count -gt 0) {
     Add-Pass "No UPDATE/DELETE on budget/billing_period."
 }
 
+# AdvisorInferenceWorker has a deliberately narrow table-level grant set.
+$expectedAdvisorPrivileges = @(
+    @{ Table = "advisor_inference_job"; Privileges = @("SELECT", "UPDATE") }
+    @{ Table = "advisor_inference_attempt"; Privileges = @("SELECT", "UPDATE") }
+    @{ Table = "advisor_explanation"; Privileges = @("INSERT") }
+    @{ Table = "advisor_profile"; Privileges = @("SELECT") }
+    @{ Table = "advisor_evidence_snapshot"; Privileges = @("SELECT") }
+)
+$grantLines = @($grants -split "`n")
+foreach ($case in $expectedAdvisorPrivileges) {
+    $line = $grantLines | Where-Object { $_ -match "(?i)\b$($case.Table)\b" } | Select-Object -First 1
+    $privilegeMatch = if ($line) { [regex]::Match($line, "(?i)^GRANT\s+(.+?)\s+ON\b") } else { $null }
+    if (-not $privilegeMatch -or -not $privilegeMatch.Success) {
+        Add-Failure "Missing table grant for $($case.Table)."
+        continue
+    }
+    $actual = @($privilegeMatch.Groups[1].Value.Split(',') | ForEach-Object { $_.Trim().ToUpperInvariant() } | Sort-Object)
+    $expected = @($case.Privileges | ForEach-Object { $_.ToUpperInvariant() } | Sort-Object)
+    if (($actual -join ',') -ne ($expected -join ',')) {
+        Add-Failure "Unexpected $($case.Table) privileges: $($actual -join ', ') (expected $($expected -join ', '))."
+    } else {
+        Add-Pass "$($case.Table) has only $($expected -join ', ') privilege(s)."
+    }
+}
+
 # === Phase 2: Positive SELECT matrix ===
 $runtimeSelects = @(
     @{ Table = "billing_period"; Sql = "SELECT COUNT(*) FROM billing_period;" },
@@ -124,6 +149,9 @@ $runtimeSelects = @(
     @{ Table = "routing_policy"; Sql = "SELECT COUNT(*) FROM routing_policy;" },
     @{ Table = "routing_policy_candidate"; Sql = "SELECT COUNT(*) FROM routing_policy_candidate;" },
     @{ Table = "gateway_credential"; Sql = "SELECT COUNT(*) FROM gateway_credential;" },
+    @{ Table = "advisor_inference_job"; Sql = "SELECT COUNT(*) FROM advisor_inference_job;" },
+    @{ Table = "advisor_profile"; Sql = "SELECT COUNT(*) FROM advisor_profile;" },
+    @{ Table = "advisor_evidence_snapshot"; Sql = "SELECT COUNT(*) FROM advisor_evidence_snapshot;" },
     @{ Table = "gateway_credential_model"; Sql = "SELECT COUNT(*) FROM gateway_credential_model;" },
     @{ Table = "service_identity"; Sql = "SELECT COUNT(*) FROM service_identity;" },
     @{ Table = "provider_credential"; Sql = "SELECT COUNT(*) FROM provider_credential;" },
@@ -150,6 +178,7 @@ $lockCases = @(
     @{ Label = "billing_period"; Sql = "START TRANSACTION; SELECT id FROM billing_period WHERE id=999999 FOR UPDATE; ROLLBACK;" },
     @{ Label = "gateway_request"; Sql = "START TRANSACTION; SELECT id FROM gateway_request LIMIT 1 FOR UPDATE; ROLLBACK;" },
     @{ Label = "budget_reservation"; Sql = "START TRANSACTION; SELECT id FROM budget_reservation WHERE id=999999 FOR UPDATE; ROLLBACK;" }
+    @{ Label = "advisor_inference_job"; Sql = "START TRANSACTION; SELECT id FROM advisor_inference_job WHERE id=999999 FOR UPDATE SKIP LOCKED; ROLLBACK;" }
 )
 $lockOk = $true
 foreach ($case in $lockCases) {
@@ -161,6 +190,29 @@ foreach ($case in $lockCases) {
 }
 if ($lockOk) {
     Add-Pass "All SELECT ... FOR UPDATE succeed ($($lockCases.Count) cases)."
+}
+
+# Worker DML probes use impossible keys, so they exercise MySQL's privilege
+# checks without changing any application rows. Explanation INSERT is proven
+# by the expected FK rejection after the INSERT privilege check.
+$advisorWriteChecks = @(
+    @{ Label = "advisor_inference_job UPDATE"; Sql = "UPDATE advisor_inference_job SET status='PENDING' WHERE id=-1;" },
+    @{ Label = "advisor_inference_attempt UPDATE"; Sql = "UPDATE advisor_inference_attempt SET status='FAILED',failure_code='PRIVILEGE_PROBE' WHERE org_id=-1 AND job_id=-1 AND attempt_no=-1 AND status IN ('PENDING','RUNNING');" }
+)
+foreach ($case in $advisorWriteChecks) {
+    $out = Invoke-Gateway $case.Sql
+    if ($out -match "ERROR") {
+        Add-Failure "$($case.Label) failed: $out"
+    } else {
+        Add-Pass "$($case.Label) succeeds without matching rows."
+    }
+}
+$explanationProbe = "INSERT INTO advisor_explanation(org_id,job_id,attempt_no,schema_version,summary,drivers_explanation,recommended_actions_json,warnings_json,fact_reference_ids_json,created_at) VALUES(-1,-1,1,1,'privilege probe','privilege probe',JSON_ARRAY(),JSON_ARRAY(),JSON_ARRAY(),UTC_TIMESTAMP(6));"
+$explanationOut = Invoke-Gateway $explanationProbe
+if ($explanationOut -match "ERROR 1452") {
+    Add-Pass "advisor_explanation INSERT reaches the expected foreign-key fence."
+} else {
+    Add-Failure "advisor_explanation INSERT did not reach the expected foreign-key fence: $explanationOut"
 }
 
 # === Phase 4: Positive Gateway-owned write (rolled back) ===
