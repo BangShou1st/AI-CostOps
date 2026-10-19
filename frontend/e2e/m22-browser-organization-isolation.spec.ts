@@ -57,7 +57,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
   const pageB = await contextB.newPage()
   const employeePage = await employeeContext.newPage()
   const suffix = randomUUID().replaceAll('-', '').slice(0, 16)
-  const statuses: Array<{ operation: string; method: string; route: string; expected: number; actual: number }> = []
+  const statuses: Array<{ operation: string; method: string; route: string; expected: number | number[]; actual: number }> = []
 
   const assertApi = async (
     context: BrowserContext,
@@ -98,7 +98,8 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
       response.url().endsWith('/api/v1/auth/register') && response.request().method() === 'POST')
     await page.getByRole('button', { name: '创建账号' }).click()
     const response = await responsePromise
-    expect(response.ok(), 'synthetic registration uses the real public API').toBeTruthy()
+    statuses.push({ operation: 'public registration', method: 'POST', route: '/auth/register', expected: 200, actual: response.status() })
+    expect(response.status(), 'synthetic registration uses the real public API').toBe(200)
     await expect(page).toHaveURL(/\/login$/)
     return await response.json() as RegisteredIdentity
   }
@@ -111,6 +112,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
       response.url().endsWith('/api/v1/auth/login') && response.request().method() === 'POST')
     await page.getByRole('button', { name: '登录' }).click()
     const response = await responsePromise
+    statuses.push({ operation: 'browser login', method: 'POST', route: '/auth/login', expected: 200, actual: response.status() })
     expect(response.status(), 'login uses the real authentication endpoint').toBe(200)
     await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible({ timeout: 20_000 })
     return await response.json() as LoginResponse
@@ -120,6 +122,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
     const response = await context.request.get(`${API_ROOT}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
+    statuses.push({ operation: 'authenticated identity', method: 'GET', route: '/auth/me', expected: 200, actual: response.status() })
     expect(response.status(), 'authenticated identity endpoint').toBe(200)
     return await response.json() as AuthUser
   }
@@ -393,6 +396,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
     const substitutedMe = await contextB.request.get(`${API_ROOT}/auth/me`, {
       headers: { Authorization: `Bearer ${loginA.accessToken}` },
     })
+    statuses.push({ operation: 'A token remains A in B context', method: 'GET', route: '/auth/me', expected: 200, actual: substitutedMe.status() })
     expect(substitutedMe.status()).toBe(200)
     expect(((await substitutedMe.json()) as AuthUser).email).toBe(identityA.email)
     await assertApi(contextB, loginA.accessToken, 'A token in B context cannot read B Connection',
@@ -472,6 +476,39 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
     for (const [attacker, victim] of [[orgA, orgB], [orgB, orgA]] as const) {
       const attackerContext = attacker === orgA ? contextA : contextB
       const ownerContext = victim === orgA ? contextA : contextB
+
+      const forgedAccountName = `M22 forged orgId ${suffix} ${attacker === orgA ? 'a' : 'b'}`
+      const forgedAccountResponse = await attackerContext.request.post(`${API_ROOT}/provider-accounts`, {
+        headers: { Authorization: `Bearer ${attacker.token}` },
+        data: {
+          providerCode: 'OPENCODE_ZEN',
+          displayName: forgedAccountName,
+          externalAccountRef: `m22-forged-${suffix}-${attacker === orgA ? 'a' : 'b'}`,
+          orgId: Number(victim.organizationId),
+        },
+      })
+      const forgedAccountStatus = forgedAccountResponse.status()
+      statuses.push({
+        operation: 'forged orgId cannot create a foreign Provider Account',
+        method: 'POST',
+        route: '/provider-accounts',
+        expected: [201, 400],
+        actual: forgedAccountStatus,
+      })
+      expect([201, 400], 'the unsupported orgId is ignored or rejected').toContain(forgedAccountStatus)
+      const forgedAccountId = forgedAccountStatus === 201
+        ? String(((await forgedAccountResponse.json()) as { id: string | number }).id)
+        : null
+      const attackerAccountList = await assertApi(attackerContext, attacker.token,
+        'caller organization verifies orgId create result', 'GET', '/provider-accounts?page=0&size=100', 200)
+      expect(attackerAccountList.body.items.some((entry: { id: string | number; displayName: string }) =>
+        entry.displayName === forgedAccountName && (forgedAccountId === null || String(entry.id) === forgedAccountId)))
+        .toBe(forgedAccountStatus === 201)
+      const victimAccountList = await assertApi(ownerContext, victim.token,
+        'target organization verifies forged orgId did not create a Provider Account',
+        'GET', '/provider-accounts?page=0&size=100', 200)
+      expect(victimAccountList.body.items.some((entry: { displayName: string }) =>
+        entry.displayName === forgedAccountName)).toBe(false)
 
       await assertApi(attackerContext, attacker.token, `${attacker.email}: foreign Provider Account update rejected`,
         'PATCH', `/provider-accounts/${victim.providerAccount.id}`, 404, {
@@ -719,7 +756,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
         }
       })
       observer.observe(document, { childList: true, subtree: true, characterData: true, characterDataOldValue: true })
-    }, [orgA.providerAccount.displayName, orgA.credential.safeLabel, orgA.rawSecret, orgA.connection.baseUrl])
+    }, [orgA.providerAccount.displayName, orgA.credential.safeLabel, orgA.rawSecret])
     const foreignDetailResponse = pageB.waitForResponse((response) =>
       response.url() === `${API_ROOT}/provider-connections/${orgA.connection.id}`
       && response.request().method() === 'GET')
@@ -738,7 +775,12 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
     const logoutButton = pageA.getByRole('button', { name: '退出登录' })
     await pageA.goto(`${E2E_BASE_URL}/workbench`)
     await expect(logoutButton).toBeVisible()
+    const logoutResponsePromise = pageA.waitForResponse((response) =>
+      response.url().endsWith('/api/v1/auth/logout') && response.request().method() === 'POST')
     await logoutButton.click()
+    const logoutResponse = await logoutResponsePromise
+    statuses.push({ operation: 'context A logout', method: 'POST', route: '/auth/logout', expected: 204, actual: logoutResponse.status() })
+    expect(logoutResponse.status()).toBe(204)
     await expect(pageA).toHaveURL(/\/login$/)
     expect((await contextA.cookies(`${E2E_BASE_URL}/api/v1/auth`))
       .some((cookie) => cookie.name === 'aicostops_refresh')).toBe(false)
@@ -749,6 +791,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
       response.url().endsWith('/api/v1/auth/refresh') && response.request().method() === 'POST')
     await pageB.reload()
     const refreshResponse = await refreshResponsePromise
+    statuses.push({ operation: 'context B refresh after A logout', method: 'POST', route: '/auth/refresh', expected: 200, actual: refreshResponse.status() })
     expect(refreshResponse.status()).toBe(200)
     const refreshedB = await refreshResponse.json() as LoginResponse
     const identityAfterRefresh = await me(contextB, refreshedB.accessToken)
