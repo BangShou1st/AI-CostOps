@@ -118,7 +118,7 @@ public class RoutingPolicyService {
     public List<RoutingPolicyDtos.RouteOptionResponse> options(AuthenticatedUser user, long modelId) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "PROVIDER_ACCOUNT_READ");
-        if (mapper.findActiveModel(modelId) == null) {
+        if (mapper.findActiveModel(context.organizationId(), modelId) == null) {
             throw notFound("The model is not available.");
         }
         return mapper.findRouteOptions(context.organizationId(), modelId, clock.instant()).stream()
@@ -144,7 +144,7 @@ public class RoutingPolicyService {
         if (projectId != null && mapper.findActiveProject(organizationId, projectId) == null) {
             throw notFound("The project is not available in the current organization.");
         }
-        if (mapper.findActiveModel(modelId) == null) {
+        if (mapper.findActiveModel(organizationId, modelId) == null) {
             throw notFound("The model is not available.");
         }
         validateCandidates(organizationId, modelId, candidates, false);

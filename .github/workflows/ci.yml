@@ -305,6 +305,7 @@ jobs:
     timeout-minutes: 40
     env:
       E2E_ENV_FILE: .e2e-ci.env
+      AICOSTOPS_M22_COMPOSE_PROJECT: aicostops-browser-e2e
     steps:
       - uses: actions/checkout@v6
 

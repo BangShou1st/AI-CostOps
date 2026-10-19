@@ -43,16 +43,18 @@ public class ModelPricingService {
     }
 
     public List<ControlPlaneDtos.ModelCatalogResponse> listModels(AuthenticatedUser user) {
-        authorization.requireOrg(authorizationContexts.current(user), "PROVIDER_ACCOUNT_READ");
-        return mapper.selectActiveModels().stream()
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_READ");
+        return mapper.selectActiveModels(context.organizationId()).stream()
                 .map(row -> new ControlPlaneDtos.ModelCatalogResponse(
                         ApiId.of(row.id()), row.modelKey(), row.name(), row.status()))
                 .toList();
     }
 
     public List<ControlPlaneDtos.ProviderModelResponse> listProviderModels(AuthenticatedUser user) {
-        authorization.requireOrg(authorizationContexts.current(user), "PROVIDER_ACCOUNT_READ");
-        return mapper.selectActiveProviderModels().stream()
+        var context = authorizationContexts.current(user);
+        authorization.requireOrg(context, "PROVIDER_ACCOUNT_READ");
+        return mapper.selectActiveProviderModels(context.organizationId()).stream()
                 .map(row -> new ControlPlaneDtos.ProviderModelResponse(
                         ApiId.of(row.id()), row.providerCode(), ApiId.of(row.modelId()),
                         row.providerModelName(), row.status(), row.routingEligible()))
@@ -78,7 +80,12 @@ public class ModelPricingService {
             throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                     "Provider account not found", "The provider account is not active in this organization.");
         }
-        var providerModel = mapper.selectProviderModel(request.providerModelId());
+        var providerModel = mapper.selectProviderModel(orgId, request.providerAccountId(), request.providerModelId());
+        if (providerModel == null && mapper.isProviderModelOwnedByAnotherOrganization(orgId,
+                request.providerModelId())) {
+            throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
+                    "Resource not found", "The resource is not available at the granted scope.");
+        }
         if (providerModel == null || !providerModel.status().equals("ACTIVE")
                 || !providerModel.providerCode().equals(account.providerCode())) {
             throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,

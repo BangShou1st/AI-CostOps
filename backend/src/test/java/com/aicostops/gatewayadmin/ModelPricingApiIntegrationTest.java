@@ -84,6 +84,59 @@ class ModelPricingApiIntegrationTest extends ControlPlaneApiTestSupport {
     }
 
     @Test
+    void privateCatalogModelsAreNotVisibleAcrossOrganizations() throws Exception {
+        var foreignModel = insertForeignPrivateModel();
+
+        var catalog = mockMvc.perform(get("/api/v1/model-catalog")
+                        .header("Authorization", readerBearer()))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(catalog)
+                .doesNotContain(foreignModel.modelKey(), foreignModel.modelName());
+    }
+
+    @Test
+    void privateProviderModelsAreNotVisibleAcrossOrganizations() throws Exception {
+        var foreignModel = insertForeignPrivateModel();
+        var providerModels = mockMvc.perform(get("/api/v1/provider-models")
+                        .header("Authorization", readerBearer()))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        org.assertj.core.api.Assertions.assertThat(providerModels)
+                .doesNotContain(foreignModel.providerModelName());
+    }
+
+    @Test
+    void cannotCreatePricingForAnotherOrganizationsPrivateProviderModel() throws Exception {
+        var foreignModel = insertForeignPrivateModel();
+        int before = pricingVersionCount(foreignModel.providerModelId());
+
+        mockMvc.perform(post("/api/v1/pricing-versions")
+                        .header("Authorization", managerBearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(pricingJsonFor(
+                                foreignModel.providerModelId(), providerAccountId, 10.0, 20.0)))
+                .andExpect(status().isNotFound());
+
+        org.assertj.core.api.Assertions.assertThat(pricingVersionCount(foreignModel.providerModelId()))
+                .isEqualTo(before);
+    }
+
+    @Test
+    void routingOptionsHideAnotherOrganizationsPrivateModel() throws Exception {
+        var foreignModel = insertForeignPrivateModel();
+
+        mockMvc.perform(get("/api/v1/routing-options")
+                        .param("modelId", Long.toString(foreignModel.modelId()))
+                        .header("Authorization", readerBearer()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void activationPromotesDraftRetiresPriorActiveVersionsAndConflictsOnRepeat() throws Exception {
         var first = mockMvc.perform(post("/api/v1/pricing-versions")
                         .header("Authorization", managerBearer())
@@ -195,6 +248,42 @@ class ModelPricingApiIntegrationTest extends ControlPlaneApiTestSupport {
                 }
                 """.formatted(account, providerModel, new BigDecimal(Double.toString(input)).toPlainString(),
                 new BigDecimal(Double.toString(output)).toPlainString());
+    }
+
+    private ForeignPrivateModel insertForeignPrivateModel() {
+        var suffix = fixtureCounter + "-" + System.nanoTime();
+        var modelKey = "cp-private-" + suffix;
+        var modelName = "CP Private Model " + suffix;
+        var providerModelName = "cp-private-provider-model-" + suffix;
+        var accountId = insertProviderAccount(
+                foreignOrgId, "TESTPC", "cp-private-account-" + suffix);
+        jdbc.update("""
+                INSERT INTO model_catalog(model_key,name,owner_org_id,status,capabilities_json,
+                    default_max_output_tokens,max_output_tokens,created_at,updated_at)
+                VALUES (?,?,?,'ACTIVE',JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS')),8192,131072,
+                    UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, modelKey, modelName, foreignOrgId);
+        long privateModelId = jdbc.queryForObject(
+                "SELECT id FROM model_catalog WHERE model_key=?", Long.class, modelKey);
+        jdbc.update("""
+                INSERT INTO provider_model(provider_code,model_id,provider_model_name,status,
+                    routing_eligible,capabilities_json,owner_org_id,provider_account_id,created_at,updated_at)
+                VALUES ('TESTPC',?,?,'ACTIVE',TRUE,JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS')),
+                    ?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, privateModelId, providerModelName, foreignOrgId, accountId);
+        long privateProviderModelId = jdbc.queryForObject(
+                "SELECT id FROM provider_model WHERE provider_model_name=?", Long.class, providerModelName);
+        return new ForeignPrivateModel(modelKey, modelName, providerModelName,
+                privateModelId, privateProviderModelId);
+    }
+
+    private int pricingVersionCount(long providerModelId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM pricing_version WHERE org_id=? AND provider_model_id=?",
+                Integer.class, orgId, providerModelId);
+    }
+
+    private record ForeignPrivateModel(String modelKey, String modelName, String providerModelName,
+            long modelId, long providerModelId) {
     }
 
     private static long readLong(org.springframework.test.web.servlet.MvcResult result, String name)

@@ -113,8 +113,9 @@ public interface RoutingPolicyMapper {
     @Select("SELECT id FROM project WHERE id=#{projectId} AND org_id=#{organizationId} AND status='ACTIVE'")
     Long findActiveProject(@Param("organizationId") long organizationId, @Param("projectId") long projectId);
 
-    @Select("SELECT id FROM model_catalog WHERE id=#{modelId} AND status='ACTIVE'")
-    Long findActiveModel(@Param("modelId") long modelId);
+    @Select("SELECT id FROM model_catalog WHERE id=#{modelId} AND status='ACTIVE' "
+            + "AND (owner_org_id IS NULL OR owner_org_id=#{organizationId})")
+    Long findActiveModel(@Param("organizationId") long organizationId, @Param("modelId") long modelId);
 
     @Select("SELECT provider_code FROM provider_account WHERE id=#{providerAccountId} AND org_id=#{organizationId} AND status='ACTIVE'")
     String findActiveAccountProviderCode(@Param("organizationId") long organizationId,

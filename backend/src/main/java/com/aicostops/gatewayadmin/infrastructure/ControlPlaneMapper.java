@@ -167,23 +167,34 @@ public interface ControlPlaneMapper {
 
     @Select("""
             SELECT id,model_key,name,status FROM model_catalog
-            WHERE status='ACTIVE' ORDER BY id
+            WHERE status='ACTIVE' AND (owner_org_id IS NULL OR owner_org_id=#{orgId})
+            ORDER BY id
             """)
-    List<ModelRow> selectActiveModels();
+    List<ModelRow> selectActiveModels(@Param("orgId") long orgId);
 
     @Select("""
             SELECT id,provider_code,model_id,provider_model_name,status,routing_eligible
             FROM provider_model
-            WHERE status='ACTIVE' ORDER BY id
+            WHERE status='ACTIVE' AND (owner_org_id IS NULL OR owner_org_id=#{orgId})
+            ORDER BY id
             """)
-    List<ProviderModelRow> selectActiveProviderModels();
+    List<ProviderModelRow> selectActiveProviderModels(@Param("orgId") long orgId);
 
     @Select("""
             SELECT id,provider_code,model_id,provider_model_name,status,routing_eligible
             FROM provider_model
             WHERE id=#{providerModelId}
+              AND (owner_org_id IS NULL
+                OR (owner_org_id=#{orgId} AND provider_account_id=#{providerAccountId}))
             """)
-    ProviderModelRow selectProviderModel(@Param("providerModelId") long providerModelId);
+    ProviderModelRow selectProviderModel(@Param("orgId") long orgId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId);
+
+    @Select("SELECT EXISTS(SELECT 1 FROM provider_model "
+            + "WHERE id=#{providerModelId} AND owner_org_id IS NOT NULL AND owner_org_id<>#{orgId})")
+    boolean isProviderModelOwnedByAnotherOrganization(@Param("orgId") long orgId,
+            @Param("providerModelId") long providerModelId);
 
     @Select("""
             SELECT id,provider_code,display_name,status FROM provider_account
