@@ -160,10 +160,10 @@ Playwright 测试分别创建 A、B 和员工三个新的 `BrowserContext`。上
 
 ### 9.4 本轮结论与远端验证
 
-最终实现提交与本节证据文档提交：`待提交后填写`。根目录 `npm run verify` 已退出 **0**。其中 Backend Surefire 692 项全部通过（1 项按既有配置跳过），Failsafe 集成 1,271/1,271；Gateway Surefire/架构 227/227、Failsafe 集成 98/98；前端 Vitest 72 个文件、547/547，ESLint 与 TypeScript/Vite build 均成功。仓库脚本 unit 27/27、lifecycle 2/2。
+最终实现与测试提交：`b5d3a5dc6549685005e22a5c163b1112b50e22e7`。本节本次远端结果文档更新在后续仅文档提交中；它不改变实现代码。根目录 `npm run verify` 已退出 **0**。其中 Backend Surefire 692 项（691 passed、1 skipped、0 failures），Failsafe 集成 1,271/1,271；Gateway Surefire/架构 227/227、Failsafe 集成 98/98；前端 Vitest 72 个文件、547/547，ESLint 与 TypeScript/Vite build 均成功。仓库脚本 unit 27/27、lifecycle 2/2。
 
-全量 Backend Failsafe 期间，`V22LegacyRoutingBackfillIntegrationTest` 首次启动 MySQL 8.4 时 Testcontainers 收到 Docker Engine `InternalServerErrorException: Status 500`。容器启动重试成功，该迁移用例随后 1/1 通过；容器日志未见 OOMKilled，完整 Backend `mvn verify` 用时 45:08 并成功。Gateway 全量日志有一条 Advisor Worker 后台 tick 的 JDBC `Access denied` 警告，未造成用例失败；最终 Gateway `mvn verify` 用时 5:36 并成功。定向整改测试仍为 14/14 通过。浏览器不在本机复跑；等待推送后的 CI `browser-e2e` 完整 Compose 回归。
+全量 Backend Failsafe 期间，`V22LegacyRoutingBackfillIntegrationTest` 首次启动 MySQL 8.4 时 Testcontainers 收到 Docker Engine `InternalServerErrorException: Status 500`。容器启动重试成功，该迁移用例随后 1/1 通过；容器日志未见 OOMKilled，完整 Backend `mvn verify` 用时 45:08 并成功。Gateway 全量日志有一条 Advisor Worker 后台 tick 的 JDBC `Access denied` 警告，未造成用例失败；最终 Gateway `mvn verify` 用时 5:36 并成功。定向整改测试仍为 14/14 通过。本机没有运行浏览器；同一实现提交的 CI 完整 Compose `browser-e2e` 为 17/17 通过。
 
-本次实现提交对应 GitHub CI 14 作业、Security 3 作业：`待推送并运行后填写`。文档证据提交与实现提交的 SHA 将分别记录；远端运行链接记录在实现提交对应工作流中。
+本次实现提交 `b5d3a5d` 对应 GitHub [CI 运行 39217437738](https://github.com/BangShou1st/AI-CostOps/actions/runs/39217437738)：**14/14 作业成功**，Backend Integration 1,271/1,271、`browser-e2e` 17/17、Docker Build 成功。对应 [Security 运行 39217437795](https://github.com/BangShou1st/AI-CostOps/actions/runs/39217437795)：**3/3 作业成功**（CodeQL Java/Kotlin、CodeQL JavaScript/TypeScript、Trivy）。
 
-本节两项复审问题均已在真实 MySQL 定向集成测试中复现并修复；待 GitHub Actions 结果写入前，不将本次追加证据标记为最终 PASS。前文历史证据与原生产认证文档的 `DEFERRED / NON-BLOCKING` 状态均未倒改。
+结论：**本轮模型可见性边界整改 PASS**。Routing Options 不再返回外组织私有 Provider Model；Pricing Version 对不可见模型与不存在 ID 返回相同的 404 `RESOURCE_NOT_FOUND`，可见不兼容模型仍返回既有 400，合法模型仍可创建 Pricing Version。路由候选写入越权未复现，拒绝后资源状态不变。就本轮覆盖的查询、定价创建及路由写入边界，未发现剩余跨组织问题。前文历史证据与原生产认证文档的 `DEFERRED / NON-BLOCKING` 状态均未倒改。
