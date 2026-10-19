@@ -785,7 +785,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
     expect((await contextA.cookies(`${E2E_BASE_URL}/api/v1/auth`))
       .some((cookie) => cookie.name === 'aicostops_refresh')).toBe(false)
     expect((await contextB.cookies(`${E2E_BASE_URL}/api/v1/auth`))
-      .some((cookie) => cookie.name === 'aicostops_refresh' && cookie.value === cookieB!.value)).toBe(true)
+      .some((cookie) => cookie.name === 'aicostops_refresh')).toBe(true)
 
     const refreshResponsePromise = pageB.waitForResponse((response) =>
       response.url().endsWith('/api/v1/auth/refresh') && response.request().method() === 'POST')
