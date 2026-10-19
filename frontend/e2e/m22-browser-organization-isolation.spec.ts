@@ -405,6 +405,10 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
       const connections = await assertApi(context, owner.token, `${owner.email}: own connection list`,
         'GET', '/provider-connections?page=0&size=100', 200)
       expect(connections.body.items.some((entry: { id: string | number }) => String(entry.id) === foreign.connection.id)).toBe(false)
+      const providerAccounts = await assertApi(context, owner.token, `${owner.email}: own provider account list`,
+        'GET', '/provider-accounts?page=0&size=100', 200)
+      expect(providerAccounts.body.items.some((entry: { id: string | number }) =>
+        String(entry.id) === foreign.providerAccount.id)).toBe(false)
       const projects = await assertApi(context, owner.token, `${owner.email}: own project list`,
         'GET', '/projects?status=ACTIVE&page=0&size=100', 200)
       expect(projects.body.items.some((entry: { id: string | number }) => String(entry.id) === foreign.project.id)).toBe(false)
@@ -427,6 +431,14 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
       expect.soft(providerModels.body.some((entry: { id: string | number; providerModelName?: string }) =>
         String(entry.id) === foreign.model.providerModelId || entry.providerModelName === foreign.model.wireName),
       'private provider models must be limited to global and current-organization rows').toBe(false)
+      const pricingVersions = await assertApi(context, owner.token, `${owner.email}: own Pricing Version list`,
+        'GET', '/pricing-versions', 200)
+      expect(pricingVersions.body.some((entry: { id: string | number }) =>
+        String(entry.id) === foreign.pricing.id)).toBe(false)
+      const routingPolicies = await assertApi(context, owner.token, `${owner.email}: own Routing Policy list`,
+        'GET', '/routing-policies?page=0&size=100', 200)
+      expect(routingPolicies.body.items.some((entry: { id: string | number }) =>
+        String(entry.id) === foreign.policy.id || String(entry.id) === foreign.candidateDraft.id)).toBe(false)
       const options = await assertApi(context, owner.token, `${owner.email}: foreign private routing options hidden`,
         'GET', `/routing-options?modelId=${foreign.model.modelId}`, 404, undefined, true)
       expect.soft(options.body?.code, 'routing options hide whether a foreign private model exists')
