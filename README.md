@@ -26,12 +26,13 @@ v3.0.0 → 9c55125c1b857e3ccf301875d8886131a9d1d9b0
 ## 当前里程碑状态
 
 ```text
+FINAL_PRODUCT_VERSION = V3
+STABLE_RELEASE = v3.0.0
 V1 = COMPLETE / FROZEN
 V2 = COMPLETE / FROZEN
-Stable version = V3.0.0
-Development = COMPLETE
+Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
-V4 = DEFERRED / FUTURE RESEARCH ONLY
+V4 = NOT_PLANNED
 V3 final stabilization = COMPLETE
 M17 V3 MODEL PROVIDER HUB & COST INTELLIGENCE DESIGN = FROZEN
 M18 V3 BACKEND & API CONTRACT = FROZEN
@@ -39,10 +40,11 @@ M19 V3 FRONTEND EXPERIENCE = COMPLETE / ACCEPTED
 M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
 M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
+M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
 Known release-blocking defects = NONE
 ```
 
-AI-CostOps V3 is feature-complete and has completed final stabilization. Active development is closed. The repository is in maintenance-only mode for security, defect, operational, CI, dependency, and documentation maintenance.
+AI-CostOps V3 is the final feature version and has completed final stabilization. Feature development is closed; the repository is in long-term maintenance-only mode for security, defect, operational, CI, dependency, and documentation maintenance. V4 is not on the roadmap: it is not planned or implemented, no new Provider or business feature is added, and maintenance work is triggered only by real defects and necessity. `STABLE_RELEASE = v3.0.0` is the current stable tag on `main`; `dev` carries post-release maintenance commits that are not yet merged or released.
 
 V3 final stabilization preserves these execution invariants:
 
@@ -51,7 +53,7 @@ Provider execution uses the exact frozen provider_connection_profile_id.
 auth_type=NONE performs zero credential lookup/decryption.
 ```
 
-M22 retains two explicitly deferred, non-blocking gates: real-provider / OpenCode external credential validation and independent browser-context organization-isolation evidence. These are not marked PASS.
+M22 originally closed with two explicitly deferred, non-blocking gates: real-provider / OpenCode external credential validation and independent browser-context organization-isolation evidence. The browser-context organization-isolation gate was subsequently completed and is now PASS, per the [2026-10-19 M22 browser organization isolation supplementary acceptance](docs/03-acceptance/2026-10-19-m22-browser-organization-isolation.md) (including the follow-up model-visibility fixes from independent review); the historical M22 record keeps its original time-point `DEFERRED` conclusion. Real-provider / OpenCode external credential validation remains `DEFERRED / NON-BLOCKING` and is NOT relabeled PASS by the browser-isolation result.
 
 M10 冻结入口：
 
@@ -397,7 +399,7 @@ V3.0.0 已完成发布、production acceptance、operational readiness 与最终
 - [V2 Detailed Design](docs/02-development/v2-detailed-design/README.md)
 - [Gateway OpenAPI](docs/02-development/api/gateway-openapi.yaml)
 
-历史路线图仅用于理解已交付的 V1–V3 范围，不构成当前 backlog。V4 工程单位经济性保持 DEFERRED / OPTIONAL / FUTURE RESEARCH ONLY；只有 outcome 定义可靠且未来重新启动产品研究时才重新评估。
+历史路线图仅用于理解已交付的 V1–V3 范围，不构成当前 backlog。V4 = NOT_PLANNED：V4 不在路线图内，不再规划或实现 V4，也不主动扩展 Provider 或业务功能；没有故障、部署需求或实际维护事项时不需要人为制造 backlog。
 
 ## Git 协作
 
@@ -405,4 +407,6 @@ V3.0.0 已完成发布、production acceptance、operational readiness 与最终
 Issue → Short-lived Branch → Pull Request → CI → Human Acceptance → Squash Merge → main
 ~~~
 
-当前状态：`V3.0.0 / DEVELOPMENT_COMPLETE / MAINTENANCE_ONLY / V4_DEFERRED`。M20 与 M21 完成；M22 保留两个 deferred / non-blocking gates。详见 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。
+当前状态：`FINAL_PRODUCT_VERSION = V3 / STABLE_RELEASE = v3.0.0 / FEATURE_DEVELOPMENT = CLOSED / MAINTENANCE_MODE = ACTIVE / V4 = NOT_PLANNED / NEW_FEATURES = OUT_OF_SCOPE`。M20 与 M21 完成；M22 原始关闭保留 deferred / non-blocking gate，其中浏览器组织隔离已由 2026-10-19 补充验收转为 PASS，真实 Provider / OpenCode 外部认证仍为 deferred。详见 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。
+
+生产部署与数据迁移不属当前范围：如需升级实际持久化数据库或更新稳定发布，先执行 [V3 Operational Runbook](docs/04-operations/v3-operational-runbook.md) 中的条件触发发布检查；本轮不执行升级、迁移、备份或生产部署。

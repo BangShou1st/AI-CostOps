@@ -3,16 +3,20 @@
 ## 当前项目状态
 
 ```text
-Stable version = V3.0.0
-Development = COMPLETE
+FINAL_PRODUCT_VERSION = V3
+STABLE_RELEASE = v3.0.0
+Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
-V4 = DEFERRED / OPTIONAL / FUTURE RESEARCH ONLY
+V4 = NOT_PLANNED
 M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
 M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
+M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
 ```
 
 以下 V1 / V2 章节记录已完成版本的历史规划和交付，不构成当前 backlog。M16 不再是下一步；当前没有 active feature roadmap。
+
+V3 是最终功能版本，功能研发已关闭；V4 = NOT_PLANNED，不在路线图内。本文件中的 V4 方向清单是保留的当时研究设想，不是当前计划。
 
 V1 的冻结历史、AIC-001～AIC-073、M0～M8 与最终验收证据继续保留，不改写为当前待办。
 
@@ -539,9 +543,9 @@ multi-region
 
 ---
 
-# V4 — 工程单位经济性（DEFERRED / OPTIONAL / FUTURE RESEARCH ONLY）
+# V4 — 工程单位经济性（历史研究设想；V4 = NOT_PLANNED）
 
-V4 不属于 active roadmap，也不是下一开发计划。只有业务 outcome 定义可靠、且未来明确重新启动产品研究时，才可重新评估以下方向：
+V4 不属于 active roadmap，也不是下一开发计划。以下方向仅为当时保留的研究设想，V4 现已 NOT_PLANNED；只有业务 outcome 定义可靠、且未来明确重新启动产品研究时，才可重新评估以下方向：
 
 ```text
 Cost / successful agent task
