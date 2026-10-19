@@ -243,6 +243,7 @@ public interface CostFactsMapper {
               AND (le.source_gateway_settlement_id IS NOT NULL
                 OR le.source_reconciliation_adjustment_id IS NOT NULL
                 OR le.source_charge_fact_id IS NOT NULL)
+            UNION SELECT DISTINCT currency FROM cost_history_coverage WHERE org_id=#{organizationId}
             """)
     List<String> settledCurrencies(@Param("organizationId") long organizationId);
 
@@ -255,19 +256,32 @@ public interface CostFactsMapper {
     List<Long> distinctPricedLogicalModels(@Param("organizationId") long organizationId,
             @Param("currency") String currency, @Param("now") java.time.Instant now);
 
+    /**
+     * Deterministic keyset page of recently active organizations. The activity window is fixed by
+     * the caller ({@code since}); each call returns the next {@code limit} organizations strictly
+     * greater than {@code afterOrgId} in ascending {@code org_id} order, so the scheduler can walk
+     * every organization in a round with no gap and no duplicate regardless of how many
+     * organizations are active. The UNION still deduplicates the three activity sources.
+     */
     @Select("""
-            SELECT DISTINCT org_id FROM gateway_settlement
-            WHERE settled_at >= #{since} AND status='SETTLED'
-            UNION
-            SELECT DISTINCT le.org_id FROM ledger_entry le
-            JOIN ledger_posting lp ON lp.id=le.posting_id AND lp.org_id=le.org_id
-            WHERE lp.posted_at >= #{since} AND lp.status='POSTED'
-              AND (le.source_gateway_settlement_id IS NOT NULL
-                OR le.source_reconciliation_adjustment_id IS NOT NULL
-                OR le.source_charge_fact_id IS NOT NULL)
+            SELECT active.org_id FROM (
+                SELECT org_id FROM gateway_settlement
+                WHERE settled_at >= #{since} AND status='SETTLED'
+                UNION
+                SELECT le.org_id FROM ledger_entry le
+                JOIN ledger_posting lp ON lp.id=le.posting_id AND lp.org_id=le.org_id
+                WHERE lp.posted_at >= #{since} AND lp.status='POSTED'
+                  AND (le.source_gateway_settlement_id IS NOT NULL
+                    OR le.source_reconciliation_adjustment_id IS NOT NULL
+                    OR le.source_charge_fact_id IS NOT NULL)
+                UNION SELECT org_id FROM cost_history_coverage WHERE updated_at >= #{since}
+            ) active
+            WHERE active.org_id > #{afterOrgId}
+            ORDER BY active.org_id
             LIMIT #{limit}
             """)
-    List<Long> recentlyActiveOrgs(@Param("since") LocalDate since, @Param("limit") int limit);
+    List<Long> recentlyActiveOrgs(@Param("since") LocalDate since,
+            @Param("afterOrgId") long afterOrgId, @Param("limit") int limit);
 
     record DailyTotal(LocalDate day, BigDecimal amount) {
     }

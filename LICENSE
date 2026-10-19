@@ -1,0 +1,28 @@
+AI CostOps — Proprietary License
+
+Copyright (c) 2026 AI CostOps project contributors. All rights reserved.
+
+This software and its associated documentation files (the "Software") are the
+proprietary work of the AI CostOps project team and are made available for
+internal organizational use only.
+
+Unless explicitly agreed otherwise in writing:
+
+1. Permission is granted to members of the owning organization to use, copy,
+   and modify the Software solely for internal business purposes.
+2. Redistribution, publication, sublicensing, or disclosure of the Software,
+   in whole or in part, to any third party is prohibited.
+3. The Software may not be offered as a hosted or managed service to any
+   party outside the owning organization.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+NOTE: If the team decides to open-source this repository in the future,
+replace this file with the chosen OSI-approved license (e.g. MIT or
+Apache-2.0) and review third-party dependency licenses before publishing.

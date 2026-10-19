@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/tasks.mjs setup",
+    "maven:settings": "node scripts/tasks.mjs maven:settings",
     "doctor": "node scripts/tasks.mjs doctor",
     "status": "node scripts/tasks.mjs status",
     "test:scripts": "node --test scripts/tests/*.test.mjs",

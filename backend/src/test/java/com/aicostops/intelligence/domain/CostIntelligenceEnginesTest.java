@@ -95,6 +95,28 @@ class CostIntelligenceEnginesTest {
         assertEquals("OVER_BUDGET", over.risk());
     }
 
+    /**
+     * A negative actual is a legitimate signed ledger net (credits/reversals), not an invalid
+     * component: exposure just nets it. Commitments, reservations, future usage and the total
+     * remain pure exposures and are still rejected when negative.
+     */
+    @Test
+    void negativeActualIsASignedNetWhilePureExposuresStayNonNegative() {
+        var creditNet = BudgetRiskService.assess(new BigDecimal("-1.00"), BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("200.00"), "USD");
+        assertEquals(0, creditNet.immediateExposure().compareTo(new BigDecimal("-1.00")));
+        assertEquals(0, creditNet.projectedPeriodEnd().compareTo(new BigDecimal("-1.00")));
+        assertEquals("LOW", creditNet.risk());
+        assertThrows(IllegalArgumentException.class, () -> BudgetRiskService.assess(
+                BigDecimal.ZERO, new BigDecimal("-1"), BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal("100.00"), "USD"));
+        assertThrows(IllegalArgumentException.class, () -> BudgetRiskService.assess(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("-0.01"),
+                new BigDecimal("100.00"), "USD"));
+        assertThrows(IllegalArgumentException.class, () -> BudgetRiskService.assess(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null, "USD"));
+    }
+
     @Test
     void savingsReplayUsesPricingSemantics() {
         var usage = Map.of("INPUT_TOKEN", new BigDecimal("1000000"), "OUTPUT_TOKEN", new BigDecimal("500000"));

@@ -15,17 +15,23 @@ V2 目标：
 ## 当前阶段
 
 ```text
-Stable version = V3.0.0
-Development = COMPLETE
+FINAL_PRODUCT_VERSION = V3
+STABLE_RELEASE = v3.0.0
+Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
-V4 = DEFERRED / FUTURE RESEARCH ONLY
+V4 = NOT_PLANNED
 M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
 M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
+M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
 Known release-blocking defects = NONE
 ```
 
 V1 and V2 milestone details below are historical delivery records. They do not define an active feature backlog.
+
+V3 是最终功能版本：功能研发已关闭，项目进入长期维护模式；V4 不在路线图内，不再规划或实现 V4，不新增 Provider 或业务功能，维护任务按真实故障与必要性触发。`STABLE_RELEASE = v3.0.0` 是 `main` 上的当前稳定标签，`dev` 包含尚未合并或发布的维护提交。
+
+M22 原始记录中的两个 `DEFERRED / NON-BLOCKING` gate 需分开解释：independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](docs/03-acceptance/2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [m22-v3-production-certification.md](docs/03-acceptance/m22-v3-production-certification.md) 保留其原时间点结论，未改写。
 
 M10 冻结入口：
 
@@ -356,6 +362,11 @@ Peer Review 按需，不作为全局 Merge Gate。
 
 ```text
 Active development = CLOSED
+Feature development = CLOSED
+V4 = NOT_PLANNED
+New features = OUT_OF_SCOPE
 Allowed maintenance = security updates, defect fixes, operational fixes, CI / dependency maintenance, documentation maintenance
-V4 engineering unit economics = DEFERRED / FUTURE RESEARCH ONLY
+Maintenance trigger = real defects and necessity only
 ```
+
+维护流程：发现真实问题 → 复现 → 最小修复 → 定向回归 → 必要时完整 verify → dev CI / Security → 独立复审。只有在用户明确授权更新稳定版本时，才启动 `main` 的合并或发布流程；不创建常驻维护任务、自动提醒或无期限扫描。

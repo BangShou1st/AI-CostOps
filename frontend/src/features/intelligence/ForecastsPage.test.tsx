@@ -29,6 +29,17 @@ describe('ForecastsPage', () => {
     expect(screen.getAllByText(/DAMPED_HOLT/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/RECENT_RUN_RATE/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/不是 AI 预测/)).toBeInTheDocument()
+    expect(screen.getByText(/未知日期不算有效观测/)).toBeInTheDocument()
+    expect(screen.getAllByText(/连续有效观测/).length).toBeGreaterThan(1)
+  })
+  it('labels the remaining-period amount and uncalibrated sample grades honestly', () => {
+    renderPreview()
+    expect(screen.getByText('组织剩余期间预计费用')).toBeInTheDocument()
+    expect(screen.getAllByText(/剩余期间预计费用/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText(/未经准确率校准/)).toBeInTheDocument()
+    expect(screen.getAllByText(/样本等级/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText(/置信度/)).not.toBeInTheDocument()
+    expect(screen.getByText(/冲正主导/)).toBeInTheDocument()
   })
   it('renders an empty state without inventing precision', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

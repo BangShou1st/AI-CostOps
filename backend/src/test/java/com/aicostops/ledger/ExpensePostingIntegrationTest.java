@@ -2,8 +2,13 @@ package com.aicostops.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 
 import com.aicostops.allocation.AllocationApiTestSupport;
+import com.aicostops.ledger.application.LedgerAuditPort;
 import com.aicostops.ledger.application.LedgerPostingCommands.CommitmentLink;
 import com.aicostops.ledger.application.LedgerPostingCommands.PostSourceCommand;
 import com.aicostops.ledger.application.ExpensePostingService;
@@ -15,6 +20,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /** Expense posting invariants against the migrated MySQL schema. */
 @SpringBootTest
@@ -23,6 +29,8 @@ class ExpensePostingIntegrationTest extends AllocationApiTestSupport {
 
     @Autowired
     private ExpensePostingService postings;
+    @MockitoSpyBean
+    private LedgerAuditPort auditSpy;
 
     private long periodId;
     private long expenseId;
@@ -118,6 +126,43 @@ class ExpensePostingIntegrationTest extends AllocationApiTestSupport {
                 .isEqualByComparingTo("4.00000000");
         assertThat(expenseVersion(expenseId)).isEqualTo(1);
         assertThat(auditCount("LEDGER_EXPENSE_POSTED")).isEqualTo(1);
+    }
+
+    /**
+     * The successful-audit and financial actions are committed together. An
+     * audit failure after the posting, entries, budget actual and commitment
+     * consumption were written must roll the whole transaction back: no posting,
+     * no entries, no budget/commitment movement and the claim stays APPROVED.
+     */
+    @Test
+    void auditFailureAfterFinancialWritesRollsBackTheWholeTransaction() {
+        var actor = new AuthenticatedUser(actorUserId, 7);
+        doThrow(new IllegalStateException("audit unavailable")).when(auditSpy)
+                .expensePosted(anyLong(), anyLong(), anyLong(), anyLong(), anyLong(), anyInt(), anyString());
+
+        assertThatThrownBy(() -> postings.post(actor, expenseId,
+                new PostSourceCommand(java.util.List.of(new CommitmentLink(firstLineId, commitmentId)))))
+                .hasMessageContaining("audit unavailable");
+
+        assertThat(expenseStatus(expenseId)).isEqualTo("APPROVED");
+        assertThat(expenseVersion(expenseId)).isZero();
+        assertThat(countRows("ledger_posting")).isZero();
+        assertThat(countRows("ledger_entry")).isZero();
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, exactBudgetId)).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
+                BigDecimal.class, orgBudgetId)).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT remaining_amount FROM budget_commitment WHERE id=?",
+                BigDecimal.class, commitmentId)).isEqualByComparingTo("3");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_commitment_usage WHERE budget_commitment_id=?",
+                Integer.class, commitmentId)).isZero();
+        assertThat(auditCount("LEDGER_EXPENSE_POSTED")).isZero();
+    }
+
+    private int countRows(String table) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM " + table + " WHERE org_id=?", Integer.class, orgId);
     }
 
     private void assertNoFinancialWrites() {

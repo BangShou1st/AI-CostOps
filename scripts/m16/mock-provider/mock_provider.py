@@ -14,8 +14,9 @@ Behavior:
   (acceptance assertion source; H = streams currently held open by hold mode).
 - POST /admin/reset -> {"post_chat_completions": 0}; resets the counter,
   restores mode ok, releases every held stream and closes every hold barrier.
-- POST /admin/mode {"mode": "ok"|"http500"|"timeout"|"hold"} selects the
-  failure profile for failure-injection scenarios (default "ok"). "timeout"
+- POST /admin/mode {"mode": "ok"|"advisor-success"|"http500"|"timeout"|"hold"} selects the
+  deterministic response profile for acceptance scenarios (default "ok").
+  "advisor-success" returns a fixed valid Advisor narrative. "timeout"
   sleeps 70s (beyond the 60s header timeout) to simulate a hung upstream.
   "hold" sends SSE response headers immediately, then blocks on a barrier
   until POST /admin/release: deterministic stream occupancy for the B04
@@ -52,6 +53,24 @@ COMPLETION_BODY = {
         }
     ],
     "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+}
+
+ADVISOR_COMPLETION_BODY = {
+    **COMPLETION_BODY,
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": (
+                    '{"summary":"Mock advisor completed.",'
+                    '"driversExplanation":"Deterministic mock explanation.",'
+                    '"recommendedActions":[],"warnings":[],"factReferences":[]}'
+                ),
+            },
+            "finish_reason": "stop",
+        }
+    ],
 }
 
 CHUNK_FRAMES = [
@@ -173,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
                 mode = (json.loads(raw.decode("utf-8") or "{}").get("mode") or "ok")
             except ValueError:
                 mode = "ok"
-            if mode not in ("ok", "http500", "timeout", "hold"):
+            if mode not in ("ok", "advisor-success", "http500", "timeout", "hold"):
                 self._send_json(400, {"error": "unknown mode"})
                 return
             _mode_set(mode)
@@ -200,6 +219,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if mode == "timeout":
             time.sleep(70)
+            return
+        if mode == "advisor-success":
+            self._send_json(200, ADVISOR_COMPLETION_BODY)
             return
         if mode == "hold" and stream:
             # Deterministic B04 occupancy: headers first (so the Gateway

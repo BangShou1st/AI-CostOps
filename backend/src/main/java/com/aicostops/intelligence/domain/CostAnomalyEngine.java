@@ -27,7 +27,10 @@ public final class CostAnomalyEngine {
     private CostAnomalyEngine() {
     }
 
-    public record DailyBucket(LocalDate date, BigDecimal amount, String currency) {
+    public record DailyBucket(LocalDate date, BigDecimal amount, String currency, boolean observed) {
+        public DailyBucket(LocalDate date, BigDecimal amount, String currency) {
+            this(date, amount, currency, true);
+        }
     }
 
     public record Contribution(String dimension, String key, BigDecimal deltaAmount) {

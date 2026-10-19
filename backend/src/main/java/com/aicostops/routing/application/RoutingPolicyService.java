@@ -118,7 +118,7 @@ public class RoutingPolicyService {
     public List<RoutingPolicyDtos.RouteOptionResponse> options(AuthenticatedUser user, long modelId) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "PROVIDER_ACCOUNT_READ");
-        if (mapper.findActiveModel(modelId) == null) {
+        if (mapper.findActiveModel(context.organizationId(), modelId) == null) {
             throw notFound("The model is not available.");
         }
         return mapper.findRouteOptions(context.organizationId(), modelId, clock.instant()).stream()
@@ -144,7 +144,7 @@ public class RoutingPolicyService {
         if (projectId != null && mapper.findActiveProject(organizationId, projectId) == null) {
             throw notFound("The project is not available in the current organization.");
         }
-        if (mapper.findActiveModel(modelId) == null) {
+        if (mapper.findActiveModel(organizationId, modelId) == null) {
             throw notFound("The model is not available.");
         }
         validateCandidates(organizationId, modelId, candidates, false);
@@ -182,7 +182,8 @@ public class RoutingPolicyService {
             var key = candidate.providerAccountId() + ":" + candidate.providerModelId();
             if (!unique.add(key)) throw validation("A route candidate may appear only once.");
             var accountCode = mapper.findActiveAccountProviderCode(organizationId, candidate.providerAccountId());
-            var modelCode = mapper.findEligibleProviderModelCode(candidate.providerModelId(), modelId);
+            var modelCode = mapper.findEligibleProviderModelCode(organizationId,
+                    candidate.providerAccountId(), candidate.providerModelId(), modelId);
             if (accountCode == null || modelCode == null || !accountCode.equals(modelCode)
                     || !mapper.isActiveProviderCatalog(accountCode)
                     || !mapper.isRoutablePair(organizationId, candidate.providerAccountId(),

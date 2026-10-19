@@ -43,6 +43,7 @@ public class ProviderConnectionService {
     private final Clock clock;
     private final String providerKek;
     private final ProviderConnectionService self;
+    private final OpenCodeZenTransportHeaders openCodeZenHeaders;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProviderConnectionService(
@@ -55,7 +56,8 @@ public class ProviderConnectionService {
             AuditService audit,
             Clock clock,
             @Lazy ProviderConnectionService self,
-            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
+            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            OpenCodeZenTransportHeaders openCodeZenHeaders) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.templates = templates;
@@ -66,6 +68,7 @@ public class ProviderConnectionService {
         this.clock = clock;
         this.self = self;
         this.providerKek = providerKek;
+        this.openCodeZenHeaders = openCodeZenHeaders;
     }
 
     public List<TemplateResponse> templates(AuthenticatedUser user) {
@@ -118,7 +121,7 @@ public class ProviderConnectionService {
                 || request.baseUrl().isBlank()) {
             return null;
         }
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(request.templateCode())) {
+        if (templates.isBuiltIn(request.templateCode())) {
             return null;
         }
         var accountCode = mapper.findActiveAccountProviderCode(organizationId, request.providerAccountId());
@@ -150,9 +153,10 @@ public class ProviderConnectionService {
         final String authHeaderName;
         final String networkPolicy;
         final String userAgent;
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(templateCode)) {
-            if (!ProviderTemplateRegistry.OPENCODE_ZEN.equals(accountCode)) {
-                throw validationFailed("Built-in OpenCode Zen connections require an OPENCODE_ZEN provider account.");
+        if (templates.isBuiltIn(templateCode)) {
+            if (!templateCode.equals(accountCode)) {
+                throw validationFailed("Built-in " + templateCode
+                        + " connections require a " + templateCode + " provider account.");
             }
             var template = templates.require(templateCode);
             rejectBuiltinOverride(request);
@@ -192,7 +196,7 @@ public class ProviderConnectionService {
         var version = mapper.nextVersion(context.organizationId(), request.providerAccountId());
         var now = clock.instant();
         mapper.insert(context.organizationId(), request.providerAccountId(), version, kind,
-                ProviderTemplateRegistry.OPENCODE_ZEN.equals(templateCode) ? templateCode : null,
+                templates.isBuiltIn(templateCode) ? templateCode : null,
                 protocol, baseUrl, completionPath, modelsPath, authType, authHeaderName,
                 networkPolicy, userAgent,
                 request.connectTimeoutMs() == null ? 5000 : request.connectTimeoutMs(),
@@ -233,7 +237,7 @@ public class ProviderConnectionService {
         if (!"DRAFT".equals(current.status())) {
             throw stateConflict("Only DRAFT connections are editable.");
         }
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(current.templateCode())) {
+        if (templates.isBuiltIn(current.templateCode())) {
             if (request.baseUrl() != null || request.authType() != null
                     || request.completionPath() != null || request.modelsPath() != null
                     || request.userAgent() != null) {
@@ -330,14 +334,19 @@ public class ProviderConnectionService {
                     profile.modelsPath() == null ? "" : profile.modelsPath());
             endpointValidator.validateEndpoint(initial);
             var origin = java.net.URI.create(initial);
-            // P1 fail-closed: a configured BEARER/API_KEY_HEADER connection without a usable
-            // credential must FAIL here with zero outbound requests, never downgrade to an
-            // anonymous request that could false-PASS against an open endpoint.
+            // P1 fail-closed for ordinary providers: a configured BEARER/API_KEY_HEADER
+            // connection without a usable credential must fail before I/O. OpenCode Zen is the
+            // explicit exception: its shared protocol sends Bearer public when no user key exists.
             var secret = resolveProbeSecretOrThrow(profile);
-            var authenticated = secret != null;
+            // Zen's public bearer value is still attached to the request, so redirects remain
+            // same-origin even when the organization has no stored user credential.
+            var openCodeZen = ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode());
+            var authenticated = secret != null || openCodeZen;
             var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
                     profile.templateCode());
-            var headers = probeHeaders(profile, userAgent, secret);
+            var headers = openCodeZen
+                    ? openCodeZenHeaders.catalog(java.net.URI.create(initial), secret, "application/json")
+                    : probeHeaders(profile, userAgent, secret);
             var current = initial;
             int code = -1;
             for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
@@ -437,8 +446,10 @@ public class ProviderConnectionService {
     }
 
     /**
-     * Fail-closed credential resolution: BEARER/API_KEY_HEADER without a usable secret throws
-     * before any outbound request is emitted. NONE expects no credential.
+     * Fail-closed credential resolution for ordinary providers. Built-in free tiers that may call
+     * Provider endpoints without a stored organization key are the explicit exception: OpenCode Zen
+     * uses its shared public credential, Kilo Gateway's free models are called anonymously. An
+     * existing but undecryptable key still fails. NONE expects no stored credential.
      */
     private String resolveProbeSecretOrThrow(com.aicostops.providerhub.domain.ProviderConnection profile)
             throws ProbeAuthException {
@@ -446,6 +457,9 @@ public class ProviderConnectionService {
             return null;
         }
         var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
+        if (credential == null && allowsKeylessCredential(profile.templateCode())) {
+            return null;
+        }
         if (credential == null || providerKek == null || providerKek.isBlank()) {
             throw new ProbeAuthException();
         }
@@ -457,6 +471,14 @@ public class ProviderConnectionService {
         } catch (Exception ex) {
             throw new ProbeAuthException();
         }
+    }
+
+    /**
+     * Built-in templates whose free tier may reach Provider endpoints without a stored organization
+     * key. Delegated to the shared transport policy so every caller agrees on one definition.
+     */
+    static boolean allowsKeylessCredential(String templateCode) {
+        return ProviderTransportSupport.allowsKeylessCredential(templateCode);
     }
 
     @Deprecated

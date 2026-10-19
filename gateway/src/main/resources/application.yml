@@ -1,6 +1,10 @@
 # AI CostOps V2 Data Plane runtime configuration. The Gateway is a bounded
 # OpenAI-compatible edge: every correctness-sensitive limit is explicit and
 # bounded; a non-positive or unbounded value rejects startup.
+# The OpenCode Zen User-Agent now comes from the shared library default
+# (OpenCodeZenProtocolPolicy.USER_AGENT); no per-app override is configured, so the Gateway and
+# Control Plane identities cannot drift.
+
 spring:
   application:
     name: ai-costops-gateway
@@ -11,7 +15,12 @@ spring:
       local:
         - dev
   autoconfigure:
-    exclude: org.springframework.boot.security.autoconfigure.ReactiveUserDetailsServiceAutoConfiguration
+    exclude:
+      - org.springframework.boot.security.autoconfigure.ReactiveUserDetailsServiceAutoConfiguration
+      # The Gateway only borrows the Kilo shared free-model policy (FreeModelPolicy) so the free
+      # rule has one definition; it never calls the blocking KiloGatewayClient, so the Kilo Gateway
+      # starter's auto-configuration is disabled here.
+      - com.sharedlibs.kilogateway.autoconfigure.KiloGatewayAutoConfiguration
   codec:
     # Bounded default in-memory buffering for reactive payload handling; the
     # machine contract's 1 MiB decoded body limit is enforced on top of this.

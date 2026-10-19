@@ -188,6 +188,11 @@ function renderWithRouter(element: React.ReactElement, entry = '/expenses/exp-1'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Allocation controls load this directory even in error-response tests.
+  // Reset its implementation so earlier tests cannot supply the fixture.
+  mockedAllocationApi.listTargets.mockReset().mockResolvedValue([
+    { type: 'PROJECT', id: 'p-1', name: 'UAT Project' },
+  ])
   currentUser = EMPLOYEE
 })
 
@@ -667,10 +672,9 @@ describe('ExpensePages', () => {
 
     renderWithRouter(<ExpenseReviewDetailPage />, '/expense-reviews/exp-1')
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '确认分摊' })).toBeEnabled()
-    })
-    fireEvent.click(screen.getByRole('button', { name: '确认分摊' }))
+    const confirmButton = await screen.findByRole('button', { name: '确认分摊' })
+    await waitFor(() => expect(confirmButton).toBeEnabled())
+    fireEvent.click(confirmButton)
 
     await waitFor(() => {
       expect(screen.getByText(/访问被拒绝（FORBIDDEN）/)).toBeInTheDocument()

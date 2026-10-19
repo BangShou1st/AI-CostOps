@@ -38,8 +38,11 @@ describe('Provider Hub', () => {
     authAs(['PROVIDER_ACCOUNT_READ'])
     shell(<ProviderGalleryPage preview={{ templates: templateFixture, connections: connectionFixture }} />)
     expect(screen.getByRole('heading', { name: 'Provider Gallery', level: 1 })).toBeInTheDocument()
-    expect(screen.getByText('内置')).toBeInTheDocument()
+    // Two built-in templates now exist (OpenCode Zen, Kilo Gateway) plus the custom one.
+    expect(screen.getAllByText('内置').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('自定义')).toBeInTheDocument()
+    expect(screen.getByText('Kilo Gateway')).toBeInTheDocument()
+    expect(screen.getByText(/ai-gateway\.kilo\.ai\/api\/v1/)).toBeInTheDocument()
     expect(screen.getByText(/连接健康 ≠ 生产路由就绪/)).toBeInTheDocument()
     expect(screen.queryByText(/sk-/)).not.toBeInTheDocument()
   })

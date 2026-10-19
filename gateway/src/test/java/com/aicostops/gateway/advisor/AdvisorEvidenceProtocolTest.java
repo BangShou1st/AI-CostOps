@@ -50,4 +50,17 @@ class AdvisorEvidenceProtocolTest {
         assertEquals("Review", validated.summary());
         assertEquals(java.util.List.of("budget:3:actual"), validated.refs());
     }
+
+    @Test
+    void unavailableForecastIsExplainedAsUnknownFutureSpending() {
+        var summary = json.writeValueAsString(java.util.Map.of("forecastSummary", "",
+                "savingsSummary", "", "budgetRiskSummary", json.writeValueAsString(
+                        java.util.Map.of("risk", "LOW", "forecastFuture", "0", "forecastAvailable", false))));
+        var snapshot = new AdvisorJobMapper.SnapshotRow(1L, 7L, 100L, 2, "BUDGET_RISK", 3L, "USD",
+                "[{\"factId\":\"actual\",\"label\":\"actual\",\"amount\":\"10.00\",\"currency\":\"USD\"}]",
+                "[]", summary, "unused", Instant.EPOCH, Instant.EPOCH);
+        var prompt = json.readTree(prompts.buildPrompt(snapshot));
+        assertEquals("false", prompt.get("budgetRisk").get("forecastAvailable").stringValue());
+        assertTrue(prompt.get("instruction").stringValue().contains("a zero fallback is not evidence of zero future spending"));
+    }
 }

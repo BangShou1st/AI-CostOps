@@ -31,11 +31,18 @@ public final class BudgetRiskService {
             BigDecimal forecastFutureUsage,
             BigDecimal budgetTotal,
             String currency) {
+        // actual is a signed ledger net: credits and reversals may legitimately drive it below
+        // zero (V11 budget schema keeps actual_amount without a non-negative CHECK by design).
+        // Commitments, reservations, future usage and the budget total are pure exposures and
+        // must never be negative.
         for (var amount : new BigDecimal[] {
-                actual, outstandingCommitments, activeReservations, forecastFutureUsage, budgetTotal }) {
+                outstandingCommitments, activeReservations, forecastFutureUsage, budgetTotal }) {
             if (amount == null || amount.compareTo(BigDecimal.ZERO) < 0) {
                 throw new IllegalArgumentException("Budget components must be zero or greater");
             }
+        }
+        if (actual == null) {
+            throw new IllegalArgumentException("Budget components must be zero or greater");
         }
         var immediate = actual.add(outstandingCommitments).add(activeReservations);
         var projected = actual.add(outstandingCommitments).add(forecastFutureUsage);

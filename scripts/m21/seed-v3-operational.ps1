@@ -6,7 +6,8 @@
 param(
     [string]$ComposeProject = "aicostops-m21-final-r3",
     [string]$MockBaseUrl = "http://mock-provider:8089/v1",
-    [string]$StateFile = ".m21-operational-state.json"
+    [string]$StateFile = ".m21-operational-state.json",
+    [string]$OrganizationSlug = "local-dev"
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,18 +39,17 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Mysql([string]$Sql) {
-    $env:MYSQL_PWD = $env:MYSQL_ROOT_PASSWORD
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root aicostops -N -B -e `"$Sql`" 2>&1"
-        $filtered = ($result | Where-Object { $_ -notmatch "Warning" }) -join "`n"
-        return $filtered.Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # Root password comes from the mysql container's own environment
+    # (MYSQL_ROOT_PASSWORD); host env does not propagate through `compose exec`.
+    $result = docker compose @composeArgs exec -T mysql sh -c "mysql -u root -p`"`$MYSQL_ROOT_PASSWORD`" aicostops -N -B -e `"$Sql`" 2>&1"
+    $filtered = ($result | Where-Object { $_ -notmatch "Warning" }) -join "`n"
+    return $filtered.Trim()
 }
 
-# Step 1: Find existing provider_account (created by DevGatewayBootstrap)
-$acctId = Invoke-Mysql "SELECT id FROM provider_account WHERE provider_code='MIMO' LIMIT 1;"
+# Step 1: Find the dev organization's MIMO provider_account (created by
+# DevGatewayBootstrap). Scope by organization slug so another organization's
+# MIMO account can never be selected.
+$acctId = Invoke-Mysql "SELECT pa.id FROM provider_account pa JOIN organization o ON o.id=pa.org_id WHERE pa.provider_code='MIMO' AND o.slug='$OrganizationSlug' ORDER BY pa.id LIMIT 1;"
 if ([string]::IsNullOrEmpty($acctId)) {
     Write-Error "[M21-SEED] No MIMO provider_account found. Ensure DevGatewayBootstrap ran with AICOSTOPS_MIMO_API_KEY."
     exit 1
@@ -60,8 +60,10 @@ Write-Output "[M21-SEED] Provider Account: $acctId (MIMO)"
 $orgId = Invoke-Mysql "SELECT org_id FROM provider_account WHERE id=$acctId;"
 Write-Output "[M21-SEED] Organization: $orgId"
 
-# Step 3: Find provider_model_id for this account
-$providerModelId = Invoke-Mysql "SELECT id FROM provider_model WHERE provider_account_id=$acctId AND status='ACTIVE' AND routing_eligible=TRUE LIMIT 1;"
+# Step 3: Resolve the provider_model through THIS organization's own routing
+# candidate (org + provider_account scoped) so a model belonging to another
+# organization or account can never be selected.
+$providerModelId = Invoke-Mysql "SELECT provider_model_id FROM routing_policy_candidate WHERE org_id=$orgId AND provider_account_id=$acctId AND status='ACTIVE' ORDER BY priority, id LIMIT 1;"
 if ([string]::IsNullOrEmpty($providerModelId)) {
     Write-Error "[M21-SEED] No eligible provider_model found for MIMO account."
     exit 1
@@ -75,7 +77,7 @@ if ([string]::IsNullOrEmpty($pricingVersionId)) {
 }
 
 # Step 5: Create provider_connection_profile if missing (V24+ endpoint authority)
-$existingProfile = Invoke-Mysql "SELECT id FROM provider_connection_profile WHERE provider_account_id=$acctId AND status='ACTIVE' LIMIT 1;"
+$existingProfile = Invoke-Mysql "SELECT id FROM provider_connection_profile WHERE org_id=$orgId AND provider_account_id=$acctId AND status='ACTIVE' ORDER BY id LIMIT 1;"
 if ([string]::IsNullOrEmpty($existingProfile)) {
     $insertSql = @"
 INSERT INTO provider_connection_profile(
@@ -105,7 +107,7 @@ SELECT LAST_INSERT_ID();
 }
 
 # Step 6: Ensure provider_credential exists
-$credCount = Invoke-Mysql "SELECT COUNT(*) FROM provider_credential WHERE provider_account_id=$acctId AND status='ACTIVE';"
+$credCount = Invoke-Mysql "SELECT COUNT(*) FROM provider_credential WHERE org_id=$orgId AND provider_account_id=$acctId AND status='ACTIVE';"
 if ($credCount -eq "0") {
     Write-Error "[M21-SEED] No ACTIVE provider_credential found. DevGatewayBootstrap should have created one with AICOSTOPS_MIMO_API_KEY. Gateway dispatch will fail without a decryptable credential."
     exit 1
@@ -118,7 +120,7 @@ if ([string]::IsNullOrEmpty($policyId)) {
     Write-Error "[M21-SEED] No ACTIVE routing_policy found for org $orgId."
     exit 1
 }
-$candidateCount = Invoke-Mysql "SELECT COUNT(*) FROM routing_policy_candidate WHERE routing_policy_id=$policyId AND status='ACTIVE';"
+$candidateCount = Invoke-Mysql "SELECT COUNT(*) FROM routing_policy_candidate WHERE org_id=$orgId AND routing_policy_id=$policyId AND provider_account_id=$acctId AND status='ACTIVE';"
 if ($candidateCount -eq "0") {
     Write-Error "[M21-SEED] No ACTIVE routing_policy_candidate found for policy $policyId."
     exit 1

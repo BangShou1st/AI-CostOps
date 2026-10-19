@@ -274,3 +274,20 @@ SSE integer index (P1-2): isLegalStreamingChunk now requires index.isIntegralNum
 Freeze doc (P2-1): title is Final Acceptance Candidate with status FINAL ACCEPTANCE CANDIDATE pending Sol acceptance (never FROZEN by implementation). Migration chain is V1-V27 everywhere for the current gate; V25 remains only in genuine history. Local full-suite evidence is recorded separately from Hosted CI which is NOT RUN pending final PR.
 
 Verification on final HEAD is recorded in the final micro-repair report (backend mvn verify, gateway mvn verify, frontend npm ci plus build, V1-V27 clean MySQL, OpenAPI contract, git diff check). Hosted CI NOT RUN. Literal 127.0.0.1:7897 DEFERRED. Real Provider DEFERRED.
+
+> ⚠️ **更正（2026-10-16，M-2 漂移修复批次追加；原文未改写、未删除）**
+>
+> 本文 §14 与 §15 记载的 `MANIFEST_VERSION 2026-09-11-v1` / `2026-09-11-v2`、`VERIFIED_AT 2026-09-11`、
+> `SOURCE OpenCode Zen official endpoint table`、`SOURCE_REVISION 2026-09-11` 以及当时的 61 条清单，
+> 是**该批次时点的历史事实，原文保留**。这些值描述的是清单**当时**的修订，并非永久契约。
+>
+> 其后对官方 V1 Zen 目录的复核（`docs/03-acceptance/2026-10-16-opencode-manifest-drift-repair.md`）确认：
+> 官方 V1 Zen 的端点表与目录在该时点之后继续演进，受控清单随之出现**目录漂移**（M-2）。
+> 该批次据此把清单前移到 `MANIFEST_VERSION 2026-10-16-v1`、`VERIFIED_AT 2026-10-16`、
+> `SOURCE OpenCode Zen (V1) official endpoint and pricing tables`、`SOURCE_REVISION 2026-10-11`，
+> 并按「官方 V1 端点行 + 官方 V1 定价行」双证据新增 9 条 Chat 分类（清单 70 条 = 29 Chat + 41 UNSUPPORTED）。
+>
+> 被取代的**仅是**上述版本/来源字符串与清单条目数这两类**时点元数据**；
+> 本文记载的其余不变量（协议与计价分类相互独立、`-free` 后缀不推断免费、`VERIFIED_FREE` 不自动创建定价、
+> 未知模型 `AVAILABLE`/`UNKNOWN` 且不可探针或晋级、`DIRECT_ONLY` + `noProxy` + `opencode/1.18.21`、
+> 内置模板基址 `https://opencode.ai/zen/v1` 与 `/models`）**仍然成立**，且已被新增测试继续锁定。

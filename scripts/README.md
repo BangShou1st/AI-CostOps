@@ -22,6 +22,7 @@
 | 命令 | 行为 |
 | --- | --- |
 | `npm run setup` | 在 frontend 执行 `npm ci`，仅首次使用或依赖变更时需要 |
+| `npm run maven:settings` | 从本机 Maven settings 生成容器安全副本（`github` server 凭据、loopback 代理改写为 `host.docker.internal`）到 `.local-dev/maven/docker-settings.xml`，供 `docker compose up --build` 构建 backend/gateway 镜像使用 |
 | `npm run doctor` | 检查 Node、Java、npm、Docker 引擎、Maven wrapper、前端依赖、本地配置与三端端口 |
 | `npm run status` | 检查三端端口及 HTTP；端口空闲不代表进程故障，HTTP 通过不证明监听者的项目身份 |
 | `npm run infra:up` | 当前 Compose 项目的 MySQL、Redis、MinIO `up -d --wait`，不停止应用容器 |
@@ -35,6 +36,8 @@
 | `npm run test:scripts:integration` | 需要 Docker：用隔离的 HTTP 进程及临时 Compose 项目验证真实命令入口、进程清理和数据卷保留；不是完整三端产品 smoke |
 
 `dev` 在前台运行。**在启动它的终端按 Ctrl+C** 停止本次创建的三个应用进程树；其中一个提前退出或启动期间健康检查超时，也会清理其余进程。初次就绪后不持续轮询 HTTP；进程提前退出仍会被检测。基础设施继续运行，需要停止时单独执行 `infra:down`。脚本不按端口或进程名称终止其他实例，也不维护另一个后台应用守护进程。
+
+Windows 子进程使用隐藏窗口并保持非 detached 启动，避免为任务启动器额外创建控制台；退出清理由 `taskkill /T` 跟踪本次创建的进程树。POSIX 平台仍使用独立进程组进行清理。
 
 `setup/dev/build/test/verify/infra:*` 支持 `--dry-run`：例如 `npm run dev -- --dry-run`。它只输出命令计划，不启动进程、不创建 POM 或 `.env`。`doctor/status` 是实际只读检查。
 

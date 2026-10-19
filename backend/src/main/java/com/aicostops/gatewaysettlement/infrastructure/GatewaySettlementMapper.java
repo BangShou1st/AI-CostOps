@@ -67,12 +67,19 @@ public interface GatewaySettlementMapper {
             @Param("limit") int limit);
 
     /**
-     * Bounded organization scan for the scheduled worker. The first branch
+     * Bounded, fair organization scan for the scheduled worker. The first branch
      * discovers new current FINAL usage; the second branch revisits durable
      * retry work. It returns ids only, never claims or locks a Settlement.
+     *
+     * <p>{@code afterOrgId} is a keyset cursor and the ordering starts at the
+     * first organization strictly greater than it, wrapping back to the lowest
+     * ids once the end is reached. The worker advances the cursor by the returned
+     * page, so a fixed page size can never pin the same leading organizations and
+     * starve the rest: every organization is reached within a bounded number of
+     * rounds and no organization is ever omitted.
      */
     @Select("""
-            SELECT org_id
+            SELECT work_orgs.org_id
             FROM (
                 SELECT gr.org_id
                 FROM gateway_request gr
@@ -91,11 +98,13 @@ public interface GatewaySettlementMapper {
                    OR (gs.status='RETRYABLE_FAILED'
                        AND (gs.next_attempt_at IS NULL OR gs.next_attempt_at <= #{now}))
             ) work_orgs
-            ORDER BY org_id ASC
+            ORDER BY (work_orgs.org_id > #{afterOrgId}) DESC, work_orgs.org_id ASC
             LIMIT #{limit}
             """)
     List<Long> selectOrganizationsWithWork(
-            @Param("now") Instant now, @Param("limit") int limit);
+            @Param("now") Instant now,
+            @Param("afterOrgId") long afterOrgId,
+            @Param("limit") int limit);
 
     @Insert("""
             INSERT INTO gateway_settlement(

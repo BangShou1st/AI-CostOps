@@ -75,7 +75,13 @@ export async function requireFreePorts(ports) {
 
 export function isolatedPom(root, module, outputRoot) {
   const source = readFileSync(join(root, module, 'pom.xml'), 'utf8')
-  if (!source.includes('<build>') || /<directory>/.test(source)) throw new Error(`${module} POM 构建目录需要显式审查，未执行构建。`)
+  // <directory> is legal nested inside <resources>/<testResources>. Only a POM that already declares
+  // its own top-level build output directory collides with the isolated <directory> injected below,
+  // so the resource blocks are stripped before the check.
+  const buildScopedSource = source
+    .replaceAll(/<resources>[\s\S]*?<\/resources>/g, '')
+    .replaceAll(/<testResources>[\s\S]*?<\/testResources>/g, '')
+  if (!source.includes('<build>') || /<directory>/.test(buildScopedSource)) throw new Error(`${module} POM 构建目录需要显式审查，未执行构建。`)
   const directory = join(outputRoot, module, 'target').replaceAll('\\', '/')
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
   mkdirSync(join(outputRoot, module, 'target'), { recursive: true })

@@ -7,17 +7,31 @@
 当前项目状态：
 
 ```text
-Stable version = V3.0.0
-Development = COMPLETE
+FINAL_PRODUCT_VERSION = V3
+STABLE_RELEASE = v3.0.0
+Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
-V4 = DEFERRED / FUTURE RESEARCH ONLY
+V4 = NOT_PLANNED
 M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
 M22 = M22_CLOSED_WITH_DEFERRED_NON_BLOCKING_GATES
+M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
 Known release-blocking defects = NONE
 ```
 
-M22 的两个 gate 仍明确为 `DEFERRED / NON-BLOCKING`，不代表 PASS：real-provider / OpenCode external credential，以及 independent browser-context organization-isolation evidence。详见 [M20](m20-v3-production-acceptance.md)、[M21](m21-v3-post-release-operational-readiness.md) 与 [M22](m22-v3-production-certification.md)。下方 V1 / V1.1 条目是历史验收证据。
+M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`。其中 independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [M22 v3 production certification](m22-v3-production-certification.md) 保留其原时间点结论，未改写。其他里程碑见 [M20](m20-v3-production-acceptance.md) 与 [M21](m21-v3-post-release-operational-readiness.md)。下方 V1 / V1.1 条目是历史验收证据。
+
+## 最新 dev 维护验收（2026-10-18 / 2026-10-19）
+
+以下记录基于 `dev @ c5142089bb764a0c878e8761af01854b08045068` 及其近期维护提交，均为已在 `dev` 存在的维护与验收成果：
+
+- dev 分支 CI 14/14、Security 3/3 全绿：[dev 分支 CI/Security 启用与首轮远程验收](2026-10-18-dev-branch-ci-security-enablement.md)
+- Gateway → Usage → Settlement → Ledger → Budget Actual 财务闭环（真实 MySQL + Mock Provider）：[dev 财务闭环验收](2026-10-18-dev-financial-closed-loop-acceptance.md)
+- M21 运维脚本、Gateway 最小权限（`LOCK TABLES`）与财务 Smoke 强化：[M21 运维验收修复](2026-10-19-m21-ops-acceptance-fix.md)
+- M21 Advisor Worker 最小数据库权限补齐：[Advisor Worker 最小数据库权限](2026-10-19-advisor-worker-minimal-db-privileges.md)
+- M22 双组织、双独立 `BrowserContext` 隔离及模型可见性边界整改：[M22 双组织浏览器隔离补充验收](2026-10-19-m22-browser-organization-isolation.md)，最新结论 `M22_BROWSER_ORGANIZATION_ISOLATION = PASS`
+
+OpenCode Zen / Kilo Gateway 的接入与协议维护、Cost Intelligence 历史覆盖与输入身份改进、结算 Worker 可靠性修复等变更的逐项记录见本目录 `2026-10-*` 文档。
 
 M9 总入口：`m9-acceptance-matrix.md`；最终收敛报告：`aic-083-m9-final-acceptance.md`；逐项证据见本目录 `m9-*.md`。
 

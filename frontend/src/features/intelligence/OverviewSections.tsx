@@ -57,11 +57,11 @@ export function AnswerStrip(props: {
     {
       key: 'ok',
       question: 'Are we okay?',
-      tone: summary.anomalyCount > 0 ? 'watch' : 'ok',
-      icon: summary.anomalyCount > 0 ? <WarningOutlined /> : <CheckCircleOutlined />,
+      tone: summary.anomalyCount > 0 ? 'watch' : forecast ? 'ok' : 'info',
+      icon: summary.anomalyCount > 0 ? <WarningOutlined /> : forecast ? <CheckCircleOutlined /> : <InfoCircleOutlined />,
       body: summary.anomalyCount > 0
         ? <><strong>{summary.anomalyCount} 个异常</strong>需要关注，见下方变化。</>
-        : <>本周期暂无异常，支出按预期进行。</>,
+        : forecast ? <>本周期暂无异常，支出按预期进行。</> : <>有效历史不足，暂不能判断支出趋势。</>,
     },
     {
       key: 'changed',
@@ -70,7 +70,7 @@ export function AnswerStrip(props: {
       icon: <InfoCircleOutlined />,
       body: topAnomaly
         ? <><strong>{grainLabel(topAnomaly)} {formatPercent(topAnomaly.deltaPercent)}</strong>，观测 {formatMoney(topAnomaly.observedAmount, currency)}。</>
-        : <>各粒度与基线基本持平。</>,
+        : forecast ? <>各粒度与基线基本持平。</> : <>暂无足够历史支持趋势比较。</>,
     },
     {
       key: 'happen',
@@ -78,8 +78,8 @@ export function AnswerStrip(props: {
       tone: 'info',
       icon: <InfoCircleOutlined />,
       body: forecast
-        ? <>周期预计 <strong>{formatMoney(forecast.projectedAmount, currency)}</strong>（{forecast.method}·{forecast.confidence}）</>
-        : <>暂无预测，历史粒度不足。</>,
+        ? <>剩余期间预计费用 <strong>{formatMoney(forecast.projectedAmount, currency)}</strong>（{forecast.method}·{forecast.confidence} 样本等级）</>
+        : <>暂无预测，历史粒度不足或为冲正主导。</>,
     },
     {
       key: 'do',
@@ -170,13 +170,13 @@ export function ExposureSection(props: {
           />
           <div className="v3-rail">
             <div className="v3-rail-item"><div className="k">即时敞口</div><div className="v">{formatMoney(risk.immediateExposure, currency)}</div><div className="s">实际＋已提交＋预占</div></div>
-            <div className="v3-rail-item"><div className="k">预计周期末</div><div className="v">{formatMoney(risk.projectedPeriodEnd, currency)}</div><div className="s">{forecast.method} · {forecast.confidence} 置信度</div></div>
+            <div className="v3-rail-item"><div className="k">预计周期末</div><div className="v">{formatMoney(risk.projectedPeriodEnd, currency)}</div><div className="s">{forecast.method} · {forecast.confidence}（样本等级）</div></div>
             <div className="v3-rail-item"><div className="k">预算风险</div><div className="v"><span className={`v3-pill ${riskMeta.pill}`}>{riskMeta.text}</span></div><div className="s">预算 {formatMoney(risk.budgetTotal, currency)}</div></div>
           </div>
         </>
       )}
       {risk && riskMeta && !forecast && (
-        <div className="v3-note">预算敞口已就绪，但历史粒度不足，暂无周期预测。</div>
+        <div className="v3-note">即时敞口 {formatMoney(risk.immediateExposure, currency)}；有效历史不足，暂无周期预测。当前风险判断不包含未来费用预测。</div>
       )}
     </section>
   )

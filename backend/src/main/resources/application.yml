@@ -1,3 +1,7 @@
+# The OpenCode Zen User-Agent now comes from the shared library default
+# (OpenCodeZenProtocolPolicy.USER_AGENT); no per-app override is configured, so the Gateway and
+# Control Plane identities cannot drift.
+
 spring:
   application:
     name: ai-costops-backend

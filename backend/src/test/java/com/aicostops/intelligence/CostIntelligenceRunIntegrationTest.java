@@ -40,27 +40,28 @@ class CostIntelligenceRunIntegrationTest extends AuthenticationContainersSupport
     void cleanup() {
         jdbc.update("DELETE FROM cost_forecast_snapshot WHERE org_id=?", org);
         jdbc.update("DELETE FROM cost_intelligence_run WHERE org_id=?", org);
+        jdbc.update("DELETE FROM cost_history_coverage_revision WHERE org_id=?", org);
         jdbc.update("DELETE FROM organization WHERE id=?", org);
     }
 
     @Test
     void failureIsDurableAndPartialResultsAreRolledBack() {
-        assertThatThrownBy(() -> runs.run(org, DATE, "USD", 1, runId -> {
+        assertThatThrownBy(() -> runs.run(org, DATE, "USD", 1, (runId, input) -> {
             insertForecast(runId);
             throw new IllegalStateException("Injected analysis failure");
         })).isInstanceOf(IllegalStateException.class);
         assertFailedWithoutPartialResults();
         var called = new AtomicInteger();
-        assertThat(runs.run(org, DATE, "USD", 1, id -> called.incrementAndGet()).status())
+        assertThat(runs.run(org, DATE, "USD", 1, (id, input) -> called.incrementAndGet()).status())
                 .isEqualTo("FAILED");
         assertThat(called).hasValue(0);
     }
 
     @Test
     void successCommitsResultsAndReplaysWithoutRerunning() {
-        var first = runs.run(org, DATE, "USD", 1, this::insertForecast);
+        var first = runs.run(org, DATE, "USD", 1, (id, input) -> insertForecast(id));
         var called = new AtomicInteger();
-        assertThat(runs.run(org, DATE, "USD", 1, id -> called.incrementAndGet())).isEqualTo(first);
+        assertThat(runs.run(org, DATE, "USD", 1, (id, input) -> called.incrementAndGet())).isEqualTo(first);
         assertThat(first.status()).isEqualTo("COMPLETED");
         assertThat(called).hasValue(0);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE org_id=?",
@@ -70,7 +71,7 @@ class CostIntelligenceRunIntegrationTest extends AuthenticationContainersSupport
     @Test
     void enclosingTransactionRollsBackBeforeFailureIsRecorded() {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            assertThatThrownBy(() -> runs.run(org, DATE, "USD", 1, runId -> {
+            assertThatThrownBy(() -> runs.run(org, DATE, "USD", 1, (runId, input) -> {
                 insertForecast(runId);
                 throw new IllegalStateException("Injected nested failure");
             })).isInstanceOf(IllegalStateException.class);

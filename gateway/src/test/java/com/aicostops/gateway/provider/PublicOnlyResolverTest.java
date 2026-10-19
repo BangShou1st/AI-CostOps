@@ -75,13 +75,13 @@ class PublicOnlyResolverTest {
 
     @Test
     void openCodeAdapterUsesServerOwnedUaAndDirectOnly() {
-        assertEquals("opencode/1.18.21",
+        assertEquals(com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy.USER_AGENT,
                 com.aicostops.gateway.provider.opencode.OpenCodeZenChatAdapter.SERVER_USER_AGENT);
     }
 
     /**
-     * Cross-module UA contract mirror: the backend template registry must carry the identical
-     * server-owned OpenCode UA (see backend M18TransportRegressionTest).
+     * Cross-module UA contract mirror: the backend template registry must delegate to the same
+     * shared OpenCode identity policy (see backend M18TransportRegressionTest).
      */
     @Test
     void backendRegistrySharesServerOwnedOpenCodeUa() throws Exception {
@@ -90,9 +90,9 @@ class PublicOnlyResolverTest {
         assertTrue(java.nio.file.Files.exists(registry),
                 () -> "Backend registry source moved; update the UA contract: " + registry.toAbsolutePath());
         var source = java.nio.file.Files.readString(registry);
-        assertTrue(source.contains("\"opencode/1.18.21\""),
-                () -> "Backend OpenCode UA drifted from the frozen sibling policy");
-        assertEquals("opencode/1.18.21",
+        assertTrue(source.contains("OpenCodeZenProtocolPolicy.USER_AGENT"),
+                () -> "Backend OpenCode UA drifted from the shared identity policy");
+        assertEquals(com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy.USER_AGENT,
                 com.aicostops.gateway.provider.opencode.OpenCodeZenChatAdapter.SERVER_USER_AGENT);
     }
 }

@@ -31,11 +31,11 @@ class OpenCodeManifestIntegrationTest extends ControlPlaneFixtureSupport {
     }
     @AfterEach void tearDown() { cleanDatabase(); }
     @Test void manifestVersionIsPinned() {
-        assertEquals("2026-09-11-v2", manifest.version());
-        assertEquals("2026-09-11-v2", OpenCodeModelManifest.MANIFEST_VERSION);
-        assertEquals("2026-09-11", manifest.verifiedAt());
-        assertEquals("OpenCode Zen official endpoint table", manifest.source());
-        assertEquals("2026-09-11", manifest.sourceRevision());
+        assertEquals("2026-10-16-v1", manifest.version());
+        assertEquals("2026-10-16-v1", OpenCodeModelManifest.MANIFEST_VERSION);
+        assertEquals("2026-10-16", manifest.verifiedAt());
+        assertEquals("OpenCode Zen (V1) official endpoint and pricing tables", manifest.source());
+        assertEquals("2026-10-11", manifest.sourceRevision());
     }
     @Test void realChatModelsAreAvailableWithChatProtocol() throws Exception {
         var conn = createOpenCodeConnection();
@@ -112,9 +112,12 @@ class OpenCodeManifestIntegrationTest extends ControlPlaneFixtureSupport {
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isCreated());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM pricing_version WHERE org_id=?", Integer.class, org).intValue());
     }
-    @Test void realChatModelWithSimulatedProbePromotes() throws Exception {
+    @Test void admittedFreeChatModelWithSimulatedProbePromotes() throws Exception {
+        // FREE_ONLY (2026-10-16): promotion requires current free evidence, not Chat compatibility
+        // alone, so a PAID model such as kimi-k2.6 can no longer be promoted. Its refusal is pinned
+        // by OpenCodeFreeOnlyAdmissionIntegrationTest.
         var conn = createOpenCodeConnection();
-        var id = manualModel(conn, "kimi-k2.6");
+        var id = manualModel(conn, "nemotron-3.5-lightning-free");
         jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS', verified_capabilities_json=CAST(\'{\"capabilities\":[\"CHAT_COMPLETIONS\"]}\' AS JSON) WHERE id=? AND org_id=?", id, org);
         mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/promote", conn, id).header("Authorization", bearerFor(user))).andExpect(status().isCreated());
     }

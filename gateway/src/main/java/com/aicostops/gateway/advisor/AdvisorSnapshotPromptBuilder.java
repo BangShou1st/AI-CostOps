@@ -85,12 +85,14 @@ public class AdvisorSnapshotPromptBuilder {
                 }
                 var riskNode = objectMapper.createObjectNode();
                 for (var field : List.of("scope", "actual", "committed", "reservations",
-                        "forecastFuture", "immediate", "projected", "total", "risk")) {
+                        "forecastFuture", "immediate", "projected", "total", "risk", "forecastAvailable")) {
                     riskNode.put(field, risk.path(field).asText(""));
                 }
                 envelope.set("budgetRisk", riskNode);
                 instruction.append(" The budget risk inputs and classification are precomputed; "
-                        + "explain them only and never recompute projected spend or risk.");
+                        + "explain them only and never recompute projected spend or risk. "
+                        + "If forecastAvailable is false or unspecified, future costs are unknown; "
+                        + "a zero fallback is not evidence of zero future spending. State this limitation.");
             } else {
                 envelope.put("budgetRiskSummary", summaryNode.path("budgetRiskSummary").asText(""));
             }

@@ -1,5 +1,6 @@
 package com.aicostops.testsupport;
 
+import java.util.Map;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -22,6 +23,15 @@ public abstract class MinioContainerSupport extends MySqlContainerSupport {
             .withEnv("MINIO_ROOT_USER", MINIO_ACCESS_KEY)
             .withEnv("MINIO_ROOT_PASSWORD", MINIO_SECRET_KEY)
             .withCommand("server", "/data", "--console-address", ":9001")
+            // The image runs as nonroot (65532) and does NOT declare a /data
+            // volume, so a Docker Desktop engine restart can leave the container
+            // writable layer's /data with ownership the nonroot process cannot
+            // use ("file access denied"). Test data is throwaway, so keep /data on
+            // a tmpfs mounted with Docker's default 1777 mode: the nonroot process
+            // can always write, independent of any layer/volume ownership. The
+            // size=512m is an UPPER BOUND for the mount, not pre-allocated memory;
+            // tmpfs pages are consumed on demand.
+            .withTmpFs(Map.of("/data", "rw,size=512m"))
             .waitingFor(Wait.forHttp("/minio/health/live").forPort(9000));
 
     static {

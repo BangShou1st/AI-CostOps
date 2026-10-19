@@ -67,6 +67,47 @@ class ConnectionProfileEndpointAuthorityIntegrationTest extends GatewayMySqlCont
         assertThat(policy.candidates()).isEmpty();
     }
 
+    @Test
+    void routeResolutionUsesTheNewActiveProfileAndKeepsTheOldVersionAddress() {
+        env = GatewayTestFixture.seed(jdbc, "profile-version-route-" + System.nanoTime(),
+                HMAC_KEY, rawKey());
+        var oldProfile = jdbc.queryForMap("""
+                SELECT id,base_url,completion_path,models_path,auth_type,auth_header_name,
+                  network_policy,user_agent,connect_timeout_ms,response_timeout_ms
+                FROM provider_connection_profile WHERE org_id=? AND provider_account_id=? AND status='ACTIVE'
+                """, env.orgId(), env.providerAccountId());
+        var oldProfileId = ((Number) oldProfile.get("id")).longValue();
+        var nextBaseUrl = "https://mimo-version-2.example.test/v2";
+
+        jdbc.update("UPDATE provider_connection_profile SET status='RETIRED',retired_at=UTC_TIMESTAMP(6)"
+                + " WHERE id=? AND status='ACTIVE'", oldProfileId);
+        jdbc.update("""
+                INSERT INTO provider_connection_profile(
+                  org_id,provider_account_id,version,connection_kind,template_code,protocol_code,base_url,
+                  completion_path,models_path,auth_type,auth_header_name,network_policy,user_agent,
+                  connect_timeout_ms,response_timeout_ms,status,created_at,activated_at)
+                SELECT org_id,provider_account_id,2,connection_kind,template_code,protocol_code,?,
+                  completion_path,models_path,auth_type,auth_header_name,network_policy,user_agent,
+                  connect_timeout_ms,response_timeout_ms,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)
+                FROM provider_connection_profile WHERE id=?
+                """, nextBaseUrl, oldProfileId);
+
+        var newProfileId = jdbc.queryForObject("""
+                SELECT id FROM provider_connection_profile
+                WHERE org_id=? AND provider_account_id=? AND status='ACTIVE'
+                """, Long.class, env.orgId(), env.providerAccountId());
+        var policy = resolver.resolve(env.orgId(), env.projectId(), env.modelId(), Instant.now());
+
+        assertThat(newProfileId).isNotEqualTo(oldProfileId);
+        assertThat(policy.candidates()).hasSize(1);
+        assertThat(policy.candidates().get(0).providerConnectionProfileId()).isEqualTo(newProfileId);
+        assertThat(policy.candidates().get(0).baseUrl()).isEqualTo(nextBaseUrl);
+        assertThat(jdbc.queryForObject("SELECT base_url FROM provider_connection_profile WHERE id=?",
+                String.class, oldProfileId)).isEqualTo(GatewayTestFixture.DEFAULT_BASE_URL);
+        assertThat(jdbc.queryForObject("SELECT status FROM provider_connection_profile WHERE id=?",
+                String.class, oldProfileId)).isEqualTo("RETIRED");
+    }
+
     private static String rawKey() {
         return "aic_0123456789ab_" + "A".repeat(43);
     }

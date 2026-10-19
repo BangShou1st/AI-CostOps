@@ -40,6 +40,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @SpringBootTest
 @Tag("integration")
 class CostIntelligenceAnalysisPipelineIntegrationTest extends AuthenticationContainersSupport {
+    @Autowired private com.aicostops.intelligence.application.CostAnalysisInputService inputs;
 
     private static final LocalDate ANALYSIS_DATE = LocalDate.now().minusDays(1);
 
@@ -101,6 +102,7 @@ class CostIntelligenceAnalysisPipelineIntegrationTest extends AuthenticationCont
         jdbc.update("DELETE FROM model_catalog WHERE model_key LIKE 'pipeline-logical-%'");
         jdbc.update("DELETE FROM provider_account WHERE org_id=?", org);
         jdbc.update("DELETE FROM project WHERE org_id=?", org);
+        jdbc.update("DELETE FROM cost_history_coverage_revision WHERE org_id=?", org);
         jdbc.update("DELETE FROM organization WHERE id=?", org);
     }
 
@@ -194,7 +196,49 @@ class CostIntelligenceAnalysisPipelineIntegrationTest extends AuthenticationCont
         assertThat(derivedCounts()).containsExactly(0, 0, 0);
     }
 
+    @Test
+    void lateAppendRequiresNewInputIdentityAndPreservesEarlierForecasts() {
+        var first = analysis.runAnalysis(org, ANALYSIS_DATE, "USD");
+        var original = jdbc.queryForObject("SELECT input_fingerprint FROM cost_intelligence_run WHERE id=?",
+                String.class, first.runId());
+        var originalForecasts = jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
+                Integer.class, first.runId());
+        jdbc.update("INSERT INTO ledger_entry(org_id,posting_id,entry_index,entry_type,amount,currency,project_id,"
+                + "source_gateway_settlement_id,created_at) SELECT org_id,posting_id,999,'COST',1,currency,project_id,"
+                + "source_gateway_settlement_id,UTC_TIMESTAMP(6) FROM ledger_entry WHERE org_id=? ORDER BY id DESC LIMIT 1", org);
+        assertThat(inputs.currentFingerprint(org, "USD", ANALYSIS_DATE,
+                com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION)).isNotEqualTo(original);
+        var second = analysis.runAnalysis(org, ANALYSIS_DATE, "USD");
+        assertThat(second.runId()).isNotEqualTo(first.runId());
+        assertThat(second.status()).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
+                Integer.class, first.runId())).isEqualTo(originalForecasts);
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    @Test
+    void sparseLedgerProducesNoForecastAndPreservesLegacySnapshotWithoutReusingIt() {
+        jdbc.update("DELETE le FROM ledger_entry le JOIN ledger_posting lp ON lp.id=le.posting_id "
+                + "WHERE le.org_id=? AND DATE(lp.posted_at) < ?", org, ANALYSIS_DATE.minusDays(1));
+        jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,created_at) "
+                + "VALUES (?,?,'USD',1,'COMPLETED',UTC_TIMESTAMP(6))", org, ANALYSIS_DATE);
+        var oldId = jdbc.queryForObject("SELECT id FROM cost_intelligence_run WHERE org_id=? AND run_version=1",
+                Long.class, org);
+        jdbc.update("INSERT INTO cost_forecast_snapshot(org_id,run_id,scope_type,scope_key,currency,projected_amount,"
+                + "method,history_bucket_count,confidence,observed_through,created_at) "
+                + "VALUES (?,?,'ORGANIZATION',?,'USD',999,'DAMPED_HOLT',29,'HIGH',?,UTC_TIMESTAMP(6))",
+                org, oldId, "org:" + org, ANALYSIS_DATE.minusDays(1));
+        var outcome = analysis.runAnalysis(org, ANALYSIS_DATE, "USD");
+        assertThat(outcome.status()).isEqualTo("COMPLETED");
+        assertThat(outcome.runId()).isNotEqualTo(oldId);
+        assertThat(jdbc.queryForObject("SELECT run_version FROM cost_intelligence_run WHERE id=?",
+                Integer.class, outcome.runId())).isEqualTo(com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
+                Integer.class, outcome.runId())).isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM cost_forecast_snapshot WHERE run_id=?",
+                Integer.class, oldId)).isEqualTo(1);
+    }
 
     private void resetInsideTransactionCounts() {
         anomaliesInsideTransaction.set(0);

@@ -14,6 +14,8 @@ import com.aicostops.reconciliation.domain.PeriodCloseCheckResult;
 import com.aicostops.reconciliation.domain.PeriodCloseRunStatus;
 import com.aicostops.shared.security.AuthenticatedUser;
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -41,6 +43,7 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
     @Autowired GatewaySettlementDiscoveryService settlements;
     @Autowired GatewaySettlementService settlementService;
     @Autowired GatewaySettlementWorker settlementWorker;
+    @Autowired Clock clock;
 
     @MockitoBean GatewaySettlementFailureInjector failureInjector;
 
@@ -225,8 +228,15 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
             }
         });
 
-        jdbc.update("UPDATE gateway_settlement SET next_attempt_at=UTC_TIMESTAMP(6) WHERE id=?",
-                settlement.id());
+        // Due time must live in the same time base the worker compares against:
+        // GatewaySettlementWorker.runOnce() filters next_attempt_at <= Instant.now(clock)
+        // using the application Clock, so seeding the column from the database clock
+        // (UTC_TIMESTAMP) can leave it marginally in the future whenever the MySQL
+        // container clock and the JVM clock differ, and the poll would then find no due
+        // work (runOnce() == 0). Stamping an application-clock instant in the past keeps
+        // the fixture's due semantics and the comparison consistent.
+        jdbc.update("UPDATE gateway_settlement SET next_attempt_at=? WHERE id=?",
+                Timestamp.from(Instant.now(clock).minusSeconds(1)), settlement.id());
         assertThat(settlementWorker.runOnce()).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT status FROM gateway_settlement WHERE id=?",
                 String.class, settlement.id())).isEqualTo("SETTLED");

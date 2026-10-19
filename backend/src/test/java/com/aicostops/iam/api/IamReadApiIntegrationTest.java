@@ -185,9 +185,9 @@ class IamReadApiIntegrationTest extends AuthenticationContainersSupport {
         assertThat(userRead.path("id").asText()).isEqualTo("1");
         assertThat(userRead.path("name").asText()).isEqualTo("Read users");
         assertThat(permissions.isArray()).isTrue();
-        assertThat(permissions).hasSize(50);
+        assertThat(permissions).hasSize(51);
         assertThat(permissions.get(0).path("id").isTextual()).isTrue();
-        assertThat(permissions.toString()).contains("USER_READ", "Read users");
+        assertThat(permissions.toString()).contains("USER_READ", "Read users", "COST_COVERAGE_MANAGE");
     }
 
     @Test

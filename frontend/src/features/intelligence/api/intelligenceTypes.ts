@@ -29,6 +29,7 @@ export interface CostForecast {
   currency: string
   projectedAmount: string
   method: string
+  /** Consecutive ledger-observed days actually used; calendar padding is excluded. */
   historyBucketCount: number
   confidence: string
   observedThrough: string
@@ -40,6 +41,8 @@ export interface BudgetRisk {
   budgetTotal: string
   currency: string
   risk: 'LOW' | 'WATCH' | 'HIGH' | 'OVER_BUDGET' | string
+  /** False means the future-spend fallback is unknown, rather than a zero prediction. */
+  forecastAvailable?: boolean
 }
 
 export type RecommendationStatus = 'OPEN' | 'ACKNOWLEDGED' | 'DISMISSED' | 'APPLIED' | 'EXPIRED' | string

@@ -44,23 +44,20 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Root([string]$Sql) {
-    $env:MYSQL_PWD = $env:MYSQL_ROOT_PASSWORD
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root $Database -e `"$Sql`" 2>&1"
-        return ($result | Out-String).Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # Root password comes from the mysql container's own environment
+    # (MYSQL_ROOT_PASSWORD); host env does not propagate through `compose exec`.
+    $result = docker compose @composeArgs exec -T mysql sh -c "mysql -u root -p`"`$MYSQL_ROOT_PASSWORD`" $Database -e `"$Sql`" 2>&1"
+    return ($result | Out-String).Trim()
 }
 
 function Invoke-Gateway([string]$Sql) {
-    $env:MYSQL_PWD = $env:MYSQL_GATEWAY_PASSWORD
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
-        return ($result | Out-String).Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # The Gateway password is the account's own secret (never root) and never
+    # appears on the host command line: it is fed to the container on stdin and
+    # consumed by `read`. PowerShell terminates piped stdin with CRLF, so the
+    # trailing CR is stripped before it becomes MYSQL_PWD.
+    $cmd = "read -r pw; MYSQL_PWD=`"`$(printf '%s' `"`$pw`" | tr -d '\r')`" mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
+    $result = $env:MYSQL_GATEWAY_PASSWORD | docker compose @composeArgs exec -T mysql sh -c $cmd
+    return ($result | Out-String).Trim()
 }
 
 Write-Output "[M21-PRIVILEGE] Verifying Gateway DB privileges..."
@@ -92,6 +89,51 @@ if ($grants -match "(?i)\bDROP\b") {
     Add-Pass "No DROP privilege."
 }
 
+# MySQL 8.4 requires LOCK TABLES for locking reads (`SELECT ... FOR UPDATE`).
+if ($grants -notmatch "(?i)\bLOCK\s+TABLES\b") {
+    Add-Failure "Gateway identity must hold LOCK TABLES (required for SELECT ... FOR UPDATE on MySQL 8.4)."
+} else {
+    Add-Pass "LOCK TABLES present (locking reads enabled)."
+}
+
+# The Gateway must never be able to mutate budget / billing_period contents.
+$forbiddenBudgetGrants = @()
+foreach ($line in ($grants -split "`n")) {
+    if ($line -match "(?i)\bbudget\b|\bbilling_period\b") {
+        if ($line -match "(?i)\bUPDATE\b|\bDELETE\b|\bALL\b") { $forbiddenBudgetGrants += $line.Trim() }
+    }
+}
+if ($forbiddenBudgetGrants.Count -gt 0) {
+    Add-Failure ("Gateway identity must not hold UPDATE/DELETE/ALL on budget/billing_period: " + ($forbiddenBudgetGrants -join " | "))
+} else {
+    Add-Pass "No UPDATE/DELETE on budget/billing_period."
+}
+
+# AdvisorInferenceWorker has a deliberately narrow table-level grant set.
+$expectedAdvisorPrivileges = @(
+    @{ Table = "advisor_inference_job"; Privileges = @("SELECT", "UPDATE") }
+    @{ Table = "advisor_inference_attempt"; Privileges = @("SELECT", "UPDATE") }
+    @{ Table = "advisor_explanation"; Privileges = @("INSERT") }
+    @{ Table = "advisor_profile"; Privileges = @("SELECT") }
+    @{ Table = "advisor_evidence_snapshot"; Privileges = @("SELECT") }
+)
+$grantLines = @($grants -split "`n")
+foreach ($case in $expectedAdvisorPrivileges) {
+    $line = $grantLines | Where-Object { $_ -match "(?i)\b$($case.Table)\b" } | Select-Object -First 1
+    $privilegeMatch = if ($line) { [regex]::Match($line, "(?i)^GRANT\s+(.+?)\s+ON\b") } else { $null }
+    if (-not $privilegeMatch -or -not $privilegeMatch.Success) {
+        Add-Failure "Missing table grant for $($case.Table)."
+        continue
+    }
+    $actual = @($privilegeMatch.Groups[1].Value.Split(',') | ForEach-Object { $_.Trim().ToUpperInvariant() } | Sort-Object)
+    $expected = @($case.Privileges | ForEach-Object { $_.ToUpperInvariant() } | Sort-Object)
+    if (($actual -join ',') -ne ($expected -join ',')) {
+        Add-Failure "Unexpected $($case.Table) privileges: $($actual -join ', ') (expected $($expected -join ', '))."
+    } else {
+        Add-Pass "$($case.Table) has only $($expected -join ', ') privilege(s)."
+    }
+}
+
 # === Phase 2: Positive SELECT matrix ===
 $runtimeSelects = @(
     @{ Table = "billing_period"; Sql = "SELECT COUNT(*) FROM billing_period;" },
@@ -107,6 +149,9 @@ $runtimeSelects = @(
     @{ Table = "routing_policy"; Sql = "SELECT COUNT(*) FROM routing_policy;" },
     @{ Table = "routing_policy_candidate"; Sql = "SELECT COUNT(*) FROM routing_policy_candidate;" },
     @{ Table = "gateway_credential"; Sql = "SELECT COUNT(*) FROM gateway_credential;" },
+    @{ Table = "advisor_inference_job"; Sql = "SELECT COUNT(*) FROM advisor_inference_job;" },
+    @{ Table = "advisor_profile"; Sql = "SELECT COUNT(*) FROM advisor_profile;" },
+    @{ Table = "advisor_evidence_snapshot"; Sql = "SELECT COUNT(*) FROM advisor_evidence_snapshot;" },
     @{ Table = "gateway_credential_model"; Sql = "SELECT COUNT(*) FROM gateway_credential_model;" },
     @{ Table = "service_identity"; Sql = "SELECT COUNT(*) FROM service_identity;" },
     @{ Table = "provider_credential"; Sql = "SELECT COUNT(*) FROM provider_credential;" },
@@ -133,6 +178,7 @@ $lockCases = @(
     @{ Label = "billing_period"; Sql = "START TRANSACTION; SELECT id FROM billing_period WHERE id=999999 FOR UPDATE; ROLLBACK;" },
     @{ Label = "gateway_request"; Sql = "START TRANSACTION; SELECT id FROM gateway_request LIMIT 1 FOR UPDATE; ROLLBACK;" },
     @{ Label = "budget_reservation"; Sql = "START TRANSACTION; SELECT id FROM budget_reservation WHERE id=999999 FOR UPDATE; ROLLBACK;" }
+    @{ Label = "advisor_inference_job"; Sql = "START TRANSACTION; SELECT id FROM advisor_inference_job WHERE id=999999 FOR UPDATE SKIP LOCKED; ROLLBACK;" }
 )
 $lockOk = $true
 foreach ($case in $lockCases) {
@@ -144,6 +190,29 @@ foreach ($case in $lockCases) {
 }
 if ($lockOk) {
     Add-Pass "All SELECT ... FOR UPDATE succeed ($($lockCases.Count) cases)."
+}
+
+# Worker DML probes use impossible keys, so they exercise MySQL's privilege
+# checks without changing any application rows. Explanation INSERT is proven
+# by the expected FK rejection after the INSERT privilege check.
+$advisorWriteChecks = @(
+    @{ Label = "advisor_inference_job UPDATE"; Sql = "UPDATE advisor_inference_job SET status='PENDING' WHERE id=-1;" },
+    @{ Label = "advisor_inference_attempt UPDATE"; Sql = "UPDATE advisor_inference_attempt SET status='FAILED',failure_code='PRIVILEGE_PROBE' WHERE org_id=-1 AND job_id=-1 AND attempt_no=-1 AND status IN ('PENDING','RUNNING');" }
+)
+foreach ($case in $advisorWriteChecks) {
+    $out = Invoke-Gateway $case.Sql
+    if ($out -match "ERROR") {
+        Add-Failure "$($case.Label) failed: $out"
+    } else {
+        Add-Pass "$($case.Label) succeeds without matching rows."
+    }
+}
+$explanationProbe = "INSERT INTO advisor_explanation(org_id,job_id,attempt_no,schema_version,summary,drivers_explanation,recommended_actions_json,warnings_json,fact_reference_ids_json,created_at) VALUES(-1,-1,1,1,'privilege probe','privilege probe',JSON_ARRAY(),JSON_ARRAY(),JSON_ARRAY(),UTC_TIMESTAMP(6));"
+$explanationOut = Invoke-Gateway $explanationProbe
+if ($explanationOut -match "ERROR 1452") {
+    Add-Pass "advisor_explanation INSERT reaches the expected foreign-key fence."
+} else {
+    Add-Failure "advisor_explanation INSERT did not reach the expected foreign-key fence: $explanationOut"
 }
 
 # === Phase 4: Positive Gateway-owned write (rolled back) ===

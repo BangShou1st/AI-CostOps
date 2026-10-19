@@ -34,6 +34,31 @@ test('verify runs scripts, both Maven verify lifecycles, frontend tests/lint/pro
   assert.doesNotMatch(output, /excludedGroups|skipTests/)
 })
 
+test('verify no longer runs an in-repo shared OpenCode Zen Gradle step', async t => {
+  // The shared OpenCode Zen library is consumed as a published GitHub Packages artifact; its Gradle
+  // suite runs in the library's own repository, so the root verify plan must not shell out to a
+  // source snapshot, even when one is present in the working tree.
+  const root = fixture(t)
+  const shared = join(root, 'shared-libs', 'opencode-zen')
+  mkdirSync(shared, { recursive: true })
+  writeFileSync(join(shared, isWindows ? 'gradlew.bat' : 'gradlew'),
+    isWindows ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  assert.doesNotMatch(await invoke(root, 'verify', ['--dry-run']), /shared-lib tests/)
+})
+
+test('maven:settings writes a container-safe copy of the Maven settings', async t => {
+  const root = fixture(t)
+  const source = join(root, 'host-settings.xml')
+  writeFileSync(source, '<settings><proxies><proxy><host>127.0.0.1</host><port>7897</port></proxy></proxies>'
+    + '<servers><server><id>github</id><password>token-value</password></server></servers></settings>')
+  const output = await invoke(root, 'maven:settings', [], { ...process.env, ZEN_MAVEN_SETTINGS_SOURCE: source })
+  assert.match(output, /\[maven:settings\]/)
+  const generated = readFileSync(join(root, '.local-dev', 'maven', 'docker-settings.xml'), 'utf8')
+  assert.match(generated, /<host>host\.docker\.internal<\/host>/)
+  assert.doesNotMatch(generated, /127\.0\.0\.1/)
+  assert.equal(readFileSync(source, 'utf8').includes('127.0.0.1'), true)
+})
+
 test('test keeps architecture checks; build packages both Maven modules and frontend', async t => {
   const root = fixture(t)
   const unit = await invoke(root, 'test', ['--dry-run'])

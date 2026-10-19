@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Single implementation behind package.json and scripts/dev wrappers.
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
@@ -8,7 +9,7 @@ import { capture, npmCommand, run, supervise, withSignals, isWindows } from './l
 import { configuration, appPorts, nativeEnvironment, available, httpHealthy, requireFreePorts, isolatedPom, port } from './lib/workspace.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
-const COMMANDS = ['help', 'setup', 'doctor', 'status', 'dev', 'build', 'test', 'verify', 'infra:up', 'infra:down', 'infra:status']
+const COMMANDS = ['help', 'setup', 'maven:settings', 'doctor', 'status', 'dev', 'build', 'test', 'verify', 'infra:up', 'infra:down', 'infra:status']
 const [command = 'help', ...options] = process.argv.slice(2)
 const dryRun = options.includes('--dry-run')
 const poms = []
@@ -100,6 +101,26 @@ async function main(signal) {
   }
   if (command === 'status') return applicationStatus(ports)
   if (command === 'setup') return step(frontend(['ci']))
+
+  if (command === 'maven:settings') {
+    // The backend/gateway images resolve the private OpenCode Zen package during their Maven build,
+    // so they need a settings.xml with the "github" server. A host settings.xml whose proxy points at
+    // 127.0.0.1/localhost is unusable inside the build container (that address is the container
+    // itself), so copy the host file and rewrite loopback proxy hosts to Docker Desktop's gateway.
+    const source = env.ZEN_MAVEN_SETTINGS_SOURCE ?? join(homedir(), '.m2', 'settings.xml')
+    if (!existsSync(source)) {
+      throw new Error(`未找到 Maven settings：${source}。请先配置 github server，或用 ZEN_MAVEN_SETTINGS_SOURCE 指定来源。`)
+    }
+    const target = join(ROOT, '.local-dev', 'maven', 'docker-settings.xml')
+    const rewritten = readFileSync(source, 'utf8')
+      .replaceAll(/(<host>)\s*(?:127\.0\.0\.1|localhost)\s*(<\/host>)/gi, '$1host.docker.internal$2')
+    if (dryRun) { console.log(`[maven:settings] 将 ${source} 的容器安全副本写入 ${target}`); return }
+    mkdirSync(dirname(target), { recursive: true })
+    writeFileSync(target, rewritten, 'utf8')
+    console.log(`[maven:settings] 已生成容器安全 settings：${target}`)
+    console.log('docker compose up --build 默认读取该文件；如需自定义，在 .env 设置 ZEN_MAVEN_SETTINGS_FILE。')
+    return
+  }
 
   if (command.startsWith('infra:')) {
     const compose = ['compose', '--env-file', join(ROOT, '.env'), '-f', join(ROOT, 'compose.yaml'), '-f', join(ROOT, 'compose.dev.yaml')]

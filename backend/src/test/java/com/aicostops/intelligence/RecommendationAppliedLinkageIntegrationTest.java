@@ -30,6 +30,9 @@ import com.aicostops.providerhub.application.ControlPlaneFixtureSupport;
 @AutoConfigureMockMvc
 @Tag("integration")
 class RecommendationAppliedLinkageIntegrationTest extends ControlPlaneFixtureSupport {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.aicostops.intelligence.application.CostAnalysisInputService inputs;
+
 
     @Autowired
     private MockMvc mockMvc;
@@ -68,7 +71,11 @@ class RecommendationAppliedLinkageIntegrationTest extends ControlPlaneFixtureSup
         wrongPolicyId = insertPolicy(otherLogical);
         var yesterday = LocalDate.now().minusDays(1);
         jdbc.update("INSERT INTO cost_intelligence_run(org_id,analysis_date,currency,run_version,status,"
-                + "created_at) VALUES (?,?,'USD',1,'COMPLETED',UTC_TIMESTAMP(6))", organizationId, yesterday);
+                + "created_at) VALUES (?,?,'USD',?,'COMPLETED',UTC_TIMESTAMP(6))", organizationId, yesterday,
+                com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
+        jdbc.update("UPDATE cost_intelligence_run SET input_fingerprint=? WHERE org_id=? AND run_version=?",
+                inputs.currentFingerprint(organizationId, "USD", yesterday, com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION),
+                organizationId, com.aicostops.intelligence.application.CostIntelligenceValidation.RUN_VERSION);
         var runId = jdbc.queryForObject("SELECT id FROM cost_intelligence_run WHERE org_id=?", Long.class,
                 organizationId);
         rec1 = insertRecommendation(runId, logicalId);

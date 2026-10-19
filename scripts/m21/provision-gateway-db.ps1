@@ -57,23 +57,21 @@ $composeArgs += "--env-file"
 $composeArgs += ".env.m21.local"
 
 function Invoke-Root([string]$Sql) {
-    $env:MYSQL_PWD = $rootPassword
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u root $Database -e `"$Sql`" 2>&1"
-        return ($result | Out-String).Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # The root password is read from the mysql container's own environment
+    # (MYSQL_ROOT_PASSWORD): host env does not propagate through `compose exec`,
+    # and the secret never appears on the host command line.
+    $result = docker compose @composeArgs exec -T mysql sh -c "mysql -u root -p`"`$MYSQL_ROOT_PASSWORD`" $Database -e `"$Sql`" 2>&1"
+    return ($result | Out-String).Trim()
 }
 
 function Invoke-Gateway([string]$Sql) {
-    $env:MYSQL_PWD = $GatewayPassword
-    try {
-        $result = docker compose @composeArgs exec -T mysql sh -lc "mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
-        return ($result | Out-String).Trim()
-    } finally {
-        Remove-Item Env:\MYSQL_PWD -ErrorAction SilentlyContinue
-    }
+    # The Gateway password is this account's own secret (never root) and never
+    # appears on the host command line: it is fed to the container on stdin and
+    # consumed by `read`. PowerShell terminates piped stdin with CRLF, so the
+    # trailing CR is stripped before it becomes MYSQL_PWD.
+    $cmd = "read -r pw; MYSQL_PWD=`"`$(printf '%s' `"`$pw`" | tr -d '\r')`" mysql -u $GatewayUser $Database -e `"$Sql`" 2>&1"
+    $result = $GatewayPassword | docker compose @composeArgs exec -T mysql sh -c $cmd
+    return ($result | Out-String).Trim()
 }
 
 # Step 1: Create user if not exists
@@ -114,6 +112,23 @@ $grants = @(
     "GRANT SELECT ON $Database.service_identity TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.gateway_settlement TO '$GatewayUser'@'%';"
 
+    # AdvisorInferenceWorker SQL only: job claim/read and status writes,
+    # Attempt status/link writes (the Backend inserts attempts), Explanation
+    # insert, and bound Profile/evidence reads. No other Advisor writes.
+    "GRANT SELECT, UPDATE ON $Database.advisor_inference_job TO '$GatewayUser'@'%';"
+    # MySQL requires SELECT on the WHERE columns of UPDATE statements.
+    "GRANT SELECT, UPDATE ON $Database.advisor_inference_attempt TO '$GatewayUser'@'%';"
+    "GRANT INSERT ON $Database.advisor_explanation TO '$GatewayUser'@'%';"
+    "GRANT SELECT ON $Database.advisor_profile TO '$GatewayUser'@'%';"
+    "GRANT SELECT ON $Database.advisor_evidence_snapshot TO '$GatewayUser'@'%';"
+
+    # MySQL 8.4 requires the LOCK TABLES privilege for locking reads
+    # (`SELECT ... FOR UPDATE` is denied for a plain SELECT with
+    # "SELECT with locking clause command denied"). LOCK TABLES is only
+    # grantable at database scope. The Gateway must never hold UPDATE or
+    # DELETE on budget / billing_period, and never on any control-plane table.
+    "GRANT LOCK TABLES ON $Database.* TO '$GatewayUser'@'%';"
+
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_request TO '$GatewayUser'@'%';"
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_route_attempt TO '$GatewayUser'@'%';"
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_usage_fact TO '$GatewayUser'@'%';"
@@ -145,6 +160,46 @@ if ($showGrants -match "(?i)\bDELETE\b") {
 if ($showGrants -match "(?i)\bDROP\b") {
     Write-Error "[M21-DB] FAILED: Gateway user has DROP privilege"
     exit 1
+}
+# MySQL 8.4 contract: LOCK TABLES is required for SELECT ... FOR UPDATE.
+if ($showGrants -notmatch "(?i)\bLOCK\s+TABLES\b") {
+    Write-Error "[M21-DB] FAILED: Gateway user is missing LOCK TABLES (required for SELECT ... FOR UPDATE on MySQL 8.4)"
+    exit 1
+}
+# The Gateway must not be able to mutate budget / billing_period contents.
+foreach ($line in ($showGrants -split "`n")) {
+    if ($line -match "(?i)\bbudget\b|\bbilling_period\b") {
+        if ($line -match "(?i)\bUPDATE\b|\bDELETE\b|\bALL\b") {
+            Write-Error ("[M21-DB] FAILED: forbidden grant on budget/billing_period: " + $line.Trim())
+            exit 1
+        }
+    }
+}
+
+# Keep Advisor grants limited to the exact Worker SQL operations. In
+# particular, attempts are created by Backend, and Worker never mutates the
+# immutable profile or evidence snapshot.
+$expectedAdvisorPrivileges = @(
+    @{ Table = "advisor_inference_job"; Privileges = @("SELECT", "UPDATE") }
+    @{ Table = "advisor_inference_attempt"; Privileges = @("SELECT", "UPDATE") }
+    @{ Table = "advisor_explanation"; Privileges = @("INSERT") }
+    @{ Table = "advisor_profile"; Privileges = @("SELECT") }
+    @{ Table = "advisor_evidence_snapshot"; Privileges = @("SELECT") }
+)
+$grantLines = @($showGrants -split "`n")
+foreach ($case in $expectedAdvisorPrivileges) {
+    $line = $grantLines | Where-Object { $_ -match "(?i)\b$($case.Table)\b" } | Select-Object -First 1
+    $privilegeMatch = if ($line) { [regex]::Match($line, "(?i)^GRANT\s+(.+?)\s+ON\b") } else { $null }
+    if (-not $privilegeMatch -or -not $privilegeMatch.Success) {
+        Write-Error "[M21-DB] FAILED: missing table grant for $($case.Table)"
+        exit 1
+    }
+    $actual = @($privilegeMatch.Groups[1].Value.Split(',') | ForEach-Object { $_.Trim().ToUpperInvariant() } | Sort-Object)
+    $expected = @($case.Privileges | ForEach-Object { $_.ToUpperInvariant() } | Sort-Object)
+    if (($actual -join ',') -ne ($expected -join ',')) {
+        Write-Error "[M21-DB] FAILED: unexpected $($case.Table) privileges: $($actual -join ', ') (expected $($expected -join ', '))"
+        exit 1
+    }
 }
 Write-Output "[M21-DB] Privilege verification PASSED."
 Write-Output "[M21-DB] Gateway DB identity: $GatewayUser (least-privilege)"

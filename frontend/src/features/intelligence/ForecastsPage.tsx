@@ -8,6 +8,7 @@ import type { CostForecast } from './api/intelligenceTypes'
 import { formatMoney } from './format'
 import { OverviewSkeleton } from './OverviewSections'
 import './v3-tokens.css'
+import { HistoryCoverageSection } from './HistoryCoverageSection'
 
 export interface ForecastsPreview {
   currency: string
@@ -15,8 +16,8 @@ export interface ForecastsPreview {
 }
 
 const METHOD_NOTE: Record<string, string> = {
-  DAMPED_HOLT: '阻尼 Holt 主方法：历史 ≥ 14 个桶时使用，兼顾趋势与阻尼。',
-  RECENT_RUN_RATE: '近期速率兜底：历史 3–13 个桶时使用，仅外推近期水平，不做趋势幻想。',
+  DAMPED_HOLT: '阻尼 Holt 主方法：连续有效观测 ≥ 14 天时使用，兼顾趋势与阻尼。',
+  RECENT_RUN_RATE: '近期速率兜底：连续有效观测 3–13 天时使用，仅外推近期水平。',
 }
 
 const CONFIDENCE_PILL: Record<string, string> = {
@@ -64,14 +65,14 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
         <div className="v3-section-head">
           <span className="v3-eyebrow">Method</span>
           <h2 id="v3-forecast-method">方法与口径</h2>
-          <p>DAMPED_HOLT 为主方法；历史不足时显式降级为 RECENT_RUN_RATE，不伪装精度。</p>
+          <p>未知日期不算有效观测；连续有效观测不足 3 天时不生成预测，3–13 天使用低样本等级 RECENT_RUN_RATE，14 天起使用 DAMPED_HOLT。实际零金额记录和有效复核确认的零金额日期均计入观测。冲正主导（净额非正）的历史不生成预测——预测缺席表示未来费用估计不可用，不是未来费用为零。</p>
         </div>
       </section>
       {org && (
         <section className="v3-hero-figure" aria-label="组织级预测">
-          <div className="k">组织周期预计</div>
+          <div className="k">组织剩余期间预计费用</div>
           <div className="v">{formatMoney(org.projectedAmount, activeCurrency)}</div>
-          <div className="s">{org.method} · {org.confidence} 置信度 · {org.historyBucketCount} 个历史桶 · 观测至 {org.observedThrough}</div>
+          <div className="s">{org.method} · {org.confidence}（历史样本等级，未经准确率校准）· 连续有效观测 {org.historyBucketCount} 天 · 观测至 {org.observedThrough}</div>
         </section>
       )}
       <section className="v3-section" aria-label="筛选">
@@ -85,21 +86,22 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
       {loadProblem && <div role="alert"><Alert type="error" showIcon message={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
       {isLoading && <OverviewSkeleton />}
       {!isLoading && !loadProblem && visible.length === 0 && (
-        <div style={{ marginTop: 20 }}><Empty description="暂无预测。历史粒度不足时不会生成预测，也不做 AI 幻想。" /></div>
+        <div style={{ marginTop: 20 }}><Empty description="暂无预测。需要截至观测日连续至少 3 天的有效观测，未经复核的补零日期不计入样本。" /></div>
       )}
       {!isLoading && !loadProblem && visible.length > 0 && (
         <ul className="v3-list" style={{ marginTop: 16 }}>
           {visible.map((f) => (
             <li key={`${f.scopeType}-${f.scopeKey}`} className="v3-row">
               <div className="v3-row-main">
-                <p className="v3-row-title"><span className={`v3-pill ${CONFIDENCE_PILL[f.confidence] ?? 'v3-pill-neutral'}`}>{f.confidence} 置信度</span>{' '}{f.scopeType} · {f.scopeKey}</p>
-                <p className="v3-row-detail">{f.method} · {METHOD_NOTE[f.method] ?? '确定性方法。'}历史 {f.historyBucketCount} 桶 · 观测至 {f.observedThrough}</p>
+                <p className="v3-row-title"><span className={`v3-pill ${CONFIDENCE_PILL[f.confidence] ?? 'v3-pill-neutral'}`}>{f.confidence}（样本等级）</span>{' '}{f.scopeType} · {f.scopeKey}</p>
+                <p className="v3-row-detail">{f.method} · {METHOD_NOTE[f.method] ?? '确定性方法。'}剩余期间预计费用 · 连续有效观测 {f.historyBucketCount} 天 · 观测至 {f.observedThrough}</p>
               </div>
               <div className="v3-row-amount"><div className="a">{formatMoney(f.projectedAmount, activeCurrency)}</div></div>
             </li>
           ))}
         </ul>
       )}
+      {!preview && <HistoryCoverageSection key={activeCurrency} currency={activeCurrency} />}
       <p className="v3-footnote">预测金额由后端 BigDecimal 计算，前端只做呈现；同一逻辑口径内比较，不做跨币种换算。</p>
     </main>
   )

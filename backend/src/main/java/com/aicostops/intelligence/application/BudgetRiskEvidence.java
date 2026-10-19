@@ -12,5 +12,5 @@ import java.math.BigDecimal;
  */
 public record BudgetRiskEvidence(BigDecimal actual, BigDecimal committed, BigDecimal reservations,
         BigDecimal forecastFutureUsage, BigDecimal immediateExposure, BigDecimal projectedPeriodEnd,
-        BigDecimal budgetTotal, String currency, String risk) {
+        BigDecimal budgetTotal, String currency, String risk, boolean forecastAvailable) {
 }
