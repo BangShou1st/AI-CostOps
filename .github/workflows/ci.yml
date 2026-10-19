@@ -361,6 +361,8 @@ jobs:
           echo "ZEN_MAVEN_SETTINGS_FILE=$HOME/.m2/settings.xml" >> "$GITHUB_ENV"
 
       - name: Start isolated full Compose project
+        env:
+          COMPOSE_BAKE: "false"
         run: |
           docker compose -p aicostops-browser-e2e --env-file "$E2E_ENV_FILE" \
             up -d --build --wait --wait-timeout 360
