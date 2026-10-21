@@ -31,11 +31,11 @@ class OpenCodeManifestIntegrationTest extends ControlPlaneFixtureSupport {
     }
     @AfterEach void tearDown() { cleanDatabase(); }
     @Test void manifestVersionIsPinned() {
-        assertEquals("2026-10-16-v1", manifest.version());
-        assertEquals("2026-10-16-v1", OpenCodeModelManifest.MANIFEST_VERSION);
-        assertEquals("2026-10-16", manifest.verifiedAt());
-        assertEquals("OpenCode Zen (V1) official endpoint and pricing tables", manifest.source());
-        assertEquals("2026-10-11", manifest.sourceRevision());
+        assertEquals("2026-10-21-v2", manifest.version());
+        assertEquals("2026-10-21-v2", OpenCodeModelManifest.MANIFEST_VERSION);
+        assertEquals("2026-10-21", manifest.verifiedAt());
+        assertEquals("OpenCode Zen (V1) official endpoint and pricing tables; opencode-zen v1.4.2 reviewed free policy", manifest.source());
+        assertEquals("2026-10-21", manifest.sourceRevision());
     }
     @Test void realChatModelsAreAvailableWithChatProtocol() throws Exception {
         var conn = createOpenCodeConnection();

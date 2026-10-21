@@ -22,7 +22,7 @@
 | 命令 | 行为 |
 | --- | --- |
 | `npm run setup` | 在 frontend 执行 `npm ci`，仅首次使用或依赖变更时需要 |
-| `npm run maven:settings` | 从本机 Maven settings 生成容器安全副本（`github` server 凭据、loopback 代理改写为 `host.docker.internal`）到 `.local-dev/maven/docker-settings.xml`，供 `docker compose up --build` 构建 backend/gateway 镜像使用 |
+| `npm run maven:settings` | 可选：把本机 Maven 镜像/代理配置复制到 `.local-dev/maven/docker-settings.xml`，loopback 代理改写为 `host.docker.internal`；手动 `docker build --secret id=zen-maven-settings,src=...` 时使用 |
 | `npm run doctor` | 检查 Node、Java、npm、Docker 引擎、Maven wrapper、前端依赖、本地配置与三端端口 |
 | `npm run status` | 检查三端端口及 HTTP；端口空闲不代表进程故障，HTTP 通过不证明监听者的项目身份 |
 | `npm run infra:up` | 当前 Compose 项目的 MySQL、Redis、MinIO `up -d --wait`，不停止应用容器 |
@@ -40,6 +40,8 @@
 Windows 子进程使用隐藏窗口并保持非 detached 启动，避免为任务启动器额外创建控制台；退出清理由 `taskkill /T` 跟踪本次创建的进程树。POSIX 平台仍使用独立进程组进行清理。
 
 `setup/dev/build/test/verify/infra:*` 支持 `--dry-run`：例如 `npm run dev -- --dry-run`。它只输出命令计划，不启动进程、不创建 POM 或 `.env`。`doctor/status` 是实际只读检查。
+
+OpenCode Zen `v1.4.2` 和 Kilo Gateway 均通过公开 JitPack 坐标解析，本地、CI 和默认 Docker Compose 构建无需 PAT 或 Maven settings。
 
 ### 本地配置与运行方式
 

@@ -132,7 +132,7 @@ class OpenCodeFreeAdmissionDispatchBoundaryIntegrationTest extends GatewayMySqlC
     void delistedAndUnknownOpenCodeModelsAreRefusedBeforeAnyUpstreamCall() {
         for (var model : new String[] {
                 "mimo-v2.5-free", "deepseek-v4-flash-free", "future-unknown-model",
-                "deepseek-v4.1-flash-free", "cat-jam-free"}) {
+                "future-deepseek-free", "cat-jam-free"}) {
             upstreamCalls.set(0);
             retargetRouteToOpenCodeZen(model);
 

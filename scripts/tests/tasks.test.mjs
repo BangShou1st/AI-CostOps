@@ -35,7 +35,7 @@ test('verify runs scripts, both Maven verify lifecycles, frontend tests/lint/pro
 })
 
 test('verify no longer runs an in-repo shared OpenCode Zen Gradle step', async t => {
-  // The shared OpenCode Zen library is consumed as a published GitHub Packages artifact; its Gradle
+  // The shared OpenCode Zen library is consumed as a published JitPack artifact; its Gradle
   // suite runs in the library's own repository, so the root verify plan must not shell out to a
   // source snapshot, even when one is present in the working tree.
   const root = fixture(t)

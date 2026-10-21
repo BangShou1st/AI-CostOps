@@ -37,7 +37,7 @@ import tools.jackson.databind.ObjectMapper;
  * <p><b>Versioned decision (2026-10-17).</b> The built-in template's inference endpoint is now the
  * shared CLI inference base {@code https://opencode.ai/inference/v1} (the frozen
  * {@link ProviderCallContext} stays the dispatch authority). This test also locks the CLI request
- * body envelope (the 5 reserved tools) and the rule that a quota-exhausted {@code 429} is a normal
+ * body envelope (the shell/read reserved tools) and the rule that a quota-exhausted {@code 429} is a normal
  * bounded outcome for the Zen free tier, not a qualifying provider failure.
  */
 class OpenCodeEndpointContractTest {
@@ -65,6 +65,7 @@ class OpenCodeEndpointContractTest {
     private final List<String> requestBodies = new CopyOnWriteArrayList<>();
     private final List<String> authorizationHeaders = new CopyOnWriteArrayList<>();
     private final List<String> userAgents = new CopyOnWriteArrayList<>();
+    private final List<java.util.Map<String, List<String>>> wireHeaders = new CopyOnWriteArrayList<>();
     private final AtomicInteger forcedStatus = new AtomicInteger();
     private final AtomicReference<String> forcedSseBody = new AtomicReference<>();
     private final AtomicBoolean truncateSseResponse = new AtomicBoolean();
@@ -77,6 +78,7 @@ class OpenCodeEndpointContractTest {
         // the same "/inference/v1/chat/completions" shape so a duplicated "/v1" would show up here.
         upstream.createContext("/inference/v1/chat/completions", exchange -> {
             upstreamHits.incrementAndGet();
+            wireHeaders.add(java.util.Map.copyOf(exchange.getRequestHeaders()));
             requestPaths.add(exchange.getRequestURI().getPath());
             var authorization = exchange.getRequestHeaders().getFirst("Authorization");
             if (authorization != null) authorizationHeaders.add(authorization);
@@ -194,6 +196,21 @@ class OpenCodeEndpointContractTest {
             assertThat(body).contains("\"stream\":true");
             assertThat(body).contains("\"include_usage\":true");
             assertThat(body).contains("\"tools\"");
+            var headers = new java.util.TreeMap<String, List<String>>(String.CASE_INSENSITIVE_ORDER);
+            headers.putAll(wireHeaders.get(0));
+            assertThat(headers.get("Accept")).containsExactly("*/*");
+            assertThat(headers.get("User-Agent")).containsExactly("opencode/latest/2.0.29/cli");
+            assertThat(headers.get("x-opencode-client")).containsExactly("cli");
+            assertThat(headers.get("x-opencode-project")).containsExactly("global");
+            assertThat(headers.get("x-opencode-session")).hasSize(1);
+            assertThat(headers.get("x-opencode-session").get(0))
+                    .matches("ses_[0-9a-f]{12}[0-9A-Za-z]{14}");
+            assertThat(headers.get("x-opencode-session-id")).isEqualTo(headers.get("x-opencode-session"));
+            assertThat(headers).doesNotContainKeys("x-opencode-request", "x-session-affinity", "x-session-id");
+            var json = new ObjectMapper().readTree(body);
+            assertThat(json.path("tools")).hasSize(2);
+            assertThat(json.path("tools").get(0).path("function").path("name").asText()).isEqualTo("shell");
+            assertThat(json.path("tools").get(1).path("function").path("name").asText()).isEqualTo("read");
             for (var tool : com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy.reservedToolNames()) {
                 assertThat(body).contains("\"" + tool + "\"");
             }

@@ -42,7 +42,7 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
     /**
      * Server-owned OpenCode Zen User-Agent. Delegated to the shared library's CLI identity policy so
      * the gateway and the backend control plane cannot drift; the shared default is the verified
-     * {@code opencode/1.19.0 ...} CLI string.
+     * {@code opencode/latest/2.0.29/cli} CLI string.
      */
     public static final String SERVER_USER_AGENT = OpenCodeZenProtocolPolicy.USER_AGENT;
 
@@ -103,7 +103,7 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
             var request = requestFactory.newModelRequestBuilder(
                     URI.create(targetUrl(context)), freeModel, apiKey,
                     OpenCodeZenIdGenerator.newSessionId(), OpenCodeZenIdGenerator.newRequestId()).build();
-            request.headers().map().forEach((name, values) -> values.forEach(value -> headers.add(name, value)));
+            request.headers().map().forEach((name, values) -> headers.put(name, values));
         } catch (IllegalArgumentException invalidRequest) {
             throw new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
                     ProviderSafetyReason.LOCAL_PRE_NETWORK_FAILURE, ProviderHealthSignal.NONE,
@@ -114,7 +114,7 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
 
     /**
      * Applies the required CLI envelope — {@code stream=true} + {@code stream_options.include_usage}
-     * + the 5 reserved tools — to every outbound chat body. Verified live against the real upstream
+     * + the shell/read reserved tools — to every outbound chat body. Verified live against the real upstream
      * (2026-10-17): {@code stream=false} is rejected with {@code 403 FreeTierError}, while the full
      * envelope answers {@code 200}, so the incoming {@code stream} flag is intentionally ignored.
      */

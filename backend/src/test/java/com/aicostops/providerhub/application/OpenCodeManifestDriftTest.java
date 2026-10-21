@@ -47,38 +47,19 @@ class OpenCodeManifestDriftTest {
 
     /** Same dual V1 evidence, but the official V1 pricing table lists them as Free. */
     private static final List<String> NEW_V1_CHAT_VERIFIED_FREE = List.of(
-            "longcat-2.5-preview-free",
-            "mimo-v2.6-flash-free",
-            "nemotron-3.5-lightning-free",
-            "space-bunny-free");
+            "beam-free", "big-pickle", "deepseek-v4.1-flash-free", "glm-5.3-flash-free",
+            "longcat-2.5-preview-free", "mimo-v2.6-flash-free", "minimax-m3.1-flash-free",
+            "nemotron-3.5-lightning-free", "nemotron-3.5-super-vl-free");
 
     /**
-     * Live catalog ids that the V2 Console documents (some explicitly as Free) but that have no
-     * first-party <em>V1 Zen</em> protocol or pricing attestation. They must stay fail closed:
-     * a Console free listing is never evidence of V1 Zen free.
-     */
-    /**
-     * Ids the V2 Console documents — several of them explicitly as <em>Free</em> — but which have no
-     * first-party <em>V1 Zen</em> attestation that could admit them to the Chat path. Two sub-cases
-     * are deliberately mixed here because the required outcome is identical:
-     *
-     * <ul>
-     *   <li>no V1 evidence at all ({@code deepseek-v4.1-flash-free}, {@code cat-jam-free},
-     *       {@code muse-spark-1.2-contributor-free}, {@code nemotron-3.5-super-vl-free});</li>
-     *   <li>a V1 endpoint row in a family this project does not implement — Messages
-     *       ({@code claude-haiku-5-5}, {@code claude-opus-5-5}, {@code claude-sonnet-5-5},
-     *       {@code qwen3.8-flash}), Responses ({@code gpt-6-luna}, {@code grok-4.7}) — plus
-     *       {@code gemini-4-argon}, which is absent from the V1 table entirely.</li>
-     * </ul>
-     *
-     * <p>In every case the manifest must not classify them, and a Console free listing must never
-     * become {@code VERIFIED_FREE} for the V1 Zen template.
+     * Unreviewed ids and unimplemented protocol families remain unknown. The five newly reviewed
+     * free Chat ids have moved to NEW_V1_CHAT_VERIFIED_FREE for the v1.4.2 policy revision.
      */
     private static final List<String> CONSOLE_ONLY_OR_UNIMPLEMENTED_FAMILY_MUST_STAY_UNKNOWN = List.of(
-            "deepseek-v4.1-flash-free",
+            "future-deepseek-free",
             "cat-jam-free",
             "muse-spark-1.2-contributor-free",
-            "nemotron-3.5-super-vl-free",
+            "future-nemotron-free",
             "claude-haiku-5-5",
             "claude-opus-5-5",
             "claude-sonnet-5-5",
@@ -104,10 +85,10 @@ class OpenCodeManifestDriftTest {
 
     @Test
     void manifestRecordsTheDriftReviewProvenance() {
-        assertEquals("2026-10-16-v1", manifest.version());
-        assertEquals("2026-10-16-v1", OpenCodeModelManifest.MANIFEST_VERSION);
-        assertEquals("2026-10-16", manifest.verifiedAt());
-        assertEquals("2026-10-11", manifest.sourceRevision());
+        assertEquals("2026-10-21-v2", manifest.version());
+        assertEquals("2026-10-21-v2", OpenCodeModelManifest.MANIFEST_VERSION);
+        assertEquals("2026-10-21", manifest.verifiedAt());
+        assertEquals("2026-10-21", manifest.sourceRevision());
         assertTrue(manifest.source().contains("Zen"),
                 () -> "Source must name the V1 Zen product, not the V2 Console: " + manifest.source());
     }
@@ -161,7 +142,7 @@ class OpenCodeManifestDriftTest {
         // Suffix alone never imprints a classification.
         for (var invented : List.of(
                 "totally-new-model-free",
-                "deepseek-v4.1-flash-free",
+                "future-deepseek-free",
                 "glm-5.3-free",
                 "qwen3.8-max-free")) {
             assertEquals(OpenCodeModelManifest.PRICING_UNKNOWN, manifest.pricingFor(invented), invented);
@@ -169,10 +150,10 @@ class OpenCodeManifestDriftTest {
         }
         // The Console free list must not leak into the V1 template.
         for (var consoleFree : List.of(
-                "deepseek-v4.1-flash-free",
+                "future-deepseek-free",
                 "cat-jam-free",
                 "muse-spark-1.2-contributor-free",
-                "nemotron-3.5-super-vl-free")) {
+                "future-nemotron-free")) {
             assertFalse(OpenCodeModelManifest.PRICING_VERIFIED_FREE.equals(
                             manifest.pricingFor(consoleFree)),
                     () -> consoleFree + " is free on the V2 Console only; V1 Zen must stay UNKNOWN");

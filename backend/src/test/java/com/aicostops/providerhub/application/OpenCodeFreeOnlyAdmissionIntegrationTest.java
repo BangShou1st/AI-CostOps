@@ -137,7 +137,7 @@ class OpenCodeFreeOnlyAdmissionIntegrationTest extends ControlPlaneFixtureSuppor
     void rejectedProbeLeavesNoProviderEvidenceAndIssuesNoUpstreamCall() throws Exception {
         var conn = openCodeConnection();
         for (var model : List.of("deepseek-v4-pro", "qwen3.8-max", "future-unknown-model-xyz",
-                "gpt-5.6-sol", "deepseek-v4.1-flash-free")) {
+                "gpt-5.6-sol", "future-deepseek-free")) {
             var discovery = manualModel(conn, model);
             mockMvc.perform(post("/api/v1/provider-connections/{id}/models/{d}/probe", conn, discovery)
                             .header("Authorization", bearerFor(user)))
@@ -277,14 +277,15 @@ class OpenCodeFreeOnlyAdmissionIntegrationTest extends ControlPlaneFixtureSuppor
     static final class OpenCodeFreeOnlyAdmissionTestFixtures {
         static final List<String> ADMITTED = List.of(
                 "big-pickle", "longcat-2.5-preview-free", "mimo-v2.6-flash-free",
-                "nemotron-3.5-lightning-free", "space-bunny-free");
+                "nemotron-3.5-lightning-free", "beam-free", "deepseek-v4.1-flash-free",
+                "glm-5.3-flash-free", "minimax-m3.1-flash-free", "nemotron-3.5-super-vl-free");
         static final List<String> PAID = List.of(
                 "deepseek-v4-pro", "deepseek-v4.1-flash", "glm-5.3", "mistral-large-4", "qwen3.8-max");
         static final List<String> DELISTED_FREE = List.of(
                 "mimo-v2.5-free", "laguna-s-2.1-free", "ling-3.0-tiny-free", "longcat-2.0-free",
                 "north-mini-code-free", "nemotron-3-ultra-free", "deepseek-v4-flash-free");
         static final List<String> NOT_ADMITTED_MIXED = List.of(
-                "deepseek-v4.1-flash-free", "cat-jam-free", "nemotron-3.5-super-vl-free",
+                "space-bunny-free", "jev-1.13-free", "future-deepseek-free", "cat-jam-free", "future-nemotron-free",
                 "gpt-5.6-sol", "claude-sonnet-5", "gemini-3.6-flash", "qwen3.7-max",
                 "future-unknown-model-xyz", "exo-free", "step-5-preview-free");
 

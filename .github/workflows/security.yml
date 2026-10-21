@@ -24,9 +24,6 @@ jobs:
       matrix:
         language: [java-kotlin, javascript-typescript]
     runs-on: ubuntu-latest
-    env:
-      ZEN_MAVEN_USER: BangShou1st
-      ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -37,11 +34,6 @@ jobs:
           cache-dependency-path: |
             backend/pom.xml
             gateway/pom.xml
-          # Private OpenCode Zen package (GitHub Packages): writes ~/.m2/settings.xml with a
-          # "github" server whose credentials come from the env vars set at job level.
-          server-id: github
-          server-username: ZEN_MAVEN_USER
-          server-password: ZEN_MAVEN_TOKEN
       - uses: actions/setup-node@v6
         with:
           node-version: "24.14.0"
@@ -71,24 +63,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Write Maven settings for the private OpenCode Zen package
-        env:
-          ZEN_MAVEN_USER: BangShou1st
-          ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
-        run: |
-          mkdir -p "$HOME/.m2"
-          cat > "$HOME/.m2/settings.xml" <<EOF
-          <settings>
-            <servers>
-              <server>
-                <id>github</id>
-                <username>${ZEN_MAVEN_USER}</username>
-                <password>${ZEN_MAVEN_TOKEN}</password>
-              </server>
-            </servers>
-          </settings>
-          EOF
-
       - name: Cache Trivy DB
         uses: actions/cache@v4
         with:
@@ -98,13 +72,13 @@ jobs:
             trivy-db-v0.73.0-
 
       - name: Build backend image
-        run: docker build --secret id=zen-maven-settings,src="$HOME/.m2/settings.xml" --tag ai-costops-backend:security backend
+        run: docker build --tag ai-costops-backend:security backend
 
       - name: Build frontend image
         run: docker build --tag ai-costops-frontend:security frontend
 
       - name: Build gateway image
-        run: docker build --secret id=zen-maven-settings,src="$HOME/.m2/settings.xml" --tag ai-costops-gateway:security gateway
+        run: docker build --tag ai-costops-gateway:security gateway
 
       # Filesystem scan must cover the approved AIC-079 surface:
       #   vuln + misconfig + secret, severity HIGH,CRITICAL, exit-code 1.
