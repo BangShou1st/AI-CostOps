@@ -483,7 +483,7 @@ describe('ImportDetailPage cache lifecycle', () => {
     await act(async () => {
       queryClient.setQueryData(importKeys.detail('123'), terminal)
     })
-    expect(screen.getByText('已解析')).toBeInTheDocument()
+    expect(await screen.findByText('已解析')).toBeInTheDocument()
     expect(screen.getByText('尝试 #')).toBeInTheDocument()
     await waitFor(() => {
       expect(mockedImportsApi.listAttempts.mock.calls.length).toBeGreaterThanOrEqual(2)

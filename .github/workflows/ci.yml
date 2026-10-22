@@ -77,9 +77,6 @@ jobs:
     defaults:
       run:
         working-directory: backend
-    env:
-      ZEN_MAVEN_USER: BangShou1st
-      ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -88,11 +85,6 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/pom.xml
-          # Private OpenCode Zen package (GitHub Packages): writes ~/.m2/settings.xml with a
-          # "github" server whose credentials come from the env vars set at job level.
-          server-id: github
-          server-username: ZEN_MAVEN_USER
-          server-password: ZEN_MAVEN_TOKEN
       - run: ./mvnw -B -DexcludedGroups=architecture,integration test
 
   backend-integration:
@@ -101,9 +93,6 @@ jobs:
     defaults:
       run:
         working-directory: backend
-    env:
-      ZEN_MAVEN_USER: BangShou1st
-      ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -112,11 +101,6 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/pom.xml
-          # Private OpenCode Zen package (GitHub Packages): writes ~/.m2/settings.xml with a
-          # "github" server whose credentials come from the env vars set at job level.
-          server-id: github
-          server-username: ZEN_MAVEN_USER
-          server-password: ZEN_MAVEN_TOKEN
       # Failsafe selects *IntegrationTest by filename. A tag filter silently
       # drops existing untagged integration tests, so verify the full lifecycle.
       - run: ./mvnw -B verify
@@ -134,9 +118,6 @@ jobs:
     defaults:
       run:
         working-directory: backend
-    env:
-      ZEN_MAVEN_USER: BangShou1st
-      ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -145,11 +126,6 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/pom.xml
-          # Private OpenCode Zen package (GitHub Packages): writes ~/.m2/settings.xml with a
-          # "github" server whose credentials come from the env vars set at job level.
-          server-id: github
-          server-username: ZEN_MAVEN_USER
-          server-password: ZEN_MAVEN_TOKEN
       - run: ./mvnw -B -Dgroups=architecture test
 
   gateway-unit:
@@ -158,9 +134,6 @@ jobs:
     defaults:
       run:
         working-directory: gateway
-    env:
-      ZEN_MAVEN_USER: BangShou1st
-      ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -169,11 +142,6 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: gateway/pom.xml
-          # Private OpenCode Zen package (GitHub Packages): writes ~/.m2/settings.xml with a
-          # "github" server whose credentials come from the env vars set at job level.
-          server-id: github
-          server-username: ZEN_MAVEN_USER
-          server-password: ZEN_MAVEN_TOKEN
       - run: ./mvnw -B -DexcludedGroups=architecture,integration test
 
   gateway-integration:
@@ -182,9 +150,6 @@ jobs:
     defaults:
       run:
         working-directory: gateway
-    env:
-      ZEN_MAVEN_USER: BangShou1st
-      ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -193,11 +158,6 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: gateway/pom.xml
-          # Private OpenCode Zen package (GitHub Packages): writes ~/.m2/settings.xml with a
-          # "github" server whose credentials come from the env vars set at job level.
-          server-id: github
-          server-username: ZEN_MAVEN_USER
-          server-password: ZEN_MAVEN_TOKEN
       # Keep every Failsafe integration class, including those without @Tag.
       - run: ./mvnw -B verify
 
@@ -207,9 +167,6 @@ jobs:
     defaults:
       run:
         working-directory: gateway
-    env:
-      ZEN_MAVEN_USER: BangShou1st
-      ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
@@ -218,11 +175,6 @@ jobs:
           java-version: "21"
           cache: maven
           cache-dependency-path: gateway/pom.xml
-          # Private OpenCode Zen package (GitHub Packages): writes ~/.m2/settings.xml with a
-          # "github" server whose credentials come from the env vars set at job level.
-          server-id: github
-          server-username: ZEN_MAVEN_USER
-          server-password: ZEN_MAVEN_TOKEN
       - run: ./mvnw -B -Dgroups=architecture test
 
   frontend-lint:
@@ -278,26 +230,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Write Maven settings for the private OpenCode Zen package
-        env:
-          ZEN_MAVEN_USER: BangShou1st
-          ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
-        run: |
-          mkdir -p "$HOME/.m2"
-          cat > "$HOME/.m2/settings.xml" <<EOF
-          <settings>
-            <servers>
-              <server>
-                <id>github</id>
-                <username>${ZEN_MAVEN_USER}</username>
-                <password>${ZEN_MAVEN_TOKEN}</password>
-              </server>
-            </servers>
-          </settings>
-          EOF
-      - run: docker build --secret id=zen-maven-settings,src="$HOME/.m2/settings.xml" --tag ai-costops-backend:ci backend
+      - run: docker build --tag ai-costops-backend:ci backend
       - run: docker build --tag ai-costops-frontend:ci frontend
-      - run: docker build --secret id=zen-maven-settings,src="$HOME/.m2/settings.xml" --tag ai-costops-gateway:ci gateway
+      - run: docker build --tag ai-costops-gateway:ci gateway
 
   browser-e2e:
     name: browser-e2e
@@ -340,25 +275,6 @@ jobs:
           AICOSTOPS_LOGIN_ACCOUNT_LIMIT=500
           AICOSTOPS_LOGIN_IP_LIMIT=500
           EOF
-
-      - name: Write Maven settings for the private OpenCode Zen package
-        env:
-          ZEN_MAVEN_USER: BangShou1st
-          ZEN_MAVEN_TOKEN: ${{ secrets.ZEN_MAVEN_TOKEN }}
-        run: |
-          mkdir -p "$HOME/.m2"
-          cat > "$HOME/.m2/settings.xml" <<EOF
-          <settings>
-            <servers>
-              <server>
-                <id>github</id>
-                <username>${ZEN_MAVEN_USER}</username>
-                <password>${ZEN_MAVEN_TOKEN}</password>
-              </server>
-            </servers>
-          </settings>
-          EOF
-          echo "ZEN_MAVEN_SETTINGS_FILE=$HOME/.m2/settings.xml" >> "$GITHUB_ENV"
 
       - name: Start isolated full Compose project
         env:

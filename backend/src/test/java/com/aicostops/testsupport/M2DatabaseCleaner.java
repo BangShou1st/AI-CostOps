@@ -132,6 +132,10 @@ public final class M2DatabaseCleaner {
         jdbc.update("DELETE FROM project");
         jdbc.update("DELETE FROM team");
         jdbc.update("DELETE FROM cost_center");
+        // V28 cost history coverage references app_user (reviewed_by_user_id)
+        // and organization, so it is removed before both parents.
+        jdbc.update("DELETE FROM cost_history_coverage");
+        jdbc.update("DELETE FROM cost_history_coverage_revision");
         jdbc.update("DELETE FROM user_credential");
         jdbc.update("DELETE FROM app_user");
         jdbc.update("DELETE FROM organization");

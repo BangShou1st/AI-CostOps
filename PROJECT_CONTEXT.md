@@ -1,5 +1,8 @@
 # AI CostOps — 项目上下文
 
+> 本文件是**当前状态**的权威索引。历史里程碑细节保留在 `docs/` 与 [`CHANGELOG.md`](CHANGELOG.md)，
+> 不在此重复。新会话请先读 [`AGENTS.md`](AGENTS.md)。
+
 ## 定位
 
 AI CostOps 是一个双人协作开发的企业后端 / FinOps 类项目。
@@ -27,62 +30,43 @@ M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
 Known release-blocking defects = NONE
 ```
 
-V1 and V2 milestone details below are historical delivery records. They do not define an active feature backlog.
-
 V3 是最终功能版本：功能研发已关闭，项目进入长期维护模式；V4 不在路线图内，不再规划或实现 V4，不新增 Provider 或业务功能，维护任务按真实故障与必要性触发。`STABLE_RELEASE = v3.0.0` 是 `main` 上的当前稳定标签，`dev` 包含尚未合并或发布的维护提交。
 
 M22 原始记录中的两个 `DEFERRED / NON-BLOCKING` gate 需分开解释：independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](docs/03-acceptance/2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [m22-v3-production-certification.md](docs/03-acceptance/m22-v3-production-certification.md) 保留其原时间点结论，未改写。
 
-M10 冻结入口：
+### 冻结入口
 
 ```text
-docs/02-development/v2-detailed-design/README.md
-docs/03-acceptance/m10-design-freeze-matrix.md
-docs/02-development/api/gateway-openapi.yaml
+docs/02-development/v2-detailed-design/README.md   V2 Detailed Design
+docs/03-acceptance/m10-design-freeze-matrix.md      M10 Design Freeze Matrix
+docs/02-development/api/gateway-openapi.yaml        Gateway OpenAPI Contract
 ```
 
 M11+ 实现必须服从 M10 冻结的 ownership、状态机、财务、幂等、失败恢复和 Gateway API 契约；不得把 correctness-critical 决策重新留给实现期猜测。
 
-V1 状态：
-
-```text
-M0–M8 全部完成
-AIC-001 ~ AIC-073 全部完成
-AIC-073 Final Human Acceptance / Release Sign-off = ACCEPTED
-Release blocker = NONE
-v1.0.0 = RELEASED
-v1.0.1 = RELEASED
-```
-
-发布基线：
+### 发布基线
 
 ```text
 v1.0.0 → 982d06a0e9ec844ea687ed746d6b9d8f39d86686
 v1.0.1 → b96be614e2d843c101add49fe6daffb9d2343a56
 v1.1.0 → 102f287da9bfc922ffaabb1b7244a973a0f813eb
+v2.0.0 → 93e359687c2d0e81b096d7a73cc8e04e16a7ecbe
+v3.0.0 → 9c55125c1b857e3ccf301875d8886131a9d1d9b0
 ```
 
-`v1.0.1` 是 V1 发布后的补丁版本，通过 PR #103 加固 Import lease recovery 在 MySQL deadlock race 下的 bounded retry；不改变 API、Schema 或 V1 产品范围。
-
-## V1 已完成范围
+## 已交付能力范围
 
 ```text
-IAM / Organization
-Evidence
-Import
-Canonical Cost Facts
-Duplicate Review
-Attribution / Allocation
-Expense / Approval
-BillingPeriod / Budget / Commitment
-Immutable Ledger / Correction
-Reconciliation
-Period Close / Reopen
-Audit
-Workbench / Reporting
+IAM / Organization          Evidence / Import          Canonical Cost Facts
+Duplicate Review            Attribution / Allocation   Expense / Approval
+BillingPeriod / Budget / Commitment                  Immutable Ledger / Correction
+Reconciliation              Period Close / Reopen      Audit
+Gateway（身份/预占/计量/路由/结算）                   Provider Hub / Model Catalog / Pricing
+Cost Intelligence（异常/预测/节约建议）                AI Advisor（只解释，不算钱）
+Reporting / Workbench        Observability
 ```
 
-## V1 数据真相
+## 数据真相
 
 ```text
 MySQL
@@ -113,28 +97,6 @@ POSTED Immutable
 Correction Append-only
 ```
 
-## V1 验证状态
-
-```text
-Backend Unit Tests        437 PASS
-Backend Integration       800 PASS
-Backend Architecture       34 PASS
-Frontend Vitest           432 PASS
-Frontend Lint             PASS
-Compose Smoke             PASS
-Browser UAT              32/32 PASS
-State Branches           14/14 PASS
-P0/P1 Defects                0
-```
-
-AIC-073 最终签署记录：
-
-```text
-docs/03-acceptance/aic-073-final-human-acceptance.md
-```
-
-V1 冻结历史计划与 M0–M8 证据继续保留，不作为当前 backlog 解释。
-
 ## 当前技术基线
 
 ```text
@@ -157,42 +119,7 @@ JUnit / Testcontainers / ArchUnit
 
 Gateway 的 M10 冻结 Runtime 方向为 Java 21 + Spring Boot 4.1.0 + Spring WebFlux / Reactor Netty；M10 不通过文档阶段静默升级依赖版本。
 
-## V1.1 / M9 — Production Foundation
-
-M9 不新增 Realtime Gateway 业务功能。
-
-目标：
-
-> 把已完成的 V1 财务闭环提升为能够可靠承载后续 Gateway 的生产工程基础。
-
-M9 范围：
-
-```text
-Audit closure
-Production configuration hardening
-Metrics / Prometheus
-Grafana / alerting
-Browser E2E automation
-Security CI
-Backup / restore drills
-Provider certification process
-10k / 100k / 500k import benchmark
-Read-model performance evidence
-Operational / incident runbooks
-v1.1 release evidence
-```
-
-Transactional Outbox / RabbitMQ 不作为默认 M9 DoD。先 measure → SQL/index/batch/concurrency tuning；只有真实证据证明 DB-backed worker 不足时再评估。
-
-已发布：
-
-```text
-v1.1.0
-```
-
-## V2 Runtime Direction
-
-采用：
+## Runtime 方向
 
 ```text
 Monorepo
@@ -205,33 +132,19 @@ Monorepo
 
 > 一个 Monorepo、两个 Deployable、一个最终财务 Truth。
 
-Control Plane 继续负责：
+Control Plane 负责：
 
 ```text
-IAM
-Organization
-Budget
-Ledger
-Reconciliation
-Period Close
-Audit
-Admin / Reporting
-Final Settlement financial posting
+IAM / Organization / Budget / Ledger / Reconciliation / Period Close / Audit
+Admin / Reporting / Final Settlement financial posting
 ```
 
-Gateway Data Plane 负责/将负责：
+Gateway Data Plane 负责：
 
 ```text
-OpenAI-compatible API
-Internal Gateway Credentials
-Request Identity / Attribution
-Rate Limit / Quota
-Budget Reservation request-time control
-Streaming Proxy
-Realtime Metering
-Provider Routing
-Gateway request / route / usage facts
-Gateway Metrics / Audit
+OpenAI-compatible API / Internal Gateway Credentials / Request Identity / Rate Limit / Quota
+Budget Reservation request-time control / Streaming Proxy / Realtime Metering / Provider Routing
+Gateway request / route / usage facts / Gateway Metrics / Audit
 ```
 
 最终财务 truth：
@@ -247,73 +160,20 @@ MySQL = authoritative reservation correctness
 Redis != monetary reservation authority
 ```
 
-Redis V2 可承担：
-
-```text
-rate limit
-quota window
-short idempotency lookup cache
-request ephemeral coordination
-provider health / circuit state
-reservation expiry wake-up hints / non-authoritative cache
-```
+Redis V2 可承担：rate limit、quota window、short idempotency lookup cache、request ephemeral coordination、provider health / circuit state、reservation expiry wake-up hints / non-authoritative cache。
 
 Redis 不承担 Final Ledger、Final Budget、Final Settlement History，也不能独立授权 monetary spend。
 
-## V2 Roadmap (historical milestone plan)
-
-The sequence below records the original V2 plan and completion status. It is historical reference, not the current development plan.
+## V2 明确不做
 
 ```text
-M9  — V1.1 Production Foundation                COMPLETE / ACCEPTED
-M10 — V2 Detailed Design                        COMPLETE / FROZEN
-M11 — Gateway Edge MVP                          COMPLETE / ACCEPTED
-M12 — Identity / Attribution / Budget Reservation  COMPLETE / ACCEPTED
-M13 — Realtime Metering / Settlement            COMPLETE / ACCEPTED
-M14 — Multi-provider Routing / Resilience       COMPLETE / ACCEPTED
-M15 — Hybrid Reconciliation                     COMPLETE / ACCEPTED
-M16 — V2 Production Acceptance                  COMPLETE / ACCEPTED
+SAML / SCIM / Full FOCUS conformance / Automatic FX Engine / Full ERP / GL
+Bank payment / Tax automation / Custom Approval DSL / Prompt management product
+RAG / Agent workbench / Model quality evaluation platform / Multi-region active-active
+Kubernetes migration for its own sake / Cost per PR / issue / agent outcome
 ```
 
-详细路线：
-
-```text
-docs/01-blueprint/product/11-roadmap.md
-```
-
-V1 → V2 总体设计基线：
-
-```text
-docs/superpowers/specs/2026-08-27-v1-to-v2-production-gateway-design.md
-```
-
-M10 最终详细设计：
-
-```text
-docs/02-development/v2-detailed-design/
-docs/03-acceptance/m10-design-freeze-matrix.md
-```
-
-## V2 Core 明确不做
-
-```text
-SAML / SCIM
-Full FOCUS conformance
-Automatic FX Engine
-Full ERP / GL
-Bank payment
-Tax automation
-Custom Approval DSL
-Prompt management product
-RAG
-Agent workbench
-Model quality evaluation platform
-Multi-region active-active
-Kubernetes migration for its own sake
-Cost per PR / issue / agent outcome
-```
-
-这些进入 V2.1/V3/V4 候选，按真实需求再设计。
+这些是 V2.1/V3/V4 候选，按真实需求再设计。
 
 ## Daily Development Mode
 
@@ -340,7 +200,7 @@ npm run infra:up
 npm run dev
 ```
 
-Full Compose 仍优先用于 CI / E2E / Security / Smoke / Release 与最终集成 / Docker 验证，而不是日常代码循环；详细警告见 README.md 的"本地完整 Compose Quick Start"段落。
+Full Compose 仍优先用于 CI / E2E / Security / Smoke / Release 与最终集成 / Docker 验证，而不是日常代码循环。
 
 `dev` 在前台启动本机三端，Ctrl+C 清理本次创建的应用进程树。`test` 包含 Backend/Gateway 单元与架构及前端单元测试；`verify` 执行两个 Maven 模块完整生命周期及前端测试、lint、生产 build。Maven 根任务输出隔离在 `.local-dev/builds/`，不覆盖运行中的模块 JAR。脚本包装、环境配置与状态命令见 `scripts/README.md`。
 

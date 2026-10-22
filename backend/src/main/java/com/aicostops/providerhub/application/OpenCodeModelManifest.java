@@ -10,10 +10,12 @@ import org.springframework.stereotype.Component;
  * Live /models proves availability only; protocol and pricing come from this controlled list.
  *
  * <p>Reviewed against the official V1 Zen endpoint and pricing tables. The first revision
- * (2026-09-11) froze the reviewed table of that day; the current revision (2026-10-16) closes the
+ * (2026-09-11) froze the reviewed table of that day; the 2026-10-16 revision closed the
  * M-2 catalog drift: ids newly served by V1 Zen that carry <em>both</em> an official
  * {@code /zen/v1/chat/completions} endpoint row and an official V1 Zen pricing-table row were
- * classified. Anything attested only by the V2 Console product, or only by a {@code -free} suffix,
+ * classified. The 2026-10-21 revision adds the five reviewed free Chat models from
+ * opencode-zen v1.4.2; space-bunny-free retains metadata but loses dispatch admission.
+ * Anything attested only by the V2 Console product, or only by a {@code -free} suffix,
  * deliberately stays UNKNOWN.
  * Chat Completions family is eligible for the bounded V3 Chat probe path; Responses,
  * Messages and Gemini-native families are UNSUPPORTED for V3 and stay AVAILABLE but
@@ -38,10 +40,10 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class OpenCodeModelManifest {
-    public static final String MANIFEST_VERSION = "2026-10-16-v1";
-    public static final String VERIFIED_AT = "2026-10-16";
-    public static final String SOURCE = "OpenCode Zen (V1) official endpoint and pricing tables";
-    public static final String SOURCE_REVISION = "2026-10-11";
+    public static final String MANIFEST_VERSION = "2026-10-21-v2";
+    public static final String VERIFIED_AT = "2026-10-21";
+    public static final String SOURCE = "OpenCode Zen (V1) official endpoint and pricing tables; opencode-zen v1.4.2 reviewed free policy";
+    public static final String SOURCE_REVISION = "2026-10-21";
     /**
      * Reviewed revision of the FREE_ONLY admission policy. Deliberately separate from
      * {@link #MANIFEST_VERSION}: the manifest records reviewed classification history, while this
@@ -55,14 +57,7 @@ public class OpenCodeModelManifest {
     public static final String PRICING_VERIFIED_FREE = "VERIFIED_FREE";
     public static final String PRICING_PAID = "PAID";
     public static final String PRICING_UNKNOWN = "UNKNOWN";
-    /*
-     * The reviewed "currently served" free set is no longer defined here: it lives in the shared
-     * OpenCodeZenFreeAdmissionPolicy so the Backend probe/promotion gate and the Gateway dispatch
-     * barrier execute the exact same rule instead of two droppable copies. Evidence for the set:
-     * live GET https://opencode.ai/zen/v1/models at FREE_ADMISSION_POLICY_VERSION (2026-10-16,
-     * 86 ids, SHA-256
-     * 6a4fc13e81fd7a7905c5934cef9781e39255a9aa93e2da406fc4f02b682e2685).
-     */
+    // Current free dispatch rights come from the shared policy; historical metadata is retained.
     public record Entry(String protocol, String pricing) {
     }
     private static final java.util.Map<String, Entry> PRODUCTION_ENTRIES = java.util.Map.ofEntries(
@@ -86,6 +81,12 @@ public class OpenCodeModelManifest {
             java.util.Map.entry("mistral-large-4", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
             java.util.Map.entry("qwen3.8-max", new Entry(PROTOCOL_CHAT, PRICING_PAID)),
             java.util.Map.entry("big-pickle", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            // Reviewed free Chat additions from opencode-zen v1.4.2 (2026-10-21-v2).
+            java.util.Map.entry("beam-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            java.util.Map.entry("deepseek-v4.1-flash-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            java.util.Map.entry("glm-5.3-flash-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            java.util.Map.entry("minimax-m3.1-flash-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
+            java.util.Map.entry("nemotron-3.5-super-vl-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
             // 2026-10-16 drift repair: official V1 Zen pricing table lists these as Free.
             java.util.Map.entry("longcat-2.5-preview-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),
             java.util.Map.entry("mimo-v2.6-flash-free", new Entry(PROTOCOL_CHAT, PRICING_VERIFIED_FREE)),

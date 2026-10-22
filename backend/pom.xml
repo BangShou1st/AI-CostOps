@@ -41,8 +41,8 @@
          which carries fixed HIGH/CRITICAL findings. Pin the patch release;
          the Spring Boot major/minor stays 4.1.0. -->
     <tomcat.version>11.0.25</tomcat.version>
-    <!-- Private OpenCode Zen shared library, published to GitHub Packages. -->
-    <opencode-zen.version>1.2.0</opencode-zen.version>
+    <!-- Public OpenCode Zen starter, consumed anonymously from JitPack. -->
+    <opencode-zen.version>v1.4.2</opencode-zen.version>
     <!-- Public Kilo Gateway starter, consumed anonymously from JitPack (no credentials). -->
     <kilo-gateway.version>v0.2.1</kilo-gateway.version>
   </properties>
@@ -68,14 +68,7 @@
 
   <repositories>
     <repository>
-      <!-- Private OpenCode Zen shared library. Credentials live in ~/.m2/settings.xml as
-           server id "github" (PAT with read:packages); no token is committed to the repo. -->
-      <id>github</id>
-      <url>https://maven.pkg.github.com/BangShou1st/opencode-zen</url>
-    </repository>
-    <repository>
-      <!-- Public Kilo Gateway shared library. JitPack serves the Git tag as the version
-           (v0.2.1) and needs no credentials. -->
+      <!-- Public OpenCode Zen and Kilo Gateway libraries use tagged JitPack artifacts. -->
       <id>jitpack</id>
       <url>https://jitpack.io</url>
     </repository>
@@ -89,10 +82,8 @@
       <version>${jackson-2-bom.version}</version>
     </dependency>
     <dependency>
-      <!-- OpenCode Zen shared library, consumed as a published artifact from GitHub Packages
-           (its README's integration path) instead of an in-repo source snapshot. Auto-configures
-           the shared OpenCodeZenRequestFactory bean. -->
-      <groupId>com.sharedlibs</groupId>
+      <!-- Auto-configures the shared OpenCodeZenRequestFactory bean. -->
+      <groupId>com.github.BangShou1st.opencode-zen</groupId>
       <artifactId>opencode-zen-spring-boot-starter</artifactId>
       <version>${opencode-zen.version}</version>
     </dependency>

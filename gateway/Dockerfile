@@ -1,9 +1,5 @@
-# The OpenCode Zen shared library is consumed from GitHub Packages, so the Maven build needs a
-# settings.xml carrying the "github" server credentials. It is mounted as a BuildKit secret so the
-# PAT never persists in an image layer (BuildKit is the default builder on modern Docker and on the
-# GitHub runners). Supply it explicitly, for example:
-#   docker build --secret id=zen-maven-settings,src="$HOME/.m2/settings.xml" gateway
-
+# Public shared libraries resolve anonymously from JitPack.
+# Optional BuildKit Maven settings support mirrors/proxies; credentials are not required.
 FROM eclipse-temurin:21-jdk-noble AS build
 
 WORKDIR /workspace

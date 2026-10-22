@@ -18,27 +18,31 @@ public final class OpenCodeZenTransportHeaders {
         this.requestFactory = requestFactory;
     }
 
-    /** Builds model-catalog headers; a missing key uses Zen's public credential. */
+    /**
+     * Builds model-catalog headers; a missing key uses Zen's public credential.
+     * The accept argument is retained for callers; the shared CLI policy owns the wire value.
+     */
     public Map<String, String> catalog(URI endpoint, String apiKey, String accept) {
         var request = requestFactory.newRequestBuilder(endpoint, apiKey,
                 OpenCodeZenIdGenerator.newSessionId(), OpenCodeZenIdGenerator.newRequestId()).build();
-        return headers(request, accept);
+        return headers(request);
     }
 
-    /** Builds model-aware probe headers; the shared policy ignores keys for free models. */
+    /**
+     * Builds model-aware probe headers; the shared policy ignores keys for free models.
+     * The shared CLI Accept value also takes precedence over the caller's response preference.
+     */
     public Map<String, String> model(
             URI endpoint, boolean freeModel, String apiKey, String accept) {
         var request = requestFactory.newModelRequestBuilder(endpoint, freeModel, apiKey,
                 OpenCodeZenIdGenerator.newSessionId(), OpenCodeZenIdGenerator.newRequestId()).build();
-        return headers(request, accept);
+        return headers(request);
     }
 
-    private static Map<String, String> headers(HttpRequest request, String accept) {
+    private static Map<String, String> headers(HttpRequest request) {
         var headers = new LinkedHashMap<String, String>();
         request.headers().map().forEach((name, values) -> headers.put(name, String.join(", ", values)));
-        if (accept != null && !accept.isBlank()) {
-            headers.put("Accept", accept);
-        }
+        // Keep the shared CLI Accept value. The transport validates the response content type.
         return Map.copyOf(headers);
     }
 }

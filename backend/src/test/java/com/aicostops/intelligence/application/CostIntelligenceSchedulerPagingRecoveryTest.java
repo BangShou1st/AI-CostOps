@@ -227,8 +227,10 @@ class CostIntelligenceSchedulerPagingRecoveryTest {
     }
 
     private List<ch.qos.logback.classic.spi.ILoggingEvent> warnsContaining(String fragment) {
+        String currentThread = Thread.currentThread().getName();
         return logWatcher.list.stream()
                 .filter(event -> event.getLevel() == ch.qos.logback.classic.Level.WARN)
+                .filter(event -> currentThread.equals(event.getThreadName()))
                 .filter(event -> event.getFormattedMessage().contains(fragment))
                 .toList();
     }

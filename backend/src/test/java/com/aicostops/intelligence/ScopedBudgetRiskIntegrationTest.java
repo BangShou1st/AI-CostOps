@@ -151,17 +151,11 @@ class ScopedBudgetRiskIntegrationTest extends ControlPlaneFixtureSupport {
     }
 
     private void cleanDatabase() {
-        jdbc.update("DELETE FROM audit_event");
-        jdbc.update("DELETE FROM cost_forecast_snapshot");
-        jdbc.update("DELETE FROM cost_intelligence_run");
-        jdbc.update("DELETE FROM budget");
-        jdbc.update("DELETE FROM billing_period");
-        jdbc.update("DELETE FROM team");
-        jdbc.update("DELETE FROM cost_center");
-        jdbc.update("DELETE FROM role_assignment");
-        jdbc.update("DELETE FROM organization_member");
-        jdbc.update("DELETE FROM app_user");
-        jdbc.update("DELETE FROM organization");
+        // The intelligence suites share one MySQL Testcontainer, so a local
+        // DELETE list that misses a foreign-key child of app_user
+        // (user_credential, ...) breaks on rows another suite left behind.
+        // The shared cleaner removes children before parents in one FK-safe pass.
+        com.aicostops.testsupport.M2DatabaseCleaner.clean(jdbc);
         jdbc.update("DELETE rp FROM role_permission rp JOIN `role` r ON r.id=rp.role_id"
                 + " WHERE r.code='RISK_READER'");
         jdbc.update("DELETE FROM `role` WHERE code='RISK_READER'");

@@ -75,6 +75,7 @@ gateway/.task-build-*.pom.xml
 *.iml
 .vscode/
 *.code-workspace
+.trae/
 
 # =========================
 # OS

@@ -94,7 +94,7 @@ class OpenCodeManifestDriftIntegrationTest extends ControlPlaneFixtureSupport {
     void newlyEvidencedFreeChatModelsPersistAsVerifiedFree() throws Exception {
         var conn = openCodeConnection();
         for (var model : List.of("longcat-2.5-preview-free", "mimo-v2.6-flash-free",
-                "nemotron-3.5-lightning-free", "space-bunny-free")) {
+                "nemotron-3.5-lightning-free", "beam-free")) {
             manualModel(conn, model);
             assertEquals("OPENAI_CHAT_COMPLETIONS", protoOf(conn, model), model);
             assertEquals("VERIFIED_FREE", pricingOf(conn, model), model);
@@ -110,8 +110,8 @@ class OpenCodeManifestDriftIntegrationTest extends ControlPlaneFixtureSupport {
     @Test
     void unadmittedModelsStayUnknownAndCannotProbeOrPromote() throws Exception {
         var conn = openCodeConnection();
-        for (var model : List.of("deepseek-v4.1-flash-free", "cat-jam-free",
-                "muse-spark-1.2-contributor-free", "nemotron-3.5-super-vl-free",
+        for (var model : List.of("future-deepseek-free", "cat-jam-free",
+                "muse-spark-1.2-contributor-free", "future-nemotron-free",
                 "claude-sonnet-5-5", "qwen3.8-flash")) {
             var discovery = manualModel(conn, model);
             assertEquals("UNKNOWN", protoOf(conn, model), model);
@@ -141,8 +141,8 @@ class OpenCodeManifestDriftIntegrationTest extends ControlPlaneFixtureSupport {
     @Test
     void newlyEvidencedFreeChatModelPromotesWithZeroPricingCreated() throws Exception {
         var conn = openCodeConnection();
-        var discovery = manualModel(conn, "space-bunny-free");
-        assertTrue(manifest.isFreeEligible("space-bunny-free"),
+        var discovery = manualModel(conn, "beam-free");
+        assertTrue(manifest.isFreeEligible("beam-free"),
                 "The free-admission gate must admit the newly evidenced free model");
         jdbc.update("UPDATE provider_model_discovery SET last_probe_status='PASS',"
                 + " verified_capabilities_json=CAST('{\"capabilities\":[\"CHAT_COMPLETIONS\"]}' AS JSON)"

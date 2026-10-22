@@ -103,13 +103,10 @@ async function main(signal) {
   if (command === 'setup') return step(frontend(['ci']))
 
   if (command === 'maven:settings') {
-    // The backend/gateway images resolve the private OpenCode Zen package during their Maven build,
-    // so they need a settings.xml with the "github" server. A host settings.xml whose proxy points at
-    // 127.0.0.1/localhost is unusable inside the build container (that address is the container
-    // itself), so copy the host file and rewrite loopback proxy hosts to Docker Desktop's gateway.
+    // Optional mirrors/proxies for container builds; public JitPack libraries need no credentials.
     const source = env.ZEN_MAVEN_SETTINGS_SOURCE ?? join(homedir(), '.m2', 'settings.xml')
     if (!existsSync(source)) {
-      throw new Error(`未找到 Maven settings：${source}。请先配置 github server，或用 ZEN_MAVEN_SETTINGS_SOURCE 指定来源。`)
+      throw new Error(`未找到 Maven settings：${source}。如需配置镜像或代理，请用 ZEN_MAVEN_SETTINGS_SOURCE 指定来源。`)
     }
     const target = join(ROOT, '.local-dev', 'maven', 'docker-settings.xml')
     const rewritten = readFileSync(source, 'utf8')
@@ -118,7 +115,7 @@ async function main(signal) {
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, rewritten, 'utf8')
     console.log(`[maven:settings] 已生成容器安全 settings：${target}`)
-    console.log('docker compose up --build 默认读取该文件；如需自定义，在 .env 设置 ZEN_MAVEN_SETTINGS_FILE。')
+    console.log(`如需镜像或代理，docker build 可通过 --secret id=zen-maven-settings,src=${target} 挂载；默认构建无需 settings。`)
     return
   }
 

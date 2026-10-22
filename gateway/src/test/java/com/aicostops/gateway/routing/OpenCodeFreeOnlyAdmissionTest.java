@@ -56,7 +56,9 @@ class OpenCodeFreeOnlyAdmissionTest {
             "north-mini-code-free",
             "nemotron-3-ultra-free",
             "deepseek-v4-flash-free",
-            "deepseek-v4.1-flash-free",
+            "space-bunny-free",
+            "jev-1.13-free",
+            "future-deepseek-free",
             "cat-jam-free",
             "exo-free",
             "step-5-preview-free",
@@ -96,14 +98,12 @@ class OpenCodeFreeOnlyAdmissionTest {
 
     @Test
     void policyVersionAndAdmittedSetArePinned() {
-        assertThat(OpenCodeFreeOnlyAdmission.POLICY_VERSION).isEqualTo("2026-10-16-v1");
+        assertThat(OpenCodeFreeOnlyAdmission.POLICY_VERSION).isEqualTo("2026-10-21-v2");
         assertThat(OpenCodeFreeOnlyAdmission.ADMITTED_FREE_CHAT_MODELS)
                 .containsExactlyInAnyOrderElementsOf(Set.of(
-                        "big-pickle",
-                        "longcat-2.5-preview-free",
-                        "mimo-v2.6-flash-free",
-                        "nemotron-3.5-lightning-free",
-                        "space-bunny-free"));
+                        "beam-free", "big-pickle", "deepseek-v4.1-flash-free", "glm-5.3-flash-free",
+                        "longcat-2.5-preview-free", "mimo-v2.6-flash-free", "minimax-m3.1-flash-free",
+                        "nemotron-3.5-lightning-free", "nemotron-3.5-super-vl-free"));
     }
 
     /**

@@ -37,11 +37,9 @@ class OpenCodeFreeOnlyAdmissionTest {
      * and routed for the built-in OpenCode Zen template.
      */
     private static final List<String> ADMITTED_FREE_CHAT = List.of(
-            "big-pickle",
-            "longcat-2.5-preview-free",
-            "mimo-v2.6-flash-free",
-            "nemotron-3.5-lightning-free",
-            "space-bunny-free");
+            "beam-free", "big-pickle", "deepseek-v4.1-flash-free", "glm-5.3-flash-free",
+            "longcat-2.5-preview-free", "mimo-v2.6-flash-free", "minimax-m3.1-flash-free",
+            "nemotron-3.5-lightning-free", "nemotron-3.5-super-vl-free");
 
     /**
      * Reviewed Free Chat ids that the V1 catalog no longer serves. Lineage is preserved and the
@@ -49,6 +47,7 @@ class OpenCodeFreeOnlyAdmissionTest {
      * V1 template cannot address it, and a de-listing may precede a retirement.
      */
     private static final List<String> DELISTED_FREE_CHAT_NOT_ADMITTED = List.of(
+            "space-bunny-free",
             "mimo-v2.5-free",
             "laguna-s-2.1-free",
             "ling-3.0-tiny-free",
@@ -128,9 +127,9 @@ class OpenCodeFreeOnlyAdmissionTest {
                 "claude-sonnet-5",
                 "gemini-3.6-flash",
                 "qwen3.7-max",
-                "deepseek-v4.1-flash-free",
+                "future-deepseek-free",
                 "cat-jam-free",
-                "nemotron-3.5-super-vl-free",
+                "future-nemotron-free",
                 "muse-spark-1.2-contributor-free",
                 "exo-free",
                 "step-5-preview-free",
@@ -157,7 +156,7 @@ class OpenCodeFreeOnlyAdmissionTest {
             assertFalse(OpenCodeModelManifest.PRICING_VERIFIED_FREE.equals(manifest.pricingFor(model)),
                     () -> model + " must never be rewritten from PAID to VERIFIED_FREE");
         }
-        for (var invented : List.of("deepseek-v4.1-flash-free", "qwen3.8-max-free", "glm-5.3-free")) {
+        for (var invented : List.of("future-deepseek-free", "qwen3.8-max-free", "glm-5.3-free")) {
             assertFalse(OpenCodeModelManifest.PRICING_VERIFIED_FREE.equals(manifest.pricingFor(invented)),
                     () -> invented + " must never be inferred free from its suffix");
             assertFalse(manifest.isFreeEligible(invented), invented);
@@ -167,10 +166,10 @@ class OpenCodeFreeOnlyAdmissionTest {
     /** The admission policy is versioned so a rollout is traceable to one reviewed revision. */
     @Test
     void freeAdmissionPolicyIsPinnedAndTraceable() {
-        assertEquals("2026-10-16-v1", OpenCodeModelManifest.FREE_ADMISSION_POLICY_VERSION);
+        assertEquals("2026-10-21-v2", OpenCodeModelManifest.FREE_ADMISSION_POLICY_VERSION);
         assertEquals(manifest.version(), OpenCodeModelManifest.FREE_ADMISSION_POLICY_VERSION,
                 "the free admission policy and the manifest revision must advance together");
-        assertEquals("2026-10-16", manifest.verifiedAt());
+        assertEquals("2026-10-21", manifest.verifiedAt());
     }
 
     /**

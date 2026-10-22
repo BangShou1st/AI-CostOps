@@ -160,18 +160,11 @@ class RecommendationAppliedLinkageIntegrationTest extends ControlPlaneFixtureSup
     }
 
     private void cleanDatabase() {
-        jdbc.update("DELETE FROM audit_event");
-        jdbc.update("DELETE FROM savings_recommendation");
-        jdbc.update("DELETE FROM cost_intelligence_run");
-        jdbc.update("DELETE FROM routing_policy_candidate");
-        jdbc.update("DELETE FROM routing_policy");
-        jdbc.update("DELETE FROM provider_model WHERE provider_model_name LIKE 'rec-wire%'");
-        jdbc.update("DELETE FROM model_catalog WHERE model_key LIKE 'rec-logical%'");
-        jdbc.update("DELETE FROM role_assignment");
-        jdbc.update("DELETE FROM provider_account");
-        jdbc.update("DELETE FROM organization_member");
-        jdbc.update("DELETE FROM app_user");
-        jdbc.update("DELETE FROM organization");
+        // The intelligence suites share one MySQL Testcontainer, so a local
+        // DELETE list that misses a foreign-key child of app_user
+        // (user_credential, ...) breaks on rows another suite left behind.
+        // The shared cleaner removes children before parents in one FK-safe pass.
+        com.aicostops.testsupport.M2DatabaseCleaner.clean(jdbc);
         jdbc.update("DELETE rp FROM role_permission rp JOIN `role` r ON r.id=rp.role_id"
                 + " WHERE r.code IN ('REC_MANAGER','REC_READER')");
         jdbc.update("DELETE FROM `role` WHERE code IN ('REC_MANAGER','REC_READER')");

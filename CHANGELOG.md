@@ -20,6 +20,8 @@
 - Cost Intelligence 经审计的成本历史覆盖（`cost_history_coverage` 及 revision 表，Flyway V28）与分析输入身份（`cost_intelligence_run.input_fingerprint`，Flyway V29）
 - M21 运维验收补充脚本：`scripts/m21/invoke-v3-operational-financial-smoke.ps1`（财务闭环）与 `scripts/m21/invoke-v3-operational-advisor-smoke.ps1`（Advisor Worker）
 - M22 双组织浏览器隔离 E2E（`frontend/e2e/m22-browser-organization-isolation.spec.ts`）与真实 MySQL 隔离夹具
+- 根级 `AGENTS.md`：面向 AI 编码代理的项目上下文（结构、不变量、命令、测试约定、Git 与安全红线）
+- OpenCode Zen minimax 真实浏览器验收记录（`docs/03-acceptance/2026-10-22-opencode-zen-minimax-real-browser-acceptance.md`）
 
 ### Changed
 - 前端设计体系统一：`styles.css` 建立全局设计令牌（品牌色阶、中性色、圆角、阴影）；antd `ConfigProvider` 主题令牌与之对齐；`v3-tokens.css` / `provider.css` 收敛至同一调色板
@@ -28,6 +30,8 @@
 - `dev` 分支 push 触发 GitHub CI 与 Security（保留 `main`、`pull_request` 触发与每周定时扫描，未弱化门禁）
 - 内置 `OPENCODE_ZEN` 推理基址迁移到共享 CLI 推理基址 `https://opencode.ai/inference/v1`；Flyway V30/V31 对 `provider_catalog` 与 ACTIVE `provider_connection_profile` 做显式、版本化端点变更，V24 迁移保持字节不变
 - OpenCode Zen 免费层准入统一为 FREE_ONLY，仅准入有证据的免费 Chat 模型
+- README 重写：改为面向新读者的结构（价值主张 → 快速开始 → 架构 → 功能 → 开发 → 文档 → 贡献），移除冻结历史叙述，链接逐条校验可达
+- `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
 - 结算 Worker：组织扫描改为带环绕的 keyset 轮询以实现跨轮公平覆盖，并按异常类型分级隔离单组织失败；处理首次组织扫描的 datasource 故障
@@ -38,6 +42,11 @@
 - 网关测试夹具：将 id 派生的种子固定到单连接，消除间歇 403
 - 开发脚本：避免 Windows 下创建游离控制台，同时保留进程树清理
 - 前端样式死代码：`.app-shell-collapsed` 选择器与真实 DOM class `settings-shell-collapsed` 不匹配，折叠侧栏的品牌居中样式此前从未生效
+- 集成测试隔离：`LoginServiceIntegrationTest` / `LoginApiIntegrationTest` / `PasswordResetApiIntegrationTest` / `RefreshAndLogoutApiIntegrationTest` 补 `@AfterEach` 清理，不再把 `app_user` + `user_credential` + `audit_event` 残留泄漏给下一个测试类
+- 集成测试隔离：`AuthorizationContextServiceIntegrationTest`、`ScopedBudgetRiskIntegrationTest`、`RecommendationAppliedLinkageIntegrationTest`、`SavingsRecommendationCommandAtomicityIntegrationTest` 改用 FK-safe 的 `M2DatabaseCleaner`，不再依赖"恰好排在污染源之前"的执行顺序
+- 集成测试隔离：`M2DatabaseCleaner` 补齐 V28 新增的 `cost_history_coverage` / `cost_history_coverage_revision`（两者都引用 `app_user` / `organization`）
+- 前端测试竞态：修复 `ImportWorkflow.test.tsx` 中的异步状态断言，避免高并发测试下的时序竞争假阴性
+- 安全依赖：`follow-redirects` 升级 1.16.0 → 1.16.1，关闭 CVE-2026-111755 / CVE-2026-111756（Trivy HIGH 阻断）
 
 ### Security
 - M22 双组织浏览器隔离与模型可见性边界修复（跨租户私有模型元数据泄露与未授权定价关联写入）

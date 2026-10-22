@@ -130,7 +130,70 @@ OFFICIAL_SCHEMA_SYNTHETIC
 SYNTHETIC_ENTERPRISE
 ```
 
-## 8. AI-assisted Coding
+## 8. 集成测试隔离（必读）
+
+所有 Backend 集成测试跑在**同一个** MySQL Testcontainer 里
+（`MySqlContainerSupport.MYSQL` 是 static 字段）。因此：
+
+> **测试类之间会互相看到对方留下的数据。** 清理不完整会直接变成下一个测试类的
+> 外键约束失败，且失败与否取决于 Failsafe 的执行顺序——这类问题会以"随机红"的形式出现。
+
+### 清理必须用 `M2DatabaseCleaner`
+
+```java
+com.aicostops.testsupport.M2DatabaseCleaner.clean(jdbc);
+```
+
+它是一趟 FK-safe 的全量清理（child-before-parent），仓库里 170+ 个测试类都在用。
+**不要**自己手写局部的 `DELETE FROM app_user`——手写列表几乎必然漏掉外键子表。
+
+`app_user` 的外键子表（漏掉任何一个都会报 `DataIntegrityViolationException`）：
+
+```text
+user_credential        (fk_user_credential_user)
+organization_member    (fk_organization_member_user)
+invitation             (fk_invitation_accepted_user)
+audit_event            (fk_audit_event_actor)
+cost_history_coverage  (fk_cost_coverage_actor, V28 新增)
+```
+
+需要保留 seed 的 `role` / `permission` / `role_permission` 目录时，只额外删自己创建的 role：
+
+```java
+M2DatabaseCleaner.clean(jdbc);
+jdbc.update("DELETE rp FROM role_permission rp JOIN `role` r ON r.id=rp.role_id WHERE r.code=?", code);
+jdbc.update("DELETE FROM `role` WHERE code=?", code);
+```
+
+### 自己建的数据必须自己清
+
+`@BeforeEach` 建了数据就要在 `@AfterEach` 清掉。只在 `@BeforeEach` 清理是不够的：
+类的**最后一个**测试留下的数据会泄漏给下一个类。
+
+```java
+@BeforeEach
+void setUp() {
+    cleanDatabase();
+    /* 造夹具 */
+}
+
+@AfterEach
+void tearDown() {
+    cleanDatabase();     // 必须有
+}
+```
+
+### 禁止的"修复"方式
+
+```text
+删断言            → 掩盖问题
+加 @Disabled      → 掩盖问题
+删掉失败的那个测试 → 掩盖问题
+```
+
+CI 红了就查根因。共享容器下的失败几乎总是**隔离问题**，不是业务逻辑问题。
+
+## 9. AI-assisted Coding
 
 AI 生成代码的责任仍属于 PR Author。
 
@@ -143,7 +206,7 @@ AI 生成代码的责任仍属于 PR Author。
 必要时接受 Peer Review
 ```
 
-## 9. 更详细规范
+## 10. 更详细规范
 
 开发：
 
@@ -157,7 +220,13 @@ Review / 验收：
 docs/03-acceptance/
 ```
 
-## 10. 持续安全 CI（M9 / AIC-079）
+AI 编码代理的项目上下文：
+
+```text
+AGENTS.md
+```
+
+## 11. 持续安全 CI（M9 / AIC-079）
 
 每次 PR 与 main push 都会运行 `Security` workflow，必须通过：
 
