@@ -57,6 +57,6 @@ Frontend（在frontend目录）：`npm run test -- --run`、`npm run lint`、`np
 
 ## 学习顺序与实际限制
 
-从[源码解读](../02-development/expense-module-walkthrough.md)的创建链开始，依次看凭证、提交、审核、分摊和入账。已整理的后端目录是api/application/domain/infrastructure，Mapper按主表、审批、列表查询分工；前端按页面、components、api、hooks和状态展示分工。
+从[源码解读](../../../02-development/guides/expense-module-walkthrough.md)的创建链开始，依次看凭证、提交、审核、分摊和入账。已整理的后端目录是api/application/domain/infrastructure，Mapper按主表、审批、列表查询分工；前端按页面、components、api、hooks和状态展示分工。
 
 “可靠”指上表的现有报销协议及已验证边界，不代表任意故障都能自动恢复。凭证存储与数据库没有分布式事务；浏览器页面刷新后不保留未确认创建请求的幂等键，离开页面后应先核对本人列表；已有确认归属是历史事实，不因目标后来停用而自动重分摊。公网供应商调用、真实付款和生产性能不属于本轮报销验证。

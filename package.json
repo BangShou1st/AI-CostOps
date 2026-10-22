@@ -18,6 +18,7 @@
     "infra:up": "node scripts/tasks.mjs infra:up",
     "infra:down": "node scripts/tasks.mjs infra:down",
     "infra:status": "node scripts/tasks.mjs infra:status",
-    "task": "node scripts/tasks.mjs"
+    "task": "node scripts/tasks.mjs",
+    "verify:links": "node scripts/dev/verify-doc-links.mjs"
   }
 }

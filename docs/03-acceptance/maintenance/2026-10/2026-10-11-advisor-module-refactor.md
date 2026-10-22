@@ -22,7 +22,7 @@ Controller 保留 4 个 URL、5 个方法映射。前端 advisor/api 的 URL、�
 
 Gateway 的 AdvisorInferenceWorker 提取 AdvisorSnapshotPromptBuilder 和 AdvisorNarrativeValidator。worker 保留完整受治理执行、用量结算、失败分类及已关联执行恢复路径；领取和状态写入仍为短事务，Provider I/O 仍在其外。没有增加第二个 Scheduled worker。
 
-当前阅读路径见 [Advisor 模块阅读与维护](../02-development/advisor-module-walkthrough.md)。
+当前阅读路径见 [Advisor 模块阅读与维护](../../../02-development/guides/advisor-module-walkthrough.md)。
 
 ## 事务与补测
 

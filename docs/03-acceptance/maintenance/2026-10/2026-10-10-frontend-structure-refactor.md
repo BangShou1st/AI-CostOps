@@ -4,16 +4,16 @@
 
 ## 范围与完成结果
 
-完成[目录结构审查](../02-development/2026-10-10-directory-structure-review.md)建议的前两项：公共权限函数归属和对账详情页表单职责。根目录、后端分层与业务协议保持现有结构；本轮没有开展全项目目录重排。
+完成[目录结构审查](../../../02-development/designs/maintenance/2026-10-10-directory-structure-review.md)建议的前两项：公共权限函数归属和对账详情页表单职责。根目录、后端分层与业务协议保持现有结构；本轮没有开展全项目目录重排。
 
 | 文件 | 职责 |
 | --- | --- |
-| [auth/permissions.ts](../../frontend/src/features/auth/permissions.ts) | 通用hasPermission判断；路由、导航和业务调用方均直接引用此处 |
-| [settings/permissions.ts](../../frontend/src/features/settings/permissions.ts) | 设置导航、角色范围展示；通过认证模块的函数筛选导航 |
-| [ReconciliationCaseDetailPage.tsx](../../frontend/src/features/reconciliation/ReconciliationCaseDetailPage.tsx) | 权限、详情与证据查询、页面组合、弹窗开关、成功后的查询刷新、统一错误提示 |
-| [ResolveCaseModal.tsx](../../frontend/src/features/reconciliation/components/ResolveCaseModal.tsx) | 解决案例的输入、校验、提交与成功重置；向页面同步提交状态 |
-| [CaseAdjustmentModal.tsx](../../frontend/src/features/reconciliation/components/CaseAdjustmentModal.tsx) | 调整账期与目标选择、精确金额匹配、显式分配行、提交和重置 |
-| [ChargeDispositionModal.tsx](../../frontend/src/features/reconciliation/components/ChargeDispositionModal.tsx) | 单条费用处置的输入、提交与重置 |
+| [auth/permissions.ts](../../../../frontend/src/features/auth/permissions.ts) | 通用hasPermission判断；路由、导航和业务调用方均直接引用此处 |
+| [settings/permissions.ts](../../../../frontend/src/features/settings/permissions.ts) | 设置导航、角色范围展示；通过认证模块的函数筛选导航 |
+| [ReconciliationCaseDetailPage.tsx](../../../../frontend/src/features/reconciliation/ReconciliationCaseDetailPage.tsx) | 权限、详情与证据查询、页面组合、弹窗开关、成功后的查询刷新、统一错误提示 |
+| [ResolveCaseModal.tsx](../../../../frontend/src/features/reconciliation/components/ResolveCaseModal.tsx) | 解决案例的输入、校验、提交与成功重置；向页面同步提交状态 |
+| [CaseAdjustmentModal.tsx](../../../../frontend/src/features/reconciliation/components/CaseAdjustmentModal.tsx) | 调整账期与目标选择、精确金额匹配、显式分配行、提交和重置 |
+| [ChargeDispositionModal.tsx](../../../../frontend/src/features/reconciliation/components/ChargeDispositionModal.tsx) | 单条费用处置的输入、提交与重置 |
 
 详情页由493行降到350行。三个组件分别48、123、69行，页面不再同时维护全部表单字段及命令请求。已有GatewayResolutionModal仍保留其职责。
 

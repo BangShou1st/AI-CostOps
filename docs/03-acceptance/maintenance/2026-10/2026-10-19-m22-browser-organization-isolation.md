@@ -5,7 +5,7 @@
 代码验收提交：`550db8f0846e03e192ad288051d45bd27011c059`
 结论：**`M22_BROWSER_ORGANIZATION_ISOLATION = PASS`**
 
-本文件是基于最新 `dev` 新增的浏览器级组织隔离证据。历史文件 [M22 v3 production certification](m22-v3-production-certification.md) 保留原来的 `DEFERRED / NON-BLOCKING` 时间点记录，未将历史状态改写为 PASS。
+本文件是基于最新 `dev` 新增的浏览器级组织隔离证据。历史文件 [M22 v3 production certification](../../milestones/m22-v3-production-certification.md) 保留原来的 `DEFERRED / NON-BLOCKING` 时间点记录，未将历史状态改写为 PASS。
 
 ## 1. 环境与身份建立
 

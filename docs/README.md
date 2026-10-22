@@ -4,23 +4,23 @@
 
 第一次阅读建议先看 [项目阅读指南](project-reading-guide.md)，沿一个具体业务找到页面、接口、服务、SQL 和测试。
 
-目录职责：[结构审查](02-development/2026-10-10-directory-structure-review.md)、[公共权限与对账表单整理结果](03-acceptance/2026-10-10-frontend-structure-refactor.md)。
+目录职责：[结构审查](02-development/designs/maintenance/2026-10-10-directory-structure-review.md)、[公共权限与对账表单整理结果](03-acceptance/maintenance/2026-10/2026-10-10-frontend-structure-refactor.md)。
 
-成本分析整理：[职责与事务设计](02-development/2026-10-10-cost-intelligence-refactor-design.md)、[交给其他 AI 的执行提示词](02-development/prompts/2026-10-10-cost-intelligence-refactor-prompt.md)、[实施与验证结果](03-acceptance/2026-10-10-cost-intelligence-refactor.md)。
+成本分析整理：[职责与事务设计](02-development/designs/maintenance/2026-10-10-cost-intelligence-refactor-design.md)、[交给其他 AI 的执行提示词](02-development/guides/prompts/2026-10-10-cost-intelligence-refactor-prompt.md)、[实施与验证结果](03-acceptance/maintenance/2026-10/2026-10-10-cost-intelligence-refactor.md)。
 
-成本分析收尾：[补测与打包复核](03-acceptance/2026-10-11-cost-intelligence-review.md)、[MinIO 默认测试镜像](03-acceptance/2026-10-11-minio-test-image.md)。
+成本分析收尾：[补测与打包复核](03-acceptance/maintenance/2026-10/2026-10-11-cost-intelligence-review.md)、[MinIO 默认测试镜像](03-acceptance/maintenance/2026-10/2026-10-11-minio-test-image.md)。
 
-三个模块收尾：[联合审查、边界修复与模块提交](03-acceptance/2026-10-11-cross-module-review.md)。
+三个模块收尾：[联合审查、边界修复与模块提交](03-acceptance/maintenance/2026-10/2026-10-11-cross-module-review.md)。
 
-前端收尾：[路由、对账表单与样式审查](03-acceptance/2026-10-11-frontend-review.md)，包含失败恢复、草稿保留、幂等重试与生产构建验收。
+前端收尾：[路由、对账表单与样式审查](03-acceptance/maintenance/2026-10/2026-10-11-frontend-review.md)，包含失败恢复、草稿保留、幂等重试与生产构建验收。
 
-Advisor 维护：[模块阅读与事务边界](02-development/advisor-module-walkthrough.md)、[完整整理与验证](03-acceptance/2026-10-11-advisor-module-refactor.md)、[第一阶段证据整理](03-acceptance/2026-10-11-advisor-evidence-refactor.md)。
+Advisor 维护：[模块阅读与事务边界](02-development/guides/advisor-module-walkthrough.md)、[完整整理与验证](03-acceptance/maintenance/2026-10/2026-10-11-advisor-module-refactor.md)、[第一阶段证据整理](03-acceptance/maintenance/2026-10/2026-10-11-advisor-evidence-refactor.md)。
 
-报销业务样板：[从 Tlias 到 AI-CostOps 的源码解读](02-development/expense-module-walkthrough.md)，包含目录职责、状态流转、事务、幂等、并发和入账的完整阅读路线。
+报销业务样板：[从 Tlias 到 AI-CostOps 的源码解读](02-development/guides/expense-module-walkthrough.md)，包含目录职责、状态流转、事务、幂等、并发和入账的完整阅读路线。
 
-报销验证结果：[可靠性与可读性收尾](03-acceptance/2026-10-10-expense-reliability.md)、[真实浏览器主流程](03-acceptance/2026-10-10-expense-browser-uat.md)。学习时先按源码解读阅读，再用测试与验收记录核对设计边界。
+报销验证结果：[可靠性与可读性收尾](03-acceptance/maintenance/2026-10/2026-10-10-expense-reliability.md)、[真实浏览器主流程](03-acceptance/maintenance/2026-10/2026-10-10-expense-browser-uat.md)。学习时先按源码解读阅读，再用测试与验收记录核对设计边界。
 
-当前 V3 入口：[设计规格](superpowers/specs/2026-09-10-m17-v3-model-provider-hub-cost-intelligence-design.md)、[后端契约](03-acceptance/m18-backend-contract-freeze.md)、[V3 OpenAPI](03-acceptance/m18-openapi.yaml)、[运维手册](04-operations/v3-operational-runbook.md)。V1/V2 接口入口仍在 `02-development/api/`，阅读时结合上述 V3 增量契约。
+当前 V3 入口：[设计规格](superpowers/specs/2026-09-10-m17-v3-model-provider-hub-cost-intelligence-design.md)、[后端契约](03-acceptance/milestones/m18-backend-contract-freeze.md)、[V3 OpenAPI](02-development/api/m18-v3-openapi.yaml)、[运维手册](04-operations/runbooks/v3-operational-runbook.md)。V1/V2 接口入口仍在 `02-development/api/`，阅读时结合上述 V3 增量契约。
 
 文档按设计、实现、验收、运维组织，同时保留历史工作记录：
 
@@ -100,17 +100,17 @@ V1 最终是如何完成验收与发布的？
 
 ```text
 02-development/implementation/02-issue-backlog.md   # V1 frozen history
-02-development/detailed-design/
-02-development/api/
+02-development/designs/                             # 模块详细设计（v1 / v2 / maintenance）
+02-development/api/                                 # 契约中心（OpenAPI / DTO / 错误码）
 ```
 
 ## 最重要的验收入口
 
 ```text
-03-acceptance/01-PR验收清单.md
-03-acceptance/02-Milestone验收证据矩阵.md
+03-acceptance/checklists/01-PR验收清单.md
+03-acceptance/checklists/02-Milestone验收证据矩阵.md
 03-acceptance/implementation/06-v1-release-acceptance.md
-03-acceptance/aic-073-final-human-acceptance.md
+03-acceptance/milestones/aic-073-final-human-acceptance.md
 ```
 
 ## V1 Release Outcome

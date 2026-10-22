@@ -170,4 +170,4 @@ flowchart TD
 
 先由其他 AI 实施本方案，再审查 diff 与测试证据。通过后再单独设计 Advisor 内部的证据构建职责整理；它与成本分析的关联已经较清晰，可以复用这轮测试。网关执行与财务对账留在有专项事务/并发验证的一轮处理。
 
-可直接交给实施 AI 的完整任务见 [执行提示词](prompts/2026-10-10-cost-intelligence-refactor-prompt.md)。
+可直接交给实施 AI 的完整任务见 [执行提示词](../../guides/prompts/2026-10-10-cost-intelligence-refactor-prompt.md)。

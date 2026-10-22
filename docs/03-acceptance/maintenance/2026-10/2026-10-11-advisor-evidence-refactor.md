@@ -1,6 +1,6 @@
 # 2026-10-11 Advisor 证据构建职责整理
 
-此文记录第一阶段的结构和验证。后续已继续整理配置、任务与 Gateway，当前结构请读 [Advisor 模块阅读与维护](../02-development/advisor-module-walkthrough.md)；下文的 AdvisorService 为当时入口名称。
+此文记录第一阶段的结构和验证。后续已继续整理配置、任务与 Gateway，当前结构请读 [Advisor 模块阅读与维护](../../../02-development/guides/advisor-module-walkthrough.md)；下文的 AdvisorService 为当时入口名称。
 
 ## 改进结果
 
