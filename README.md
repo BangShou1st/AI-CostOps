@@ -608,10 +608,10 @@ AI CostOps 拥有从顶层蓝图到运维 Runbook 的完整分层文档体系：
 
 | 文档分层 | 对应目录 | 核心内容与索引 |
 |---|---|---|
-| **01 顶层蓝图** | [`docs/01-blueprint/`](docs/01-blueprint/) | 产品范围、领域模型、业务规则、架构设计与 ADR 决策集 |
-| **02 详细设计** | [`docs/02-development/`](docs/02-development/) | 网关设计、API OpenAPI 契约、本地开发手册 |
-| **03 验收记录** | [`docs/03-acceptance/`](docs/03-acceptance/) | 里程碑验收证据矩阵、逐次验收记录与 UAT 结论 |
-| **04 运维指南** | [`docs/04-operations/`](docs/04-operations/) | V3 生产运维 Runbook、故障应急处置方案 |
+| **01 顶层蓝图** | [`docs/01-blueprint/`](docs/01-blueprint) | 产品范围、领域模型、业务规则、架构设计与 ADR 决策集 |
+| **02 详细设计** | [`docs/02-development/`](docs/02-development) | 网关设计、API OpenAPI 契约、本地开发手册 |
+| **03 验收记录** | [`docs/03-acceptance/`](docs/03-acceptance) | 里程碑验收证据矩阵、逐次验收记录与 UAT 结论 |
+| **04 运维指南** | [`docs/04-operations/`](docs/04-operations) | V3 生产运维 Runbook、故障应急处置方案 |
 
 ### 核心架构决策记录 (ADRs)
 
@@ -637,7 +637,7 @@ AI CostOps 拥有从顶层蓝图到运维 Runbook 的完整分层文档体系：
 * **核心业务规则** → [`docs/01-blueprint/domain/08-business-rules.md`](docs/01-blueprint/domain/08-business-rules.md)
 * **控制面 API 契约** → [`docs/02-development/api/openapi.yaml`](docs/02-development/api/openapi.yaml)
 * **网关数据面 API 契约** → [`docs/02-development/api/gateway-openapi.yaml`](docs/02-development/api/gateway-openapi.yaml)
-* **V3 生产运维 Runbook** → [`docs/04-operations/v3-operational-runbook.md`](docs/04-operations/v3-operational-runbook.md)
+* **V3 生产运维 Runbook** → [`docs/04-operations/runbooks/v3-operational-runbook.md`](docs/04-operations/runbooks/v3-operational-runbook.md)
 * **里程碑验收证据索引** → [`docs/03-acceptance/README.md`](docs/03-acceptance/README.md)
 
 ---

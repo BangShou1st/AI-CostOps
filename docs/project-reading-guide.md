@@ -2,7 +2,7 @@
 
 当前版本和运行方式从根 README 开始；这里说明如何沿一个功能理解代码。
 
-学习 Tlias 后想读懂本项目，可以从 [报销模块源码解读与 Tlias 对照](02-development/expense-module-walkthrough.md) 开始，沿创建、上传、提交、审核和入账阅读。
+学习 Tlias 后想读懂本项目，可以从 [报销模块源码解读与 Tlias 对照](02-development/guides/expense-module-walkthrough.md) 开始，沿创建、上传、提交、审核和入账阅读。
 
 ## 目录与职责
 

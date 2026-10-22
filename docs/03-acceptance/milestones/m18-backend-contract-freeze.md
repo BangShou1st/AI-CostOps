@@ -2,7 +2,7 @@
 
 > Status: **FINAL ACCEPTANCE CANDIDATE — pending GPT-5.6 Sol acceptance (do not mark FROZEN)**.
 > (final-acceptance findings on HEAD `bb291c8e89a6e18326a34d68f8cb2ef80e403c14`)**. Branch: `feat/m18-v3-backend-complete`.
-> Machine contract: [`m18-openapi.yaml`](./m18-openapi.yaml). Gate:
+> Machine contract: [`m18-openapi.yaml`](../../02-development/api/m18-v3-openapi.yaml). Gate:
 > `backend/src/test/java/com/aicostops/contract/M18OpenApiContractTest.java`.
 >
 > This revision is the final acceptance candidate for Issue #155 final-acceptance review (reviewed HEAD

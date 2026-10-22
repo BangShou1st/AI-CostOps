@@ -11,7 +11,7 @@
 
 沿实际调用链审查报销链五个写入口：证据上传与绑定 → 创建/编辑 → 提交/撤回/重新提交 → 审批 →
 入账 → 预算/承诺，并覆盖跨组织、撤权、重复请求、并发与失败恢复。逐入口记录见
-[入口审查记录](../02-development/2026-10-13-expense-reimbursement-chain-entry-review.md)。
+[入口审查记录](../../../02-development/designs/maintenance/2026-10-13-expense-reimbursement-chain-entry-review.md)。
 
 **本批未发现需要修复的确认缺陷。** 权限门（在幂等 reserve 之前）、`expectedVersion` 乐观 CAS、
 幂等身份、关账准入（approve 与 posting）、冻结锁序，以及"成功审计与财务动作共同提交"的设计一致且可核查；

@@ -1,7 +1,7 @@
 # 2026-10-10 成本分析模块职责整理
 
-依据 [职责与事务设计](../02-development/2026-10-10-cost-intelligence-refactor-design.md) 与
-[执行提示词](../02-development/prompts/2026-10-10-cost-intelligence-refactor-prompt.md) 实施。
+依据 [职责与事务设计](../../../02-development/designs/maintenance/2026-10-10-cost-intelligence-refactor-design.md) 与
+[执行提示词](../../../02-development/guides/prompts/2026-10-10-cost-intelligence-refactor-prompt.md) 实施。
 范围是 intelligence 后端与 Advisor 预算风险调用点；网关执行、财务对账、预算模块未改动。
 
 ## 1. 原职责到新文件

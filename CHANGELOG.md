@@ -21,9 +21,19 @@
 - M21 运维验收补充脚本：`scripts/m21/invoke-v3-operational-financial-smoke.ps1`（财务闭环）与 `scripts/m21/invoke-v3-operational-advisor-smoke.ps1`（Advisor Worker）
 - M22 双组织浏览器隔离 E2E（`frontend/e2e/m22-browser-organization-isolation.spec.ts`）与真实 MySQL 隔离夹具
 - 根级 `AGENTS.md`：面向 AI 编码代理的项目上下文（结构、不变量、命令、测试约定、Git 与安全红线）
-- OpenCode Zen minimax 真实浏览器验收记录（`docs/03-acceptance/2026-10-22-opencode-zen-minimax-real-browser-acceptance.md`）
+- OpenCode Zen minimax 真实浏览器验收记录（`docs/03-acceptance/maintenance/2026-10/2026-10-22-opencode-zen-minimax-real-browser-acceptance.md`）
+- 文档链接自动校验工具：`scripts/dev/verify-doc-links.mjs`，并通过根 `package.json` 提供 `npm run verify:links` 命令
 
 ### Changed
+- 项目文档体系系统性治理：
+  - `docs/03-acceptance/` 消除 73 个根目录平铺堆积，完成分层归档（`checklists/`、`milestones/`、`maintenance/2026-10/`、`quality/`）
+  - `docs/02-development/` 重构为清晰的 `api/`（统一契约收口）、`designs/`（`v1/`, `v2/`, `maintenance/`）、`guides/`（源码精读）、`implementation/`
+  - `docs/04-operations/` 统一收纳生产配置、可观测性指标、灾备恢复与运维 Runbook，消除与 02 开发目录的运维重叠
+  - `docs/superpowers/` 增加归档说明 README，明确为 M0~M18 历史工具计划与设计草案封存
+- 测试文件与日志资产规范化隔离：
+  - 规整 `.local-dev/` 目录结构为 `logs/`（本地运行/诊断日志）与 `probes/`（一次性排查探针脚本），清除根目录散落日志与临时构建 POM 残留
+- `AGENTS.md` 文档与资产治理规范强化：
+  - 升级第 10 节，建立硬性目录落位准则、测试/日志资产分类矩阵、维护期标准 Markdown 结构模板与 `npm run verify:links` 零死链门禁
 - 前端设计体系统一：`styles.css` 建立全局设计令牌（品牌色阶、中性色、圆角、阴影）；antd `ConfigProvider` 主题令牌与之对齐；`v3-tokens.css` / `provider.css` 收敛至同一调色板
 - 前端视觉现代化：侧栏胶囊式导航选中态、卡片柔和边框与分层软阴影、登录页焦点态、全局表格数字 `tabular-nums`
 - 前端路由级代码分割：`AppRouter` 全部功能页改为 `React.lazy`，入口包由 1,704.89 kB（gzip 517.05 kB）降至 242.33 kB（gzip 76.56 kB）

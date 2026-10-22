@@ -250,21 +250,49 @@ chore(ci): add backend workflow
 
 ---
 
-## 10. 文档约定
+## 10. 文档与资产治理规范
 
-| 目录 | 放什么 |
-|---|---|
-| `docs/01-blueprint/` | 产品范围、领域模型、业务规则、架构、ADR、路线图 |
-| `docs/02-development/` | 详细设计、实现记录、API 契约、运维手册 |
-| `docs/03-acceptance/` | 里程碑验收证据矩阵、逐次验收记录 |
-| `docs/04-operations/` | 生产运维 Runbook |
+所有文档、测试记录与日志必须服从四层主干结构与资产隔离准则。**严禁在 `docs/` 根目录或各一级目录下随意平铺新建 `.md` 文件，严禁将临时日志和探针残留在仓库根目录。**
 
-**规则：**
+### 10.1 目录职责与子目录标准映射
 
-- 历史时间点的结论**不得**改写成当前状态（冻结证据是资产）
-- 新增文档后要在对应目录的 `README.md` 索引里登记
-- README 的链接必须指向**真实存在**的路径——写完逐个验证
-- 变更记录写进 `CHANGELOG.md` 的 `[Unreleased]` 段
+| 一级目录 | 负责范围 | 标准子目录与落位规定 |
+|---|---|---|
+| `docs/01-blueprint/` | **顶层蓝图**：长期不变的领域模型、业务规则、全局架构、ADR（当前保持高标准，不随意增删） | `architecture/`（含 `adr/`）、`domain/`、`product/`、`research/` |
+| `docs/02-development/` | **开发与设计**：指导实际代码编写、接口对接、源码研读 | - `api/`：统一收录所有 OpenAPI 契约（`openapi.yaml`, `gateway-openapi.yaml`, `m18-v3-openapi.yaml`）与 DTO 约定<br/>- `designs/`：详细设计（`designs/v1/`, `designs/v2/`, `designs/maintenance/`）<br/>- `guides/`：模块源码精读与 Walkthrough（如报销样板、Advisor 模块）<br/>- `implementation/`：实施路线与本地开发手册 |
+| `docs/03-acceptance/` | **验收与测试证据**：证明“做完且正确”的权威凭据 | - `checklists/`：PR 验收清单、Milestone 证据矩阵<br/>- `milestones/`：M0~M22 正式里程碑封存证据、AIC-073/083 验收报告<br/>- `maintenance/`：维护期缺陷修复、安全加固与专项审查报告（按 `maintenance/YYYY-MM/` 分组）<br/>- `quality/`：质量度量与测试策略 |
+| `docs/04-operations/` | **生产与运维**：运行配置、监控告警、故障演练与 Runbook | - `runbooks/`：生产与自包含验证 Runbook（`v3-operational-runbook.md`）<br/>- `configs/`：生产配置与环境变量规格<br/>- `observability/`：Prometheus 指标、Grafana 仪表盘与告警<br/>- `disaster-recovery/`：备份恢复与 Provider 离线认证 |
+| `docs/superpowers/` | **历史规划归档**：M0~M18 历史 AI 工具生成的 plans 与 specs | 仅供演进溯源，日常维护请勿在此新增文件 |
+
+### 10.2 测试文件与日志管理铁律
+
+| 资产类型 | 范例 | 统一落位路径 | 纳入 Git | 处理准则 |
+|---|---|---|---|---|
+| **正式测试代码** | `*Test.java`, `*.spec.ts` | `backend/src/test/`, `gateway/src/test/`, `frontend/e2e/` | **是** | 纳入 CI 自动回归，随业务代码同步维护。 |
+| **标准测试脚本** | `tasks.mjs`, `smoke-*.ps1` | `scripts/tests/`, `scripts/ops/` | **是** | 平台官方验证入口，保持跨平台兼容。 |
+| **验收沉淀证据** | 测试摘要、断言截图、关键验证命令输出 | `docs/03-acceptance/maintenance/YYYY-MM/` | **是** | 仅沉淀精简后的 Markdown 证据，**绝对禁止直接提交几百 MB 的 raw log**。 |
+| **自动化测试报告** | XML/HTML 测试报告、覆盖率输出 | `test-results/`, `coverage/`, `playwright-report/` | **否** (`.gitignore`) | 由自动化命令输出，供本地或 CI 临时消费。 |
+| **本地运行/排查日志** | `zen-*.log`, `hikari-probe.log` | `.local-dev/logs/` | **否** (`.gitignore`) | 统一在 `.local-dev/logs/` 留存，排查结束后定期清理，**严禁散落在仓库根目录**。 |
+| **临时探针脚本** | 一次性排查脚本 `zen_isolate.py` 等 | `.local-dev/probes/` | **否** (`.gitignore`) | 统一放入 `.local-dev/probes/`；若具长期复用价值，重构并提炼至 `scripts/tests/`。 |
+
+### 10.3 维护期文档命名与模板要求
+
+1. **命名规范**：
+   - 维护期验收文档一律采用：`YYYY-MM-DD-<module>-<topic-or-defect>.md`（如 `2026-10-22-gateway-minimax-acceptance.md`）。
+   - 只能使用小写英文字母、数字和连字符 `-`，**严禁使用中文或空格作为文件名**（避免跨操作系统转义或编码异常）。
+2. **验收文档必备结构**：
+   - **元数据**：日期、责任人/AI、关联模块、缺陷/PR 编号。
+   - **变更概述**：代码或配置修改的核心要点与根因说明。
+   - **验证环境与执行命令**：给出脱敏且可完整复现的命令行调用（如 `.\mvnw.cmd verify` 或 `bsk` 验证）。
+   - **关键断言与截图证据**：贴出关键的成功输出片段或证据图片引用。
+   - **结论与影响边界**：明确声明判定结果（PASS / FAIL）以及是否存在已知限制。
+
+### 10.4 索引维护与死链检测铁律
+
+- **同步注册**：凡是在任一文档子目录新增文档，**必须**同步在其父目录的 `README.md` 索引列表中追加该文档的链接与简要说明。
+- **本地死链检测**：在提交代码或文档前，**必须执行 `npm run verify:links`**，确保全库 Markdown 相对路径引用 100% 有效（0 Broken Links）。
+- **历史证据不可篡改**：已封存的历史里程碑结论（如 M0~M22 验收证据）属于审计资产，不得为迎合“当前状态最新”而擅自改写历史记录。
+- **变更记录登记**：功能修复与重大文档结构变更必须同步写入 `CHANGELOG.md` 的 `[Unreleased]` 小节。
 
 ---
 
@@ -279,6 +307,7 @@ chore(ci): add backend workflow
    ```bash
    git status              # 只应有预期的改动
    git diff --stat         # 确认没夹带无关文件
+   npm run verify:links    # 确保文档与链接 100% 有效
    ```
 7. **绝不提交**：`.env`、`.local-dev/`、`target/`、`node_modules/`、`test-results/`、日志、真实 Provider 数据。
 8. **构建产物隔离**：根任务命令的 Maven 输出在 `.local-dev/builds/`，不覆盖正在运行的 JAR。
@@ -295,8 +324,8 @@ chore(ci): add backend workflow
 | 变更记录 | [`CHANGELOG.md`](CHANGELOG.md) |
 | 脚本职责 | [`scripts/README.md`](scripts/README.md) |
 | 产品范围 | [`docs/01-blueprint/product/05-product-scope.md`](docs/01-blueprint/product/05-product-scope.md) |
-| 架构决策 | [`docs/01-blueprint/architecture/adr/`](docs/01-blueprint/architecture/adr/) |
+| 架构决策 | [`docs/01-blueprint/architecture/adr/`](docs/01-blueprint/architecture/adr) |
 | Control Plane API | [`docs/02-development/api/openapi.yaml`](docs/02-development/api/openapi.yaml) |
 | Gateway API | [`docs/02-development/api/gateway-openapi.yaml`](docs/02-development/api/gateway-openapi.yaml) |
-| 生产运维 | [`docs/04-operations/v3-operational-runbook.md`](docs/04-operations/v3-operational-runbook.md) |
-| 验收证据 | [`docs/03-acceptance/`](docs/03-acceptance/) |
+| 生产运维 | [`docs/04-operations/runbooks/v3-operational-runbook.md`](docs/04-operations/runbooks/v3-operational-runbook.md) |
+| 验收证据 | [`docs/03-acceptance/`](docs/03-acceptance) |

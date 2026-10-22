@@ -18,7 +18,7 @@
 账本侧 `ledger.application.ExpensePostingService` 仍负责整次入账编排。
 员工创建、编辑、提交、取消继续在一个用例服务中表达；没有为了缩短文件把每个动作拆成独立类。
 
-学习入口见 [报销模块源码解读与 Tlias 对照](../02-development/expense-module-walkthrough.md)。其中列出真实源码与测试入口，已检查链接目标存在。Tlias 只作本地静态对照，本轮没有运行它。
+学习入口见 [报销模块源码解读与 Tlias 对照](../../../02-development/guides/expense-module-walkthrough.md)。其中列出真实源码与测试入口，已检查链接目标存在。Tlias 只作本地静态对照，本轮没有运行它。
 
 ## 验证方法
 

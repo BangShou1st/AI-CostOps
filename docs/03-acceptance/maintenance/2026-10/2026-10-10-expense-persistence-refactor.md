@@ -33,7 +33,7 @@ XML 的 `namespace` 与接口全名相同，语句 ID 与方法名相同。通�
 | 审核列表 | 列表查询 |
 | 凭证上传、下载和入账适配器 | 主表 |
 
-最新阅读链见 [报销模块源码解读](../02-development/expense-module-walkthrough.md) 和 [项目阅读指南](../project-reading-guide.md)。之前的验收记录与历史计划保留当时的描述。
+最新阅读链见 [报销模块源码解读](../../../02-development/guides/expense-module-walkthrough.md) 和 [项目阅读指南](../../../project-reading-guide.md)。之前的验收记录与历史计划保留当时的描述。
 
 ## 索引核对
 

@@ -32,14 +32,14 @@ Known release-blocking defects = NONE
 
 V3 是最终功能版本：功能研发已关闭，项目进入长期维护模式；V4 不在路线图内，不再规划或实现 V4，不新增 Provider 或业务功能，维护任务按真实故障与必要性触发。`STABLE_RELEASE = v3.0.0` 是 `main` 上的当前稳定标签，`dev` 包含尚未合并或发布的维护提交。
 
-M22 原始记录中的两个 `DEFERRED / NON-BLOCKING` gate 需分开解释：independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](docs/03-acceptance/2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [m22-v3-production-certification.md](docs/03-acceptance/m22-v3-production-certification.md) 保留其原时间点结论，未改写。
+M22 原始记录中的两个 `DEFERRED / NON-BLOCKING` gate 需分开解释：independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](docs/03-acceptance/maintenance/2026-10/2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [m22-v3-production-certification.md](docs/03-acceptance/milestones/m22-v3-production-certification.md) 保留其原时间点结论，未改写。
 
 ### 冻结入口
 
 ```text
-docs/02-development/v2-detailed-design/README.md   V2 Detailed Design
-docs/03-acceptance/m10-design-freeze-matrix.md      M10 Design Freeze Matrix
-docs/02-development/api/gateway-openapi.yaml        Gateway OpenAPI Contract
+docs/02-development/designs/v2/README.md               V2 Detailed Design
+docs/03-acceptance/milestones/m10-design-freeze-matrix.md M10 Design Freeze Matrix
+docs/02-development/api/gateway-openapi.yaml            Gateway OpenAPI Contract
 ```
 
 M11+ 实现必须服从 M10 冻结的 ownership、状态机、财务、幂等、失败恢复和 Gateway API 契约；不得把 correctness-critical 决策重新留给实现期猜测。

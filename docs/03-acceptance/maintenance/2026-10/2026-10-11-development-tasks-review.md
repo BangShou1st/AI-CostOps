@@ -56,7 +56,7 @@ E:/project/AI-CostOps/.local-dev/builds/verify-1791694128380-4ae40863-a2be-4a3e-
 
 生命周期夹具验证脚本控制行为，dev 夹具不运行真正的 Spring/Vite 业务，也不访问真实财务数据；infra 夹具不验证生产 MySQL/MinIO 镜像。原有独立 MySQL/Redis/MinIO 容器、8080 后端及 localhost:5173 前端保留。没有创建根 `.env`、更新运行实例、推送或合并。
 
-本轮只验证 Windows/PowerShell 和 Git Bash 包装，没有声称已完成 Linux/macOS 原生任务验收。常用命令、配置优先级及产物位置见 [scripts 说明](../../scripts/README.md)。
+本轮只验证 Windows/PowerShell 和 Git Bash 包装，没有声称已完成 Linux/macOS 原生任务验收。常用命令、配置优先级及产物位置见 [scripts 说明](../../../../scripts/README.md)。
 
 ## 下一步
 

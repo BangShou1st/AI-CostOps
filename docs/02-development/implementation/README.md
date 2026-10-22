@@ -26,8 +26,8 @@
 4. [双人任务分配](03-two-person-work-allocation.md)
 5. [PR / CI / Release 流程](04-pr-ci-release-process.md)
 6. [本地开发与 Bootstrap Runbook](05-bootstrap-local-development-runbook.md)
-7. [V1 发布验收](06-v1-release-acceptance.md)
-8. [风险清单与技术检查点](07-risk-register.md)
+7. [V1 发布验收](../../03-acceptance/implementation/06-v1-release-acceptance.md)
+8. [风险清单与技术检查点](../../03-acceptance/implementation/07-risk-register.md)
 
 ## AIC 编号
 
