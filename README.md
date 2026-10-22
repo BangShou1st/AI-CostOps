@@ -1,412 +1,389 @@
 # AI CostOps
 
-面向研发团队的多 AI Provider 成本归集、费用核算、预算治理、对账与账期管理平台。
+<p align="center">
+  <b>把多 AI Provider 的成本，变成一本可信、可归属、可审批、可对账、可关账的内部成本账。</b>
+</p>
 
-当前稳定版本：**v3.0.0**。V3 在 V2 实时 AI 成本治理平台之上引入了 Model Provider Hub、确定性 Cost Intelligence 和受治理的 AI Advisor。
+<p align="center">
+  <a href="#-快速开始">快速开始</a> •
+  <a href="#-架构">架构</a> •
+  <a href="#-功能">功能</a> •
+  <a href="#-开发">开发</a> •
+  <a href="#-文档">文档</a> •
+  <a href="#-贡献">贡献</a>
+</p>
 
-发布记录：
+<p align="center">
+  <img src="https://img.shields.io/badge/version-v3.0.0-blue?style=flat-square" alt="version" />
+  <img src="https://img.shields.io/badge/status-MAINTENANCE_ONLY-orange?style=flat-square" alt="status" />
+  <img src="https://img.shields.io/badge/java-21-orange?style=flat-square" alt="java" />
+  <img src="https://img.shields.io/badge/frontend-React_19-61DAFB?style=flat-square" alt="react" />
+  <img src="https://img.shields.io/badge/license-proprietary-blue?style=flat-square" alt="license" />
+</p>
 
-```text
-v1.0.0 → 982d06a0e9ec844ea687ed746d6b9d8f39d86686
-v1.0.1 → b96be614e2d843c101add49fe6daffb9d2343a56
-v1.1.0 → 102f287da9bfc922ffaabb1b7244a973a0f813eb
-v2.0.0 → 93e359687c2d0e81b096d7a73cc8e04e16a7ecbe
-v3.0.0 → 9c55125c1b857e3ccf301875d8886131a9d1d9b0
-```
+---
 
-### V3 Highlights
+## 📖 这是什么
 
-- **Model Provider Hub**: 版本化连接档案、凭证、模型、定价与路由治理
-- **Cost Intelligence**: 确定性异常检测 (median/MAD/robust-z)、DAMPED_HOLT 预测、反事实节约建议
-- **AI Advisor**: 受治理的金融事实解释，不计算金额
-- **OpenCode Zen 集成**: 内置 governed networking
-- **Custom OpenAI-Compatible Providers**: 有界配置与 SSRF 防护
-- 完整 V3 前端体验：Cost Intelligence、AI Advisor、Provider Hub、Pricing、Routing
+AI CostOps 是一个面向研发团队的 **AI 成本治理（FinOps for AI）** 平台。
 
-## 当前里程碑状态
-
-```text
-FINAL_PRODUCT_VERSION = V3
-STABLE_RELEASE = v3.0.0
-V1 = COMPLETE / FROZEN
-V2 = COMPLETE / FROZEN
-Feature development = CLOSED
-Operational mode = MAINTENANCE_ONLY
-V4 = NOT_PLANNED
-V3 final stabilization = COMPLETE
-M17 V3 MODEL PROVIDER HUB & COST INTELLIGENCE DESIGN = FROZEN
-M18 V3 BACKEND & API CONTRACT = FROZEN
-M19 V3 FRONTEND EXPERIENCE = COMPLETE / ACCEPTED
-M20 Production Acceptance = COMPLETE
-M21 Operational Readiness = COMPLETE
-M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
-M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
-Known release-blocking defects = NONE
-```
-
-AI-CostOps V3 is the final feature version and has completed final stabilization. Feature development is closed; the repository is in long-term maintenance-only mode for security, defect, operational, CI, dependency, and documentation maintenance. V4 is not on the roadmap: it is not planned or implemented, no new Provider or business feature is added, and maintenance work is triggered only by real defects and necessity. `STABLE_RELEASE = v3.0.0` is the current stable tag on `main`; `dev` carries post-release maintenance commits that are not yet merged or released.
-
-V3 final stabilization preserves these execution invariants:
+企业里同时存在十几种 AI Provider —— OpenAI、DeepSeek、MiMo、Kilo Gateway、OpenCode Zen、自建 OpenAI-Compatible 网关。它们的账单格式不同、计费口径不同、导出周期不同。AI CostOps 把这些**已经发生**的消费统一收敛成一套内部财务事实：
 
 ```text
-Provider execution uses the exact frozen provider_connection_profile_id.
-auth_type=NONE performs zero credential lookup/decryption.
+多 Provider 账单 / 导出文件  ─┐
+                              ├─→  标准成本事实  ─→  归属分摊  ─→  预算与审批  ─→  不可变账本  ─→  对账与关账
+Gateway 实时请求与计量      ─┘                                             └─→  异常检测与节约建议
 ```
 
-M22 originally closed with two explicitly deferred, non-blocking gates: real-provider / OpenCode external credential validation and independent browser-context organization-isolation evidence. The browser-context organization-isolation gate was subsequently completed and is now PASS, per the [2026-10-19 M22 browser organization isolation supplementary acceptance](docs/03-acceptance/2026-10-19-m22-browser-organization-isolation.md) (including the follow-up model-visibility fixes from independent review); the historical M22 record keeps its original time-point `DEFERRED` conclusion. Real-provider / OpenCode external credential validation remains `DEFERRED / NON-BLOCKING` and is NOT relabeled PASS by the browser-isolation result.
+V3 起，平台还内置统一 **AI Gateway 数据面**：对可控的 API 流量在请求发生时完成身份识别、预算预占、实时计量与多 Provider 路由，结算结果回写同一本账。
 
-M10 冻结入口：
+### 核心承诺
 
-- [V2 Detailed Design](docs/02-development/v2-detailed-design/README.md)
-- [M10 Design Freeze Matrix](docs/03-acceptance/m10-design-freeze-matrix.md)
-- [Gateway OpenAPI Contract](docs/02-development/api/gateway-openapi.yaml)
+| 承诺 | 含义 |
+|---|---|
+| **一个最终真相** | MySQL Ledger 是唯一财务真相，Redis / 缓存 / 报表都不是 |
+| **缺失用量 ≠ 零成本** | 拿不到用量数据时绝不静默按 0 计费，而是显式标记未知并阻断结算 |
+| **已 POSTED 的账本不可变** | 更正只能追加 Correction 流水，永不原地改写历史 |
+| **账期关闭可回滚** | 关账后写保护；重开需要显式动作与审计记录 |
+| **权限按组织隔离** | 跨租户的私有模型、元数据、价格版本一律不可见 |
 
-## V1 主链路
+---
 
-~~~text
-Provider Statement / Expense Evidence
-              ↓
-      Evidence & Ingestion
-              ↓
-      Canonical Cost Facts
-              ↓
-          Attribution
-           ↙      ↘
-       Budget    Approval
-           ↘      ↙
-            Ledger
-          ↙       ↘
-Reconciliation   Period Close
-~~~
+## 🚀 快速开始
 
-V1 已覆盖 Provider Import、费用证据、Canonical Cost、归属、Budget / Commitment、Approval、Ledger、Reconciliation、Billing Period、审计查询和 Workbench 基础能力。
+### 前置要求
 
-## Local Development
+| 依赖 | 版本 | 说明 |
+|---|---|---|
+| Node.js | ≥ 24.14.0 | 根任务编排器与前端 |
+| JDK | ≥ 21 | 后端与 Gateway |
+| Docker Engine | 任意近期版本 | 本地跑 MySQL / Redis / MinIO |
 
-### Daily Development Default（日常开发默认模式，AI agent 必须遵守）
+> 首次使用或依赖变更后需要 `npm run setup`（在 `frontend/` 执行 `npm ci`）。根 `package.json` **零依赖**，无需在根目录 `npm install`。
 
-Daily Development 只用 Docker 运行基础设施（MySQL / Redis / MinIO），Backend / Gateway / Frontend 三个应用进程全部在本机原生运行。
+### 三条命令跑起来
 
-```text
-Daily Development Default
+```bash
+# 1. 配置本地环境变量
+cp .env.example .env        # Windows PowerShell: Copy-Item .env.example .env
 
-Docker:
-- MySQL
-- Redis
-- MinIO
+# 2. 启动基础设施（MySQL / Redis / MinIO，容器化）
+npm run infra:up
 
-Native:
-- Backend
-- Gateway
-- Frontend
-```
-
-明确声明：Backend / Frontend / Gateway 的 Docker 镜像可以存在，但它们 **不是** 日常本地开发的默认运行时（`Backend / Frontend / Gateway Docker images may exist, but they are NOT the default local development runtime.`）。日常 edit-test 循环不要执行 `docker compose build` / `docker compose up --build` / `docker build backend|frontend|gateway`。
-
-当前本地仓库路径：
-
-```text
-E:\project\AI-CostOps
-```
-
-```text
-Frontend      http://localhost:5173    （Vite，本机，HMR）
-Backend       http://localhost:8080    （Spring Boot，本机）
-Gateway       http://localhost:8081    （Spring WebFlux，本机）
-MySQL         localhost:3307          （Docker）
-Redis         localhost:6379          （Docker）
-MinIO         localhost:9000 / 9001   （Docker API / Console）
-```
-
-推荐在仓库根目录使用统一命令入口（Node 24+、JDK 21）：
-
-```powershell
-npm run doctor
-npm run setup       # 首次使用或前端依赖变更后执行
-npm run infra:up    # 需要先配置根 .env；仅管理当前 Compose 项目的基础设施
-npm run dev         # 一个前台终端启动 Backend + Gateway + Frontend
-```
-
-`dev` 明确使用 `local` profile，检查端口并等待三端 HTTP 就绪；Ctrl+C 停止本次启动的应用进程树。`npm run status` 检查应用，`npm run infra:status` 查看基础设施，`npm run infra:down` 停止基础设施并保留数据。已有独立容器不会被接管，端口冲突会明确报错。
-
-`npm run test` 覆盖脚本测试、Backend/Gateway 单元与架构测试、前端单元测试；`npm run verify` 执行两个 Maven 模块的完整 verify，再执行前端测试、lint 和生产 build。Maven 使用独立输出目录，避免覆盖运行中的 JAR；报告与新产物路径会打印在终端。参数、环境映射和脚本职责详见 [scripts/README.md](scripts/README.md)。
-
-如只需分别运行某个应用，也可继续使用以下独立终端命令（Windows PowerShell，`npm ci` 仅在首次 clone 或依赖变更后运行）：
-
-独立模块命令使用该终端已有的服务环境变量；根 `.env` 的自动读取和 localhost 映射由统一 `dev` 入口提供。
-
-Terminal 1 — Docker 基础设施：
-
-```powershell
-# Terminal 1 — infrastructure
-Set-Location "E:\project\AI-CostOps"
-.\scripts\dev\start-infra.ps1
-```
-
-Terminal 2 — Backend（本机）：
-
-```powershell
-# Terminal 2 — Backend
-Set-Location "E:\project\AI-CostOps\backend"
-.\mvnw.cmd spring-boot:run "-Dspring-boot.run.profiles=local"
-```
-
-Terminal 3 — Gateway（本机）：
-
-```powershell
-# Terminal 3 — Gateway
-Set-Location "E:\project\AI-CostOps\gateway"
-$env:SPRING_PROFILES_ACTIVE = "local"
-.\mvnw.cmd spring-boot:run
-```
-
-Terminal 4 — Frontend（本机，HMR）：
-
-```powershell
-# Terminal 4 — Frontend
-Set-Location "E:\project\AI-CostOps\frontend"
+# 3. 启动三个应用进程（Backend / Gateway / Frontend，本机原生）
 npm run dev
 ```
 
-详细说明见 [docs/02-development/implementation/05-bootstrap-local-development-runbook.md](docs/02-development/implementation/05-bootstrap-local-development-runbook.md)。
+启动后访问：
 
-Gateway 已真实存在并作为 Daily Development 的三个本机应用进程之一运行（Frontend / Backend / Gateway）。Gateway 本机启动、测试与 smoke 命令见 [docs/02-development/implementation/06-m11-gateway-local-runbook.md](docs/02-development/implementation/06-m11-gateway-local-runbook.md)。
+| 服务 | 地址 |
+|---|---|
+| 前端（Vite HMR） | http://localhost:5173 |
+| 后端（Spring MVC） | http://localhost:8080 |
+| Gateway（Spring WebFlux） | http://localhost:8081 |
+| MySQL | `localhost:3307` |
+| Redis | `localhost:6379` |
+| MinIO API / Console | `localhost:9000` / `localhost:9001` |
 
-## 本地完整 Compose Quick Start
+开发环境默认账号（**仅限本地**）：`admin@example.test` / `change-me-local-only`
 
-> ⚠️ **HARD WARNING — Full Compose is NOT the default Daily Development mode.**
->
-> 当前根 `compose.yaml` 的本地 Full Compose 只包含以下五个服务（**没有** gateway service，`docker compose up` 不会启动 Gateway）：
->
-> ```text
-> Current local root Full Compose:
-> - backend
-> - frontend
-> - mysql
-> - redis
-> - minio
-> ```
->
-> Gateway 的定位：
->
-> - Daily Development 中 Gateway 是本机原生进程（`localhost:8081`），不是 Compose 服务
-> - Gateway 的 Docker 镜像可以单独构建，仅用于 CI / Security / explicit Docker validation
-> - 不得声称当前根 compose 会启动 Gateway
->
-> 本段落描述的完整 Compose 栈**只**用于以下场景：
->
-> - full integration（最终集成验证）
-> - E2E
-> - smoke
-> - release validation
-> - explicit Docker validation
->
-> **AI agents MUST NOT use this flow as the routine edit-test loop.**
->
-> 日常开发循环中**禁止**反复执行：
->
-> ```text
-> docker compose build
-> docker compose up --build
-> docker build backend
-> docker build frontend
-> docker build gateway
-> ```
->
-> 日常开发请改用：
->
-> - Docker 只运行 MySQL / Redis / MinIO（`scripts/dev/start-infra.ps1`）
-> - Backend / Gateway / Frontend 三个进程本机原生运行
->
-> 注意：CI / Security 流水线中的 Docker build 属于合法验证流程，不受上述日常循环禁令约束。
+按 `Ctrl+C` 停止 `npm run dev` 启动的进程树；基础设施用 `npm run infra:down` 单独停止（保留数据）。
 
-PowerShell：
+> **日常开发只跑基础设施容器。** 三个应用的 Docker 镜像只用于 CI、Security 扫描与最终集成验证，**不是**默认本地运行时。
 
-~~~powershell
-Copy-Item .env.example .env
-docker compose --env-file .env build
-docker compose --env-file .env up -d
-docker compose --env-file .env ps
-~~~
+---
 
-默认浏览器入口为 `http://localhost:8080`，后端通过 Nginx 的同源 `/api/v1` 反向代理访问。
+## 🏗️ 架构
 
-### 默认登录凭据（仅限开发环境）
-
-`.env.example` 中的 `AICOSTOPS_DEV_BOOTSTRAP_ENABLED=true` 会在首次启动时自动创建管理员账号：
+### Monorepo 布局
 
 ```text
-邮箱:     admin@example.test
-密码:     change-me-local-only
+AI-CostOps/
+├── backend/      Java 21 · Spring Boot 4.1 · Spring MVC ·  控制面（637 个源文件）
+│   └── src/main/java/com/aicostops/
+│       ├── iam/           身份、组织、角色、作用域授权
+│       ├── ingestion/     Provider 账单导入、去重、规范化
+│       ├── evidence/      费用证据与对象存储
+│       ├── cost/          标准成本事实与重复指纹
+│       ├── attribution/   归属规则与分摊决策
+│       ├── expense/       报销单与审批
+│       ├── budget/        账期、预算、承诺、预占
+│       ├── ledger/        不可变账本与更正
+│       ├── reconciliation/ 对账与关账
+│       ├── gatewayadmin/  Gateway 管理面
+│       ├── gatewaysettlement/ Gateway 结算落账
+│       ├── providerhub/   Provider 连接、模型目录、探测
+│       ├── intelligence/  异常检测、预测、节约建议
+│       ├── advisor/       AI 顾问（只解释，不算钱）
+│       ├── routing/       路由策略
+│       ├── reporting/     报表与看板
+│       ├── observability/ 指标与追踪
+│       └── shared/        跨模块基础件（金额、错误、Web、安全）
+│
+├── gateway/      Java 21 · Spring Boot 4.1 · Spring WebFlux ·  数据面（97 个源文件）
+│   └── src/main/java/com/aicostops/gateway/
+│       ├── auth/       内部网关凭证鉴权
+│       ├── budget/     请求时预算预占
+│       ├── metering/   实时用量计量
+│       ├── quota/      配额与速率限制
+│       ├── ratelimit/  限流
+│       ├── routing/    多 Provider 路由与熔断
+│       ├── resilience/ 失败与降级
+│       ├── provider/   opencode / kilo / mimo / openai / custom 适配器
+│       └── persistence/ 请求、路由、用量事实落库
+│
+├── frontend/     React 19 · TypeScript · Vite · Ant Design · TanStack Query · ECharts
+│
+├── scripts/      Node ESM 任务编排器（零依赖、跨平台）
+├── deploy/       生产与可观测性编排
+└── docs/         蓝图 / 开发 / 验收 / 运维 四层文档
 ```
 
-生产环境必须设置 `AICOSTOPS_DEV_BOOTSTRAP_ENABLED=false` 并使用正式身份。
-
-健康检查：
-
-~~~powershell
-Invoke-WebRequest http://localhost:8080 -UseBasicParsing
-docker compose --env-file .env exec backend curl -fsS http://localhost:8080/actuator/health/liveness
-~~~
-
-`.env.example` 使用 local-only 占位值。它开启仅限 `dev` profile 的开发 bootstrap：容器启动后创建本地合成管理员、当前自然月 OPEN billing period，并从环境变量读取密码；密码不会写入日志。生产环境必须关闭 `AICOSTOPS_DEV_BOOTSTRAP_ENABLED` 并使用正式身份、Secret 与账期流程。
-
-如果默认端口 8080 已被本机其他进程占用，可使用一次性覆盖：
-
-~~~powershell
-$env:FRONTEND_PORT = '18080'
-$env:AICOSTOPS_ALLOWED_ORIGINS = 'http://localhost:18080'
-docker compose --env-file .env up -d
-~~~
-
-完成后保留数据地停止：
-
-~~~powershell
-docker compose --env-file .env down
-~~~
-
-只有明确需要销毁本项目数据库、Redis 和 MinIO 数据时才使用 `docker compose ... down -v`；不要使用全局 prune。
-
-## V1 Smoke / Release Evidence
-
-~~~powershell
-.\scripts\smoke-v1.ps1 -EnvFile .env.example -BaseUrl http://localhost:8080/api/v1
-~~~
-
-脚本会在有界超时内检查五个 Compose 服务、MySQL / Redis / MinIO readiness、Flyway、真实登录与权限、Workbench、合成 DeepSeek import / confirm、费用证据提交和 audit query，并输出 `SMOKE_V1_PASS`。它不会打印密码、token 或 Provider key，也不会执行全局清理。完整历史证据见 [docs/superpowers/specs/2026-08-23-m8-compose-smoke.md](docs/superpowers/specs/2026-08-23-m8-compose-smoke.md)、[docs/03-acceptance/v1-release-candidate-evidence.md](docs/03-acceptance/v1-release-candidate-evidence.md) 与 [docs/03-acceptance/aic-073-final-human-acceptance.md](docs/03-acceptance/aic-073-final-human-acceptance.md)。
-
-## Validation Status
-
-以下 V1 数字是冻结历史证据，不因进入 V2 而改写：
-
-- Browser UAT：32/32 scenarios passed
-- State branches：14/14 passed
-- P0/P1：0
-- Compose Smoke：PASS
-- Backend tests：437 unit + 800 integration + 34 architecture = PASS
-- Frontend tests：432 Vitest + lint = PASS
-- PR #103：7/7 CI PASS；合并后的 `main@b96be61` push CI PASS
-
-M10 设计 PR #129 在最终 head 上 CI / Security 全绿；squash merge 后的 `main@1ed62c68c09458570c5cd04f812a2525028db7a2` 再次通过 8/8 CI jobs（含 Backend Integration 与 Browser E2E）以及 Trivy + CodeQL Java/Kotlin + CodeQL JavaScript/TypeScript。
-
-Validated V1 flows：Import lifecycle, Cost allocation, Budget commitment, Expense workflow, Ledger posting, Reconciliation, Period close, CLOSED write protection, Reopen。
-
-## Known Limitations
-
-- SMTP delivery requires external mail service. Local development uses file-backed mailbox by default.
-- Import scale measured by M9 (AIC-081): 10k / 100k / 500k import all PASS（412→434→442 rows/s，DB-backed worker，无 broker）；reporting 10k / 100k PASS；500k reporting fixture 未在本机 7.6 GB Docker 环境完成（documented non-blocking limitation，见 `docs/03-acceptance/m9-scale-evidence.md`）。
-- provider-account / allocation-rule audit 审计 producer 缺口已由 AIC-074 关闭。
-- Production mail integration is environment-specific and not included in V1 scope.
-
-## Provider 支持边界
-
-| Provider | Adapter / canonical mapping | Fixture / test status |
-|---|---|---|
-| DeepSeek | 已实现 | 合成 Compose smoke、M7 E2E、M8 benchmark |
-| MiMo | 已实现 | fixture / adapter tests |
-| Kimi | 已实现 | fixture / adapter tests |
-| GLM | 已实现 | fixture / adapter tests |
-| OpenAI | 已实现 | fixture / adapter tests |
-
-M8 的真实 Compose smoke 和 benchmark 使用合成 DeepSeek export。M9（AIC-082）完成了一次真实 MiMo 导入认证（real-but-redacted，`REAL_PROVIDER_CERTIFICATION_PASS`，见 `docs/03-acceptance/m9-provider-certification-mimo.md`）；其余 Provider 未被解释为已完成真实生产导入认证。
-
-MiMo 是 M11 Gateway Edge MVP 首个接入的 Provider Adapter，M11 验收证据见 [m11-gateway-edge-evidence.md](docs/03-acceptance/m11-gateway-edge-evidence.md)；M14 已完成 Multi-provider Routing / Resilience（PR #146）。各 Provider 的实时 streaming / financial-metering 认证边界以对应里程碑的验收证据为准。
-
-## V2 冻结架构原则
-
-```text
-Monorepo
-├─ frontend/   React / TypeScript Admin UI
-├─ backend/    Java / Spring MVC Control Plane
-└─ gateway/    Java / Spring WebFlux + Reactor Netty Data Plane
-```
-
-核心规则：
+### 三条核心规则
 
 ```text
 one monorepo / two deployables / one final financial truth
-MySQL = durable identity + financial truth + monetary reservation correctness
-Redis != financial truth and cannot independently authorize monetary spend
-Gateway = request / route / usage / reservation fact writer
-CostOps Core = final Settlement / Ledger / Budget Actual / Commitment writer
-DISPATCH_INTENT must be durable before potentially billable Provider I/O
-missing usage != zero cost
-POSTED Ledger immutable / corrections append-only
 ```
 
-## 技术基线
+1. **MySQL 是权威** —— 身份、预算预占正确性、最终结算、账本，全在 MySQL。
+2. **Redis 不是财务真相** —— 只做刷新会话、TTL、限流、缓存与协调；**不能独立授权任何金额支出**。
+3. **Gateway 是事实写入方，CostOps Core 是财务写入方** —— Gateway 写请求/路由/用量事实；结算、账本、预算实际值、承诺由 Core 落账。
 
-Java 21 / Spring Boot 4.1 / Plain MyBatis / Flyway / MySQL 8.4 LTS / Redis / MinIO / React 19 / TypeScript / Vite / TanStack Query / Ant Design / ECharts / Docker Compose / Nginx / GitHub Actions。
+### 数据流
 
-架构、领域约束与机器可读 API 基线分别见 [docs/01-blueprint/README.md](docs/01-blueprint/README.md)、[docs/02-development/README.md](docs/02-development/README.md)、Control Plane [openapi.yaml](docs/02-development/api/openapi.yaml) 和 Gateway [gateway-openapi.yaml](docs/02-development/api/gateway-openapi.yaml)。
+```text
+① 后发账单流（Post-billing）
+   Provider 导出 → Import 批次 → 规范化 → 原始留存 → 标准成本事实 → 归属 → 预算实际值 → 账本
 
-## 日常开发与测试
+② 实时流（Realtime）
+   客户端 → Gateway 鉴权 → 预算预占 → 路由 → 流式代理 → 用量计量
+          → 请求/路由/用量事实 → 结算 Worker → 账本
 
-日常开发只启动 MySQL / Redis / MinIO，见 [docs/02-development/implementation/05-bootstrap-local-development-runbook.md](docs/02-development/implementation/05-bootstrap-local-development-runbook.md)。
+③ 治理流（Governance）
+   成本事实 → 异常检测 → 预测 → 反事实节约建议 → AI 顾问解释 → 人工审批
+```
 
-后端（Windows PowerShell）：
+---
 
-~~~powershell
-cd backend
-.\mvnw.cmd -B "-DexcludedGroups=architecture,integration" test
-.\mvnw.cmd -B "-Dgroups=architecture" test
-.\mvnw.cmd -B verify
-~~~
+## ✨ 功能
 
-MinIO 集成测试默认使用公开的 Chainguard 镜像固定摘要，由
-`backend/src/test/java/com/aicostops/testsupport/MinioTestImage.java` 统一定义；不需要额外传镜像参数。
-受限网络或内部镜像仓库仍可通过 `-Daicostops.test.minio-image=<镜像名或摘要>` 覆盖。
-更新默认摘要前，应验证匿名拉取及真实 S3 集成测试。根开发 Compose 也使用该公开固定摘要，
-健康检查使用镜像内置的 `mc ready local`，不依赖 curl。更新测试覆盖参数不会改变 Compose。
-该镜像默认以 UID 65532 运行；复用旧 MinIO 数据卷前先备份并核对目录写入权限，脚本不会自动修改卷权限或迁移数据。
+### 成本归集与核算
 
-前端：
+- **多 Provider 导入**：DeepSeek、MiMo、Kimi、GLM、OpenAI 及自定义 OpenAI-Compatible 端点的账单解析、幂等导入、原始证据留存
+- **标准成本事实**：消费 / 定价 / 费用三层分离（`consumption_fact` / `pricing_fact` / `charge_fact`），避免金额语义混淆
+- **归属与分摊**：规则引擎驱动的项目 / 团队 / 成本中心归属，支持多因子的确定性分摊
+- **不可变账本**：POSTED 不可变，Correction 追加式更正，全链路可追溯
+- **对账与关账**：混合对账（账单 ↔ 网关）、账期关闭与重开、关闭期写保护
 
-~~~powershell
-cd frontend
-npm ci
-npm run lint
-npm test -- --run
-npm run build
-~~~
+### 实时网关（V2+）
 
-Gateway（本机 WebFlux 数据面）：
+- **请求时预算预占**：MySQL 事务内预占，释放 / 结算有界
+- **实时计量**：流式与非流式用量采集，SSE 分片合法性与完成标记校验
+- **多 Provider 路由**：健康检查、熔断、降级与跨 Provider 故障隔离
+- **内部网关凭证**：可撤销、可轮换、带 HMAC 签名
 
-~~~powershell
-cd gateway
-$env:SPRING_PROFILES_ACTIVE = "local"
-.\mvnw.cmd -B spring-boot:run
-~~~
+### 成本智能（V3）
 
-Gateway 本机启动、测试、smoke 与验证命令见 [06-m11-gateway-local-runbook.md](docs/02-development/implementation/06-m11-gateway-local-runbook.md)；M11 验收证据见 [m11-gateway-edge-evidence.md](docs/03-acceptance/m11-gateway-edge-evidence.md)。
+- **异常检测**：基于 median / MAD 的稳健 z-score，确定性算法，不依赖 LLM
+- **预测**：DAMPED_HOLT 阻尼 Holt，要求可观测历史窗口，拒绝反转主导窗口
+- **节约建议**：反事实建模，基于真实成本事实给出可执行建议
+- **AI 顾问**：只解释金融事实，**不计算金额** —— 金额永远来自账本
 
-## 文档与验收
+### 供应商治理
 
-验收入口为 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。M8 专项证据包括 AIC-066 schema / query review、AIC-067 import benchmark、AIC-068 financial concurrency、AIC-069 runtime failure injection、AIC-070 security review，以及 AIC-071 Compose smoke / AIC-072 RC evidence / AIC-073 final sign-off。
+- **Provider Hub**：版本化连接档案、加密凭证、模型目录、定价版本与路由治理
+- **免费层准入**：仅准入有证据的免费 Chat 模型，准入策略版本化可追溯
+- **SSRF 防护**：自定义端点做 DNS 解析与公网地址校验，阻断内网回环
 
-V1 的 RC、验收与 benchmark 文档作为冻结历史证据保留；后续不得把历史时间点状态改写成当前状态。
+### 组织与权限
 
-M10 最终设计验收见 [m10-design-freeze-matrix.md](docs/03-acceptance/m10-design-freeze-matrix.md)。
+- 组织 / 团队 / 项目 / 成本中心多级作用域，角色按作用域授权
+- 双组织浏览器隔离：跨租户私有模型元数据不可见
+- 审计事件不可变追加，敏感 key 名拒绝入库
 
-## V3 发布与维护
+---
 
-V3.0.0 已完成发布、production acceptance、operational readiness 与最终稳定性收尾。详细运维指南见 [docs/04-operations/v3-operational-runbook.md](docs/04-operations/v3-operational-runbook.md)。
+## 🛠️ 开发
 
-现有产品/设计入口：
+### 统一命令入口
 
-- [Product Scope](docs/01-blueprint/product/05-product-scope.md)
-- [Historical V1 → V2 Roadmap](docs/01-blueprint/product/11-roadmap.md)
-- [V2 Detailed Design](docs/02-development/v2-detailed-design/README.md)
-- [Gateway OpenAPI](docs/02-development/api/gateway-openapi.yaml)
+在仓库根目录使用（Node 24+ / JDK 21）：
 
-历史路线图仅用于理解已交付的 V1–V3 范围，不构成当前 backlog。V4 = NOT_PLANNED：V4 不在路线图内，不再规划或实现 V4，也不主动扩展 Provider 或业务功能；没有故障、部署需求或实际维护事项时不需要人为制造 backlog。
+| 命令 | 作用 |
+|---|---|
+| `npm run setup` | 在 `frontend/` 执行 `npm ci`（首次或依赖变更后） |
+| `npm run doctor` | 检查 Node / Java / npm / Docker / Maven wrapper / 前端依赖 / 端口 |
+| `npm run status` | 检查三个应用的端口与 HTTP 健康 |
+| `npm run infra:up` / `infra:status` / `infra:down` | 管理 MySQL / Redis / MinIO |
+| `npm run dev` | 前台启动 Backend + Gateway + Frontend（local profile） |
+| `npm run build` | 两个 Maven 模块 package + 前端生产构建 |
+| `npm run test` | 脚本测试 + 单元 / 架构测试 + 前端单元测试 |
+| `npm run verify` | 完整验证：脚本生命周期 + 两个模块完整 verify + 前端 test / lint / build |
 
-## Git 协作
+所有任务支持 `--dry-run` 预览命令计划：
 
-~~~text
-Issue → Short-lived Branch → Pull Request → CI → Human Acceptance → Squash Merge → main
-~~~
+```bash
+npm run dev -- --dry-run
+```
 
-当前状态：`FINAL_PRODUCT_VERSION = V3 / STABLE_RELEASE = v3.0.0 / FEATURE_DEVELOPMENT = CLOSED / MAINTENANCE_MODE = ACTIVE / V4 = NOT_PLANNED / NEW_FEATURES = OUT_OF_SCOPE`。M20 与 M21 完成；M22 原始关闭保留 deferred / non-blocking gate，其中浏览器组织隔离已由 2026-10-19 补充验收转为 PASS，真实 Provider / OpenCode 外部认证仍为 deferred。详见 [docs/03-acceptance/README.md](docs/03-acceptance/README.md)。
+详见 [scripts/README.md](scripts/README.md)。
 
-生产部署与数据迁移不属当前范围：如需升级实际持久化数据库或更新稳定发布，先执行 [V3 Operational Runbook](docs/04-operations/v3-operational-runbook.md) 中的条件触发发布检查；本轮不执行升级、迁移、备份或生产部署。
+### 单独运行模块
+
+```bash
+# Backend
+cd backend && ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+
+# Gateway
+cd gateway && SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
+
+# Frontend
+cd frontend && npm run dev
+```
+
+### 测试分层
+
+```text
+单元测试      mvnw -B -DexcludedGroups=architecture,integration test
+架构测试      mvnw -B -Dgroups=architecture test
+集成测试      mvnw -B verify          # Testcontainers: MySQL 8.4 + Redis
+前端单测      cd frontend && npm test -- --run
+前端 Lint     cd frontend && npm run lint
+浏览器 E2E    cd frontend && npm run test:e2e
+脚本测试      npm run test:scripts
+```
+
+集成测试使用 **Testcontainers** 启动真实 MySQL 8.4 与 Redis，不使用 H2 或内存替身 —— 财务正确性必须在真实数据库语义下验证。
+
+### 环境变量
+
+完整清单见 [.env.example](.env.example)。关键项：
+
+| 变量 | 用途 |
+|---|---|
+| `AICOSTOPS_JWT_SIGNING_KEY` | JWT 签名密钥（生产必填，缺失则启动失败） |
+| `SPRING_DATASOURCE_*` / `SPRING_DATASOURCE_URL` | 数据库连接 |
+| `AICOSTOPS_ALLOWED_ORIGINS` | 允许的浏览器 Origin（生产禁止 localhost） |
+| `AICOSTOPS_DEV_BOOTSTRAP_ENABLED` | 开发引导管理员开关（生产必须为 `false`） |
+| `AICOSTOPS_ALLOW_PUBLIC_REGISTRATION` | 公开注册开关 |
+| `MINIO_*` / `AICOSTOPS_STORAGE_*` | 对象存储 |
+
+生产环境下，配置校验器会**拒绝**默认回退密钥、localhost Origin 与开发引导开关。
+
+---
+
+## 📚 文档
+
+| 目录 | 内容 |
+|---|---|
+| [docs/01-blueprint/](docs/01-blueprint/) | 产品范围、领域模型、业务规则、架构、ADR、路线图 |
+| [docs/02-development/](docs/02-development/) | 详细设计、实现记录、API 契约（OpenAPI）、运维手册 |
+| [docs/03-acceptance/](docs/03-acceptance/) | 里程碑验收证据矩阵与逐次验收记录 |
+| [docs/04-operations/](docs/04-operations/) | V3 生产运维 Runbook |
+| [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) | 项目状态、里程碑、冻结基线的权威索引 |
+
+### 关键入口
+
+- **产品范围** → [docs/01-blueprint/product/05-product-scope.md](docs/01-blueprint/product/05-product-scope.md)
+- **系统架构** → [docs/01-blueprint/architecture/10-system-architecture.md](docs/01-blueprint/architecture/10-system-architecture.md)
+- **领域模型** → [docs/01-blueprint/domain/07-domain-model.md](docs/01-blueprint/domain/07-domain-model.md)
+- **业务规则** → [docs/01-blueprint/domain/08-business-rules.md](docs/01-blueprint/domain/08-business-rules.md)
+- **Control Plane API** → [docs/02-development/api/openapi.yaml](docs/02-development/api/openapi.yaml)
+- **Gateway API** → [docs/02-development/api/gateway-openapi.yaml](docs/02-development/api/gateway-openapi.yaml)
+- **本地开发 Runbook** → [docs/02-development/implementation/05-bootstrap-local-development-runbook.md](docs/02-development/implementation/05-bootstrap-local-development-runbook.md)
+- **生产运维 Runbook** → [docs/04-operations/v3-operational-runbook.md](docs/04-operations/v3-operational-runbook.md)
+- **验收证据矩阵** → [docs/03-acceptance/02-Milestone验收证据矩阵.md](docs/03-acceptance/02-Milestone验收证据矩阵.md)
+
+### 架构决策记录（ADR）
+
+设计取舍的完整论证在 [docs/01-blueprint/architecture/](docs/01-blueprint/architecture/)：
+
+| ADR | 主题 |
+|---|---|
+| [001](docs/01-blueprint/architecture/adr/ADR-001-modular-monolith.md) | 采用模块化单体而非微服务 |
+| [002](docs/01-blueprint/architecture/adr/ADR-002-retain-raw-evidence.md) | 保留原始证据不做转换丢弃 |
+| [003](docs/01-blueprint/architecture/adr/ADR-003-separate-consumption-pricing-charge.md) | 消费 / 定价 / 费用三层分离 |
+| [004](docs/01-blueprint/architecture/adr/ADR-004-immutable-ledger.md) | 不可变账本与追加式更正 |
+| [005](docs/01-blueprint/architecture/adr/ADR-005-v1-post-billing-first.md) | V1 先做后发账单归集 |
+| [006](docs/01-blueprint/architecture/adr/ADR-006-content-blind-gateway.md) | Gateway 内容盲（不看 Prompt） |
+| [008](docs/01-blueprint/architecture/adr/ADR-008-mysql-mybatis-v1.md) | MySQL + Plain MyBatis |
+| [009](docs/01-blueprint/architecture/adr/ADR-009-redis-v1-runtime.md) | Redis 作为运行时支撑而非真相源 |
+| [012](docs/01-blueprint/architecture/adr/ADR-012-single-repo-lightweight-github-flow.md) | 单仓库轻量 GitHub Flow |
+
+---
+
+## 🔬 CI 与安全
+
+每次 PR 与 `main` / `dev` push 运行两条流水线：
+
+```text
+CI       14 个作业：脚本测试 ×2、后端单元 / 集成 / 架构、网关单元 / 集成 / 架构、
+                       前端 lint / test / build、Docker build、Playwright E2E
+Security CodeQL（Java · JavaScript）×2、Trivy filesystem（vuln/misconfig/secret）、
+         Trivy image ×3（backend / frontend / gateway）
+```
+
+安全策略：
+
+- 依赖漏洞 `HIGH` / `CRITICAL` **直接阻断**，不做 blanket ignore
+- `.trivyignore` 当前为空（`Accepted risks: NONE`）
+- 只有 CodeQL 作业拥有 `security-events: write`，流水线默认 `contents: read`
+- 镜像扫描验证真实构建产物，文件系统扫描覆盖依赖清单
+
+本地复现 Trivy 见 [CONTRIBUTING.md](CONTRIBUTING.md#11-持续安全-ci-m9--aic-079)。
+
+---
+
+## 🤝 贡献
+
+流程：**Issue → 短生命周期分支 → Pull Request → CI → 人工验收 → Squash Merge → `main`**
+
+```text
+feat/*  fix/*  refactor/*  test/*  perf/*  docs/*  chore/*
+```
+
+提交信息使用 Conventional Commits：
+
+```text
+feat(iam): implement password login
+fix(import): recover expired worker lease
+docs(api): update budget contract
+chore(ci): add backend workflow
+```
+
+任何 API 变更必须**同步** OpenAPI 契约、后端 DTO、前端类型与契约测试。数据库变更必须附带 Flyway 迁移。
+
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+---
+
+## 📄 许可证
+
+专有许可，仅限内部使用。详见 [LICENSE](LICENSE)。
+
+---
+
+## 📌 项目状态
+
+```text
+FINAL_PRODUCT_VERSION = V3
+STABLE_RELEASE       = v3.0.0
+Feature development  = CLOSED
+Operational mode     = MAINTENANCE_ONLY
+V4                   = NOT_PLANNED
+Known release-blocking defects = NONE
+```
+
+V3 是最终功能版本，功能研发已关闭。项目进入长期维护模式，仅接受安全更新、缺陷修复、运维修复、CI / 依赖维护与文档维护，维护触发条件是**真实缺陷与实际必要性**。
+
+发布基线：
+
+| 版本 | 提交 |
+|---|---|
+| v1.0.0 | `982d06a` |
+| v1.0.1 | `b96be61` |
+| v1.1.0 | `102f287` |
+| v2.0.0 | `93e3596` |
+| v3.0.0 | `9c55125` |
+
+变更明细见 [CHANGELOG.md](CHANGELOG.md)。
