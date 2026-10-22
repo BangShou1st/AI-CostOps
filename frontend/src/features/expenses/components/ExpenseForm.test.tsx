@@ -1,8 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ExpenseForm } from './ExpenseForm'
 
 describe('expense money entry', () => {
+  afterEach(async () => {
+    // Settle pending rc-component/antd useDelayState timers before test worker teardown
+    await new Promise(resolve => setTimeout(resolve, 50))
+  })
+
   it('preserves the DECIMAL(20,8) upper bound when saving an existing value', async () => {
     const submit = vi.fn()
     render(<ExpenseForm editable amount="999999999999.99999999" expenseDate="2026-10-10" onSubmit={submit} />)

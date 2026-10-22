@@ -33,3 +33,14 @@ class ResizeObserverStub {
   disconnect() {}
 }
 globalThis.ResizeObserver = globalThis.ResizeObserver ?? ResizeObserverStub
+
+// Guard against lingering asynchronous UI library timers (e.g. rc-component useDelayState)
+// that fire after jsdom environment teardown, which would throw "ReferenceError: window is not defined".
+if (typeof window !== 'undefined') {
+  const domWindow = window
+  Object.defineProperty(globalThis, 'window', {
+    get: () => domWindow,
+    set: () => {},
+    configurable: true,
+  })
+}
