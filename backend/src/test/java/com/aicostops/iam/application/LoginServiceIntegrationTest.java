@@ -8,6 +8,7 @@ import com.aicostops.shared.web.ProblemCode;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
 import java.time.Duration;
 import org.awaitility.Awaitility;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,22 @@ class LoginServiceIntegrationTest extends AuthenticationContainersSupport {
     @BeforeEach
     void setUp() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
+        cleanDatabase();
+        jdbcTemplate.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('Login','login-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
+    }
+
+    /**
+     * This suite registers a real {@code app_user} + {@code user_credential} pair and
+     * writes {@code audit_event} rows. Without a teardown the last test's rows
+     * survive the class and block the {@code app_user} cleanup of whichever suite
+     * runs next in the shared MySQL Testcontainer.
+     */
+    @AfterEach
+    void tearDown() {
+        cleanDatabase();
+    }
+
+    private void cleanDatabase() {
         jdbcTemplate.update("DELETE FROM audit_event");
         jdbcTemplate.update("DELETE FROM invitation");
         jdbcTemplate.update("DELETE FROM role_assignment");
@@ -54,7 +71,6 @@ class LoginServiceIntegrationTest extends AuthenticationContainersSupport {
         jdbcTemplate.update("DELETE FROM user_credential");
         jdbcTemplate.update("DELETE FROM app_user");
         jdbcTemplate.update("DELETE FROM organization WHERE slug='login-org'");
-        jdbcTemplate.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('Login','login-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
     }
 
     @Test

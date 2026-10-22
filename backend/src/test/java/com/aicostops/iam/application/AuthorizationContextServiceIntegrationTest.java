@@ -9,6 +9,7 @@ import com.aicostops.iam.domain.ScopedPermissionGrant;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,16 +42,11 @@ class AuthorizationContextServiceIntegrationTest extends MySqlContainerSupport {
 
     @BeforeEach
     void setUp() {
-        jdbcTemplate.update("DELETE FROM role_assignment");
-        // M6 close/reconciliation history references organization members.
-        jdbcTemplate.update("DELETE FROM period_close_check");
-        jdbcTemplate.update("DELETE FROM period_close_run");
-        jdbcTemplate.update("DELETE FROM reconciliation_case");
-        jdbcTemplate.update("DELETE FROM reconciliation_run");
-        jdbcTemplate.update("DELETE FROM organization_member");
-        jdbcTemplate.update("DELETE FROM app_user");
-        jdbcTemplate.update("DELETE FROM invitation");
-        jdbcTemplate.update("DELETE FROM organization");
+        // The IAM suites share one MySQL Testcontainer, so a local DELETE list
+        // that misses a foreign-key child of app_user (user_credential,
+        // audit_event, ...) breaks on rows another suite left behind. The shared
+        // cleaner removes children before parents in one FK-safe pass.
+        M2DatabaseCleaner.clean(jdbcTemplate);
 
         jdbcTemplate.update("""
                 INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at)
