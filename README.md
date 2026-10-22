@@ -27,7 +27,7 @@
 
 ---
 
-[核心功能](#-核心功能) • [系统架构](#-系统架构) • [核心财务不变量](#-核心财务真相与不可变边界) • [业务流程时序](#-关键业务时序) • [技术栈](#-技术栈) • [快速开始](#-快速开始) • [供应商治理](#-供应商治理-model-provider-hub) • [代码结构](#-代码库结构与规模事实) • [CI 与安全](#-ci-与持续安全) • [贡献与状态](#-项目状态与贡献)
+[系统界面一览](#-系统界面一览) • [核心功能](#-核心功能) • [系统架构](#-系统架构) • [核心财务不变量](#-核心财务真相与不可变边界) • [业务流程时序](#-关键业务时序) • [技术栈](#-技术栈) • [快速开始](#-快速开始) • [供应商治理](#-供应商治理-model-provider-hub) • [代码结构](#-代码库结构与规模事实) • [CI 与安全](#-ci-与持续安全) • [贡献与状态](#-项目状态与贡献)
 
 </div>
 
@@ -52,6 +52,53 @@
 ### AI CostOps 破局之道
 
 **AI CostOps** 创新性地将**后发多源账单全生命周期归集（Post-billing）**与**数据面实时预算预占与计量（Realtime Gateway）**深度收敛，确立了 **“一个 Monorepo、两个可部署服务、一个最终财务真相（MySQL）”** 的不可变工程边界，通过消费/定价/费用三层解耦、全链路确定性成本智能（Cost Intelligence）与受控 AI 顾问，为现代企业筑牢坚如磐石的 AI 财务治理防线。
+
+---
+
+## 📸 系统界面一览
+
+以下截图均为本地全栈服务原生运行时的实际管理台页面（100% 真实纯净界面）：
+
+<div align="center">
+
+### 1. 财务工作台与治理总览 (Workbench)
+<img src="docs/assets/screenshots/01-workbench.png" alt="财务工作台总览" width="95%" />
+
+<br /><br />
+
+### 2. 确定性成本智能 (Cost Intelligence)
+<img src="docs/assets/screenshots/02-cost-intelligence.png" alt="成本智能总览" width="95%" />
+
+<br /><br />
+
+### 3. 不可变财务账本与会计冲正 (Immutable Financial Ledger)
+<img src="docs/assets/screenshots/04-financial-ledger.png" alt="财务账本与会计更正流水" width="95%" />
+
+<br /><br />
+
+### 4. 账期关闭准备度与七项强一致校验 (Period Close Readiness)
+<img src="docs/assets/screenshots/05-period-close-readiness.png" alt="账期关闭准备度" width="95%" />
+
+<br /><br />
+
+### 5. 外部账单与内部网关混合对账 (Reconciliation Engine)
+<img src="docs/assets/screenshots/06-reconciliation-run-details.png" alt="混合对账详情与差异追踪" width="95%" />
+
+<br /><br />
+
+### 6. 模型服务商治理 (Model Provider Hub)
+<img src="docs/assets/screenshots/03-provider-gallery.png" alt="Provider Gallery" width="95%" />
+
+<br /><br />
+
+### 7. 实时预算管控与网关凭证绑定 (Budget & Gateway Credentials)
+<p align="center">
+  <img src="docs/assets/screenshots/08-budget-governance.png" alt="实时预算治理" width="48%" />
+  &nbsp;
+  <img src="docs/assets/screenshots/07-gateway-credentials.png" alt="网关凭证管理" width="48%" />
+</p>
+
+</div>
 
 ---
 
