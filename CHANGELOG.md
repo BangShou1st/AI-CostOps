@@ -47,6 +47,7 @@
 ### Fixed
 - 集成测试断言：`ImportWorkflowReadApiIntegrationTest` 的租户隔离排除检查从整个响应体的裸子串匹配收敛为 `items[*].id` 字段级排除，消除共享 Testcontainer 的 AUTO_INCREMENT 漂移导致的 ID 数值碰撞假阳性；断言意图与覆盖范围不变
 - 前端镜像基线：`frontend/Dockerfile` 基础镜像由 `nginx:1.30.4-alpine` 升级为 `nginx:1.30.6-alpine`（实装 `nginx=1.30.6-r1`），消除 CVE-2026-15176 / CVE-2026-93479 / CVE-2026-97205 三项 HIGH；不新增 `.trivyignore`、不调整 Trivy 阈值
+- 仓库忽略规则：新增 `.trivy-cache/`（CI 从仓库根挂载、本地扫描亦会生成的 Trivy 漏洞库缓存目录），避免 1.6 GB 缓存被误提交
 - 结算 Worker：组织扫描改为带环绕的 keyset 轮询以实现跨轮公平覆盖，并按异常类型分级隔离单组织失败；处理首次组织扫描的 datasource 故障
 - Cost Intelligence：预测要求可观测历史、拒绝反转主导的历史窗口、接受负 actual 并收紧预测窗口；调度分页就地重试并移除不安全的探针恢复，改用按组织与按页的 keyset 扫描
 - OpenCode Zen / Kilo Gateway：关闭 M-2 清单漂移、修正版本端点并校验 SSE 完成、修复共享免费准入与 keyless 派发；修复 Kilo Gateway provider review 发现的三项缺陷

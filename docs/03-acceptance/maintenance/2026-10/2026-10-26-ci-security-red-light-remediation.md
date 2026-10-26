@@ -5,7 +5,8 @@
 - **关联模块**：Backend（ingestion 读 API 集成测试）、Frontend（Docker 镜像基线）、CI / Security 工作流
 - **缺陷编号**：无 GitHub Issue；对应远端运行记录 CI `40283125308`、Security `40283125341`
 - **基线提交**：`4589582c6d601f281cb8447585bd6ca99f5cc3d7`（`dev`）
-- **结论**：**PASS**（本地修复与验证通过；远端门禁以新 Commit 对应的 GitHub Actions 实际结果为准）
+- **修复提交**：`558391c`（`dev`）
+- **结论**：**PASS** —— 远端门禁全部通过（CI 14/14、Security 3/3）
 
 ---
 
@@ -227,25 +228,60 @@ npm run verify:links
 
 ## 关键断言与截图证据
 
+### 远端门禁结果（修复提交 `558391c`）
+
+| 工作流 / Job | 结果 | 证据 |
+|---|---|---|
+| **CI `40301123909`** | **success** | 14/14 Job 全部 success |
+| `backend-integration` | success | `Tests run: 1276, Failures: 0, Errors: 0, Skipped: 0`（基线为 1276 项 / 1 失败） |
+| `ImportWorkflowReadApiIntegrationTest` | success | `Tests run: 11, Failures: 0, Errors: 0, Skipped: 0` |
+| `backend-unit` / `backend-architecture` | success | — |
+| `gateway-unit` / `gateway-integration` / `gateway-architecture` | success | gateway 集成 `Tests run: 230, Failures: 0` |
+| `frontend-test` / `frontend-lint` / `frontend-build` | success | — |
+| `docker-build` / `browser-e2e` / `scripts-*` / `scripts-lifecycle` | success | — |
+| **Security `40301123946`** | **success** | 3/3 Job 全部 success |
+| `trivy`（文件系统 + backend/frontend/gateway 镜像扫描） | success | 前端镜像：`ai-costops-frontend:security (alpine 3.24.3)` → **Vulnerabilities = 0** |
+| `codeql (java-kotlin)` | success | 未改动该工作流 |
+| `codeql (javascript-typescript)` | success | 未改动该工作流 |
+
+### 关键断言与不变式核对
+
 | 断言 / 证据 | 实际结果 | 判定 |
 |---|---|---|
-| Trivy 前端镜像 HIGH/CRITICAL 数量 | `Total: 0 (HIGH: 0, CRITICAL: 0)`，exit code `0` | PASS |
+| Trivy 前端镜像 HIGH/CRITICAL 数量 | `Total: 0`，exit code `0`（远端与本地一致） | PASS |
 | 前端镜像 nginx 版本 | `nginx/1.30.6`（`nginx=1.30.6-r1`） | PASS |
 | 三项 CVE 修复版本对齐 | Trivy fixed version `1.30.6-r0`，镜像实装 `1.30.6-r1` ≥ 修复版本 | PASS |
-| Backend 全量 `verify` | 见「验证结果」章节 | PASS |
-| `ImportWorkflowReadApiIntegrationTest` | 11 项全通过 | PASS |
+| 前端镜像运行时 | 实际启动并返回 HTTP 200，SPA 正常下发 | PASS |
 | 租户隔离语义未被削弱 | `totalElements==1`、`items.length()==1`、`items[0].id=="175"` 三条原断言全部保留；仅将裸子串排除改为 `items[*].id` 字段级排除 | PASS |
 | 业务契约未变 | `openapi.yaml` `AttemptResponse.predecessorAttemptId` 未改动；生产代码零改动 | PASS |
 | 数据库迁移未变 | Flyway 迁移文件零改动 | PASS |
 | 安全策略未变 | `.trivyignore` 仍不存在；Trivy severity/exit-code 未调整；CodeQL 两个工作流未改动 | PASS |
-| `main` 未被修改 | 见「影响边界」 | PASS |
+| `main` 未被修改 | `main` 与 `origin/main` 均停留在 `1fb5e74`，零分叉，且不含 `558391c` | PASS |
+
+### 本地验证结果
+
+| 验证项 | 命令 | 结果 |
+|---|---|---|
+| Backend 全量 verify（排除 flaky 基准） | `./mvnw -B "-Dit.test=!M9ImportScaleBenchmarkIntegrationTest" verify` | 见「已知限制」说明；集成阶段 240+ 类 0 失败 |
+| M9 导入规模基准（隔离） | `./mvnw -B "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" verify` | `Tests run: 1, Failures: 0, Errors: 0`，`BUILD SUCCESS`，退出码 0 |
+| Gateway 全量 verify | `cd gateway && ./mvnw -B verify` | `BUILD SUCCESS`，退出码 0（230 + 105 项测试 0 失败） |
+| Frontend 单元测试 | `npm test -- --run` | `Test Files 72 passed (72)`，`Tests 547 passed (547)`，退出码 0 |
+| Frontend lint / build | `npm run lint` / `npm run build` | 退出码 0 / 0 |
+| 脚本测试 | `npm run test:scripts` | 27/27 通过 |
+| 文档链接 | `npm run verify:links` | `SUCCESS: 0 broken links found!` |
+| 前端镜像安全扫描 | Trivy 0.73.0（与 CI 同版本同参数） | `Vulnerabilities = 0`，退出码 0 |
 
 ## 结论与影响边界
 
-- **判定：PASS。** 两个红灯的根因均已定位并按最小改动修复，本地针对性测试、Backend 全量验证与 Trivy 镜像扫描均通过。
-- **变更范围**：仅 2 个代码/配置点 + 1 处协作文档 + 1 份验收记录 + `CHANGELOG.md` 条目。
-  - `backend/src/test/java/com/aicostops/ingestion/api/ImportWorkflowReadApiIntegrationTest.java`：1 处断言写法收紧（**测试代码**，生产逻辑零改动）。
+- **判定：PASS。** 两个红灯的根因均已定位并按最小改动修复；**远端 CI 与 Security 两条工作流的所有必需 Job 均成功**（CI 14/14、Security 3/3）。
+- **变更范围**：7 个文件。
+  - `backend/src/test/java/com/aicostops/ingestion/api/ImportWorkflowReadApiIntegrationTest.java`：1 处断言写法收敛（**测试代码**，生产逻辑零改动）。
   - `frontend/Dockerfile`：`FROM nginx:1.30.4-alpine` → `FROM nginx:1.30.6-alpine`（1 行 + 注释同步）。
-  - `CONTRIBUTING.md`：`.trivyignore` 说明中的基线版本号同步。
-- **已知限制 / 未通过项**：本轮**未改动** CodeQL Java/Kotlin 与 JavaScript/TypeScript 两条工作流（该次运行已成功，无改动理由）；**未新增** `.trivyignore` 条目，`.trivyignore` 仍不存在（`Accepted risks: NONE` 保持成立）；**未改动**历史封存的 M9 验收记录（`docs/03-acceptance/milestones/m9-security-ci-evidence.md` 保留其原始 `nginx:1.30.4-alpine` 结论与时间点），该历史记录描述的是当时的真实基线，改写会破坏审计资产；当前基线以本文件与 `frontend/Dockerfile` 为准。
-- **远端门禁以 GitHub Actions 实际结果为准**，本文件不替代远端结论。
+  - `.gitignore`：新增 `.trivy-cache/`（CI 从仓库根挂载、本地扫描也会生成的漏洞库缓存目录）。
+  - `CONTRIBUTING.md` / `CHANGELOG.md`：基线版本号与变更登记同步。
+  - `docs/03-acceptance/README.md` + 新增验收记录：索引登记与证据沉淀。
+- **已知限制 / 未通过项**：
+  1. 本轮**未改动** CodeQL Java/Kotlin 与 JavaScript/TypeScript 两条工作流（该次运行已成功，无改动理由）。
+  2. **未新增** `.trivyignore` 条目，`.trivyignore` 仍不存在（`Accepted risks: NONE` 保持成立）。
+  3. **未改动**历史封存的 M9 验收记录（`docs/03-acceptance/milestones/m9-security-ci-evidence.md` 保留其原始 `nginx:1.30.4-alpine` 结论与时间点），该记录描述的是当时的真实基线，改写会破坏审计资产；当前基线以本文件与 `frontend/Dockerfile` 为准。
+  4. **M9 导入规模基准测试存在既有的 worker 许可竞态**（详见「附带排查」章节）：在全量套件并发条件下偶发长时间不返回，隔离运行必过，同一 commit 在 CI 上 29.06 秒通过。本轮**未修该竞态**——它属于既有测试基础设施问题且超出本轮整改范围（改动会触及生产 worker 并发模型）。此为本次交付的**已知遗留项**，建议单独立项修复。
