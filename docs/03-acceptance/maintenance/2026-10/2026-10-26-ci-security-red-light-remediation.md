@@ -262,7 +262,7 @@ npm run verify:links
 
 | 验证项 | 命令 | 结果 |
 |---|---|---|
-| Backend 全量 verify（排除 flaky 基准） | `./mvnw -B "-Dit.test=!M9ImportScaleBenchmarkIntegrationTest" verify` | 见「已知限制」说明；集成阶段 240+ 类 0 失败 |
+| Backend 全量 verify（排除 flaky 基准） | `./mvnw -B "-Dit.test=!M9ImportScaleBenchmarkIntegrationTest" verify` | 集成阶段 **282 个测试类 0 失败**后，因本机 Docker 守护进程无响应（见「已知限制」第 5 条）中断 |
 | M9 导入规模基准（隔离） | `./mvnw -B "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" verify` | `Tests run: 1, Failures: 0, Errors: 0`，`BUILD SUCCESS`，退出码 0 |
 | Gateway 全量 verify | `cd gateway && ./mvnw -B verify` | `BUILD SUCCESS`，退出码 0（230 + 105 项测试 0 失败） |
 | Frontend 单元测试 | `npm test -- --run` | `Test Files 72 passed (72)`，`Tests 547 passed (547)`，退出码 0 |
@@ -285,3 +285,4 @@ npm run verify:links
   2. **未新增** `.trivyignore` 条目，`.trivyignore` 仍不存在（`Accepted risks: NONE` 保持成立）。
   3. **未改动**历史封存的 M9 验收记录（`docs/03-acceptance/milestones/m9-security-ci-evidence.md` 保留其原始 `nginx:1.30.4-alpine` 结论与时间点），该记录描述的是当时的真实基线，改写会破坏审计资产；当前基线以本文件与 `frontend/Dockerfile` 为准。
   4. **M9 导入规模基准测试存在既有的 worker 许可竞态**（详见「附带排查」章节）：在全量套件并发条件下偶发长时间不返回，隔离运行必过，同一 commit 在 CI 上 29.06 秒通过。本轮**未修该竞态**——它属于既有测试基础设施问题且超出本轮整改范围（改动会触及生产 worker 并发模型）。此为本次交付的**已知遗留项**，建议单独立项修复。
+  5. **本地 Backend 全量 `verify` 未跑到 100%**：本机在并行启动多轮 Maven/Docker 验证后，Docker Desktop 的 Linux Engine 开始返回 HTTP 500（`docker ps` 无响应），`V32KiloGatewayCatalogMigrationIntegrationTest` 的 Testcontainers `doStart()` 因此阻塞。该阻塞发生在**本机 Docker 守护进程层面**，与本轮代码无关——同一 commit 的 CI `backend-integration` 完整跑完全部 **1276 项、0 失败**。本地已完成的 **282 个集成测试类 0 失败**，且 Gateway 全量 `verify`、M9 基准隔离运行、547 项前端测试、前端 lint/build、脚本测试、Trivy 扫描均通过。
