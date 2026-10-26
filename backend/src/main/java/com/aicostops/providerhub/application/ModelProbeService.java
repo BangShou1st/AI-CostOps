@@ -159,7 +159,7 @@ public class ModelProbeService {
         return outcome;
     }
 
-    private ProbeResult execute(com.aicostops.providerhub.domain.ProviderConnection profile, String modelName) {
+    ProbeResult execute(com.aicostops.providerhub.domain.ProviderConnection profile, String modelName) {
         var capabilities = new LinkedHashMap<String, String>();
         capabilities.put("CHAT_COMPLETIONS", "UNKNOWN");
         capabilities.put("SSE_STREAMING", "UNKNOWN");
@@ -316,18 +316,32 @@ public class ModelProbeService {
             com.aicostops.providerhub.domain.ProviderConnection profile, String modelName,
             String secret, String secretKind, Map<String, String> capabilities) throws Exception {
         var body = openCodeZenProbeBody(modelName);
-        var target = join(profile.baseUrl(), profile.completionPath());
+        var target = OpenCodeZenRelaySupport.resolveInferenceEndpoint(profile.baseUrl(), profile.completionPath());
+        OpenCodeZenRelaySupport.validateUpstreamTarget(target);
         endpointValidator.validateEndpoint(target);
         var origin = URI.create(target);
         var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
                 profile.templateCode());
-        var current = target;
+        var prepared = openCodeZenHeaders.prepareProbeRequest(
+                URI.create(target), openCodeManifest.isFreeEligible(modelName), secret, "text/event-stream");
+        var relayUrl = openCodeZenHeaders.relayUrl();
+        final String outboundUrl;
+        final Map<String, String> outboundHeaders;
+        if (relayUrl != null && !relayUrl.isBlank() && OpenCodeZenRelaySupport.isTrustedRelay(relayUrl)) {
+            outboundUrl = prepared.targetUri().toString();
+            outboundHeaders = prepared.headers();
+        } else {
+            // If relay is not configured or not proven as trusted Bun transparent relay, fallback to direct
+            outboundUrl = target;
+            var directHeaders = new LinkedHashMap<>(prepared.headers());
+            directHeaders.remove(OpenCodeZenProtocolPolicy.RELAY_TARGET_HEADER);
+            outboundHeaders = Map.copyOf(directHeaders);
+        }
+        var current = outboundUrl;
         for (var hop = 0; hop <= MAX_REDIRECTS; hop++) {
             final ProviderControlPlaneTransport.Result response;
             try {
-                response = transport.post(current,
-                        probeHeaders(profile, userAgent, secret, secretKind, "text/event-stream",
-                                modelName, current),
+                response = transport.post(current, outboundHeaders,
                         body, profile.connectTimeoutMs(), profile.responseTimeoutMs());
             } catch (ProviderControlPlaneTransport.TransportException ex) {
                 throw mapProbeTransport(ex);
@@ -387,8 +401,9 @@ public class ModelProbeService {
                 "content", "Reply with exactly: {\"ok\":true}")));
         payload.put("max_tokens", 16);
         OpenCodeZenProtocolPolicy.applyRequiredChatEnvelope(payload, true);
+        var ordered = OpenCodeZenProtocolPolicy.orderedChatBody(payload);
         try {
-            return objectMapper.writeValueAsString(payload);
+            return objectMapper.writeValueAsString(ordered);
         } catch (Exception ex) {
             throw new IllegalStateException("OpenCode Zen probe body could not be serialized", ex);
         }
@@ -889,10 +904,10 @@ public class ModelProbeService {
                 "Model discovery not found", detail);
     }
 
-    private static final class ProbeHttpStatus extends Exception {
-        private final String errorCode;
+    static final class ProbeHttpStatus extends Exception {
+        final String errorCode;
 
-        private ProbeHttpStatus(String errorCode) {
+        ProbeHttpStatus(String errorCode) {
             this.errorCode = errorCode;
         }
     }

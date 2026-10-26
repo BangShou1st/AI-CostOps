@@ -42,7 +42,7 @@
          the Spring Boot major/minor stays 4.1.0. -->
     <tomcat.version>11.0.25</tomcat.version>
     <!-- Public OpenCode Zen starter, consumed anonymously from JitPack. -->
-    <opencode-zen.version>v1.4.2</opencode-zen.version>
+    <opencode-zen.version>v1.5.4</opencode-zen.version>
     <!-- Public Kilo Gateway starter, consumed anonymously from JitPack (no credentials). -->
     <kilo-gateway.version>v0.2.1</kilo-gateway.version>
   </properties>

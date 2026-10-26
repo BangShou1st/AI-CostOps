@@ -28,15 +28,29 @@ public final class OpenCodeZenTransportHeaders {
         return headers(request);
     }
 
+    public record PreparedRequest(URI targetUri, Map<String, String> headers) {}
+
+    public String relayUrl() {
+        return requestFactory.relayUrl();
+    }
+
+    /**
+     * Builds both the outbound target URI (rewritten to relay when active) and conforming headers.
+     */
+    public PreparedRequest prepareProbeRequest(
+            URI endpoint, boolean freeModel, String apiKey, String accept) {
+        var request = requestFactory.newModelRequestBuilder(endpoint, freeModel, apiKey,
+                OpenCodeZenIdGenerator.newSessionId(), OpenCodeZenIdGenerator.newRequestId()).build();
+        return new PreparedRequest(request.uri(), headers(request));
+    }
+
     /**
      * Builds model-aware probe headers; the shared policy ignores keys for free models.
      * The shared CLI Accept value also takes precedence over the caller's response preference.
      */
     public Map<String, String> model(
             URI endpoint, boolean freeModel, String apiKey, String accept) {
-        var request = requestFactory.newModelRequestBuilder(endpoint, freeModel, apiKey,
-                OpenCodeZenIdGenerator.newSessionId(), OpenCodeZenIdGenerator.newRequestId()).build();
-        return headers(request);
+        return prepareProbeRequest(endpoint, freeModel, apiKey, accept).headers();
     }
 
     private static Map<String, String> headers(HttpRequest request) {

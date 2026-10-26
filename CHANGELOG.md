@@ -40,6 +40,7 @@
 - `dev` 分支 push 触发 GitHub CI 与 Security（保留 `main`、`pull_request` 触发与每周定时扫描，未弱化门禁）
 - 内置 `OPENCODE_ZEN` 推理基址迁移到共享 CLI 推理基址 `https://opencode.ai/inference/v1`；Flyway V30/V31 对 `provider_catalog` 与 ACTIVE `provider_connection_profile` 做显式、版本化端点变更，V24 迁移保持字节不变
 - OpenCode Zen 免费层准入统一为 FREE_ONLY，仅准入有证据的免费 Chat 模型
+- OpenCode Zen 共享库升级至 `v1.5.4`，对齐 2.x CLI 协议规范（User-Agent `opencode/latest/2.1.4/cli`，40-hex project hash，规范化端点 `/inference/openai/v1/chat/completions` 与键序 `orderedChatBody`），支持基于 loopback Bun relay 的零配置透明路由与 SSRF 安全防线
 - README 重写：改为面向新读者的结构（价值主张 → 快速开始 → 架构 → 功能 → 开发 → 文档 → 贡献），移除冻结历史叙述，链接逐条校验可达
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
@@ -47,6 +48,7 @@
 - 结算 Worker：组织扫描改为带环绕的 keyset 轮询以实现跨轮公平覆盖，并按异常类型分级隔离单组织失败；处理首次组织扫描的 datasource 故障
 - Cost Intelligence：预测要求可观测历史、拒绝反转主导的历史窗口、接受负 actual 并收紧预测窗口；调度分页就地重试并移除不安全的探针恢复，改用按组织与按页的 keyset 扫描
 - OpenCode Zen / Kilo Gateway：关闭 M-2 清单漂移、修正版本端点并校验 SSE 完成、修复共享免费准入与 keyless 派发；修复 Kilo Gateway provider review 发现的三项缺陷
+- OpenCode Zen 与 Gateway 流式聚合：修复 Gateway `AbstractOpenAiCompatibleAdapter` 在 SSE chunk 同时包含 choices 与 usage 时吞没 delta content 的流式反序列化缺陷；补齐 ModelProbe 与 Gateway 的 Relay loopback 白名单机制与指纹校验；对齐上游已废弃模型（410 Gone）并选用同系列免费模型 `deepseek-v4.1-flash-free` 达成真实上游 HTTP 200 验证
 - 组织隔离安全修复：Provider 私有模型按组织作用域收敛；Routing Options 不再返回外组织私有 Provider Model；Pricing Version 对外组织不可见模型与不存在 ID 返回同一 `RESOURCE_NOT_FOUND`，关闭跨组织模型存在性探针
 - M21 运维：Gateway 锁定读在 MySQL 8.4 下需数据库级 `LOCK TABLES`（不授予 `budget`/`billing_period` 的 `UPDATE`/`DELETE`）；补齐 Advisor Worker 的 `advisor_inference_job`/`advisor_inference_attempt`/`advisor_explanation`/`advisor_profile`/`advisor_evidence_snapshot` 表级最小权限
 - 网关测试夹具：将 id 派生的种子固定到单连接，消除间歇 403

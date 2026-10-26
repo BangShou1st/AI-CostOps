@@ -9,6 +9,7 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 
 /**
@@ -26,10 +27,15 @@ import java.util.function.Predicate;
 final class FilteringAddressResolverGroup extends AddressResolverGroup<InetSocketAddress> {
 
     private final CustomEndpointValidator.DnsResolver dnsResolver;
-    private final Predicate<InetAddress> addressPolicy;
+    private final BiPredicate<InetAddress, Integer> addressPolicy;
 
     FilteringAddressResolverGroup(CustomEndpointValidator.DnsResolver dnsResolver,
             Predicate<InetAddress> addressPolicy) {
+        this(dnsResolver, (addr, port) -> addressPolicy.test(addr));
+    }
+
+    FilteringAddressResolverGroup(CustomEndpointValidator.DnsResolver dnsResolver,
+            BiPredicate<InetAddress, Integer> addressPolicy) {
         this.dnsResolver = dnsResolver;
         this.addressPolicy = addressPolicy;
     }
@@ -43,10 +49,10 @@ final class FilteringAddressResolverGroup extends AddressResolverGroup<InetSocke
 
         private final EventExecutor executor;
         private final CustomEndpointValidator.DnsResolver dnsResolver;
-        private final Predicate<InetAddress> addressPolicy;
+        private final BiPredicate<InetAddress, Integer> addressPolicy;
 
         FilteringResolver(EventExecutor executor, CustomEndpointValidator.DnsResolver dnsResolver,
-                Predicate<InetAddress> addressPolicy) {
+                BiPredicate<InetAddress, Integer> addressPolicy) {
             this.executor = executor;
             this.dnsResolver = dnsResolver;
             this.addressPolicy = addressPolicy;
@@ -99,7 +105,7 @@ final class FilteringAddressResolverGroup extends AddressResolverGroup<InetSocke
                 if (!(address instanceof InetSocketAddress isa)) {
                     throw new UnknownHostException("Unsupported address type");
                 }
-                var filtered = filter(isa.getHostString());
+                var filtered = filter(isa.getHostString(), isa.getPort());
                 var out = new ArrayList<InetSocketAddress>(filtered.size());
                 for (var ip : filtered) {
                     out.add(new InetSocketAddress(ip, isa.getPort()));
@@ -112,7 +118,7 @@ final class FilteringAddressResolverGroup extends AddressResolverGroup<InetSocke
             return promise;
         }
 
-        private List<InetAddress> filter(String host) throws Exception {
+        private List<InetAddress> filter(String host, int port) throws Exception {
             final InetAddress[] resolved;
             try {
                 resolved = dnsResolver.resolve(host);
@@ -124,7 +130,7 @@ final class FilteringAddressResolverGroup extends AddressResolverGroup<InetSocke
             }
             var accepted = new ArrayList<InetAddress>(resolved.length);
             for (var addr : resolved) {
-                if (addr == null || !addressPolicy.test(addr)) {
+                if (addr == null || !addressPolicy.test(addr, port)) {
                     throw new UnknownHostException("Provider target is not public: " + host);
                 }
                 accepted.add(addr);

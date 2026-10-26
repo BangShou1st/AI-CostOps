@@ -66,7 +66,19 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
             DispatchEndpointGuard endpointGuard,
             OpenCodeZenRequestFactory requestFactory,
             OpenCodeFreeOnlyAdmission freeOnlyAdmission) {
-        super(builder, objectMapper, properties, endpointGuard, true);
+        this(builder, objectMapper, properties, endpointGuard, requestFactory, freeOnlyAdmission,
+                new OpenCodeZenAddressResolverGroup());
+    }
+
+    OpenCodeZenChatAdapter(
+            WebClient.Builder builder,
+            ObjectMapper objectMapper,
+            GatewayProperties properties,
+            DispatchEndpointGuard endpointGuard,
+            OpenCodeZenRequestFactory requestFactory,
+            OpenCodeFreeOnlyAdmission freeOnlyAdmission,
+            OpenCodeZenAddressResolverGroup resolverGroup) {
+        super(builder, objectMapper, properties, endpointGuard, true, resolverGroup);
         this.requestFactory = requestFactory;
         this.freeOnlyAdmission = freeOnlyAdmission;
     }
@@ -95,15 +107,50 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
         }
     }
 
+    private boolean isUsingRelay() {
+        var relayUrl = requestFactory.relayUrl();
+        return relayUrl != null && !relayUrl.isBlank() && OpenCodeZenRelaySupport.isTrustedRelay(relayUrl);
+    }
+
+    private String upstreamEndpoint(ProviderCallContext context) {
+        var endpoint = OpenCodeZenRelaySupport.resolveInferenceEndpoint(context.baseUrl(), context.completionPath());
+        var uri = URI.create(endpoint);
+        var host = uri.getHost();
+        if (host != null && !host.equalsIgnoreCase("127.0.0.1") && !host.equalsIgnoreCase("localhost") && !host.equalsIgnoreCase("::1")) {
+            OpenCodeZenRelaySupport.validateUpstreamTarget(endpoint);
+        } else if (isUsingRelay()) {
+            OpenCodeZenRelaySupport.validateUpstreamTarget(endpoint);
+        }
+        return endpoint;
+    }
+
+    @Override
+    protected String outboundUri(ProviderCallContext context) {
+        var upstream = upstreamEndpoint(context);
+        if (isUsingRelay()) {
+            var relayUrl = requestFactory.relayUrl();
+            var base = relayUrl.strip().replaceAll("/+$", "");
+            return base + "/";
+        }
+        return upstream;
+    }
+
     @Override
     protected void applyHeaders(HttpHeaders headers, ProviderCallContext context) {
         boolean freeModel = isFreeZenModel(context);
         String apiKey = freeModel ? null : bearerApiKey(context);
+        var upstream = upstreamEndpoint(context);
         try {
             var request = requestFactory.newModelRequestBuilder(
-                    URI.create(targetUrl(context)), freeModel, apiKey,
+                    URI.create(upstream), freeModel, apiKey,
                     OpenCodeZenIdGenerator.newSessionId(), OpenCodeZenIdGenerator.newRequestId()).build();
-            request.headers().map().forEach((name, values) -> headers.put(name, values));
+            boolean useRelay = isUsingRelay();
+            request.headers().map().forEach((name, values) -> {
+                if (name.equalsIgnoreCase(OpenCodeZenProtocolPolicy.RELAY_TARGET_HEADER) && !useRelay) {
+                    return;
+                }
+                headers.put(name, values);
+            });
         } catch (IllegalArgumentException invalidRequest) {
             throw new ProviderExecutionException(ProviderSafetyOutcome.SAFE_NO_BILLABLE_EXECUTION,
                     ProviderSafetyReason.LOCAL_PRE_NETWORK_FAILURE, ProviderHealthSignal.NONE,
@@ -114,16 +161,14 @@ public class OpenCodeZenChatAdapter extends AbstractOpenAiCompatibleAdapter {
 
     /**
      * Applies the required CLI envelope — {@code stream=true} + {@code stream_options.include_usage}
-     * + the shell/read reserved tools — to every outbound chat body. Verified live against the real upstream
-     * (2026-10-17): {@code stream=false} is rejected with {@code 403 FreeTierError}, while the full
-     * envelope answers {@code 200}, so the incoming {@code stream} flag is intentionally ignored.
+     * + the shell/read reserved tools — to every outbound chat body in official 2.x wire key order.
      */
     @Override
     protected Object decorateWirePayload(Object payload, ProviderCallContext context, boolean stream) {
         var body = objectMapper.convertValue(payload,
                 new tools.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, Object>>() { });
         OpenCodeZenProtocolPolicy.applyRequiredChatEnvelope(body, true);
-        return body;
+        return OpenCodeZenProtocolPolicy.orderedChatBody(body);
     }
 
     /**

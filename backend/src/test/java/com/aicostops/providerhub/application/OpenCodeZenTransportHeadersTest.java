@@ -23,8 +23,10 @@ class OpenCodeZenTransportHeadersTest {
             assertThat(normalized).hasSize(request.size());
             assertThat(normalized).containsAllEntriesOf(Map.of(
                     "accept", "*/*", "authorization", "Bearer public",
-                    "user-agent", "opencode/latest/2.0.29/cli",
-                    "x-opencode-client", "cli", "x-opencode-project", "global"));
+                    "user-agent", ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT,
+                    "x-opencode-client", "cli"));
+            assertThat(normalized.get("x-opencode-project"))
+                    .matches("[0-9a-f]{40}");
             assertThat(normalized.get("x-opencode-session"))
                     .matches("ses_[0-9a-f]{12}[0-9A-Za-z]{14}")
                     .isEqualTo(normalized.get("x-opencode-session-id"));
