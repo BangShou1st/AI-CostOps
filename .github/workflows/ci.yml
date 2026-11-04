@@ -160,9 +160,6 @@ jobs:
     name: backend-unit
     needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - name: Check change admission
         id: check
@@ -189,6 +186,7 @@ jobs:
       # Run Surefire unit tests and ArchUnit architecture tests in a single VM
       - name: Run backend unit and architecture tests
         if: steps.check.outputs.should_run == 'true'
+        working-directory: backend
         run: ./mvnw -B -DexcludedGroups=integration test
 
   backend-integration:
@@ -199,9 +197,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [0, 1]
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - name: Check change admission
         id: check
@@ -228,6 +223,7 @@ jobs:
       # Partition the 198 integration tests across shards and skip Surefire unit tests (-Dtest=none)
       - name: Run backend integration tests shard ${{ matrix.shard }}
         if: steps.check.outputs.should_run == 'true'
+        working-directory: backend
         shell: bash
         run: |
           TESTS=$(node -e '
@@ -262,9 +258,6 @@ jobs:
     name: gateway-unit
     needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: gateway
     steps:
       - name: Check change admission
         id: check
@@ -291,15 +284,13 @@ jobs:
       # Run Surefire unit tests and ArchUnit architecture tests in a single VM
       - name: Run gateway unit and architecture tests
         if: steps.check.outputs.should_run == 'true'
+        working-directory: gateway
         run: ./mvnw -B -DexcludedGroups=integration test
 
   gateway-integration:
     name: gateway-integration
     needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: gateway
     steps:
       - name: Check change admission
         id: check
@@ -326,15 +317,13 @@ jobs:
       # Skip Surefire unit tests (-Dtest=none) and run integration tests
       - name: Run gateway integration tests
         if: steps.check.outputs.should_run == 'true'
+        working-directory: gateway
         run: ./mvnw -B verify -Dtest=none
 
   frontend-quality:
     name: frontend-quality (lint & build)
     needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - name: Check change admission
         id: check
@@ -358,23 +347,23 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
         run: npm ci
 
       - name: Lint frontend
         if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
         run: npm run lint
 
       - name: Build frontend
         if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
         run: npm run build
 
   frontend-test:
     name: frontend-test
     needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - name: Check change admission
         id: check
@@ -398,10 +387,12 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
         run: npm ci
 
       - name: Run frontend unit tests
         if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
         run: npm test -- --run
 
   docker-build:
