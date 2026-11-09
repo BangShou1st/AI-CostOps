@@ -25,6 +25,7 @@
 - 文档链接自动校验工具：`scripts/dev/verify-doc-links.mjs`，并通过根 `package.json` 提供 `npm run verify:links` 命令
 
 ### Changed
+- 根任务编排新增构建产物保留策略：`.local-dev/builds/` 只保留最近 3 次运行的目录（含本次），任务结束即清理更早的历史目录，避免单次约 200 MB 的构建树无限堆积（本地实测曾累积到 4.0 GB / 43 个目录）
 - CI/CD 工作流极致加速与资源治理：
   - 并发控制与自动取消：`.github/workflows/ci.yml` 和 `security.yml` 引入 `concurrency` 机制，PR 连续推送自动取消旧运行以节省配额，`main` 分支保持独立执行保障发布审计
   - 路径变更检测与智能短路：引入 `dorny/paths-filter@v3` 进行模块级变更检测，纯文档变更跳过耗时编译与测试，各作业均正常报告 SUCCESS 以规避必需检查（Required Checks）挂起

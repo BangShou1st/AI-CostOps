@@ -55,6 +55,8 @@ OpenCode Zen `v1.4.2` 和 Kilo Gateway 均通过公开 JitPack 坐标解析，�
 
 根任务命令的 Maven 输出在 `.local-dev/builds/<命令>-<时间>-<唯一标识>/<模块>/target/`，启动时打印完整路径。保留 Maven 的标准 target 目录形状，让架构测试正确排除 test-classes。源文件、资源、插件和测试范围沿用模块 POM，只用同模块目录下的临时 POM 指定输出目录；结束后移除临时 POM。程序崩溃留下的 POM 已 gitignore，不会被自动当作下次配置。
 
+每次任务结束（含失败退出）都会清理 `.local-dev/builds/` 下的历史目录，只保留最近 3 个（含本次），单个目录约 200 MB，避免无限堆积；仍被占用的目录留给下一次运行清理。
+
 这样构建不会覆盖 `backend/target` 或 `gateway/target` 中正在运行的 JAR。根命令生成的新 JAR 在打印的独立路径下，测试报告位于其 surefire-reports/failsafe-reports；直接进入模块执行 `mvnw` 仍沿用原 target。完整 verify 需要 Docker/Testcontainers，会比单元测试明显更慢。
 
 ### CI 脚本检查

@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, readdirSync, statSync, rmSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { parseEnv } from 'node:util'
 import { createServer } from 'node:net'
 import { randomUUID } from 'node:crypto'
@@ -71,6 +71,33 @@ export async function requireFreePorts(ports) {
   for (const [name, value] of Object.entries(ports)) {
     if (!await available(value)) throw new Error(`${name} 端口 ${value} 已占用；停止已有实例或设置 AICOSTOPS_${name.toUpperCase()}_PORT。脚本不会终止已有实例。`)
   }
+}
+
+// Each root task run leaves a full Maven build tree under .local-dev/builds. Without a cap they
+// accumulate at ~200 MB per run and are never reusable, so the newest RETAINED_BUILDS are kept for
+// post-mortem and everything older is removed.
+export const RETAINED_BUILDS = 3
+
+export function pruneBuilds(root, current, keep = RETAINED_BUILDS) {
+  const builds = join(root, '.local-dev', 'builds')
+  if (!existsSync(builds)) return []
+  const currentName = basename(current)
+  const stale = readdirSync(builds, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name !== currentName)
+    .map(entry => ({ name: entry.name, modified: statSync(join(builds, entry.name)).mtimeMs }))
+    .sort((left, right) => right.modified - left.modified)
+    .slice(Math.max(keep - 1, 0))
+    .map(entry => entry.name)
+  const removed = []
+  for (const name of stale) {
+    try {
+      rmSync(join(builds, name), { recursive: true, force: true, maxRetries: 3 })
+      removed.push(name)
+    } catch {
+      // A directory still locked by a running build is left for the next run.
+    }
+  }
+  return removed
 }
 
 export function isolatedPom(root, module, outputRoot) {

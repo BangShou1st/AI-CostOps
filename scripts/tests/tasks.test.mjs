@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, utimesSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
@@ -117,6 +117,32 @@ test('native build failure stops later steps and cleans its temporary POM', asyn
   assert.equal(existsSync(join(root, '.local-dev', 'builds')), true)
   for (const run of readdirSync(join(root, '.local-dev', 'builds'))) assert.equal(existsSync(join(root, '.local-dev', 'builds', run, 'gateway')), false)
   assert.equal(readFileSync(join(root, 'backend', 'pom.xml'), 'utf8'), source)
+})
+
+test('build directories are pruned to the three most recent runs', async t => {
+  const root = fixture(t)
+  const builds = join(root, '.local-dev', 'builds')
+  const historical = index => {
+    const name = `verify-170000000${index}000-00000000-0000-4000-8000-00000000000${index}`
+    mkdirSync(join(builds, name), { recursive: true })
+    const time = new Date(1_700_000_000_000 + index * 60_000)
+    utimesSync(join(builds, name), time, time)
+    return name
+  }
+  const names = [0, 1, 2, 3, 4].map(historical)
+  for (const module of ['backend', 'gateway']) {
+    mkdirSync(join(root, module))
+    writeFileSync(join(root, module, 'pom.xml'), '<project><build><plugins/></build></project>')
+    writeFileSync(join(root, module, isWindows ? 'mvnw.cmd' : 'mvnw'),
+      isWindows ? '@echo off\r\nexit /b 23\r\n' : '#!/bin/sh\nexit 23\n', { mode: 0o755 })
+  }
+  // Pruning runs after the build, so a failed run must still collect the old directories.
+  await assert.rejects(invoke(root, 'build'), /exit 1/)
+  const remaining = readdirSync(builds)
+  assert.equal(remaining.length, 3)
+  assert.equal(remaining.includes(names[4]), true)
+  assert.equal(remaining.includes(names[3]), true)
+  assert.equal(remaining.includes(names[2]), false)
 })
 
 test('PowerShell wrappers share the runner and propagate failure from another cwd', { skip: !isWindows }, async t => {
