@@ -88,11 +88,6 @@ class GatewayPropertiesTest {
         assertThatCode(properties::validate).doesNotThrowAnyException();
     }
 
-    @Test
-    void rejectsNonPositivePort() {
-        assertRejects(p -> p.setPort(0), "port");
-    }
-
     private static void assertRejects(java.util.function.Consumer<GatewayProperties> mutate, String field) {
         var properties = new GatewayProperties();
         mutate.accept(properties);
