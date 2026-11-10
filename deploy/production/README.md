@@ -60,6 +60,12 @@ prod 下被禁止的 dev-only 配置（显式提供即拒绝启动）：
 docs/02-development/operations/01-production-configuration.md
 ```
 
+## Gateway 数据库授权
+
+Gateway 数据库的最小权限授权由 `scripts/m21/provision-gateway-db.ps1` 提供；
+早期的 M16 版本（`m16-gateway-grants.sql`，停留在 V23 schema）已随 V3 schema
+演进淘汰，不再维护。
+
 ## 非目标（M9 不引入）
 
 - Kubernetes / service mesh / 多副本 HA 编排（符合部署目标时再设计）
