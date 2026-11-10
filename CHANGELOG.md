@@ -30,6 +30,15 @@
 
 ### Changed
 - `CloseBlockerProviderIntegrationTest` 过时测试方法名更正（`registryContainsExactlySevenCanonicalProviders` → `registryContainsExactlyEightCanonicalProviders`，`CloseBlockerCode` 实为 8 项；仅改名，未改断言）
+- 根任务编排新增构建产物保留策略：`.local-dev/builds/` 只保留最近 3 次运行的目录（含本次），任务结束即清理更早的历史目录，避免单次约 200 MB 的构建树无限堆积（本地实测曾累积到 4.0 GB / 43 个目录）
+- CI/CD 工作流极致加速与资源治理：
+  - 并发控制与自动取消：`.github/workflows/ci.yml` 和 `security.yml` 引入 `concurrency` 机制，PR 连续推送自动取消旧运行以节省配额，`main` 分支保持独立执行保障发布审计
+  - 路径变更检测与智能短路：引入 `dorny/paths-filter@v3` 进行模块级变更检测，纯文档变更跳过耗时编译与测试，各作业均正常报告 SUCCESS 以规避必需检查（Required Checks）挂起
+  - 集成测试套件分片并行：将 `backend-integration` 198 个集成测试类通过 Matrix 拆分为 2 个并行 Shard，添加 `-Dtest=none` 消除重复单元测试，墙钟时间从 409 秒腰斩至约 180 秒
+  - 浏览器端到端测试加速：`browser-e2e` 作业新增 Playwright 浏览器二进制缓存（`~/.cache/ms-playwright`），免去每次 67 秒外网下载
+  - 容器镜像构建并行化与缓存加固：`docker-build` 与 `trivy` 中 3 个容器镜像构建由串行改为后台并发构建；Dockerfile 补全 BuildKit `--mount=type=cache`（Maven/npm 缓存）；补齐 `gateway/.dockerignore`
+  - 微型作业整合：`backend-unit` / `gateway-unit` 原生整合架构测试（ArchUnit），`frontend-quality` 整合 lint 与 build，减少重复虚拟机冷启动与依赖安装开销
+  - CodeQL 语言环境按需加载：按 matrix 语言按需安装 JDK/Maven 与 Node/npm，消除跨语言冗余下载
 - 项目文档体系系统性治理：
   - `docs/03-acceptance/` 消除 73 个根目录平铺堆积，完成分层归档（`checklists/`、`milestones/`、`maintenance/2026-10/`、`quality/`）
   - `docs/02-development/` 重构为清晰的 `api/`（统一契约收口）、`designs/`（`v1/`, `v2/`, `maintenance/`）、`guides/`（源码精读）、`implementation/`

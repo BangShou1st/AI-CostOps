@@ -7,12 +7,60 @@ on:
       - main
       - dev
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
 jobs:
+  detect-changes:
+    name: detect-changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      scripts: ${{ steps.filter.outputs.scripts }}
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docker-compose*.yml'
+              - 'compose*.yaml'
+              - '.github/workflows/ci.yml'
+            gateway:
+              - 'gateway/**'
+              - 'docker-compose*.yml'
+              - 'compose*.yaml'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - 'docker-compose*.yml'
+              - 'compose*.yaml'
+              - '.github/workflows/ci.yml'
+            scripts:
+              - 'scripts/**'
+              - 'package*.json'
+              - '.github/workflows/ci.yml'
+            docs_only:
+              - 'docs/**'
+              - '*.md'
+              - 'LICENSE'
+              - '.gitignore'
+
   scripts-unit:
     name: scripts-unit (${{ matrix.os }})
+    needs: [detect-changes]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -20,11 +68,27 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.scripts }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping scripts-unit: no relevant script changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: "24.14.0"
+
       - name: Test workspace scripts
+        if: steps.check.outputs.should_run == 'true'
         shell: bash
         run: |
           mkdir -p test-results/scripts
@@ -32,8 +96,9 @@ jobs:
             --test-reporter-destination=stdout \
             --test-reporter-destination=test-results/scripts/unit.xml \
             'scripts/tests/*.test.mjs'
+
       - name: Upload script unit reports
-        if: always()
+        if: always() && steps.check.outputs.should_run == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: scripts-unit-${{ matrix.os }}
@@ -42,29 +107,49 @@ jobs:
 
   scripts-lifecycle:
     name: scripts-lifecycle
+    needs: [detect-changes]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       AICOSTOPS_TASK_TEST_ARTIFACT_DIR: test-results/scripts
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.scripts }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping scripts-lifecycle: no relevant script changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: "24.14.0"
+
       - name: Prepare Docker fixtures
+        if: steps.check.outputs.should_run == 'true'
         run: |
           docker info
           docker compose version
           docker pull redis:8.8.1-alpine
+
       - name: Test workspace lifecycle commands
+        if: steps.check.outputs.should_run == 'true'
         run: |
           mkdir -p test-results/scripts
           node --test --test-reporter=spec --test-reporter=junit \
             --test-reporter-destination=stdout \
             --test-reporter-destination=test-results/scripts/lifecycle.xml \
             'scripts/tests/*.integration.mjs'
+
       - name: Upload script lifecycle reports and fixture logs
-        if: always()
+        if: always() && steps.check.outputs.should_run == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: scripts-lifecycle
@@ -73,178 +158,297 @@ jobs:
 
   backend-unit:
     name: backend-unit
+    needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.backend }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping backend-unit: no relevant backend changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/pom.xml
-      - run: ./mvnw -B -DexcludedGroups=architecture,integration test
+
+      # Run Surefire unit tests and ArchUnit architecture tests in a single VM
+      - name: Run backend unit and architecture tests
+        if: steps.check.outputs.should_run == 'true'
+        working-directory: backend
+        run: ./mvnw -B -DexcludedGroups=integration test
 
   backend-integration:
-    name: backend-integration
+    name: backend-integration (shard ${{ matrix.shard }})
+    needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.backend }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping backend-integration: no relevant backend changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: backend/pom.xml
-      # Failsafe selects *IntegrationTest by filename. A tag filter silently
-      # drops existing untagged integration tests, so verify the full lifecycle.
-      - run: ./mvnw -B verify
+
+      # Partition the 198 integration tests across shards and skip Surefire unit tests (-Dsurefire.skip=true)
+      - name: Run backend integration tests shard ${{ matrix.shard }}
+        if: steps.check.outputs.should_run == 'true'
+        working-directory: backend
+        shell: bash
+        run: |
+          TESTS=$(node -e '
+            const fs = require("fs");
+            const path = require("path");
+            function walk(dir) {
+              let files = [];
+              for (const f of fs.readdirSync(dir)) {
+                const p = path.join(dir, f);
+                if (fs.statSync(p).isDirectory()) files.push(...walk(p));
+                else if (f.endsWith("IntegrationTest.java")) files.push(f.replace(".java", ""));
+              }
+              return files;
+            }
+            const all = walk("src/test/java").sort();
+            const shard = parseInt(process.argv[1]);
+            const selected = all.filter((_, idx) => idx % 2 === shard);
+            console.log(selected.join(","));
+          ' ${{ matrix.shard }})
+          echo "Selected $(echo "$TESTS" | tr ',' '\n' | wc -l) integration tests for shard ${{ matrix.shard }}"
+          ./mvnw -B verify -Dsurefire.skip=true "-Dit.test=$TESTS" -DfailIfNoSpecifiedTests=false
+
       - name: Upload backend Failsafe reports
-        if: always()
+        if: always() && steps.check.outputs.should_run == 'true'
         uses: actions/upload-artifact@v6
         with:
-          name: backend-failsafe-reports
+          name: backend-failsafe-reports-shard-${{ matrix.shard }}
           if-no-files-found: ignore
           path: backend/target/failsafe-reports/
 
-  backend-architecture:
-    name: backend-architecture
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-          cache-dependency-path: backend/pom.xml
-      - run: ./mvnw -B -Dgroups=architecture test
-
   gateway-unit:
     name: gateway-unit
+    needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: gateway
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.gateway }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping gateway-unit: no relevant gateway changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: gateway/pom.xml
-      - run: ./mvnw -B -DexcludedGroups=architecture,integration test
+
+      # Run Surefire unit tests and ArchUnit architecture tests in a single VM
+      - name: Run gateway unit and architecture tests
+        if: steps.check.outputs.should_run == 'true'
+        working-directory: gateway
+        run: ./mvnw -B -DexcludedGroups=integration test
 
   gateway-integration:
     name: gateway-integration
+    needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: gateway
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.gateway }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping gateway-integration: no relevant gateway changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
           cache: maven
           cache-dependency-path: gateway/pom.xml
-      # Keep every Failsafe integration class, including those without @Tag.
-      - run: ./mvnw -B verify
 
-  gateway-architecture:
-    name: gateway-architecture
-    runs-on: ubuntu-latest
-    defaults:
-      run:
+      # Skip Surefire unit tests (-Dsurefire.skip=true) and run integration tests
+      - name: Run gateway integration tests
+        if: steps.check.outputs.should_run == 'true'
         working-directory: gateway
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "21"
-          cache: maven
-          cache-dependency-path: gateway/pom.xml
-      - run: ./mvnw -B -Dgroups=architecture test
+        run: ./mvnw -B verify -Dsurefire.skip=true
 
-  frontend-lint:
-    name: frontend-lint
+  frontend-quality:
+    name: frontend-quality (lint & build)
+    needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.frontend }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping frontend-quality: no relevant frontend changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: "24.14.0"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run lint
+
+      - if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint frontend
+        if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
+        run: npm run build
 
   frontend-test:
     name: frontend-test
+    needs: [detect-changes]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24.14.0"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm test -- --run
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.frontend }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping frontend-test: no relevant frontend changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
 
-  frontend-build:
-    name: frontend-build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: "24.14.0"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-      - run: npm run build
+
+      - if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend unit tests
+        if: steps.check.outputs.should_run == 'true'
+        working-directory: frontend
+        run: npm test -- --run
 
   docker-build:
     name: docker-build
+    needs: [detect-changes]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - run: docker build --tag ai-costops-backend:ci backend
-      - run: docker build --tag ai-costops-frontend:ci frontend
-      - run: docker build --tag ai-costops-gateway:ci gateway
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.backend }}" = "true" ] || [ "${{ needs.detect-changes.outputs.gateway }}" = "true" ] || [ "${{ needs.detect-changes.outputs.frontend }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping docker-build: no application code changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
+
+      - name: Build all container images in parallel
+        if: steps.check.outputs.should_run == 'true'
+        run: |
+          docker build --tag ai-costops-backend:ci backend &
+          docker build --tag ai-costops-frontend:ci frontend &
+          docker build --tag ai-costops-gateway:ci gateway &
+          wait
 
   browser-e2e:
     name: browser-e2e
+    needs: [detect-changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
     env:
       E2E_ENV_FILE: .e2e-ci.env
       AICOSTOPS_M22_COMPOSE_PROJECT: aicostops-browser-e2e
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+      DOCKER_BUILDKIT: "1"
     steps:
-      - uses: actions/checkout@v6
+      - name: Check change admission
+        id: check
+        shell: bash
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ needs.detect-changes.outputs.backend }}" = "true" ] || [ "${{ needs.detect-changes.outputs.gateway }}" = "true" ] || [ "${{ needs.detect-changes.outputs.frontend }}" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping browser-e2e: no application code changes."
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/checkout@v6
 
       - name: Write isolated CI-only Compose environment
+        if: steps.check.outputs.should_run == 'true'
         run: |
           cat > "$E2E_ENV_FILE" <<'EOF'
           MYSQL_DATABASE=aicostops
@@ -277,27 +481,43 @@ jobs:
           EOF
 
       - name: Start isolated full Compose project
-        env:
-          COMPOSE_BAKE: "false"
+        if: steps.check.outputs.should_run == 'true'
         run: |
           docker compose -p aicostops-browser-e2e --env-file "$E2E_ENV_FILE" \
             up -d --build --wait --wait-timeout 360
 
-      - uses: actions/setup-node@v6
+      - if: steps.check.outputs.should_run == 'true'
+        uses: actions/setup-node@v6
         with:
           node-version: "24.14.0"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
+        if: steps.check.outputs.should_run == 'true'
         working-directory: frontend
         run: npm ci
 
-      - name: Install Chromium
+      - name: Cache Playwright browser binaries
+        if: steps.check.outputs.should_run == 'true'
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install Chromium binaries
+        if: steps.check.outputs.should_run == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
+      - name: Install Chromium system dependencies
+        if: steps.check.outputs.should_run == 'true' && steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: frontend
+        run: npx playwright install-deps chromium
+
       - name: Run Playwright E2E
+        if: steps.check.outputs.should_run == 'true'
         working-directory: frontend
         env:
           AICOSTOPS_E2E_BASE_URL: http://localhost:8080
@@ -306,7 +526,7 @@ jobs:
         run: npm run test:e2e
 
       - name: Upload Playwright artifacts on failure
-        if: failure()
+        if: failure() && steps.check.outputs.should_run == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: playwright-artifacts
@@ -317,7 +537,37 @@ jobs:
             frontend/playwright-results.xml
 
       - name: Clean up the E2E Compose project
-        if: always()
+        if: always() && steps.check.outputs.should_run == 'true'
         run: |
           docker compose -p aicostops-browser-e2e --env-file "$E2E_ENV_FILE" \
             down --volumes --remove-orphans
+
+  ci-status:
+    name: ci-status
+    needs:
+      - detect-changes
+      - scripts-unit
+      - scripts-lifecycle
+      - backend-unit
+      - backend-integration
+      - gateway-unit
+      - gateway-integration
+      - frontend-quality
+      - frontend-test
+      - docker-build
+      - browser-e2e
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all required jobs succeeded
+        shell: bash
+        run: |
+          RESULTS="${{ join(needs.*.result, ' ') }}"
+          echo "Job results: $RESULTS"
+          for res in $RESULTS; do
+            if [ "$res" = "failure" ] || [ "$res" = "cancelled" ]; then
+              echo "Error: At least one job failed or was cancelled."
+              exit 1
+            fi
+          done
+          echo "All checks passed successfully."

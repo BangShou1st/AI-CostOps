@@ -41,6 +41,9 @@
          which carries fixed HIGH/CRITICAL findings. Pin the patch release;
          the Spring Boot major/minor stays 4.1.0. -->
     <tomcat.version>11.0.25</tomcat.version>
+    <!-- Trivy gate: MinIO SDK carries transitive Guava and Snappy-Java HIGH findings -->
+    <guava.version>33.7.2-jre</guava.version>
+    <snappy-java.version>1.1.10.9</snappy-java.version>
     <!-- Public OpenCode Zen starter, consumed anonymously from JitPack. -->
     <opencode-zen.version>v1.5.4</opencode-zen.version>
     <!-- Public Kilo Gateway starter, consumed anonymously from JitPack (no credentials). -->
@@ -55,6 +58,16 @@
         <version>${netty.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>${guava.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.xerial.snappy</groupId>
+        <artifactId>snappy-java</artifactId>
+        <version>${snappy-java.version}</version>
       </dependency>
       <dependency>
         <groupId>org.testcontainers</groupId>
