@@ -125,7 +125,7 @@ export function CostDetailPage() {
             <Link to="/costs/duplicates">前往重复审核</Link>
           )}
         </Descriptions.Item>
-        <Descriptions.Item label="确认导入谱系">
+        <Descriptions.Item label="来源导入">
           {detail.confirmedImport ? '是' : '否'}
         </Descriptions.Item>
       </Descriptions>

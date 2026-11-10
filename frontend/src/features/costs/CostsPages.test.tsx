@@ -167,7 +167,7 @@ describe('CostDetailPage', () => {
 
     await waitFor(() => expect(screen.getByText('成本详情 #11')).toBeInTheDocument())
     expect(screen.getAllByText('10.00 CNY').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('确认导入谱系')).toBeInTheDocument()
+    expect(screen.getByText('来源导入')).toBeInTheDocument()
     expect(screen.getByText('手动')).toBeInTheDocument()
     expect(screen.getByText('CONFIRMED')).toBeInTheDocument()
   })

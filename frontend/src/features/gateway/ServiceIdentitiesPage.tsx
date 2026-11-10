@@ -28,12 +28,12 @@ export function ServiceIdentitiesPage() {
   return (
     <main className="settings-page">
       <div className="settings-toolbar">
-        <div><h1>服务身份</h1><Typography.Text type="secondary">组织级服务身份，用于绑定网关凭证的主体验证。</Typography.Text></div>
+        <div><h1>服务身份</h1><Typography.Text type="secondary">用于创建和管理网关凭证的服务身份。</Typography.Text></div>
         {canManage && <Button type="primary" onClick={() => { setProblem(null); setCreateOpen(true) }}>创建服务身份</Button>}
       </div>
       {identitiesQuery.isLoading && <div role="status">正在加载服务身份…</div>}
-      {identitiesQuery.isError && <Alert type="error" role="alert" message={problemTitle(toProblemDetail(identitiesQuery.error))} showIcon />}
-      {problem && <Alert type="error" role="alert" message={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
+      {identitiesQuery.isError && <Alert type="error" role="alert" title={problemTitle(toProblemDetail(identitiesQuery.error))} showIcon />}
+      {problem && <Alert type="error" role="alert" title={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
       {identitiesQuery.data && identitiesQuery.data.length === 0 && <div className="settings-empty">该组织暂无服务身份。</div>}
       {identitiesQuery.data && <Table<ServiceIdentity>
         rowKey="id"

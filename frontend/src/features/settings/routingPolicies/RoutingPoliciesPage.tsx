@@ -66,10 +66,10 @@ export function RoutingPoliciesPage() {
         {canManage && <Button type="primary" onClick={() => { setProblem(null); setNewPolicyOpen(true) }}>创建策略</Button>}
       </div>
       {policiesQuery.isLoading && <div role="status">正在加载路由策略…</div>}
-      {policiesQuery.isError && <Alert type="error" role="alert" message={problemTitle(toProblemDetail(policiesQuery.error))} description={problemDetail(toProblemDetail(policiesQuery.error))} showIcon />}
-      {problem && <Alert type="error" role="alert" message={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
-      <div style={{ marginBottom: 16 }}><Typography.Text type="secondary">人工治理：路由变更只发生于人类明确操作：节约建议不会自动修改路由，Advisor 不会自动路由。</Typography.Text></div>
-      {fromRecommendation && <Alert style={{ marginBottom: 16 }} type="warning" showIcon message={`来自节约建议 #${fromRecommendation} 的检查`} description="复核其路由变更需求后再做治理动作。" />}
+      {policiesQuery.isError && <Alert type="error" role="alert" title={problemTitle(toProblemDetail(policiesQuery.error))} description={problemDetail(toProblemDetail(policiesQuery.error))} showIcon />}
+      {problem && <Alert type="error" role="alert" title={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
+      <div style={{ marginBottom: 16 }}><Typography.Text type="secondary">所有路由变更均需人工操作，系统不会自动修改。</Typography.Text></div>
+      {fromRecommendation && <Alert style={{ marginBottom: 16 }} type="warning" showIcon title={`来自节约建议 #${fromRecommendation} 的检查`} description="复核其路由变更需求后再做治理动作。" />}
       {fromRecommendation && <div style={{ marginBottom: 16 }}><Link to="/intelligence/savings">回节约建议</Link></div>}
       {policiesQuery.data && sortedPolicies.length === 0 && <div className="settings-empty">该组织暂无路由策略。</div>}
       {sortedPolicies.length > 0 && <Table<RoutingPolicy>

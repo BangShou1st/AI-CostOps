@@ -16,8 +16,8 @@ export interface ForecastsPreview {
 }
 
 const METHOD_NOTE: Record<string, string> = {
-  DAMPED_HOLT: '阻尼 Holt 主方法：连续有效观测 ≥ 14 天时使用，兼顾趋势与阻尼。',
-  RECENT_RUN_RATE: '近期速率兜底：连续有效观测 3–13 天时使用，仅外推近期水平。',
+  DAMPED_HOLT: '基于 14 天以上趋势外推。',
+  RECENT_RUN_RATE: '基于近期速率估算。',
 }
 
 const CONFIDENCE_PILL: Record<string, string> = {
@@ -52,7 +52,7 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
       <header>
         <span className="v3-eyebrow">Cost Intelligence · 成本智能</span>
         <h1>预测</h1>
-        <p className="v3-lede">确定性时间序列外推，不是 AI 预测。预测是衍生证据，不是账本真相。</p>
+        <p className="v3-lede">基于历史数据的自动预测，仅供参考。</p>
         <dl className="v3-meta">
           <div><dt>币种</dt><dd>{preview ? activeCurrency : (
             <Select value={activeCurrency} onChange={setCurrency} aria-label="结算币种" size="small"
@@ -65,7 +65,7 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
         <div className="v3-section-head">
           <span className="v3-eyebrow">Method</span>
           <h2 id="v3-forecast-method">方法与口径</h2>
-          <p>未知日期不算有效观测；连续有效观测不足 3 天时不生成预测，3–13 天使用低样本等级 RECENT_RUN_RATE，14 天起使用 DAMPED_HOLT。实际零金额记录和有效复核确认的零金额日期均计入观测。冲正主导（净额非正）的历史不生成预测——预测缺席表示未来费用估计不可用，不是未来费用为零。</p>
+          <p>历史观测不足 3 天时不生成预测；出现冲正或样本不足时，预测会缺失，不代表费用为零。</p>
         </div>
       </section>
       {org && (
@@ -83,7 +83,7 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
           </label>
         </div>
       </section>
-      {loadProblem && <div role="alert"><Alert type="error" showIcon message={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
+      {loadProblem && <div role="alert"><Alert type="error" showIcon title={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
       {isLoading && <OverviewSkeleton />}
       {!isLoading && !loadProblem && visible.length === 0 && (
         <div style={{ marginTop: 20 }}><Empty description="暂无预测。需要截至观测日连续至少 3 天的有效观测，未经复核的补零日期不计入样本。" /></div>
@@ -102,7 +102,7 @@ export function ForecastsPage(props: { preview?: ForecastsPreview }) {
         </ul>
       )}
       {!preview && <HistoryCoverageSection key={activeCurrency} currency={activeCurrency} />}
-      <p className="v3-footnote">预测金额由后端 BigDecimal 计算，前端只做呈现；同一逻辑口径内比较，不做跨币种换算。</p>
+      <p className="v3-footnote">金额按所选币种原样展示，不做跨币种换算。</p>
     </main>
   )
 }

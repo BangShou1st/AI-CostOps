@@ -77,12 +77,12 @@ export function ProviderModelsPage(props: { preview?: ModelsPreview }) {
       <header>
         <span className="v3-eyebrow">Model Providers · 模型</span>
         <h1>模型目录</h1>
-        <p className="v3-lede">在线可用性 ≠ 协议兼容 ≠ 定价真相。四层状态各自独立表达。</p>
+        <p className="v3-lede">可用性、协议兼容与定价状态相互独立，请分别确认。</p>
       </header>
       <div className="v3-govern-banner" role="note">
-        <strong>发现只是观察，定价版本才是金融真相。</strong>名称后缀、manifest 的 VERIFIED_FREE 分类都不产生价格；只有 ACTIVE 定价版本为零才是零价格。升级（Promote）是明确的人类治理动作。
+        模型列表仅为发现结果；价格以已启用的定价版本为准。
       </div>
-      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} message="操作失败" description={(problem as { detail?: string }).detail ?? '请稍后重试。'} /></div>}
+      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} title="操作失败" description={(problem as { detail?: string }).detail ?? '请稍后重试。'} /></div>}
       <section className="v3-section" aria-label="连接选择">
         <div className="v3-filters">
           <label>连接
@@ -102,7 +102,7 @@ export function ProviderModelsPage(props: { preview?: ModelsPreview }) {
           </div>
         )}
       </section>
-      {loadProblem && <div role="alert"><Alert type="error" showIcon message={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
+      {loadProblem && <div role="alert"><Alert type="error" showIcon title={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
       {isLoading && <div className="v3-skeleton" role="status" aria-label="正在加载模型目录"><div className="v3-note" style={{ minHeight: 140 }} /></div>}
       {!isLoading && !loadProblem && activeId === null && <div style={{ marginTop: 20 }}><Empty description="暂无连接，先去 Gallery 新建连接配置。" /></div>}
       {!isLoading && !loadProblem && activeId !== null && rows.length === 0 && <div style={{ marginTop: 20 }}><Empty description="该连接暂无模型观察：执行实时发现或手工登记。" /></div>}
@@ -131,8 +131,8 @@ export function ProviderModelsPage(props: { preview?: ModelsPreview }) {
                 </div>
                 {!preview && canManage && (
                   <div className="v3-model-actions">
-                    <button type="button" className="v3-link-button" disabled={working !== null} onClick={() => probeRow(row)}>{working === `probe-${row.id}` ? '探测中…' : '探针'}</button>
-                    <button type="button" className="v3-link-button" disabled={working !== null || (chat !== 'VERIFIED' && row.protocolCode !== 'CHAT_COMPLETIONS')} onClick={() => promoteRow(row)} title="仅在可用且聊天兼容时可升级">{working === `promote-${row.id}` ? '升级中…' : '升级'}</button>
+                    <button type="button" className="v3-link-button" disabled={working !== null} onClick={() => probeRow(row)}>{working === `probe-${row.id}` ? '探测中…' : '探测'}</button>
+                    <button type="button" className="v3-link-button" disabled={working !== null || (chat !== 'VERIFIED' && row.protocolCode !== 'CHAT_COMPLETIONS')} onClick={() => promoteRow(row)} title="升级为组织模型">{working === `promote-${row.id}` ? '升级中…' : '升级'}</button>
                   </div>
                 )}
               </li>

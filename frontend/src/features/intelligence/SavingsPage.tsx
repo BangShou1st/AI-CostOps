@@ -59,7 +59,7 @@ export function SavingsPage(props: { preview?: SavingsPreview }) {
       <header>
         <span className="v3-eyebrow">Cost Intelligence</span>
         <h1>节约建议</h1>
-        <p className="v3-lede">反事实节约测算。所有状态流转都是人工治理动作，不会自动切换路由。</p>
+        <p className="v3-lede">节约金额为估算值；所有操作需人工确认。</p>
         <dl className="v3-meta">
           <div><dt>币种</dt><dd>{preview ? activeCurrency : null}</dd></div>
           <div><dt>建议</dt><dd>{recommendations.length} 条</dd></div>
@@ -75,9 +75,9 @@ export function SavingsPage(props: { preview?: SavingsPreview }) {
             options={[{ value: 'ACTIONABLE', label: '可执行' }, { value: 'ALL', label: '全部' }, { value: 'OPEN', label: '待处理' }, { value: 'ACKNOWLEDGED', label: '已确认' }, { value: 'DISMISSED', label: '已忽略' }, { value: 'APPLIED', label: '已应用' }, { value: 'EXPIRED', label: '已过期' }]} />
         </span>
       </div>
-      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} message="治理动作失败" description={problemDetailText(problem)} /></div>}
-      {loadProblem && <div role="alert"><Alert type="error" showIcon message="加载失败" description={problemDetailText(loadProblem)} /></div>}
-      {!preview && !canGovern && <div className="v3-note" role="status">缺少 BUDGET_MANAGE 权限：可查看建议，治理动作需财务管理员执行。</div>}
+      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} title="治理动作失败" description={problemDetailText(problem)} /></div>}
+      {loadProblem && <div role="alert"><Alert type="error" showIcon title="加载失败" description={problemDetailText(loadProblem)} /></div>}
+      {!preview && !canGovern && <div className="v3-note" role="status">你没有执行权限，请联系财务管理员。</div>}
       {isLoading && <OverviewSkeleton />}
       {!isLoading && !loadProblem && visible.length === 0 && <div style={{ marginTop: 20 }}><Empty description="当前筛选下暂无节约建议。" /></div>}
       {!isLoading && !loadProblem && visible.length > 0 && (
@@ -87,7 +87,7 @@ export function SavingsPage(props: { preview?: SavingsPreview }) {
             return (
               <li key={r.id} className="v3-row">
                 <div className="v3-row-main">
-                  <p className="v3-row-title"><span className={`v3-pill ${st.pill}`}>{st.text}</span>{' '}逻辑模型 #{r.logicalModelId}</p>
+                  <p className="v3-row-title"><span className={`v3-pill ${st.pill}`}>{st.text}</span>{' '}模型 #{r.logicalModelId}</p>
                   <p className="v3-row-detail">{formatMoney(r.currentCost, activeCurrency)} → {formatMoney(r.candidateCost, activeCurrency)}{r.routingChangeRequired ? ' · 需路由变更' : ' · 同路优化'}</p>
                 </div>
                 <div className="v3-row-amount"><div className="a v3-delta-save">节约 {formatMoney(r.potentialSaving, activeCurrency)}</div><div className="d v3-delta-save">{formatPercent(r.potentialSavingPercent)}</div></div>
@@ -134,11 +134,10 @@ function RecommendationReview(props: { recommendation: SavingRecommendation; cur
       <div><dt>当前成本</dt><dd>{formatMoney(r.currentCost, currency)}</dd></div>
       <div><dt>候选成本</dt><dd>{formatMoney(r.candidateCost, currency)}</dd></div>
       <div><dt>预计节约</dt><dd>{formatMoney(r.potentialSaving, currency)}（{formatPercent(r.potentialSavingPercent)}）</dd></div>
-      <div><dt>路由变更</dt><dd>{r.routingChangeRequired ? '需要：请人工检查路由策略后再标记应用。' : '不需要：同路优化。'}</dd></div>
+      <div><dt>路由变更</dt><dd>{r.routingChangeRequired ? '需要路由变更，请先检查路由策略。' : '不需要：同路优化。'}</dd></div>
       {r.routingChangeRequired && <div><dt>路由治理</dt><dd><Link to={`/settings/routing-policies?recommendationId=${r.id}`}>检查路由策略</Link></dd></div>}
       <div><dt>测算时间</dt><dd>{r.calculatedAt}</dd></div>
-      {!previewMode && !canGovern && <div><dt>治理</dt><dd>缺少 BUDGET_MANAGE 权限，动作不可用。</dd></div>}
-      {previewMode && <div><dt>治理</dt><dd>预览模式：生产页调用真实接口。</dd></div>}
+      {!previewMode && !canGovern && <div><dt>治理</dt><dd>你没有执行权限，请联系财务管理员。</dd></div>}
       {!previewMode && canGovern && (
         <div><dt>动作</dt><dd>
           <div className="v3-govern-actions">

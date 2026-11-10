@@ -59,7 +59,7 @@ export function ExpensesListPage() {
             title: '审核', dataIndex: 'approvalStatus', width: 100,
             render: (s: string | null) => s ? <Tag>{STATUS_LABEL[s as ExpenseClaimStatus] ?? s}</Tag> : '-',
           },
-          { title: '可发布', dataIndex: 'postingReady', width: 80, render: (v: boolean) => v ? '✓' : '-' },
+          { title: '可入账', dataIndex: 'postingReady', width: 80, render: (v: boolean) => v ? '✓' : '-' },
           { title: '版本', dataIndex: 'version', width: 60 },
           {
             title: '', width: 80,

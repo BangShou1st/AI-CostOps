@@ -84,7 +84,7 @@ export function OverviewPage(props: OverviewPageProps) {
       <header>
         <span className="v3-eyebrow">Cost Intelligence · 成本智能</span>
         <h1>成本智能总览</h1>
-        <p className="v3-lede">所有金额来自后端确定性计算，本页只做呈现与解释。先回答四个问题，再展开证据。</p>
+        <p className="v3-lede">先看四个关键结论，再查看详细证据。</p>
         <dl className="v3-meta">
           <div><dt>币种</dt><dd>{preview ? activeCurrency : (
             <Select
@@ -102,7 +102,7 @@ export function OverviewPage(props: OverviewPageProps) {
       </header>
       {loadProblem && (
         <div style={{ marginTop: 16 }} role="alert">
-          <Alert type="error" showIcon message={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} />
+          <Alert type="error" showIcon title={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} />
         </div>
       )}
       {isLoading && <OverviewSkeleton />}
@@ -118,8 +118,7 @@ export function OverviewPage(props: OverviewPageProps) {
               <Alert
                 type="warning"
                 showIcon
-                message="快照状态"
-                description="当前显示为上次成功运行的快照（STALE），调度器将自动更新。确定性智能仍可用。"
+                message="数据为上次运行结果，正在自动更新。"
               />
             </div>
           )}

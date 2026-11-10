@@ -205,6 +205,6 @@ describe('DuplicatesPage', () => {
   it('without DUPLICATE_REVIEW shows the permission warning', () => {
     renderPage(['COST_READ'])
 
-    expect(screen.getByText('缺少 DUPLICATE_REVIEW 权限')).toBeInTheDocument()
+    expect(screen.getByText('暂无操作权限，请联系管理员')).toBeInTheDocument()
   })
 })

@@ -97,7 +97,7 @@ export function RulesPage({ externalForm }: RulesPageProps) {
   })
 
   if (!canManage) {
-    return <main className="settings-page"><h1>分摊规则</h1><Alert type="warning" showIcon title="缺少 ALLOCATION_RULE_MANAGE 权限" /></main>
+    return <main className="settings-page"><h1>分摊规则</h1><Alert type="warning" showIcon title="暂无操作权限，请联系管理员" /></main>
   }
 
   const listProblem = list.error ? toProblemDetail(list.error) : null

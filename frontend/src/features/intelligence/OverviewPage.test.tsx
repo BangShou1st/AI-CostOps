@@ -57,24 +57,24 @@ describe('OverviewPage', () => {
       anomalies: [], forecasts: [], recommendations: [], budgetRisk: null,
     })
     expect(screen.getByText('暂无智能分析结果，调度器完成首次运行后自动呈现')).toBeInTheDocument()
-    expect(screen.queryByText('Are we okay?')).not.toBeInTheDocument()
+    expect(screen.queryByText('整体正常吗？')).not.toBeInTheDocument()
     expect(screen.queryByText(/支出按预期进行/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/上次成功运行的快照/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/数据为上次运行结果/)).not.toBeInTheDocument()
   })
 
   it('continues to show an existing snapshot while its next analysis is pending', () => {
     renderPreview({ ...preview, summary: { ...preview.summary, status: 'STALE' } })
-    expect(screen.getByText('Are we okay?')).toBeInTheDocument()
-    expect(screen.getByText(/上次成功运行的快照/)).toBeInTheDocument()
+    expect(screen.getByText('整体正常吗？')).toBeInTheDocument()
+    expect(screen.getByText(/数据为上次运行结果/)).toBeInTheDocument()
   })
 
   it('renders the four-question briefing spine instead of a KPI card wall', () => {
     renderPreview()
     expect(screen.getByRole('heading', { name: '成本智能总览', level: 1 })).toBeInTheDocument()
-    expect(screen.getByText('Are we okay?')).toBeInTheDocument()
-    expect(screen.getByText('What changed?')).toBeInTheDocument()
-    expect(screen.getByText('What will happen?')).toBeInTheDocument()
-    expect(screen.getByText('What can I do?')).toBeInTheDocument()
+    expect(screen.getByText('整体正常吗？')).toBeInTheDocument()
+    expect(screen.getByText('有什么变化？')).toBeInTheDocument()
+    expect(screen.getByText('接下来会怎样？')).toBeInTheDocument()
+    expect(screen.getByText('我能做什么？')).toBeInTheDocument()
   })
   it('presents deterministic evidence with honest money formatting', () => {
     renderPreview()
@@ -98,6 +98,4 @@ it('renders top drivers and the evidence-to-explanation band', () => {
   expect(screen.getByText('变化归因 · Top drivers')).toBeInTheDocument()
   expect(screen.getAllByText(/project:atlas/).length).toBeGreaterThanOrEqual(1)
   expect(screen.getByText('从证据到解释')).toBeInTheDocument()
-  expect(screen.getByText('Verified financial facts')).toBeInTheDocument()
-  expect(screen.getByText('AI-generated explanation')).toBeInTheDocument()
 })

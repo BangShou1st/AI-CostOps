@@ -115,7 +115,7 @@ export function ReconciliationPage() {
             onChange={(value) => { setPage(0); setPeriodId(value) }}
           /></label>
         </div>
-        <Typography.Text type="secondary" className="m6-filter-hint">运行历史按服务端账期分页展示；供应商账号明细请进入具体运行查看。</Typography.Text>
+        <Typography.Text type="secondary" className="m6-filter-hint">明细请进入具体运行查看。</Typography.Text>
       </Card>
 
       <Card className="m6-section-card" title="运行历史">

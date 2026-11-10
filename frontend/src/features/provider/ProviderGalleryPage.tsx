@@ -55,17 +55,17 @@ export function ProviderGalleryPage(props: { preview?: GalleryPreview }) {
       <header>
         <span className="v3-eyebrow">Model Providers · 模型服务商</span>
         <h1>Provider Gallery</h1>
-        <p className="v3-lede">按模板组织的连接就绪矩阵。连接健康不等于生产路由就绪：模型、定价、路由各有独立门槛。</p>
+        <p className="v3-lede">连接可用不代表可正常路由，请确认模型与定价配置。</p>
         <dl className="v3-meta">
           <div><dt>模板</dt><dd>{templates.length}</dd></div>
           <div><dt>连接</dt><dd>{connections.length}</dd></div>
         </dl>
       </header>
       <div className="v3-govern-banner" role="note">
-        <strong>连接健康 ≠ 生产路由就绪。</strong>生产路由还要求 ACTIVE 凭证、已验证的聊天兼容模型、ACTIVE 定价版本与 ACTIVE 路由策略。去<Link to="/settings/provider-models">模型目录</Link>检查各层就绪态。
+        还需确认凭证、模型与定价均已启用。
       </div>
-      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} message="操作失败" description={(problem as { detail?: string }).detail ?? '请稍后重试。'} /></div>}
-      {loadProblem && <div role="alert"><Alert type="error" showIcon message={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
+      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} title="操作失败" description={(problem as { detail?: string }).detail ?? '请稍后重试。'} /></div>}
+      {loadProblem && <div role="alert"><Alert type="error" showIcon title={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
       {isLoading && <div className="v3-skeleton" role="status" aria-label="正在加载服务商总览"><div className="v3-provider-group" style={{ minHeight: 180 }} /></div>}
       {!isLoading && !loadProblem && templates.length === 0 && <div style={{ marginTop: 20 }}><Empty description="暂无服务商模板。" /></div>}
       {!preview && canManage && (
@@ -124,14 +124,14 @@ export function ConnectionCreateForm(props: { templates: ProviderTemplate[]; onD
       <label className="full">模板
         <Select value={templateCode} onChange={setTemplateCode} aria-label="连接模板" options={props.templates.map((t) => ({ value: t.code, label: `${t.name}（${t.connectionKind}）` }))} />
       </label>
-      {template && <div className="v3-note full">锁定字段：{template.lockedFields.length > 0 ? template.lockedFields.join('、') : '无'}。内置模板的服务端字段不可覆盖。</div>}
+      {template && <div className="v3-note full">以下字段由模板固定：{template.lockedFields.length > 0 ? template.lockedFields.join('、') : '无'}</div>}
       <label>Provider Account ID<InputNumber value={providerAccountId} onChange={(v) => setProviderAccountId(typeof v === 'number' ? v : null)} min={1} precision={0} aria-label="Provider Account ID" /></label>
       <label>Base URL<Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} disabled={locked.has('baseUrl')} aria-label="Base URL" placeholder={locked.has('baseUrl') ? '内置模板锁定' : 'https://…'} /></label>
       <div className="full v3-govern-actions">
         <button type="button" disabled={create.isPending} onClick={() => create.mutate()}>创建 DRAFT</button>
         {create.isPending && <span role="status">正在创建…</span>}
       </div>
-      <div className="v3-note full">仅创建 DRAFT 版本；ACTIVE 版本不可编辑，需走修订 → 激活流程。自定义连接仅支持 OpenAI 兼容 Chat Completions，不支持任意头与私有端点。</div>
+      <div className="v3-note full">创建后为草稿，激活前不可用。</div>
     </div>
   )
 }
