@@ -100,7 +100,7 @@ export function AnomaliesPage(props: { preview?: AnomaliesPreview }) {
           })}
         </ul>
       )}
-      <Drawer open={selected !== null} onClose={() => setSelected(null)} title="异常证据" width={440}>
+      <Drawer open={selected !== null} onClose={() => setSelected(null)} title="异常证据" size={440}>
         {selected && <AnomalyEvidence anomaly={selected} currency={activeCurrency} />}
       </Drawer>
     </main>

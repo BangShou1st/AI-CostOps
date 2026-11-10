@@ -41,7 +41,7 @@ export function ResolveCaseModal({ caseId, open, onClose, onSuccess, onPendingCh
       onCancel={onClose}
       closable={!resolve.isPending}
       keyboard={!resolve.isPending}
-      maskClosable={!resolve.isPending}
+      mask={{ closable: !resolve.isPending }}
       cancelButtonProps={{ disabled: resolve.isPending }}
     >
       <CaseError error={resolve.error} />

@@ -34,7 +34,7 @@ function CloseChecks({ checks }: { checks: CloseCheckResponse[] }) {
               <Typography.Text strong>{formatCloseBlocker(code)}</Typography.Text>
               {check ? <Tag color={closeResultTagColor(check.result)}>{formatCloseCheckResult(check.result)}</Tag> : <Tag>未评估</Tag>}
             </div>
-            <Typography.Text type="secondary">{check ? formatCheckSummary(check.summary, check.itemCount) : '等待服务端完成校验。'}</Typography.Text>
+            <Typography.Text type="secondary">{check ? formatCheckSummary(check.summary, check.itemCount) : '等待系统完成校验。'}</Typography.Text>
             {check && <div className="m6-check-meta">涉及 {check.itemCount} 项 · {formatEventDateTime(check.evaluatedAt)}</div>}
           </Card>
         )
@@ -174,7 +174,7 @@ export function PeriodClosePage() {
         </Descriptions>
       </Card>
 
-      <Card className="m6-section-card" title="关闭校验" extra={<Typography.Text type="secondary">共七项服务端校验</Typography.Text>}>
+      <Card className="m6-section-card" title="关闭校验" extra={<Typography.Text type="secondary">共七项系统校验</Typography.Text>}>
         {readiness.data ? <CloseChecks checks={readiness.data.checks} /> : <Empty description="暂无校验结果" />}
       </Card>
 
@@ -210,7 +210,7 @@ export function PeriodClosePage() {
         onOk={() => close.mutate()}
         onCancel={() => setCloseConfirmOpen(false)}
       >
-        <Typography.Paragraph>系统将重新执行七项关闭校验，并根据服务端结果决定账期是否关闭。此操作会冻结当前账期的新财务事实。</Typography.Paragraph>
+        <Typography.Paragraph>系统将重新执行七项关闭校验，并根据校验结果决定账期是否关闭。此操作会冻结当前账期的新财务事实。</Typography.Paragraph>
         <Typography.Text type="secondary">当前准备度：{readiness.data?.ready ? '可以关闭' : '仍有校验项需要处理'}</Typography.Text>
       </Modal>
 

@@ -206,7 +206,7 @@ export function RulesPage({ externalForm }: RulesPageProps) {
         onOk={() => form.submit()}
       >
         <Typography.Paragraph type="secondary">
-          版本号由服务端按规则键自动分配；新定义将作为不可变新版本追加。
+          版本号由系统按规则键自动分配；新定义将作为不可变新版本追加。
         </Typography.Paragraph>
         <Form<RuleVersionFormValues>
           form={form}

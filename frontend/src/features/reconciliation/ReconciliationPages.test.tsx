@@ -200,7 +200,7 @@ describe('ReconciliationPage', () => {
   it('uses the canonical discrepancy count and removes the unsupported provider filter', async () => {
     renderPage('list')
 
-    expect(await screen.findByText('M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2')).toBeInTheDocument()
+    expect(await screen.findByText('混合模式 · 按账期与币种聚合')).toBeInTheDocument()
     expect(screen.getAllByText('1').length).toBeGreaterThan(0)
     expect(screen.queryByLabelText('供应商账号')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '运行对账' })).not.toBeInTheDocument()
@@ -213,7 +213,7 @@ describe('ReconciliationRunDetailPage', () => {
 
     expect((await screen.findAllByText('0.00000001 USD')).length).toBeGreaterThan(0)
     expect(screen.getByText('匹配键总数')).toBeInTheDocument()
-    expect(screen.getByText('M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2')).toBeInTheDocument()
+    expect(screen.getByText('混合模式 · 按账期与币种聚合')).toBeInTheDocument()
     expect(screen.getByText('精确请求证据')).toBeInTheDocument()
     // The headline counts current actionable work; the run-generation
     // snapshot is labeled separately and never presented as current.

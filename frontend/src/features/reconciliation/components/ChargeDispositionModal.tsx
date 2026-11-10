@@ -51,7 +51,7 @@ export function ChargeDispositionModal({ caseId, target, onClose, onSuccess, onE
       onCancel={() => { setDispositionValue('RECONCILIATION_EVIDENCE'); onClose() }}
       closable={!decideDisposition.isPending}
       keyboard={!decideDisposition.isPending}
-      maskClosable={!decideDisposition.isPending}
+      mask={{ closable: !decideDisposition.isPending }}
       cancelButtonProps={{ disabled: decideDisposition.isPending }}
     >
       <CaseError error={decideDisposition.error} />

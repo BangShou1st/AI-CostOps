@@ -9,6 +9,7 @@ import { providerHubApi } from './api/providerHubApi'
 import { providerHubKeys } from './api/providerHubKeys'
 import type { DiscoveryRow, ModelProbeCapabilities, PromotionResult, ProviderConnection } from './api/providerHubTypes'
 import { AvailabilityPill, ProbePill } from './badges'
+import { connectionStatusLabel, protocolLabel } from './presentation'
 import '../../features/intelligence/v3-tokens.css'
 import './provider.css'
 
@@ -17,12 +18,6 @@ export interface ModelsPreview {
   rows: DiscoveryRow[]
   capabilities: Record<number, ModelProbeCapabilities>
   promotion: PromotionResult | null
-}
-
-const PROTOCOL_TEXT: Record<string, string> = { CHAT_COMPLETIONS: '聊天兼容', UNSUPPORTED: '不支持', UNKNOWN: '未知' }
-
-function protocolLabel(code: string): string {
-  return PROTOCOL_TEXT[code] ?? code
 }
 
 /** Model catalog: availability vs protocol vs probe vs pricing, structurally separated. preview is DEV-only. */
@@ -87,7 +82,7 @@ export function ProviderModelsPage(props: { preview?: ModelsPreview }) {
         <div className="v3-filters">
           <label>连接
             <Select value={activeId ?? undefined} onChange={setConnectionId} aria-label="模型连接" size="small" style={{ minWidth: 220 }} placeholder="选择连接"
-              options={connections.map((c) => ({ value: c.id, label: `连接 #${c.id} · v${c.version} · ${c.status}` }))} />
+              options={connections.map((c) => ({ value: c.id, label: `连接 #${c.id} · v${c.version} · ${connectionStatusLabel(c.status)}` }))} />
           </label>
           {!preview && canManage && activeId !== null && (
             <span className="v3-govern-actions">
@@ -123,7 +118,7 @@ export function ProviderModelsPage(props: { preview?: ModelsPreview }) {
                   <div className="v3-model-states">
                     <span>可用性 <AvailabilityPill availability={row.availability} /></span>
                     <span>协议声明 <span className="v3-pill v3-pill-neutral">{protocolLabel(row.protocolCode)}</span></span>
-                    <span>探针 <ProbePill status={row.lastProbeStatus} /></span>
+                    <span>探测 <ProbePill status={row.lastProbeStatus} /></span>
                     <span>价格分类 <span className="v3-pill v3-pill-neutral">{row.pricingClassification || '未知'}</span></span>
                   </div>
                   {cap && <p className="v3-row-detail">实测能力：{Object.entries(cap.capabilities).map(([k, v]) => `${k}=${v}`).join(' · ') || '无'}</p>}

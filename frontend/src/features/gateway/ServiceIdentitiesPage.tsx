@@ -10,6 +10,7 @@ import { gatewayKeys } from './api/gatewayKeys'
 import type { ServiceIdentity } from './api/gatewayTypes'
 
 const statusColor: Record<ServiceIdentity['status'], string> = { ACTIVE: 'green', DISABLED: 'orange', ARCHIVED: 'default' }
+const STATUS_LABELS: Record<ServiceIdentity['status'], string> = { ACTIVE: '已启用', DISABLED: '已停用', ARCHIVED: '已归档' }
 
 export function ServiceIdentitiesPage() {
   const auth = useAuth()
@@ -42,7 +43,7 @@ export function ServiceIdentitiesPage() {
         columns={[
           { title: '代号', dataIndex: 'code', key: 'code' },
           { title: '名称', dataIndex: 'name', key: 'name' },
-          { title: '状态', dataIndex: 'status', key: 'status', render: (status: ServiceIdentity['status']) => <Tag color={statusColor[status]}>{status}</Tag> },
+          { title: '状态', dataIndex: 'status', key: 'status', render: (status: ServiceIdentity['status']) => <Tag color={statusColor[status] ?? 'default'}>{STATUS_LABELS[status] ?? status}</Tag> },
           { title: 'ID', dataIndex: 'id', key: 'id' },
         ]}
       />}

@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Alert, Form, Input, Modal, Select, Space } from 'antd'
 import { useState } from 'react'
 import { reconciliationApi } from '../api/reconciliationApi'
+import { ADJUSTMENT_SCOPE_LABELS } from '../presentation'
 import { useIdempotentCommand } from '../../../lib/useIdempotentCommand'
 import { CaseError } from './CaseError'
 import { formatMoney } from '../../../lib/money'
@@ -70,7 +71,7 @@ export function CaseAdjustmentModal({ caseId, open, currency, requiredDifference
       onCancel={onClose}
       closable={!postAdjustment.isPending}
       keyboard={!postAdjustment.isPending}
-      maskClosable={!postAdjustment.isPending}
+      mask={{ closable: !postAdjustment.isPending }}
       cancelButtonProps={{ disabled: postAdjustment.isPending }}
       width={640}
     >
@@ -97,7 +98,7 @@ export function CaseAdjustmentModal({ caseId, open, currency, requiredDifference
             <Select
               style={{ width: '40%', minWidth: 0 }}
               value={adjustmentScopeType}
-              options={(["PROJECT", "COST_CENTER", "TEAM"] as const).map((value) => ({ value, label: value }))}
+              options={(["PROJECT", "COST_CENTER", "TEAM"] as const).map((value) => ({ value, label: ADJUSTMENT_SCOPE_LABELS[value] ?? value }))}
               onChange={(value) => { setAdjustmentScopeType(value); setAdjustmentScopeId('') }}
               aria-label="分配目标类型"
             />
