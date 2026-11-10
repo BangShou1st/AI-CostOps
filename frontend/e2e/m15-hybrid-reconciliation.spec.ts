@@ -216,7 +216,7 @@ test.describe('m15 hybrid reconciliation', () => {
       await page.goto(`${E2E_BASE_URL}/reconciliation/cases/${caseId}`)
       await expect(page.getByRole('heading', { name: '对账案例详情', level: 1 })).toBeVisible({ timeout: 20_000 })
       await expect(page.getByText('该账期已关闭')).toBeVisible({ timeout: 20_000 })
-      await expect(page.getByText('对账仅作证据查阅，不会自动重开历史账期')).toBeVisible()
+      await expect(page.getByText('仅供查阅；如需更正请先重新开放账期。')).toBeVisible()
 
       // Restore the OPEN period through the explicit governed reopen so the
       // following E2E specs keep their own open-period assumptions.

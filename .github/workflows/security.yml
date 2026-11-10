@@ -87,10 +87,16 @@ jobs:
 
       - name: Build security images in parallel
         run: |
-          docker build --tag ai-costops-backend:security backend &
-          docker build --tag ai-costops-frontend:security frontend &
-          docker build --tag ai-costops-gateway:security gateway &
-          wait
+          docker build --tag ai-costops-backend:security backend & p1=$!
+          docker build --tag ai-costops-frontend:security frontend & p2=$!
+          docker build --tag ai-costops-gateway:security gateway & p3=$!
+          # Bare `wait` always exits 0 and would swallow a failed build,
+          # letting Trivy scan a missing image. Propagate every failure.
+          status=0
+          wait $p1 || status=1
+          wait $p2 || status=1
+          wait $p3 || status=1
+          exit $status
 
       # Filesystem scan must cover the approved AIC-079 surface:
       #   vuln + misconfig + secret, severity HIGH,CRITICAL, exit-code 1.

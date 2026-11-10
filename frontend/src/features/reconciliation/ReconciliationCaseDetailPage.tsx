@@ -144,7 +144,7 @@ export function ReconciliationCaseDetailPage() {
           showIcon
           className="m6-section-card"
           title="该账期已关闭"
-          description="该账期已关闭，仅供查阅；如需更正请先重新开放账期。"
+          description="仅供查阅；如需更正请先重新开放账期。"
         />
       )}
 
