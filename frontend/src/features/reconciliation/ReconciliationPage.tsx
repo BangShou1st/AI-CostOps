@@ -12,7 +12,7 @@ import { periodCloseKeys } from '../period-close/api/periodCloseKeys'
 import { formatBillingPeriodStatus } from '../period-close/presentation'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
-import { createIdempotencyKey, formatReconciliationRunStatus, reconciliationRunTagColor } from './presentation'
+import { createIdempotencyKey, formatReconciliationAlgorithmVersion, formatReconciliationRunStatus, reconciliationRunTagColor } from './presentation'
 import type { ReconciliationRunResponse } from './types'
 
 const PAGE_SIZE = 30
@@ -132,7 +132,7 @@ export function ReconciliationPage() {
             columns={[
               { title: '运行时间', dataIndex: 'startedAt', width: 180, render: (value: string) => formatEventDateTime(value) },
               { title: '状态', dataIndex: 'status', width: 120, render: (value: string) => <Tag color={reconciliationRunTagColor(value)}>{formatReconciliationRunStatus(value)}</Tag> },
-              { title: '算法版本', dataIndex: 'algorithmVersion', width: 150 },
+              { title: '算法版本', dataIndex: 'algorithmVersion', width: 220, render: (value: string) => formatReconciliationAlgorithmVersion(value) },
               { title: '容差', dataIndex: 'toleranceAmount', width: 150, render: (value: string) => formatMoney(value) },
               { title: '差异案例', width: 120, render: (_: unknown, row: ReconciliationRunResponse) => row.summary.discrepancyCount },
               { title: '查看', width: 100, render: () => <Button type="link">查看详情</Button> },

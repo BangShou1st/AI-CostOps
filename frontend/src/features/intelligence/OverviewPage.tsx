@@ -32,6 +32,13 @@ interface OverviewPageProps {
   authOverride?: OverviewAuthOverride
 }
 
+/** 智能总览运行状态；未知状态回退展示原始枚举。 */
+const RUN_STATUS_LABEL: Record<string, string> = {
+  COMPLETED: '已完成',
+  FAILED: '失败',
+  STALE: '已过期',
+}
+
 /** preview + authOverride are DEV-benchmark-only; production routes pass neither. */
 export function OverviewPage(props: OverviewPageProps) {
   const auth = useAuth()
@@ -95,7 +102,7 @@ export function OverviewPage(props: OverviewPageProps) {
               options={['USD', 'CNY', 'EUR', 'GBP'].map((c) => ({ value: c, label: c }))}
             />
           )}</dd></div>
-          {summary && <div><dt>运行</dt><dd>{summary.runId === null || summary.runId === undefined ? '暂无' : `#${summary.runId} · ${summary.status}`}</dd></div>}
+          {summary && <div><dt>运行</dt><dd>{summary.runId === null || summary.runId === undefined ? '暂无' : `#${summary.runId} · ${RUN_STATUS_LABEL[summary.status] ?? summary.status}`}</dd></div>}
           {preview && <div><dt>生成于</dt><dd>{formatDateTime(preview.generatedAt)}</dd></div>}
           {orgForecast && <div><dt>观测至</dt><dd>{orgForecast.observedThrough}</dd></div>}
         </dl>

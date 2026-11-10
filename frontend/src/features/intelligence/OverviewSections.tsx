@@ -143,7 +143,7 @@ export function ExposureSection(props: {
         <p>即时敞口 = 实际支出 + 已提交 + 预占金额。</p>
       </div>
       {!previewMode && !canReadBudget && (
-        <div className="v3-note">缺少 BUDGET_READ 权限，无法查看预算敞口。预测部分仍可用。</div>
+        <div className="v3-note">暂无操作权限，请联系管理员。预测部分仍可用。</div>
       )}
       {!previewMode && canReadBudget && riskQuery.isLoading && (
         <div className="v3-figure" role="status" aria-label="正在加载预算敞口" style={{ minHeight: 220 }} />

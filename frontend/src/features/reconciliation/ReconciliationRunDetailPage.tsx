@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Col, Descriptions, Empty, Row, Select, Skeleton, Statistic, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Col, Descriptions, Empty, Row, Select, Skeleton, Statistic, Table, Tag, Tooltip, Typography } from 'antd'
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { problemDetail, problemTitle, toProblemDetail } from '../../api/problem'
@@ -10,7 +10,7 @@ import { hasPermission } from '../auth/permissions'
 import { GatewayResolutionModal } from './GatewayResolutionModal'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
-import { createIdempotencyKey, formatReconciliationCaseStatus, formatReconciliationCaseType, formatReconciliationRunStatus, reconciliationCaseTagColor, reconciliationRunTagColor } from './presentation'
+import { createIdempotencyKey, formatReconciliationAlgorithmVersion, formatReconciliationCaseStatus, formatReconciliationCaseType, formatReconciliationRunStatus, reconciliationCaseTagColor, reconciliationRunTagColor } from './presentation'
 import type { ReconciliationCaseResponse, ReconciliationCaseStatus, ReconciliationEvidenceResponse } from './types'
 
 const PAGE_SIZE = 50
@@ -106,7 +106,7 @@ export function ReconciliationRunDetailPage() {
       <Card className="m6-section-card" title="运行摘要">
         <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="small">
           <Descriptions.Item label="状态"><Tag color={reconciliationRunTagColor(data.status)}>{formatReconciliationRunStatus(data.status)}</Tag></Descriptions.Item>
-          <Descriptions.Item label="算法版本">{data.algorithmVersion}</Descriptions.Item>
+          <Descriptions.Item label="算法版本"><Tooltip title={data.algorithmVersion}>{formatReconciliationAlgorithmVersion(data.algorithmVersion)}</Tooltip></Descriptions.Item>
           <Descriptions.Item label="对账容差">{formatMoney(data.toleranceAmount)}</Descriptions.Item>
           <Descriptions.Item label="匹配键总数">{data.summary.totalKeys}</Descriptions.Item>
           <Descriptions.Item label="启动时间">{formatEventDateTime(data.startedAt)}</Descriptions.Item>
@@ -168,7 +168,7 @@ export function ReconciliationRunDetailPage() {
         </Card>
       )}
 
-      <Card className="m6-section-card" title="差异案例" extra={<Typography.Text type="secondary">金额以服务端结果为准</Typography.Text>}>
+      <Card className="m6-section-card" title="差异案例" extra={<Typography.Text type="secondary">金额以系统计算结果为准</Typography.Text>}>
         <div className="m6-filter-grid m6-case-filters">
           <label>案例状态<Select<ReconciliationCaseStatus> allowClear aria-label="案例状态" value={caseStatus} placeholder="全部案例状态" options={(['OPEN', 'INVESTIGATING', 'RESOLVED'] as const).map((value) => ({ value, label: formatReconciliationCaseStatus(value) }))} onChange={(value) => { setCasePage(0); setCaseStatus(value) }} /></label>
         </div>

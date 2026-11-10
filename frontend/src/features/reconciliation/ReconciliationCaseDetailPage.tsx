@@ -14,7 +14,7 @@ import { ChargeDispositionModal } from './components/ChargeDispositionModal'
 import { GatewayResolutionModal } from './GatewayResolutionModal'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
-import { createIdempotencyKey, formatReconciliationCaseStatus, formatReconciliationCaseType, reconciliationCaseTagColor } from './presentation'
+import { createIdempotencyKey, formatReconciliationCaseReason, formatReconciliationCaseStatus, formatReconciliationCaseType, reconciliationCaseTagColor } from './presentation'
 import type { ReconciliationCaseResponse, ReconciliationEvidenceResponse } from './types'
 
 const MATCH_KIND_LABEL: Record<string, string> = {
@@ -293,7 +293,7 @@ export function ReconciliationCaseDetailPage() {
         <Descriptions column={{ xs: 1, sm: 2 }} size="small">
           <Descriptions.Item label="创建时间">{formatEventDateTime(data.createdAt)}</Descriptions.Item>
           <Descriptions.Item label="更新时间">{formatEventDateTime(data.updatedAt)}</Descriptions.Item>
-          <Descriptions.Item label="处理原因">{data.reasonCode ?? '—'}</Descriptions.Item>
+          <Descriptions.Item label="处理原因">{data.reasonCode ? formatReconciliationCaseReason(data.reasonCode) : '—'}</Descriptions.Item>
           <Descriptions.Item label="解决时间">{formatEventDateTime(data.resolvedAt)}</Descriptions.Item>
         </Descriptions>
         <Divider />

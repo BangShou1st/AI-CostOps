@@ -97,7 +97,7 @@ export function SavingsPage(props: { preview?: SavingsPreview }) {
           })}
         </ul>
       )}
-      <Drawer open={selected !== null} onClose={() => setSelected(null)} title="复核节约建议" width={460}>
+      <Drawer open={selected !== null} onClose={() => setSelected(null)} title="复核节约建议" size={460}>
         {selected && <RecommendationReview recommendation={selected} currency={activeCurrency} canGovern={canGovern} previewMode={Boolean(preview)} onDone={(next) => { setSelected(next); invalidate() }} onError={setProblem} />}
       </Drawer>
     </main>

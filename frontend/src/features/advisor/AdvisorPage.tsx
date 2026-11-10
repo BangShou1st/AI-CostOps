@@ -8,7 +8,7 @@ import { hasPermission } from '../auth/permissions'
 import { useAuthorizationMutation } from '../settings/useAuthorizationMutation'
 import { advisorApi } from './api/advisorApi'
 import { advisorKeys } from './api/advisorKeys'
-import { ADVISOR_JOB_ORDER, ADVISOR_SUBJECT_TYPES, type AdvisorJob, type AdvisorProfile } from './api/advisorTypes'
+import { ADVISOR_JOB_ORDER, ADVISOR_SUBJECT_TYPES, ADVISOR_SUBJECT_TYPE_LABELS, type AdvisorJob, type AdvisorProfile } from './api/advisorTypes'
 import '../../features/intelligence/v3-tokens.css'
 import './advisor.css'
 
@@ -122,7 +122,7 @@ export function AdvisorPage(props: { preview?: AdvisorPreview }) {
           <div className="v3-filters">
             <label>对象类型
               <Select value={subjectType} onChange={setSubjectType} aria-label="解释对象类型" size="small" style={{ minWidth: 150 }}
-                options={ADVISOR_SUBJECT_TYPES.map((t) => ({ value: t, label: t }))} />
+                options={ADVISOR_SUBJECT_TYPES.map((t) => ({ value: t, label: ADVISOR_SUBJECT_TYPE_LABELS[t] ?? t }))} />
             </label>
             <label>对象 ID
               <InputNumber value={subjectId} onChange={(v) => setSubjectId(typeof v === 'number' ? v : null)} min={1} precision={0} aria-label="解释对象 ID" />
@@ -217,7 +217,7 @@ export function JobDetail(props: { job: AdvisorJob; previewMode: boolean; retryP
       {failed && props.previewMode && <div className="v3-note" role="status">预览模式：生产页调用真实重试接口。</div>}
       {props.retryPending && <span role="status">正在重试…</span>}
       <h3 className="v3-h3" style={{ marginTop: 20 }}>历史尝试</h3>
-      {job.attempts.length === 0 && <div className="v3-note">暂无 attempt 记录。</div>}
+      {job.attempts.length === 0 && <div className="v3-note">暂无历史尝试。</div>}
       {job.attempts.length > 0 && (
         <ul className="v3-list">
           {job.attempts.map((a) => (

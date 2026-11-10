@@ -48,4 +48,12 @@ export interface AdvisorProfileInput {
 
 export const ADVISOR_SUBJECT_TYPES = ['ANOMALY', 'FORECAST', 'BUDGET_RISK', 'SAVINGS'] as const
 
+/** 解释对象类型 → 中文标签；表单值与 API 参数仍使用原始枚举。 */
+export const ADVISOR_SUBJECT_TYPE_LABELS: Record<string, string> = {
+  ANOMALY: '异常',
+  FORECAST: '预测',
+  BUDGET_RISK: '预算风险',
+  SAVINGS: '节省机会',
+}
+
 export const ADVISOR_JOB_ORDER: readonly string[] = ['PENDING', 'CLAIMED', 'DISPATCHING', 'RUNNING', 'COMPLETED']

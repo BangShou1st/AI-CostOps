@@ -95,7 +95,7 @@ describe('OverviewPage', () => {
 
 it('renders top drivers and the evidence-to-explanation band', () => {
   renderPreview()
-  expect(screen.getByText('变化归因 · Top drivers')).toBeInTheDocument()
+  expect(screen.getByText('变化归因')).toBeInTheDocument()
   expect(screen.getAllByText(/project:atlas/).length).toBeGreaterThanOrEqual(1)
   expect(screen.getByText('从证据到解释')).toBeInTheDocument()
 })

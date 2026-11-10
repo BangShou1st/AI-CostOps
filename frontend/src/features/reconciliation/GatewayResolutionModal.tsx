@@ -152,7 +152,7 @@ export function GatewayResolutionModal({
           type="info"
           showIcon
           className="m6-section-card"
-          title="调整金额由服务端推导"
+          title="调整金额自动计算"
           description="金额由系统自动计算，无需填写。"
         />
       ) : (
@@ -199,7 +199,7 @@ export function GatewayResolutionModal({
           ) : (
             <Form.Item label="入账账期">
               <Typography.Text type="secondary">
-                {originalPeriodId ? `原账期 #${originalPeriodId}（开启账期，调整固定入原账期）` : '由服务端按原账期入账'}
+                {originalPeriodId ? `原账期 #${originalPeriodId}（开启账期，调整固定入原账期）` : '按原账期入账'}
               </Typography.Text>
             </Form.Item>
           )
@@ -229,7 +229,7 @@ export function GatewayResolutionModal({
           </>
         )}
         {resolutionType === 'STATEMENT_ADJUSTMENT_POSTED' && (
-          <Form.Item label="业务原因代码（绑定分类由服务端推导）" required>
+          <Form.Item label="业务原因代码（绑定分类由系统自动计算）" required>
             <Input value={reasonCode} maxLength={64} onChange={(event) => setReasonCode(event.target.value)} aria-label="业务原因代码" />
           </Form.Item>
         )}

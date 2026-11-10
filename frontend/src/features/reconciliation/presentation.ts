@@ -19,6 +19,34 @@ const CASE_TYPE_LABELS: Record<string, string> = {
   AMOUNT_MISMATCH: '金额不一致',
 }
 
+/** 对账算法版本 → 面向用户的中性标签；未知版本回退展示原始枚举。 */
+const ALGORITHM_VERSION_LABELS: Record<string, string> = {
+  M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2: '混合模式 · 按账期与币种聚合',
+}
+
+/** 整体调整分配目标类型；原始枚举值只用于表单与 API，不直接展示。 */
+export const ADJUSTMENT_SCOPE_LABELS: Record<string, string> = {
+  PROJECT: '项目',
+  COST_CENTER: '成本中心',
+  TEAM: '团队',
+}
+
+export function formatReconciliationAlgorithmVersion(algorithmVersion: string): string {
+  return ALGORITHM_VERSION_LABELS[algorithmVersion] ?? algorithmVersion
+}
+
+/**
+ * 处理原因代码 → 中文标签。reasonCode 是审核人自由填写的业务代码
+ * （后端仅约束非空 ≤64 字符，无固定枚举），已知代码翻译，未知值回退原文。
+ */
+const CASE_REASON_LABELS: Record<string, string> = {
+  OPERATIONAL_DECISION: '运营处理',
+}
+
+export function formatReconciliationCaseReason(reasonCode: string): string {
+  return CASE_REASON_LABELS[reasonCode] ?? reasonCode
+}
+
 export function formatReconciliationRunStatus(status: string): string {
   return RUN_STATUS_LABELS[status as ReconciliationRunStatus] ?? '未知运行状态'
 }

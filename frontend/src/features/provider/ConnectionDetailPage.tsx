@@ -11,6 +11,7 @@ import { providerHubApi } from './api/providerHubApi'
 import { providerHubKeys } from './api/providerHubKeys'
 import type { ProbeResult, ProviderConnection } from './api/providerHubTypes'
 import { ConnectionStatusPill, KindPill, ProbePill } from './badges'
+import { authTypeLabel, connectionTemplateLabel, credentialStatusLabel, credentialTypeLabel, networkPolicyLabel, protocolLabel } from './presentation'
 import '../../features/intelligence/v3-tokens.css'
 import './provider.css'
 
@@ -88,9 +89,9 @@ export function ConnectionDetailPage(props: { preview?: ConnectionDetailPreview 
             <div className="v3-section-head"><h2 id="v3-conn-profile">配置档案</h2></div>
             <dl className="v3-evidence">
               <div><dt>状态</dt><dd><ConnectionStatusPill status={connection.status} /> <KindPill kind={connection.connectionKind} /></dd></div>
-              <div><dt>模板 / 协议</dt><dd>{connection.templateCode} · {connection.protocolCode}</dd></div>
+              <div><dt>模板 / 协议</dt><dd>{connectionTemplateLabel(connection.templateCode)} · {protocolLabel(connection.protocolCode)}</dd></div>
               <div><dt>端点</dt><dd>{connection.baseUrl}{connection.completionPath} · 模型 {connection.modelsPath}</dd></div>
-              <div><dt>认证 / 网络</dt><dd>{connection.authType} · {connection.networkPolicy}</dd></div>
+              <div><dt>认证 / 网络</dt><dd>{authTypeLabel(connection.authType)} · {networkPolicyLabel(connection.networkPolicy)}</dd></div>
               <div><dt>超时</dt><dd>连接 {connection.connectTimeoutMs}ms · 响应 {connection.responseTimeoutMs}ms</dd></div>
               <div><dt>版本</dt><dd>v{connection.version} · 创建 {formatDateTime(connection.createdAt)}{connection.activatedAt ? ` · 激活 ${formatDateTime(connection.activatedAt)}` : ''}{connection.retiredAt ? ` · 退役 ${formatDateTime(connection.retiredAt)}` : ''}</dd></div>
             </dl>
@@ -126,8 +127,8 @@ export function ConnectionDetailPage(props: { preview?: ConnectionDetailPreview 
               {credentials.map((c) => (
                 <li key={c.id} className="v3-row v3-row-slim">
                   <div className="v3-row-main">
-                    <p className="v3-row-title">{c.safeLabel} <span className={`v3-pill ${c.status === 'ACTIVE' ? 'v3-pill-ok' : 'v3-pill-neutral'}`}>{c.status}</span></p>
-                    <p className="v3-row-detail">{c.credentialType} · 创建 {formatDateTime(c.createdAt)}{c.rotatedAt ? ` · 轮换 ${formatDateTime(c.rotatedAt)}` : ''}{c.revokedAt ? ` · 吊销 ${formatDateTime(c.revokedAt)}` : ''}</p>
+                    <p className="v3-row-title">{c.safeLabel} <span className={`v3-pill ${c.status === 'ACTIVE' ? 'v3-pill-ok' : 'v3-pill-neutral'}`}>{credentialStatusLabel(c.status)}</span></p>
+                    <p className="v3-row-detail">{credentialTypeLabel(c.credentialType)} · 创建 {formatDateTime(c.createdAt)}{c.rotatedAt ? ` · 轮换 ${formatDateTime(c.rotatedAt)}` : ''}{c.revokedAt ? ` · 吊销 ${formatDateTime(c.revokedAt)}` : ''}</p>
                   </div>
                   {!preview && canManage && c.status === 'ACTIVE' && (
                     <div className="v3-row-action"><button type="button" className="v3-link-button" disabled={credentialOp.isPending} onClick={() => credentialOp.mutate({ kind: 'revoke', credentialId: c.id })}>吊销</button></div>
@@ -142,7 +143,7 @@ export function ConnectionDetailPage(props: { preview?: ConnectionDetailPreview 
                 <label>标签<Input value={safeLabel} onChange={(e) => setSafeLabel(e.target.value)} aria-label="凭证标签" placeholder="primary" /></label>
                 <div className="full v3-govern-actions">
                   <button type="button" disabled={secret === '' || credentialOp.isPending} onClick={() => credentialOp.mutate({ kind: 'create' })}>新增凭证</button>
-                  <button type="button" disabled={secret === '' || credentialOp.isPending} onClick={() => credentialOp.mutate({ kind: 'rotate' })}>轮换（吊销旧 ACTIVE）</button>
+                  <button type="button" disabled={secret === '' || credentialOp.isPending} onClick={() => credentialOp.mutate({ kind: 'rotate' })}>轮换（吊销旧启用凭证）</button>
                 </div>
               </div>
             )}

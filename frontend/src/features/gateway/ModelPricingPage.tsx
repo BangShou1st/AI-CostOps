@@ -16,6 +16,12 @@ const DECIMAL_PATTERN = /^\d+(\.\d{1,8})?$/
 const DIMENSION_LABEL: Record<string, string> = {
   INPUT_TOKEN: '输入',
   OUTPUT_TOKEN: '输出',
+  REQUEST: '请求',
+}
+
+const MODEL_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: '已启用',
+  RETIRED: '已退役',
 }
 
 export function isValidDecimalRate(value: string): boolean {
@@ -86,7 +92,7 @@ export function ModelPricingPage() {
           columns={[
             { title: '模型键', dataIndex: 'modelKey', key: 'modelKey' },
             { title: '名称', dataIndex: 'name', key: 'name' },
-            { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => <Tag color="green">{status}</Tag> },
+            { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => <Tag color={status === 'ACTIVE' ? 'green' : 'default'}>{MODEL_STATUS_LABEL[status] ?? status}</Tag> },
           ]}
         />
       </section>
