@@ -1,4 +1,4 @@
-package com.aicostops.gateway.provider.mimo;
+package com.aicostops.gateway.provider.openai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
  * transport chunk splits (including multi-byte UTF-8 across boundaries), and
  * the bounded single-event size rejection.
  */
-class MimoSseDecoderTest {
+class OpenAiSseDecoderTest {
 
     private static final String CHUNK_1 = "{\"id\":\"chatcmpl_1\",\"object\":\"chat.completion.chunk\","
             + "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"},\"finish_reason\":null}]}";
@@ -22,7 +22,7 @@ class MimoSseDecoderTest {
 
     @Test
     void decodesSingleEventWithExactPayload() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
 
         var events = decoder.feed(("data: " + CHUNK_1 + "\n\n").getBytes(StandardCharsets.UTF_8));
 
@@ -31,7 +31,7 @@ class MimoSseDecoderTest {
 
     @Test
     void decodesMultipleEventsInOneFeedIncludingDone() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
 
         var frame = "data: " + CHUNK_1 + "\n\ndata: " + CHUNK_2 + "\n\ndata: [DONE]\n\n";
         var events = decoder.feed(frame.getBytes(StandardCharsets.UTF_8));
@@ -41,7 +41,7 @@ class MimoSseDecoderTest {
 
     @Test
     void handlesCrLfFraming() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
 
         var events = decoder.feed(("data: " + CHUNK_1 + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
 
@@ -50,7 +50,7 @@ class MimoSseDecoderTest {
 
     @Test
     void splitsArbitrarilyAcrossTransportChunksWithoutCorruptingUtf8() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
         var withChinese = "data: {\"delta\":{\"content\":\"\u4f60\u597d\u4e16\u754c\"}}\n\n";
         var bytes = withChinese.getBytes(StandardCharsets.UTF_8);
 
@@ -65,7 +65,7 @@ class MimoSseDecoderTest {
 
     @Test
     void joinsMultipleDataLinesOfOneEventWithNewline() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
 
         var events = decoder.feed(("data: {\"a\":1}\ndata: {\"b\":2}\n\n").getBytes(StandardCharsets.UTF_8));
 
@@ -74,7 +74,7 @@ class MimoSseDecoderTest {
 
     @Test
     void ignoresCommentLinesAndNonDataFields() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
 
         var frame = ": keep-alive comment\nevent: message\nid: 7\ndata: " + CHUNK_1 + "\n\n";
         var events = decoder.feed(frame.getBytes(StandardCharsets.UTF_8));
@@ -84,7 +84,7 @@ class MimoSseDecoderTest {
 
     @Test
     void leavesIncompleteEventPendingAcrossFeedsUntilBlankLine() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
 
         assertThat(decoder.feed("data: ".getBytes(StandardCharsets.UTF_8))).isEmpty();
         var events = decoder.feed((CHUNK_2 + "\n\n").getBytes(StandardCharsets.UTF_8));
@@ -94,7 +94,7 @@ class MimoSseDecoderTest {
 
     @Test
     void rejectsOverSizedSingleLineAndKeepsNoAggregation() {
-        var decoder = new MimoSseDecoder(64);
+        var decoder = new OpenAiSseDecoder(64);
 
         var huge = "data: " + "x".repeat(128) + "\n\n";
         assertThatThrownBy(() -> decoder.feed(huge.getBytes(StandardCharsets.UTF_8)))
@@ -104,7 +104,7 @@ class MimoSseDecoderTest {
 
     @Test
     void boundedHighVolumeDecodingDoesNotAggregateWholeStream() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
         var expected = new java.util.ArrayList<String>();
         var builder = new StringBuilder();
         for (int i = 0; i < 500; i++) {
@@ -124,7 +124,7 @@ class MimoSseDecoderTest {
 
     @Test
     void decodesLargeChunkCountIncrementallyWithoutFullCompletionState() {
-        var decoder = new MimoSseDecoder(1024 * 1024);
+        var decoder = new OpenAiSseDecoder(1024 * 1024);
         var events = new java.util.ArrayList<String>();
         var chunk = "data: {\"x\":1}\n\n";
 
