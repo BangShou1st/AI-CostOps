@@ -11,6 +11,7 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- 核心业务真实性与产品一致性验收总报告（`docs/03-acceptance/maintenance/2026-11/2026-11-10-core-business-consistency-acceptance.md`）：链路 A/B 各 8 检查点 PASS、产品一致性审查与修复、前端文案改造截图验收、审计驱动死代码清理
 - 业务链路 A（AI Gateway 实时成本治理）端到端真实性验收证据（`docs/03-acceptance/maintenance/2026-11/2026-11-10-gateway-chain-e2e-acceptance.md`）：8 检查点全部 PASS，定向复跑 156 个集成/单元用例（真实 MySQL 8.4 + Redis Testcontainers，模拟上游），未发现缺陷，无代码变更
 - 后端核心链路与并发可靠性改造设计文档（`docs/02-development/designs/maintenance/2026-11-10-backend-reliability-refactor-design.md`）：CO-00~CO-05 六个工作包，财务不变量 F-01~F-09、异常矩阵与分批实施计划
 - 根级任务编排：根 `package.json` + `scripts/tasks.mjs`（零依赖、跨平台），统一 `dev / build / test / verify / infra:*` 入口
