@@ -12,7 +12,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "aicostops.gateway")
 public class GatewayProperties implements InitializingBean {
 
-    private int port = 8081;
     private String credentialHmacKeyV1 = "";
     private String requestHmacKeyV1 = "";
     private String providerKekV1 = "";
@@ -48,7 +47,6 @@ public class GatewayProperties implements InitializingBean {
 
     /** Fail-fast guard for every bounded resource the data plane relies on. */
     public void validate() {
-        requirePositive("port", port);
         requirePositive("dbThreads", dbThreads);
         requirePositive("dbQueueCapacity", dbQueueCapacity);
         requirePositive("dbPoolMax", dbPoolMax);
@@ -86,14 +84,6 @@ public class GatewayProperties implements InitializingBean {
             throw new IllegalStateException(
                     "aicostops.gateway." + field + " must be positive, got " + value);
         }
-    }
-
-    public int getPort() {
-        return port;
-    }
-
-    public void setPort(int port) {
-        this.port = port;
     }
 
     public String getCredentialHmacKeyV1() {
