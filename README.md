@@ -76,7 +76,7 @@
 
 <br /><br />
 
-### 4. 账期关闭准备度与七项强一致校验 (Period Close Readiness)
+### 4. 账期关闭准备度与八项强一致校验 (Period Close Readiness)
 <img src="docs/assets/screenshots/05-period-close-readiness.png" alt="账期关闭准备度" width="95%" />
 
 <br /><br />

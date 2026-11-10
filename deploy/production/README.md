@@ -1,6 +1,7 @@
 # AI CostOps — Production Deployment Boundary
 
-> M9 / v1.1 Production Foundation。本文件只定义部署拓扑、TLS 边界与安全约束；
+> V3 / v3.0.0 · MAINTENANCE_ONLY（本文档脱胎于 M9 Production Foundation，随 V3 演进维护）。
+> 本文件只定义部署拓扑、TLS 边界与安全约束；
 > 不包含任何真实 secret、证书或私钥，也不引入 Kubernetes/服务网格。
 
 ## 拓扑

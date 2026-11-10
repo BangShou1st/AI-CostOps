@@ -1,7 +1,7 @@
 import { apiClient } from '../../auth/authApi'
 import type { PageResponse } from '../../../api/pagination'
 
-// -- Types (strictly mirror docs/02-development/api/openapi.yaml) --
+// -- Types (aligned with the backend implementation contract; V3 extensions see m18-v3-openapi.yaml and DTO docs) --
 export type CommitmentStatus =
   | 'REQUESTED'
   | 'ACTIVE'

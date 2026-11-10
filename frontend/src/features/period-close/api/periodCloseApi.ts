@@ -11,7 +11,7 @@ import type {
 
 export { periodCloseKeys } from './periodCloseKeys'
 
-/** Period-close API values mirror docs/02-development/api/openapi.yaml. */
+/** Period-close API values align with the backend implementation contract; V3 extensions see m18-v3-openapi.yaml and DTO docs. */
 export const periodCloseApi = {
   async listBillingPeriods(): Promise<BillingPeriodResponse[]> {
     return (await apiClient.get<BillingPeriodResponse[]>('/billing-periods')).data
