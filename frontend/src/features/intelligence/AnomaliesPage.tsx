@@ -57,7 +57,7 @@ export function AnomaliesPage(props: { preview?: AnomaliesPreview }) {
       <header>
         <span className="v3-eyebrow">Cost Intelligence · 成本智能</span>
         <h1>异常</h1>
-        <p className="v3-lede">确定性检出：median／MAD／robust-z 规则，不是 AI 异常检测。只呈现超过材料性门槛的异常。</p>
+        <p className="v3-lede">由固定统计规则自动检出。</p>
         <dl className="v3-meta">
           <div><dt>币种</dt><dd>{preview ? activeCurrency : (
             <Select value={activeCurrency} onChange={setCurrency} aria-label="结算币种" size="small"
@@ -78,10 +78,10 @@ export function AnomaliesPage(props: { preview?: AnomaliesPreview }) {
           </label>
         </div>
       </section>
-      {loadProblem && <div role="alert"><Alert type="error" showIcon message={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
+      {loadProblem && <div role="alert"><Alert type="error" showIcon title={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
       {isLoading && <OverviewSkeleton />}
       {!isLoading && !loadProblem && visible.length === 0 && (
-        <div style={{ marginTop: 20 }}><Empty description={anomalies.length === 0 ? '本周期暂无异常。检测门槛：robust-z ≥ 3，变化幅度 ≥ 20%，且超过币种重要性阈值。' : '当前筛选下暂无异常。'} /></div>
+        <div style={{ marginTop: 20 }}><Empty description={anomalies.length === 0 ? '本周期暂无异常。' : '当前筛选下暂无异常。'} /></div>
       )}
       {!isLoading && !loadProblem && visible.length > 0 && (
         <ul className="v3-list" style={{ marginTop: 16 }}>

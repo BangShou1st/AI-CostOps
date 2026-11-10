@@ -39,8 +39,8 @@ export function ProviderConnectionsPage(props: { preview?: { connections: import
         <p className="v3-lede">版本化连接档案。ACTIVE 不可编辑；改配置必须开新修订版再激活。</p>
         <dl className="v3-meta"><div><dt>连接</dt><dd>{total} 个</dd></div></dl>
       </header>
-      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} message="操作失败" description={(problem as { detail?: string }).detail ?? '请稍后重试。'} /></div>}
-      {loadProblem && <div role="alert"><Alert type="error" showIcon message={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
+      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} title="操作失败" description={(problem as { detail?: string }).detail ?? '请稍后重试。'} /></div>}
+      {loadProblem && <div role="alert"><Alert type="error" showIcon title={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
       {!preview && canManage && <div className="v3-actions"><Button type="primary" onClick={() => { setProblem(null); setCreateOpen(true) }}>新建连接</Button></div>}
       {isLoading && <div className="v3-skeleton" role="status" aria-label="正在加载连接"><div className="v3-note" style={{ minHeight: 200 }} /></div>}
       {!isLoading && !loadProblem && connections.length === 0 && <div style={{ marginTop: 20 }}><Empty description="暂无连接配置。" /></div>}

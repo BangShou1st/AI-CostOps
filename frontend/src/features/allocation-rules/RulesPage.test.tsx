@@ -302,6 +302,6 @@ describe('RulesPage', () => {
   it('without ALLOCATION_RULE_MANAGE shows the permission warning', () => {
     renderPage(['COST_READ'])
 
-    expect(screen.getByText('缺少 ALLOCATION_RULE_MANAGE 权限')).toBeInTheDocument()
+    expect(screen.getByText('暂无操作权限，请联系管理员')).toBeInTheDocument()
   })
 })

@@ -121,7 +121,7 @@ export function ReconciliationRunDetailPage() {
           showIcon
           className="m6-section-card"
           title="存在需要处理的对账阻塞项"
-          description={`当前运行产生 ${differenceCount} 个差异案例。未解决的案例可能影响账期关闭准备度。`}
+          description={`发现 ${differenceCount} 个差异案例，未处理将阻塞账期关闭。`}
         />
       )}
 
@@ -129,7 +129,7 @@ export function ReconciliationRunDetailPage() {
         <Card
           className="m6-section-card"
           title="未决网关财务工作（运行级）"
-          extra={<Typography.Text type="secondary">当前可操作 {unresolvedTotal} 项 · 运行生成时 {data.summary.unresolvedGatewayCount ?? '—'} 项 · 无需金额差异即可存在</Typography.Text>}
+          extra={<Typography.Text type="secondary">当前可操作 {unresolvedTotal} 项</Typography.Text>}
         >
           <Table<ReconciliationEvidenceResponse>
             rowKey="id"
@@ -150,7 +150,7 @@ export function ReconciliationRunDetailPage() {
               { title: '关联案例', dataIndex: 'reconciliationCaseId', width: 110, render: (value: string | null) => (value ? `#${value}` : '运行级（无案例）') },
               { title: '操作', width: 160, render: (_: unknown, row: ReconciliationEvidenceResponse) => {
                 if (!canResolveGateway) {
-                  return <Typography.Text type="secondary">需要 RECONCILIATION_RESOLVE 与 LEDGER_CORRECT</Typography.Text>
+                  return <Typography.Text type="secondary">需要财务处理权限</Typography.Text>
                 }
                 // The panel is the actionable queue, but the row-level state
                 // stays authoritative: never offer an action for a row the
@@ -163,7 +163,7 @@ export function ReconciliationRunDetailPage() {
             ]}
           />
           <Typography.Text type="secondary">
-            {unresolvedTotal} 个网关请求仍需人工财务决定；处理决定绑定到运行证据，不会自动解决其他请求。
+            仍有 {unresolvedTotal} 个请求需要人工处理。
           </Typography.Text>
         </Card>
       )}

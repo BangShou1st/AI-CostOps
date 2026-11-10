@@ -37,7 +37,7 @@ describe('Advisor retry', () => {
     fireEvent.change(screen.getByLabelText('解释对象 ID'), { target: { value: 3 } })
     fireEvent.click(screen.getByRole('button', { name: '请求解释' }))
     expect(await screen.findByText('执行与叙事')).toBeInTheDocument()
-    expect(screen.getAllByText(/append-only/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('历史尝试')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     await waitFor(() => expect(mockedAdvisor.retry).toHaveBeenCalledWith(103))
   })

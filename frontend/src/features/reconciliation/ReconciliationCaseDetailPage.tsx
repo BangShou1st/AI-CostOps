@@ -144,7 +144,7 @@ export function ReconciliationCaseDetailPage() {
           showIcon
           className="m6-section-card"
           title="该账期已关闭"
-          description="对账仅作证据查阅，不会自动重开历史账期或修改已关闭的财务数据。如需财务更正，请使用显式的账期重开流程或选择其他开启账期。"
+          description="该账期已关闭，仅供查阅；如需更正请先重新开放账期。"
         />
       )}
 
@@ -172,14 +172,14 @@ export function ReconciliationCaseDetailPage() {
         <Card
           className="m6-section-card"
           title="整体案例操作"
-          extra={<Typography.Text type="secondary">以下操作作用于整个聚合差异；单条证据的处理不会自动解决整个案例</Typography.Text>}
+          extra={<Typography.Text type="secondary">作用于整个案例</Typography.Text>}
         >
           <Space wrap>
             <Button onClick={() => setAdjustmentOpen(true)} disabled={data.status !== 'INVESTIGATING'}>
-              提交 CASE_FULL 调整
+              提交整体调整
             </Button>
             <Typography.Text type="secondary">
-              服务端要求的调整金额 = 外部金额 − 内部金额 = {requiredDifference ? formatMoney(requiredDifference, data.currency) : '无需调整'}，必须以显式分配行拆分，不接受推断分摊。
+              调整金额：{requiredDifference ? formatMoney(requiredDifference, data.currency) : '无需调整'}，需拆分到具体分配行。
             </Typography.Text>
           </Space>
         </Card>
@@ -188,7 +188,7 @@ export function ReconciliationCaseDetailPage() {
       <Card
         className="m6-section-card"
         title="混合证据与单条证据操作"
-        extra={<Typography.Text type="secondary">处理单条证据不会自动解决同案例下的其他证据</Typography.Text>}
+        extra={<Typography.Text type="secondary">仅作用于本条证据</Typography.Text>}
       >
         {evidence.error ? null : evidence.isLoading ? (
           <Skeleton active paragraph={{ rows: 3 }} />
@@ -221,7 +221,7 @@ export function ReconciliationCaseDetailPage() {
                 // history but offers no further action.
                 if (row.currentChargeDisposition) {
                   return <Tag color={row.currentChargeDisposition === 'DIRECT_PROVIDER_CHARGE' ? 'green' : 'blue'}>
-                    {row.currentChargeDisposition === 'DIRECT_PROVIDER_CHARGE' ? '已定：直接供应商费用（DIRECT_PROVIDER_CHARGE）' : '已定：对账证据（RECONCILIATION_EVIDENCE）'}
+                    {row.currentChargeDisposition === 'DIRECT_PROVIDER_CHARGE' ? '已定：直接供应商费用' : '已定：对账证据'}
                   </Tag>
                 }
                 if (row.currentGatewayResolutionId) {
@@ -246,7 +246,7 @@ export function ReconciliationCaseDetailPage() {
                   const gatewayState = row.currentGatewayState
                   if (gatewayState === 'ACTIONABLE'
                     || (gatewayState == null && !row.currentGatewayResolutionId)) {
-                    if (!canResolveGateway) return <Typography.Text type="secondary">需要 RECONCILIATION_RESOLVE 与 LEDGER_CORRECT</Typography.Text>
+                    if (!canResolveGateway) return <Typography.Text type="secondary">需要财务处理权限</Typography.Text>
                     return (
                       <Space>
                         <Button size="small" onClick={() => setGatewayTarget(row)}>处理网关财务工作</Button>
@@ -257,11 +257,11 @@ export function ReconciliationCaseDetailPage() {
                     return <Tag color="blue">已处理{row.currentGatewayResolutionId ? `（终端财务决定 #${row.currentGatewayResolutionId}）` : ''}</Tag>
                   }
                   const stateLabel: Record<string, string> = {
-                    M13_FINAL: 'M13 终态（FINAL 用量归正常结算）',
-                    SETTLEMENT_PENDING: '结算处理中（PENDING）',
-                    RETRYABLE_FAILED: '结算可重试失败（RETRYABLE_FAILED）',
-                    SETTLED: '已结算（SETTLED）',
-                    STALE_ROUTE: '路由已变更（STALE_ROUTE）',
+                    M13_FINAL: '用量已归入正常结算',
+                    SETTLEMENT_PENDING: '结算处理中',
+                    RETRYABLE_FAILED: '结算失败，可重试',
+                    SETTLED: '已结算',
+                    STALE_ROUTE: '路由已变更',
                   }
                   return <Tag>{gatewayState ? (stateLabel[gatewayState] ?? gatewayState) : '非当前可操作'}</Tag>
                 }

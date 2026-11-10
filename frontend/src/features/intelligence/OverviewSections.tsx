@@ -20,7 +20,7 @@ export function OverviewLoadError(props: { error: unknown }) {
   const problem = toProblemDetail(props.error) as { title?: string; detail?: string }
   return (
     <div style={{ marginTop: 16 }} role="alert">
-      <Alert type="error" showIcon message={problem.title ?? '加载失败'} description={problem.detail ?? '请稍后重试。'} />
+      <Alert type="error" showIcon title={problem.title ?? '加载失败'} description={problem.detail ?? '请稍后重试。'} />
     </div>
   )
 }
@@ -56,7 +56,7 @@ export function AnswerStrip(props: {
   const answers: Array<{ key: string; question: string; tone: string; icon: ReactNode; body: ReactNode }> = [
     {
       key: 'ok',
-      question: 'Are we okay?',
+      question: '整体正常吗？',
       tone: summary.anomalyCount > 0 ? 'watch' : forecast ? 'ok' : 'info',
       icon: summary.anomalyCount > 0 ? <WarningOutlined /> : forecast ? <CheckCircleOutlined /> : <InfoCircleOutlined />,
       body: summary.anomalyCount > 0
@@ -65,7 +65,7 @@ export function AnswerStrip(props: {
     },
     {
       key: 'changed',
-      question: 'What changed?',
+      question: '有什么变化？',
       tone: topAnomaly ? 'info' : 'ok',
       icon: <InfoCircleOutlined />,
       body: topAnomaly
@@ -74,7 +74,7 @@ export function AnswerStrip(props: {
     },
     {
       key: 'happen',
-      question: 'What will happen?',
+      question: '接下来会怎样？',
       tone: 'info',
       icon: <InfoCircleOutlined />,
       body: forecast
@@ -83,7 +83,7 @@ export function AnswerStrip(props: {
     },
     {
       key: 'do',
-      question: 'What can I do?',
+      question: '我能做什么？',
       tone: topSaving ? 'ok' : 'info',
       icon: topSaving ? <CheckCircleOutlined /> : <InfoCircleOutlined />,
       body: topSaving
@@ -138,9 +138,9 @@ export function ExposureSection(props: {
   return (
     <section className="v3-section" aria-labelledby="v3-what-happen">
       <div className="v3-section-head">
-        <span className="v3-eyebrow">03 · What will happen?</span>
+        <span className="v3-eyebrow">03 · 接下来会怎样？</span>
         <h2 id="v3-what-happen">周期走向与预算敞口</h2>
-        <p>即时敞口＝实际支出＋已提交＋预占，预测为衍生证据，不是账本真相。</p>
+        <p>即时敞口 = 实际支出 + 已提交 + 预占金额。</p>
       </div>
       {!previewMode && !canReadBudget && (
         <div className="v3-note">缺少 BUDGET_READ 权限，无法查看预算敞口。预测部分仍可用。</div>
@@ -154,7 +154,7 @@ export function ExposureSection(props: {
         </div>
       )}
       {!previewMode && canReadBudget && !riskQuery.isLoading && riskProblem && !notConfigured && !denied && (
-        <div role="alert"><Alert type="error" showIcon message="预算敞口加载失败" description={riskProblem.detail ?? '请稍后重试。'} /></div>
+        <div role="alert"><Alert type="error" showIcon title="预算敞口加载失败" description={riskProblem.detail ?? '请稍后重试。'} /></div>
       )}
       {risk && riskMeta && forecast && (
         <>
@@ -196,11 +196,11 @@ export function AnomalySection(props: { anomalies: CostAnomaly[]; currency: stri
   return (
     <section className="v3-section" aria-labelledby="v3-what-changed">
       <div className="v3-section-head">
-        <span className="v3-eyebrow">02 · What changed?</span>
+        <span className="v3-eyebrow">02 · 有什么变化？</span>
         <h2 id="v3-what-changed">需要关注的异常</h2>
-        <p>异常由 median／MAD／robust-z 确定性规则检出，只显示最具材料性的前三条。</p>
+        <p>按固定统计规则自动检出，仅显示影响最大的前三条。</p>
       </div>
-      {top.length === 0 && <div className="v3-note">本周期暂无异常。检测门槛：robust-z ≥ 3，变化幅度 ≥ 20%，且超过币种重要性阈值。</div>}
+      {top.length === 0 && <div className="v3-note">本周期暂无异常。</div>}
       {top.length > 0 && (
         <ul className="v3-list">
           {top.map((a) => {
@@ -236,9 +236,9 @@ export function SavingsSection(props: { recommendations: SavingRecommendation[];
   return (
     <section className="v3-section" aria-labelledby="v3-what-do">
       <div className="v3-section-head">
-        <span className="v3-eyebrow">04 · What can I do?</span>
+        <span className="v3-eyebrow">04 · 我能做什么？</span>
         <h2 id="v3-what-do">节约建议脉冲</h2>
-        <p>反事实节约测算，只记录人工治理动作，不会自动切换路由。</p>
+        <p>节约金额为估算值，切换路由需人工确认。</p>
       </div>
       {actionable.length === 0 && <div className="v3-note">暂无可执行的节约建议。</div>}
       {actionable.length > 0 && (
@@ -248,7 +248,7 @@ export function SavingsSection(props: { recommendations: SavingRecommendation[];
             return (
               <li key={r.id} className="v3-row">
                 <div className="v3-row-main">
-                  <p className="v3-row-title"><span className={`v3-pill ${st.pill}`}>{st.text}</span>{' '}逻辑模型 #{r.logicalModelId}</p>
+                  <p className="v3-row-title"><span className={`v3-pill ${st.pill}`}>{st.text}</span>{' '}模型 #{r.logicalModelId}</p>
                   <p className="v3-row-detail">
                     {formatMoney(r.currentCost, currency)} → {formatMoney(r.candidateCost, currency)}
                     {r.routingChangeRequired ? ' · 需路由变更' : ' · 同路优化'}
@@ -274,9 +274,9 @@ export function AdvisorBand() {
       <div className="v3-section-head">
         <span className="v3-eyebrow">Advisor</span>
         <h2 id="v3-advisor">从证据到解释</h2>
-        <p>AI Advisor 只解释后端已经计算的事实，不计算金额。</p>
+        <p>AI Advisor 基于本页已核实的数据生成解释，不计算金额。</p>
       </div>
-      <div className="v3-advisor-flow"><div className="v3-advisor-facts"><span className="v3-pill v3-pill-info">Verified financial facts</span><p>异常、预测、敞口与节约建议全部来自后端确定性计算。</p></div><span className="v3-advisor-arrow" aria-hidden="true">→</span><div className="v3-advisor-ai"><span className="v3-pill v3-pill-neutral">AI-generated explanation</span><p>AI 只把事实讲清楚：原因、影响与可做事项。</p></div></div>      <div className="v3-actions"><Link to="/advisor">用 AI Advisor 解释本页 <RightOutlined aria-hidden="true" /></Link></div>
+      <div className="v3-actions"><Link to="/advisor">用 AI Advisor 解释本页 <RightOutlined aria-hidden="true" /></Link></div>
     </section>
   )
 }

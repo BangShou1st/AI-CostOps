@@ -25,11 +25,11 @@ describe('ForecastsPage', () => {
   it('presents derived evidence with method honesty', () => {
     renderPreview()
     expect(screen.getByRole('heading', { name: '预测', level: 1 })).toBeInTheDocument()
-    expect(screen.getByText(/衍生证据，不是账本真相/)).toBeInTheDocument()
+    expect(screen.getByText(/基于历史数据的自动预测/)).toBeInTheDocument()
     expect(screen.getAllByText(/DAMPED_HOLT/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/RECENT_RUN_RATE/).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(/不是 AI 预测/)).toBeInTheDocument()
-    expect(screen.getByText(/未知日期不算有效观测/)).toBeInTheDocument()
+    expect(screen.getByText(/仅供参考/)).toBeInTheDocument()
+    expect(screen.getByText(/历史观测不足 3 天时不生成预测/)).toBeInTheDocument()
     expect(screen.getAllByText(/连续有效观测/).length).toBeGreaterThan(1)
   })
   it('labels the remaining-period amount and uncalibrated sample grades honestly', () => {
@@ -39,7 +39,7 @@ describe('ForecastsPage', () => {
     expect(screen.getByText(/未经准确率校准/)).toBeInTheDocument()
     expect(screen.getAllByText(/样本等级/).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByText(/置信度/)).not.toBeInTheDocument()
-    expect(screen.getByText(/冲正主导/)).toBeInTheDocument()
+    expect(screen.getByText(/出现冲正或样本不足时/)).toBeInTheDocument()
   })
   it('renders an empty state without inventing precision', () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })

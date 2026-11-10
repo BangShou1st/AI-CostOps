@@ -87,9 +87,9 @@ export function AdvisorPage(props: { preview?: AdvisorPreview }) {
       <header>
         <span className="v3-eyebrow">AI Advisor · 受治理的解释</span>
         <h1>AI Advisor</h1>
-        <p className="v3-lede">只解释后端已经计算的确定性事实，不计算金额。执行受 Gateway 治理、计量与结算。</p>
+        <p className="v3-lede">基于已核实的数据生成解释，不涉及金额计算。</p>
       </header>
-      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} message="请求失败" description={problemText(problem)} /></div>}
+      {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} title="请求失败" description={problemText(problem)} /></div>}
       <section className="v3-section" aria-labelledby="v3-advisor-profile">
         <div className="v3-section-head">
           <span className="v3-eyebrow">Profile</span>
@@ -110,13 +110,13 @@ export function AdvisorPage(props: { preview?: AdvisorPreview }) {
         {!preview && canManage && editingProfile && profile && (
           <ProfileForm profile={profile} pending={saveProfile.isPending} onSubmit={(input) => saveProfile.mutate(input)} onCancel={() => setEditingProfile(false)} />
         )}
-        {!preview && !canManage && <div className="v3-note" role="status">执行配置由 AI_ADVISOR_MANAGE 权限管理。</div>}
+        {!preview && !canManage && <div className="v3-note" role="status">暂无操作权限，请联系管理员。</div>}
       </section>
       <section className="v3-section" aria-labelledby="v3-advisor-request">
         <div className="v3-section-head">
           <span className="v3-eyebrow">Explain</span>
           <h2 id="v3-advisor-request">请求解释</h2>
-          <p>只需指定解释对象；金额与证据由后端按当前组织生成，不接受客户端伪造。</p>
+          <p>选择要解释的对象即可，金额与证据自动获取。</p>
         </div>
         {!preview && (
           <div className="v3-filters">
@@ -133,7 +133,7 @@ export function AdvisorPage(props: { preview?: AdvisorPreview }) {
         {request.isPending && <span role="status">正在创建解释任务…</span>}
       </section>
       {job && <JobDetail job={job} previewMode={Boolean(preview)} retryPending={retry.isPending} onRetry={() => retry.mutate(job.id)} />}
-      {!job && !preview && jobId === null && <div className="v3-note">选择解释对象后，在此查看受治理的执行与叙事。</div>}
+      {!job && !preview && jobId === null && <div className="v3-note">选择对象后点击"请求解释"。</div>}
     </main>
   )
 }
@@ -207,16 +207,16 @@ export function JobDetail(props: { job: AdvisorJob; previewMode: boolean; retryP
             <p className="v3-narrative-summary">{job.explanation.summary}</p>
             <h3 className="v3-h3">Drivers</h3>
             <p className="v3-narrative-body">{job.explanation.driversExplanation}</p>
-            <p className="v3-footnote">AI 未计算任何金额；attempt #{job.explanation.attemptNo} 的叙事已通过输出校验。</p>
+            <p className="v3-footnote">AI 未计算任何金额，内容已通过校验。</p>
           </div>
         </div>
       )}
       {!job.explanation && !failed && <div className="v3-note" role="status">任务{job.status}中，叙事生成后将在此呈现；确定性智能不受影响。</div>}
-      {failed && <div className="v3-note" role="alert">任务失败（{job.failureCode ?? '未知原因'}）。确定性智能仍可用；可重试创建新的 append-only attempt，原记录保留。</div>}
+      {failed && <div className="v3-note" role="alert">任务失败。可重试生成新的解释，历史记录保留。</div>}
       {failed && !props.previewMode && <div className="v3-actions"><button type="button" className="v3-primary-button" disabled={props.retryPending} onClick={props.onRetry}>重试</button></div>}
       {failed && props.previewMode && <div className="v3-note" role="status">预览模式：生产页调用真实重试接口。</div>}
       {props.retryPending && <span role="status">正在重试…</span>}
-      <h3 className="v3-h3" style={{ marginTop: 20 }}>Attempt lineage（append-only）</h3>
+      <h3 className="v3-h3" style={{ marginTop: 20 }}>历史尝试</h3>
       {job.attempts.length === 0 && <div className="v3-note">暂无 attempt 记录。</div>}
       {job.attempts.length > 0 && (
         <ul className="v3-list">

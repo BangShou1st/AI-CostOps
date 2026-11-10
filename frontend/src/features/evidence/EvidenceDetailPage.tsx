@@ -10,6 +10,7 @@ import { importsApi } from '../imports/api/importsApi'
 import { evidenceKeys } from './api/evidenceKeys'
 import type { ImportSummary } from '../imports/api/importTypes'
 import { formatEventDateTime } from '../../lib/dateTime'
+import { formatBytes } from '../../lib/formatBytes'
 
 const IMPORTS_PAGE_SIZE = 50
 
@@ -73,7 +74,7 @@ export function EvidenceDetailPage({ evidenceId: propEvidenceId }: { evidenceId?
       <Descriptions column={1} bordered size="small">
         <Descriptions.Item label="文件名">{evidence.originalFilename}</Descriptions.Item>
         <Descriptions.Item label="类型">{evidence.mediaType ?? '未知'}</Descriptions.Item>
-        <Descriptions.Item label="大小 (bytes)">{evidence.sizeBytes}</Descriptions.Item>
+        <Descriptions.Item label="大小">{formatBytes(evidence.sizeBytes)}</Descriptions.Item>
         <Descriptions.Item label="SHA-256">{evidence.sha256}</Descriptions.Item>
         <Descriptions.Item label="存储状态">{evidence.storageStatus}</Descriptions.Item>
         <Descriptions.Item label="上传人">{evidence.uploadedByMemberId}</Descriptions.Item>
