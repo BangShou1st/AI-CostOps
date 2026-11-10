@@ -34,6 +34,10 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 - OpenCode Zen v1.5.4 升级与真实上游 HTTP 200 验收（Backend 探针与 Gateway 聚合推理真实 200）：[OpenCode Zen v1.5.4 真实上游验收](maintenance/2026-10/2026-10-26-opencode-zen-v1.5.4-acceptance.md)
 - 远端 CI / Security 红灯整改（ingestion 读 API 集成测试 ID 碰撞断言收敛 + 前端 nginx 基线升级至 1.30.6 消除 3 项 HIGH）：[CI / Security 红灯整改验收](maintenance/2026-10/2026-10-26-ci-security-red-light-remediation.md)
 
+## 维护验收（2026-11）
+
+- 业务链路 B（外部账单归集与财务对账）端到端真实性验收：file_hash / 记录指纹 / posting_key 三层幂等、Worker 租约与崩溃恢复、POSTED Ledger 不可变与 Correction 语义、8 项 CloseBlocker 与 CLOSED 账期写栅栏、对账溯源与前端契约层一致性，8/8 检查点 PASS：[账单归集与财务对账链路端到端验收](maintenance/2026-11/2026-11-10-billing-chain-e2e-acceptance.md)
+
 OpenCode Zen / Kilo Gateway 的接入与协议维护、Cost Intelligence 历史覆盖与输入身份改进、结算 Worker 可靠性修复等变更的逐项记录见 [`maintenance/2026-10/`](maintenance/2026-10/)。
 
 ## 2026-11 维护验收

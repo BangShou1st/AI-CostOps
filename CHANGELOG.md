@@ -25,8 +25,10 @@
 - 根级 `AGENTS.md`：面向 AI 编码代理的项目上下文（结构、不变量、命令、测试约定、Git 与安全红线）
 - OpenCode Zen minimax 真实浏览器验收记录（`docs/03-acceptance/maintenance/2026-10/2026-10-22-opencode-zen-minimax-real-browser-acceptance.md`）
 - 文档链接自动校验工具：`scripts/dev/verify-doc-links.mjs`，并通过根 `package.json` 提供 `npm run verify:links` 命令
+- 业务链路 B（外部账单归集与财务对账）端到端真实性验收记录（`docs/03-acceptance/maintenance/2026-11/2026-11-10-billing-chain-e2e-acceptance.md`）：8/8 检查点 PASS，含三层幂等键数据库核对与定向复跑测试证据
 
 ### Changed
+- `CloseBlockerProviderIntegrationTest` 过时测试方法名更正（`registryContainsExactlySevenCanonicalProviders` → `registryContainsExactlyEightCanonicalProviders`，`CloseBlockerCode` 实为 8 项；仅改名，未改断言）
 - 项目文档体系系统性治理：
   - `docs/03-acceptance/` 消除 73 个根目录平铺堆积，完成分层归档（`checklists/`、`milestones/`、`maintenance/2026-10/`、`quality/`）
   - `docs/02-development/` 重构为清晰的 `api/`（统一契约收口）、`designs/`（`v1/`, `v2/`, `maintenance/`）、`guides/`（源码精读）、`implementation/`
