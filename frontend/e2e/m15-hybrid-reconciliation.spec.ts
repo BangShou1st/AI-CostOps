@@ -130,8 +130,13 @@ test.describe('m15 hybrid reconciliation', () => {
       await expect(modal.getByText(/调整金额：/)).toBeVisible()
       await pickAntdSelect(page, '调整入账账期', /#/)
       // The allocation target picker is the search-enabled select inside the
-      // Space.Compact pair (type select is not searchable).
-      await modal.locator('.ant-select-show-search').click()
+      // Space.Compact pair (type select is not searchable). It renders options
+      // in a virtualized list ordered by id: on a reused local database the
+      // freshly created m15-e2e-* project sits far below the fold, so type the
+      // search text first to bring the matching option into the DOM.
+      const targetSelect = modal.locator('.ant-select-show-search')
+      await targetSelect.click()
+      await targetSelect.locator('input').fill('m15-e2e')
       await page.locator('.ant-select-dropdown:visible').last()
         .locator('.ant-select-item-option')
         .filter({ hasText: /m15-e2e-/ })

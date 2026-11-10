@@ -50,6 +50,7 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- 对账整体调整弹窗：分配目标搜索框补 `optionFilterProp="label"`（antd 默认按 value 即数字 id 过滤，按名称搜索此前永远无结果）；`m15-hybrid-reconciliation.spec.ts` 分配目标选择改为先输入搜索词再选项，消除复用数据库上虚拟滚动导致的选项不可见（未弱化断言）
 - 集成测试断言：`ImportWorkflowReadApiIntegrationTest` 的租户隔离排除检查从整个响应体的裸子串匹配收敛为 `items[*].id` 字段级排除，消除共享 Testcontainer 的 AUTO_INCREMENT 漂移导致的 ID 数值碰撞假阳性；断言意图与覆盖范围不变
 - 前端镜像基线：`frontend/Dockerfile` 基础镜像由 `nginx:1.30.4-alpine` 升级为 `nginx:1.30.6-alpine`（实装 `nginx=1.30.6-r1`），消除 CVE-2026-15176 / CVE-2026-93479 / CVE-2026-97205 三项 HIGH；不新增 `.trivyignore`、不调整 Trivy 阈值
 - 仓库忽略规则：新增 `.trivy-cache/`（CI 从仓库根挂载、本地扫描亦会生成的 Trivy 漏洞库缓存目录），避免 1.6 GB 缓存被误提交

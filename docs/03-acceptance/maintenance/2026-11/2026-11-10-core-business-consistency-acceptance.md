@@ -71,11 +71,16 @@
 ### 4.3 E2E 回归与发现
 
 - `m19-cost-intelligence-overview.spec.ts`（新四问文案断言）：**PASS**。
-- `m15-hybrid-reconciliation.spec.ts` 首轮失败，根因**与文案改造无关**：分配目标下拉为 antd 虚拟列表且目录按 id 升序，复用的本地数据库累计 45 个项目使新建测试项目位于虚拟滚动窗口外（CI 全新库不触发）。修复为输入搜索词过滤后再选项（测试健壮性修复，未弱化断言）。
-- 过程中验证了登录限流器的真实 fail-closed 行为（重复登录触发 `AUTH_RATE_LIMITED` 429，Redis 键 TTL 正常递减）。
+- `m15-hybrid-reconciliation.spec.ts` 两处环境型问题（均**与文案改造无关**，CI 全新栈不触发）：
+  1. 分配目标下拉为 antd 虚拟列表且目录按 id 升序，复用的本地数据库累计 45 个项目使新建测试项目位于虚拟滚动窗口外 → 测试改为输入搜索词过滤后再选项（健壮性修复，未弱化断言）。
+  2. 修复过程中发现 `CaseAdjustmentModal` 分配目标搜索框**真实产品缺陷**：antd `Select` 的 `optionFilterProp` 默认为 `value`（数字 id），按名称搜索永远无结果 → 补 `optionFilterProp="label"`（与 `CommitmentLinkPicker` 既有写法对齐）。
+  3. 修复后复跑已越过下拉选择与弹窗提交，最终失败点为关账就绪断言 `UNALLOCATED_CHARGES: FAIL`——系前几轮中断运行在本机复用数据库中留下的 4 条 4.00 CNY 未分摊残留费用（属环境污染，非缺陷）。**完整本地 PASS 记为 NOT_VERIFIED**（与另一并行会话存在 6379/9000 端口冲突，停止本地复跑），由 CI 的浏览器 E2E 作业给出最终判定。
+- 过程中顺带验证了登录限流器的真实 fail-closed 行为（重复登录触发 `AUTH_RATE_LIMITED` 429，Redis 键 TTL 正常递减）。
 
 ### 4.4 遗留（NOT_VERIFIED / 低优先级）
 
+- `m15-hybrid-reconciliation.spec.ts` 完整本地 PASS：见 §4.3 第 3 点，待 CI 判定。
+- 本机复用数据库中的 4 条未分摊残留费用（charge_fact 40/42/44/46）：可通过规格同款手动分摊 API 清理，留待下次本地 drill 前处理。
 - 「提交整体调整」弹窗的浏览器实开复验：库中无 INVESTIGATING 状态案例，按钮正确禁用，未做数据篡改；分配目标「项目」映射由单元测试覆盖。
 - 「供应商账号 : 34」显示原始 ID：API 载荷无名称字段，不编造数据，保持原样（属后续可用性批次）。
 - 旧 M6 算法枚举（`M6_PERIOD_PROVIDER_CURRENCY_V1`）未映射，按"未知值回退原文"原则显示原文。
@@ -98,7 +103,8 @@ bca10d5 merge: frontend copy rewrite and Alert API unification
 6161572 merge: chain B billing ingestion and reconciliation e2e acceptance evidence
 ebd8c05 fix(frontend): translate raw enums and remove residual manual-style copy
 1610051 merge: translate raw enums, remove residual server-speak copy and antd deprecations
-<待补> test(e2e): m15 allocation target search robustness fix
+f0ca935 docs(acceptance): record core business consistency acceptance report
+<待补> fix(reconciliation): allocation target search filter + m15 e2e robustness
 ```
 
 ## 7. 总体结论

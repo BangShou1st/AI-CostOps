@@ -105,6 +105,7 @@ export function CaseAdjustmentModal({ caseId, open, currency, requiredDifference
             <Select
               style={{ width: '60%', minWidth: 0 }}
               showSearch
+              optionFilterProp="label"
               value={adjustmentScopeId || undefined}
               placeholder="选择目标"
               options={(targets.data ?? []).filter((target) => target.type === adjustmentScopeType).map((target) => ({ value: target.id, label: `#${target.id} · ${target.name}` }))}
