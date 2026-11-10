@@ -11,6 +11,7 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- 后端核心链路与并发可靠性改造设计文档（`docs/02-development/designs/maintenance/2026-11-10-backend-reliability-refactor-design.md`）：CO-00~CO-05 六个工作包，财务不变量 F-01~F-09、异常矩阵与分批实施计划
 - 根级任务编排：根 `package.json` + `scripts/tasks.mjs`（零依赖、跨平台），统一 `dev / build / test / verify / infra:*` 入口
 - `scripts/dev/` 补充 `.sh` 版本（`start-infra.sh` / `stop-infra.sh` / `status.sh`），与 `.ps1` 一一对应
 - `scripts/README.md`：脚本目录职责说明与里程碑产物归档/命名策略

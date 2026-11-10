@@ -21,7 +21,7 @@
 ### 1. 架构与详细设计查询
 - **V1 核心财务与基础设计**：[`designs/v1/`](designs/v1/)（数据模型、状态机、事务幂等并发、权限矩阵、导入设计）
 - **V2 网关与多 Provider 运行时**：[`designs/v2/`](designs/v2/)（网关路由、实时计量、预算原子性、混合对账）
-- **维护期优化设计**：[`designs/maintenance/`](designs/maintenance/)（成本智能重构、覆盖率历史统计等）
+- **维护期优化设计**：[`designs/maintenance/`](designs/maintenance/)（成本智能重构、覆盖率历史统计、[后端核心链路与并发可靠性改造设计](designs/maintenance/2026-11-10-backend-reliability-refactor-design.md) 等）
 
 ### 2. API / Controller / Frontend 接口
 - **契约总览**：[`api/README.md`](api/README.md)
