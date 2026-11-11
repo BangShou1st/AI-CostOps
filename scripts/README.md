@@ -10,6 +10,7 @@
 | `tasks.mjs` | **日常（活跃）** | 跨平台任务运行器，根 `package.json` 的唯一入口（`npm run dev/build/test/verify/infra:*`） |
 | `dev/` | **日常（活跃）** | 基础设施命令的 `.ps1` / `.sh` 薄包装，共同调用 `tasks.mjs`，不复制业务逻辑 |
 | `lib/` | **日常（活跃）** | 任务运行器的进程管理、本地配置与隔离构建辅助函数 |
+| `ci/` | **日常（活跃）** | CI 专用纯函数选择器；目前为 `select-integration-tests.mjs`（Failsafe 集成测试枚举与分片），空枚举/空分片以非 0 退出 |
 | `tests/` | **日常（活跃）** | Node 内置测试，检查命令范围、失败传播、进程树清理及配置边界 |
 | `ops/` | 运维（活跃） | 备份/恢复演练。变更须同步 `docs/04-operations/v3-operational-runbook.md` |
 | `perf/` | 性能（活跃） | 可重复执行的容量与并发正确性 harness。详见 [`perf/README.md`](perf/README.md)；不改变产品语义，结果必须绑定 SHA 与资源 |
@@ -70,6 +71,8 @@ OpenCode Zen `v1.4.2` 和 Kilo Gateway 均通过公开 JitPack 坐标解析，�
 | `scripts-lifecycle` | Ubuntu | 真实 CLI、进程树清理、隔离 Compose 服务与卷保留；提前拉取 Redis 测试镜像 | `scripts-lifecycle` |
 
 两个作业固定 Node 24.14.0，同时输出控制台结果与 `test-results/scripts/` 下的 JUnit XML。测试失败仍上传已生成的报告，失败退出码不会被上传步骤覆盖。
+
+`backend-integration` 的测试枚举由 `scripts/ci/select-integration-tests.mjs` 完成（不再使用 workflow 内联脚本）：按 `*IntegrationTest.java` 递归枚举、排序后以 `index % shards === shard` 分片，输出逗号分隔的类名。枚举为空、分片为空或参数非法时脚本以非 0 退出，workflow 不再传 `-DfailIfNoSpecifiedTests=false`，因此“0 个用例”不可能再让必需检查变绿。分片规则与历史内联实现逐项一致，已由 `scripts/tests/ci-select-integration-tests.test.mjs` 覆盖（空目录、空分片、奇偶分片、CLI 输出）。
 
 生命周期作业设置 `AICOSTOPS_TASK_TEST_ARTIFACT_DIR`，在该目录保留 `dev-lifecycle.log` 和 `infra-lifecycle.log`。日志只来自受控 HTTP/Redis 测试夹具，不采集真实应用配置。普通测试失败也会执行清理并写日志；强制中断或 runner 故障可能来不及生成完整报告。正常本地运行未设置该变量时不写日志。
 
