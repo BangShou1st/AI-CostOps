@@ -1,0 +1,304 @@
+{
+  "import": {
+    "t100k": {
+      "runs": [
+        {
+          "run": "1",
+          "input_rows": 100000,
+          "total_ms": 304618,
+          "worker_records_per_sec": 328.875,
+          "end_to_end_rows_per_sec": 328.28,
+          "gc_time_ms_delta": 318
+        },
+        {
+          "run": "2",
+          "input_rows": 100000,
+          "total_ms": 313693,
+          "worker_records_per_sec": 319.609,
+          "end_to_end_rows_per_sec": 318.783,
+          "gc_time_ms_delta": 290
+        },
+        {
+          "run": "3",
+          "input_rows": 100000,
+          "total_ms": 295242,
+          "worker_records_per_sec": 341.32,
+          "end_to_end_rows_per_sec": 338.705,
+          "gc_time_ms_delta": 221
+        }
+      ],
+      "worker_records_per_sec": {
+        "count": 3,
+        "min": 319.609,
+        "median": 328.875,
+        "max": 341.32,
+        "p95_nearest_rank": 341.32
+      },
+      "end_to_end_rows_per_sec": {
+        "count": 3,
+        "min": 318.783,
+        "median": 328.28,
+        "max": 338.705,
+        "p95_nearest_rank": 338.705
+      },
+      "total_ms": {
+        "count": 3,
+        "min": 295242,
+        "median": 304618,
+        "max": 313693,
+        "p95_nearest_rank": 313693
+      }
+    },
+    "t10k": {
+      "runs": [
+        {
+          "run": "1",
+          "input_rows": 10000,
+          "total_ms": 31443,
+          "worker_records_per_sec": 320.297,
+          "end_to_end_rows_per_sec": 318.036,
+          "gc_time_ms_delta": 68
+        },
+        {
+          "run": "2",
+          "input_rows": 10000,
+          "total_ms": 29330,
+          "worker_records_per_sec": 342.747,
+          "end_to_end_rows_per_sec": 340.948,
+          "gc_time_ms_delta": 38
+        },
+        {
+          "run": "3",
+          "input_rows": 10000,
+          "total_ms": 34699,
+          "worker_records_per_sec": 289.494,
+          "end_to_end_rows_per_sec": 288.193,
+          "gc_time_ms_delta": 19
+        }
+      ],
+      "worker_records_per_sec": {
+        "count": 3,
+        "min": 289.494,
+        "median": 320.297,
+        "max": 342.747,
+        "p95_nearest_rank": 342.747
+      },
+      "end_to_end_rows_per_sec": {
+        "count": 3,
+        "min": 288.193,
+        "median": 318.036,
+        "max": 340.948,
+        "p95_nearest_rank": 340.948
+      },
+      "total_ms": {
+        "count": 3,
+        "min": 29330,
+        "median": 31443,
+        "max": 34699,
+        "p95_nearest_rank": 34699
+      }
+    }
+  },
+  "reporting": {
+    "runs": [
+      {
+        "run": "1",
+        "rows": 10000,
+        "workbench_ms": 75,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "2",
+        "rows": 10000,
+        "workbench_ms": 77,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "3",
+        "rows": 10000,
+        "workbench_ms": 75,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "4",
+        "rows": 10000,
+        "workbench_ms": 74,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "5",
+        "rows": 10000,
+        "workbench_ms": 72,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "6",
+        "rows": 10000,
+        "workbench_ms": 73,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "7",
+        "rows": 10000,
+        "workbench_ms": 71,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "8",
+        "rows": 10000,
+        "workbench_ms": 72,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "9",
+        "rows": 10000,
+        "workbench_ms": 74,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "10",
+        "rows": 10000,
+        "workbench_ms": 73,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "11",
+        "rows": 10000,
+        "workbench_ms": 77,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "12",
+        "rows": 10000,
+        "workbench_ms": 71,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "13",
+        "rows": 10000,
+        "workbench_ms": 71,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "14",
+        "rows": 10000,
+        "workbench_ms": 70,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "15",
+        "rows": 10000,
+        "workbench_ms": 72,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "16",
+        "rows": 10000,
+        "workbench_ms": 71,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "17",
+        "rows": 10000,
+        "workbench_ms": 73,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "18",
+        "rows": 10000,
+        "workbench_ms": 76,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "19",
+        "rows": 10000,
+        "workbench_ms": 74,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "20",
+        "rows": 10000,
+        "workbench_ms": 72,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "21",
+        "rows": 10000,
+        "workbench_ms": 79,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "22",
+        "rows": 10000,
+        "workbench_ms": 75,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "23",
+        "rows": 10000,
+        "workbench_ms": 72,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "24",
+        "rows": 10000,
+        "workbench_ms": 72,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "25",
+        "rows": 10000,
+        "workbench_ms": 76,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "26",
+        "rows": 10000,
+        "workbench_ms": 70,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "27",
+        "rows": 10000,
+        "workbench_ms": 71,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "28",
+        "rows": 10000,
+        "workbench_ms": 75,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "29",
+        "rows": 10000,
+        "workbench_ms": 71,
+        "fixture_ms": 461290
+      },
+      {
+        "run": "30",
+        "rows": 10000,
+        "workbench_ms": 74,
+        "fixture_ms": 461290
+      }
+    ],
+    "summary": {
+      "rows": "10000",
+      "runs": "30",
+      "min_ms": "70",
+      "median_ms": "73",
+      "max_ms": "79",
+      "p95_ms": "77"
+    }
+  },
+  "explainAnalyzeLines": [
+    "M8_EXPLAIN_ANALYZE|import_queue_claim|ms=21|[{EXPLAIN=-> Limit: 1 row(s)  (cost=0.35 rows=1) (actual time=1.03..1.03 rows=0 loops=1)",
+    "M8_EXPLAIN_ANALYZE|budget_lookup_by_period|ms=8|[{EXPLAIN=-> Limit: 50 row(s)  (cost=555 rows=50) (actual time=2.42..3.03 rows=50 loops=1)",
+    "M8_EXPLAIN_ANALYZE|duplicate_review_page|ms=4|[{EXPLAIN=-> Limit: 50 row(s)  (cost=138 rows=12) (actual time=1.59..1.81 rows=50 loops=1)",
+    "M8_EXPLAIN_ANALYZE|workbench_provider_cost|ms=15|[{EXPLAIN=-> Limit: 20 row(s)  (actual time=3..3 rows=1 loops=1)",
+    "M8_EXPLAIN_ANALYZE|workbench_unallocated_currency|ms=4|[{EXPLAIN=-> Sort: amount DESC  (actual time=1.16..1.16 rows=1 loops=1)",
+    "M9_REPORTING_EXPLAIN|workbench_provider_cost|ms=36|plan=-> Limit: 100 row(s)  (actual time=21.6..21.6 rows=3 loops=1)",
+    "M9_REPORTING_EXPLAIN|workbench_project_cost|ms=33|plan=-> Limit: 100 row(s)  (actual time=29.9..29.9 rows=1 loops=1)",
+    "M9_REPORTING_EXPLAIN|workbench_unallocated_currency|ms=29|plan=-> Sort: amount DESC  (actual time=25.7..25.7 rows=0 loops=1)"
+  ]
+}

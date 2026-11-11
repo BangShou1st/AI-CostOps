@@ -34,17 +34,18 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 - OpenCode Zen v1.5.4 升级与真实上游 HTTP 200 验收（Backend 探针与 Gateway 聚合推理真实 200）：[OpenCode Zen v1.5.4 真实上游验收](maintenance/2026-10/2026-10-26-opencode-zen-v1.5.4-acceptance.md)
 - 远端 CI / Security 红灯整改（ingestion 读 API 集成测试 ID 碰撞断言收敛 + 前端 nginx 基线升级至 1.30.6 消除 3 项 HIGH）：[CI / Security 红灯整改验收](maintenance/2026-10/2026-10-26-ci-security-red-light-remediation.md)
 
-## 维护验收（2026-11）
+## 2026-11 维护验收
 
 - **核心业务真实性与产品一致性总报告**：链路 A/B 验收汇总、产品一致性审查（占位实现 / 前后端状态 / README 证据核查）、前端文案改造与截图验收、死代码清理与提交清单，总体 PASS：[核心业务真实性与产品一致性验收](maintenance/2026-11/2026-11-10-core-business-consistency-acceptance.md)
 - 业务链路 B（外部账单归集与财务对账）端到端真实性验收：file_hash / 记录指纹 / posting_key 三层幂等、Worker 租约与崩溃恢复、POSTED Ledger 不可变与 Correction 语义、8 项 CloseBlocker 与 CLOSED 账期写栅栏、对账溯源与前端契约层一致性，8/8 检查点 PASS：[账单归集与财务对账链路端到端验收](maintenance/2026-11/2026-11-10-billing-chain-e2e-acceptance.md)
+- 业务链路 A（AI Gateway 实时成本治理）8 检查点端到端真实性验收：预算预占 / 并发 / 中断恢复 / 未知用量 / 幂等 / 故障注入 / Redis 降级 / 工作台追溯，156 个定向复跑用例全绿（真实 MySQL 8.4 + Redis Testcontainers，模拟上游）：[Gateway 链路 E2E 验收](maintenance/2026-11/2026-11-10-gateway-chain-e2e-acceptance.md)
+- CO-00 代码、分支与安全基线：分支/SHA/依赖清单、Trivy 与 CodeQL 脱敏结果、`follow-redirects` 1.16.2 与 guava/snappy 钉版，`main @ 57696e2` 的 CI 14/14 + Security 3/3 重新验证：[CO-00 基线证据](maintenance/2026-11/2026-11-11-co-00-baseline/2026-11-11-co-00-baseline.md)
+- CO-01/CO-02 核心链路可靠性补强：预占前孤儿恢复、依赖不可用 503、对象不可读失败、导入失败指标与 50 并发同键：[CO-01/CO-02 补强验收](maintenance/2026-11/2026-11-11-co-01-co-02-reliability/2026-11-11-co-01-co-02-reliability.md)
+- CO-03 Redis 正确性与降级行为：登录限流 Lua 原子化、工作台缓存权限指纹、Gateway Redis 命令超时，以及 Redis 职责/故障矩阵与已记录限制：[CO-03 Redis 验收](maintenance/2026-11/2026-11-11-co-03-redis/2026-11-11-co-03-redis.md)
+- CO-04 SQL / Worker / 性能复验：10k/100k import 各 3 轮（289–343 rows/s）、10k reporting 30 次（p50 73 ms / p95 77 ms）、M8/M9 EXPLAIN ANALYZE；500k reporting `NOT_VERIFIED`（当前 Docker 内存不足）：[CO-04 性能验收](maintenance/2026-11/2026-11-11-co-04-sql-worker-performance/2026-11-11-co-04-sql-worker-performance.md)
+- CO-05 可观测与故障注入：计划书关联键映射、traceId/MDC、导入失败与对象存储依赖指标、§8.2 故障矩阵与交付决策：[CO-05 可观测验收](maintenance/2026-11/2026-11-11-co-05-observability/2026-11-11-co-05-observability.md)
 
 OpenCode Zen / Kilo Gateway 的接入与协议维护、Cost Intelligence 历史覆盖与输入身份改进、结算 Worker 可靠性修复等变更的逐项记录见 [`maintenance/2026-10/`](maintenance/2026-10/)。
-
-## 2026-11 维护验收
-
-- 业务链路 A（AI Gateway 实时成本治理）8 检查点端到端真实性验收：预算预占 / 并发 / 中断恢复 / 未知用量 / 幂等 / 故障注入 / Redis 降级 / 工作台追溯，156 个定向复跑用例全绿（真实 MySQL 8.4 + Redis Testcontainers，模拟上游）：[Gateway 链路 E2E 验收](maintenance/2026-11/2026-11-10-gateway-chain-e2e-acceptance.md)
-- CO-00 代码、分支与安全基线：分支/SHA/依赖清单、Trivy 与 CodeQL 脱敏结果、`follow-redirects` 1.16.2 与 guava/snappy 钉版，`main @ 57696e2` 的 CI 14/14 + Security 3/3 重新验证：[CO-00 基线证据](maintenance/2026-11/co-00-baseline/findings.md)
 
 M9 总入口：[`milestones/m9-acceptance-matrix.md`](milestones/m9-acceptance-matrix.md)；最终收敛报告：[`milestones/aic-083-m9-final-acceptance.md`](milestones/aic-083-m9-final-acceptance.md)；逐项证据见 [`milestones/`](milestones/)。
 

@@ -31,7 +31,7 @@ $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $ComposeBase = Join-Path $RepoRoot 'compose.yaml'
 $ComposeOverride = Join-Path $RepoRoot 'compose.observability.yaml'
-$EvidencePath = Join-Path $RepoRoot 'docs/03-acceptance/m9-observability-evidence.md'
+$EvidencePath = Join-Path $RepoRoot 'docs/03-acceptance/maintenance/2026-11/2026-11-11-m9-observability-smoke-evidence.md'
 
 # Resolve curl.exe (must NOT be the PowerShell `curl` alias).
 $curl = Get-Command curl.exe -ErrorAction SilentlyContinue

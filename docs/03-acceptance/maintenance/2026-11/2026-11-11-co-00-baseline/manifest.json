@@ -1,0 +1,103 @@
+{
+  "package": "CO-00",
+  "title": "代码、分支与安全基线",
+  "date": "2026-11-11",
+  "repository": "BangShou1st/AI-CostOps",
+  "baseline": {
+    "previousMain": "1fb5e74cff4b84081ff90a8717f8912b058aa793",
+    "currentMain": "57696e25ca444658ec114a8152e7224f2fa67e45",
+    "currentDev": "57696e25ca444658ec114a8152e7224f2fa67e45",
+    "perfBranchSha": "e2aa26ece44eeda3517be0f91b27096b3e373590",
+    "pr173MergeIntoDev": "a8fe98779023194b0bc49145a1289e98ff54063b",
+    "pr174SquashIntoMain": "57696e25ca444658ec114a8152e7224f2fa67e45",
+    "branchDeleted": "perf/ci-acceleration"
+  },
+  "toolchain": {
+    "java": "21.0.10",
+    "mavenWrapper": "3.9.11",
+    "mavenCli": "3.9.1",
+    "node": "24.14.0",
+    "springBoot": "4.1.0",
+    "flyway": {
+      "latest": "V32",
+      "migrationFiles": 32
+    }
+  },
+  "dependencies": {
+    "follow-redirects": {
+      "declaredBy": "axios 1.20.0 (^1.16.0)",
+      "override": "1.16.2",
+      "resolved": "1.16.2",
+      "cveHistory": {
+        "1.16.1": ["CVE-2026-111755", "CVE-2026-111756"],
+        "1.16.2": ["CVE-2026-116689"]
+      }
+    },
+    "guava": {
+      "version": "33.7.2-jre",
+      "introducedBy": "io.minio:minio:9.0.1"
+    },
+    "snappy-java": {
+      "version": "1.1.10.9",
+      "introducedBy": "io.minio:minio:9.0.1"
+    }
+  },
+  "ci": {
+    "main": {
+      "runId": 42951085970,
+      "event": "push",
+      "headSha": "57696e25ca444658ec114a8152e7224f2fa67e45",
+      "conclusion": "success",
+      "jobs": 14
+    },
+    "dev": {
+      "runId": 42951111487,
+      "event": "push",
+      "headSha": "57696e25ca444658ec114a8152e7224f2fa67e45",
+      "conclusion": "success",
+      "jobs": 14
+    }
+  },
+  "security": {
+    "main": {
+      "runId": 42951085983,
+      "event": "push",
+      "headSha": "57696e25ca444658ec114a8152e7224f2fa67e45",
+      "conclusion": "success",
+      "jobs": 3
+    },
+    "dev": {
+      "runId": 42951111400,
+      "event": "push",
+      "headSha": "57696e25ca444658ec114a8152e7224f2fa67e45",
+      "conclusion": "success",
+      "jobs": 3
+    },
+    "perfCiRun": {
+      "runId": 42578509473,
+      "headSha": "e2aa26ece44eeda3517be0f91b27096b3e373590",
+      "conclusion": "success"
+    },
+    "trivyTargets": {
+      "backend/pom.xml": 0,
+      "frontend/package-lock.json": 0,
+      "backend image app/app.jar": 0,
+      "frontend image": 0,
+      "gateway image app/app.jar": 0
+    },
+    "acceptedRisks": "NONE"
+  },
+  "historicalEvidence": {
+    "mainSecurityFailure": {
+      "runId": 42646521102,
+      "headSha": "1fb5e74cff4b84081ff90a8717f8912b058aa793",
+      "conclusion": "failure"
+    },
+    "perfCiSuccess": {
+      "runId": 42578509717,
+      "headSha": "e2aa26ece44eeda3517be0f91b27096b3e373590",
+      "conclusion": "success"
+    },
+    "perfCiFailures": [41784763372, 41785628980]
+  }
+}
