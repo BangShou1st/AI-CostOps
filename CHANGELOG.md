@@ -37,6 +37,7 @@
 - CO-05 可观测/故障注入验收（`2026-11-11-co-05-observability/`）：关联键映射、traceId/MDC、导入失败与对象存储依赖指标、§8.2 故障矩阵与交付决策
 
 ### Changed
+- HC-01 合并前审查修正：更正 `findings.md` / 验收报告中“为 `budget_reservation` 新增 `(org_id,budget_id,status)` 索引”的错误建议（V19 已存在 `idx_budget_reservation_org_budget`），说明累计 `NO_INDEX_USED` 与末态 `EXPLAIN` 的口径差异，HC-02 改为先在真实规模测量执行计划、回表与覆盖索引收益/写放大；证据见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-01-gateway-concurrency/2026-11-11-hc-01-review-followup.md`
 - `CloseBlockerProviderIntegrationTest` 过时测试方法名更正（`registryContainsExactlySevenCanonicalProviders` → `registryContainsExactlyEightCanonicalProviders`，`CloseBlockerCode` 实为 8 项；仅改名，未改断言）
 - `CostIntelligenceSchedulerFailureVisibilityIntegrationTest` 与共享上下文的启动后台 sweep 隔离（`@MockitoBean` 薄调度包装器，与服务端测试同款做法），消除同一 SHA 并行运行一绿一红的偶发重复 WARN 断言失败
 - 根任务编排新增构建产物保留策略：`.local-dev/builds/` 只保留最近 3 次运行的目录（含本次），任务结束即清理更早的历史目录，避免单次约 200 MB 的构建树无限堆积（本地实测曾累积到 4.0 GB / 43 个目录）
@@ -70,6 +71,7 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- Gateway SSE permit：建流前 `rateLimiter` / `quotaLimiter` / `orchestrator.prepareInitial` 未完成时客户端取消订阅只会触发 `doFinally(CANCEL)`，原实现在该路径泄漏 stream permit；新增 `StreamPermitLease` 三态所有权（外层 admission 链 → SSE body → released）显式移交并保证恰好一次释放，补三阶段取消回归，B04 流建立后外层完成不得提前释放的用例保持通过
 - 工作台缓存：缓存键加入调用者 ORG 权限集合的 SHA-256 指纹，修复同组织低权限成员命中高权限成员预热视图的跨权限读泄露
 - Gateway Redis 可靠性：`spring.data.redis.timeout=500ms` / `connect-timeout=1s`，Redis 已连接但慢响应/黑洞时在 Provider I/O 前有界 fail-closed；新增 blackhole 超时测试
 - 可观测性：`TraceIdFilter` 写入/清理 MDC 并校验入站 `X-Trace-Id`；导入失败最终化后发 `import.completed{result=FAILED}`（修复告警死链）；对象存储 STAT/UPLOAD 失败发 `dependency.error{OBJECT_STORAGE}`；Gateway Provider 标签补齐 `KILO_GATEWAY` / `OPENCODE_ZEN` / `CUSTOM_OPENAI_COMPATIBLE`

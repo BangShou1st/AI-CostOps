@@ -11,6 +11,7 @@
 | 工作分支 | `perf/hc-01-gateway-load-baseline` |
 | 代码/证据 SHA | `5ca7df839fa3340fec67c325ed08de6db687440c`（证据运行 HEAD；Gateway/Backend 字节码由 `bba23b5` 构建，其后仅汇总脚本变更） |
 | 环境 | 见 [`environment.json`](environment.json)；本机 Windows 11 + Docker Desktop |
+| 审查修正 | 2026-11-11 PR #177 审查后：补 SSE 建流前**取消订阅**的 permit 修复；更正 HC-02 “新增索引”建议。数据未重跑，见 [`2026-11-11-hc-01-review-followup.md`](2026-11-11-hc-01-review-followup.md) |
 | 结论 | `PASS` |
 | 影响边界 | 仅本机受控基线；不代表生产 QPS、跨地域 HA 或真实 Provider 容量 |
 
@@ -31,6 +32,9 @@
 - **发现并修复一个真实资源缺陷**：SSE 请求在取得流许可后、`invokeStream` 之前失败
   （限流/配额/路由/熔断）时，原实现不会释放许可；一次熔断窗口即可耗尽 128 个许可。
   已最小修复并新增集成回归（`StreamPermitCeilingIntegrationTest`），本基线复测通过。
+  审查补充：同一窗口内**客户端取消订阅**（只触发 `doFinally(CANCEL)`）也会泄漏；
+  已用可控 `Mono.never()` 在 rate/quota/admission 三阶段复现并修复（许可所有权从
+  外层 admission 链移交给 SSE body，`AtomicInteger` 状态机保证恰好一次释放）。
 - **本批次不做** RabbitMQ/Outbox、预算事务重构、账本迁移、分库分表或 Kubernetes；
   未对核心财务语义做任何修改。
 
@@ -143,11 +147,31 @@ M16 Mock Provider 协议；不新增运行时依赖。矩阵、产物、清理�
 账期行的 X/S 等待者约 11–12 个，`gateway_request` 的 X 锁最高 66 个
 （multi-budget c100）；多组织场景的等待者降至 1–4 个。
 
-**TX1 内的次级瓶颈**：`sumEffectiveReservations`（`budget_reservation` 按
-`org_id + budget_id + status` 求和）平均 5.12 ms，累计扫描 **1.337 亿行**，
-其中 **6,519 次未命中索引**；它在账期/预算锁内执行，直接拉长临界区。最小候选是
-为 `budget_reservation` 增加匹配 `(org_id, budget_id, status)` 的索引（只加索引、
-不改财务语义），列入 HC-02 首选验证项。`COMMIT` 累计 162,069 次、平均 20 ms，
+**TX1 内的次级成本**：`sumEffectiveReservations`（`budget_reservation` 按
+`org_id + budget_id + status` 求和）平均 5.12 ms，累计 167.24 s；该查询所需的
+`idx_budget_reservation_org_budget(org_id, budget_id, status)` **自 V19 起已经存在**，
+末态 `EXPLAIN` 也显示 `key` 正是该索引、`used_key_parts` 正是这三列
+（`rows_examined_per_scan=2`，仍需按 `reserved_amount` 回表）。
+
+累计 `SUM_NO_INDEX_USED=6,519`（32,696 次执行中的 19.9%）与末态 EXPLAIN 使用索引
+**并不矛盾**，也不能据此推断缺索引：
+
+1. `topSql` 是整轮累计（含热身、全部场景与结算排空）；末态 EXPLAIN 是排空后的单次
+   估算，此时预算快照的 `effectiveHolds=0`（EXPLAIN 估算约 2 行），索引范围比负载期
+   小几个数量级，选择索引是必然结果，不代表负载期计划。
+2. `NO_INDEX_USED` 统计的是**执行次数**，不是扫描行数；`rows_examined_per_scan` 是
+   **估算值**，不是实测。两者都不足以证明索引缺失。
+3. 负载期表从空表增长到约 3.26 万行，有效预占集合与 InnoDB 统计信息持续变化；
+   非覆盖索引需要按 `reserved_amount` 回表，代价模型可能在“索引 + 回表”与“全表扫描”
+   之间切换。19.9% 的占比与轮内计划变化相符。
+4. 累计扫描 133,731,580 行 / 32,696 次 ≈ 4,090 行/次；若全部归到 6,519 次
+   no-index 执行则约 20,515 行/次。若这些执行发生在空表/小表阶段，不可能累计出
+   该量级，因此它们更可能发生在表已具规模的阶段。封存产物没有逐次执行计划，
+   无法精确归因。
+
+该项合计 167 s，仅为首要瓶颈 `billing_period ... FOR UPDATE`（13,829 s）的约 **1.2%**，
+属于次级成本。HC-02 的方向是**先测量真实热点规模下的 `EXPLAIN ANALYZE` / 实际扫描 /
+回表 / 覆盖索引收益与写放大**，而不是新增 DDL。`COMMIT` 累计 162,069 次、平均 20 ms，
 也说明每请求多次短事务是第二层成本。
 
 机制：
@@ -207,7 +231,10 @@ Settlement 每条结算同样先锁同一账期行，再锁预算并写 Ledger�
   无 SETTLED 孤儿、无非 FINAL 结算、无非正金额结算。
 - **缺陷修复**：预流失败（限流/配额/路由/熔断）曾泄漏 SSE permit；修复位于
   `ChatCompletionController`，回归见 `StreamPermitCeilingIntegrationTest`
-  （强制 Redis 熔断打开，断言许可归零且无上游调用）。
+  （强制 Redis 熔断打开，断言许可归零且无上游调用）。审查补充的**建流前取消**
+  路径（rate/quota/admission 未完成时 cancel）同样修复并覆盖：可控 `Mono.never()`
+  + 主动 cancel，三阶段均断言 `activeStreams` 归零且 Provider 调用为 0；
+  流已建立时外层 Mono 完成不释放许可（B04 用例继续通过）。
 
 ## 9. 双实例与限流
 
@@ -236,9 +263,13 @@ Settlement 每条结算同样先锁同一账期行，再锁预算并写 Ledger�
    的前提下，评估把在线准入的账期排他锁改为不与 `gateway_request` 外键共享锁冲突的
    关闭围栏（专用锁行/版本行），或使用共享锁 + Close 排他升级；必须保留锁顺序与
    Close 语义，并用并发/故障回归证明。
-2. **缩短 TX1 临界区**：先验证 `budget_reservation(org_id,budget_id,status)` 索引
-   （只加索引，不改财务语义），把 `sumEffectiveReservations` 的扫描从亿级降到命中
-   索引；再评估把可在锁外完成的定价/上界计算移出。任何改动必须保持财务不变量。
+2. **缩短 TX1 临界区（先测量，不先加索引）**：`budget_reservation`
+   `(org_id,budget_id,status)` 索引**已由 V19 创建**
+   （`idx_budget_reservation_org_budget`），本轮不新增重复 DDL。HC-02 先在真实热点
+   数据规模下采集 `EXPLAIN ANALYZE`（实测扫描行数、回表次数、`Handler_read_*`）与
+   负载期执行计划，确认索引是否被选中、有效预占集合多大；再评估覆盖索引
+   `(org_id,budget_id,status,reserved_amount)` 或查询改造的 A/B 收益，以及新增
+   列/索引对预占 INSERT/UPDATE 的写放大。只有收益可量化且财务不变量不变时才实施。
 3. **协调结算与准入**：评估 Settlement Worker 的批处理/账期锁占用策略，减少与在线
    准入的排队；保留 DB Scanner 兜底与现有结算幂等。
 4. **再评估资源参数**：当前 `dbThreads=12`/`dbPoolMax=12` 在无锁等待的多组织场景
@@ -264,7 +295,8 @@ Settlement 每条结算同样先锁同一账期行，再锁预算并写 Ledger�
 | [`load-results.json`](load-results.json) | 全部场景/轮次、窗口、状态、分位数、资源、锁链 |
 | [`db-invariants.json`](db-invariants.json) | 最终结算快照、预算、SQL 摘要、EXPLAIN |
 | [`rate-limit-verification.json`](rate-limit-verification.json) | 修正 token 子键重置后的正常限流 3 轮补充验证 |
-| [`findings.md`](findings.md) | 瓶颈、证据与 HC-02 最小建议 |
+| [`findings.md`](findings.md) | 瓶颈、证据与 HC-02 最小建议（索引建议已按审查更正） |
+| [`2026-11-11-hc-01-review-followup.md`](2026-11-11-hc-01-review-followup.md) | 合并前审查修正：SSE 建流前取消 permit 复现/修复/回归与 HC-02 索引分析更正 |
 | `scripts/perf/hc01/` | 一键 harness、Mock、种子、验证、汇总 |
 
 复现：

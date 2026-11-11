@@ -3,6 +3,11 @@
 > 运行 HEAD：`5ca7df839fa3340fec67c325ed08de6db687440c`（Gateway/Backend 字节码来自 `bba23b5`，其后仅汇总脚本变更）；
 > 完整数据见 [`load-results.json`](load-results.json)、[`environment.json`](environment.json)、
 > [`db-invariants.json`](db-invariants.json)。
+>
+> 2026-11-11 审查修正（PR #177）：更正了 §2.6 与 §5 中“新增
+> `(org_id,budget_id,status)` 索引”的错误建议（该索引自 V19 起已存在），并补充
+> SSE 建流前取消订阅的 permit 泄漏修复。压测数字与 `load-results.json` 未改动；
+> 修正过程见 [`2026-11-11-hc-01-review-followup.md`](2026-11-11-hc-01-review-followup.md)。
 
 ## 1. 一句话结论
 
@@ -61,14 +66,42 @@
 - MySQL 容器在压测中约 40–65% CPU、约 350 MiB 内存；128 MiB buffer pool
   是环境限制，不能外推生产。
 
-### 2.6 TX1 内的次级瓶颈
+### 2.6 TX1 内的次级成本：`sumEffectiveReservations`
 
-- `sumEffectiveReservations`（`budget_reservation` 按 `org_id + budget_id + status`
-  求和）平均 5.12 ms，累计扫描 **1.337 亿行**，其中 **6,519 次未命中索引**；
-  它在账期/预算锁内执行，直接拉长临界区。
-- `COMMIT` 累计 162,069 次、平均 20 ms；每请求多次短事务是第二层成本。
-- 最小候选（HC-02）：为 `budget_reservation` 增加匹配
-  `(org_id, budget_id, status)` 的索引；只加索引，不改财务语义。
+- **索引已经存在**：`V19__m12_budget_reservation.sql` 定义了
+  `idx_budget_reservation_org_budget(org_id, budget_id, status)`，查询恰好按这三列过滤。
+  `db-invariants.json` 的末态 `EXPLAIN FORMAT=JSON` 显示
+  `key=idx_budget_reservation_org_budget`、`used_key_parts=[org_id,budget_id,status]`、
+  `rows_examined_per_scan=2`、`query_cost=3.44`；查询仍需按 `reserved_amount` 回表
+  （`used_columns` 包含该列）。
+- **累计统计**（`performance_schema`，整轮）：32,696 次调用、平均 5.115 ms、
+  合计 167.24 s、`SUM_ROWS_EXAMINED=133,731,580`、`SUM_NO_INDEX_USED=6,519`。
+- **累计 `NO_INDEX_USED` 与末态 EXPLAIN 不能直接合并解读为“缺索引”**：
+  1. **时间点不同**：`topSql` 是整轮累计（热身 + 全部场景 + 结算排空）；
+     末态 `EXPLAIN` 是排空后的一次估算。此时预算快照的 `effectiveHolds=0`
+     （EXPLAIN 估算约 2 行），索引范围比负载期小几个数量级，选择索引是必然结果，
+     不能代表负载期的执行计划。
+  2. **语义不同**：`SUM_NO_INDEX_USED` 统计“未使用索引的**执行次数**”
+     （6,519/32,696≈19.9%），不是扫描行数；`EXPLAIN` 的
+     `rows_examined_per_scan` 是**估算值**，不是实测扫描行数。两者都不能单独
+     证明索引存在或缺失。
+  3. **数据分布不同**：负载期 `budget_reservation` 从空表增长到约 3.26 万行，
+     有效预占集合与 InnoDB 持久化统计（按阈值异步刷新）持续变化；非覆盖索引需要按
+     `reserved_amount` 回表，代价模型可能在“二级索引 + 回表”与“全表扫描”之间切换。
+     19.9% 的 no-index 占比与“轮内计划发生变化”相符，不能推断索引不存在。
+  4. **归因不完整**：133,731,580/32,696≈4,090 行/次；若把扫描全部归到 6,519 次
+     no-index 执行，则约 20,515 行/次。若这些执行发生在空表/小表阶段，不可能累计出
+     该量级的扫描行数，因此它们更可能发生在表已具规模的阶段。封存产物没有逐次执行
+     计划，无法把 no-index 精确归因到某个时间点；HC-02 必须补 `EXPLAIN ANALYZE`
+     与逐阶段计划，而不是据此新增 DDL。
+- **量级判断**：该项合计 167 s，约为 `billing_period ... FOR UPDATE` 13,829 s 的
+  **1.2%**。它是 TX1 临界区内的次级成本，不是首要瓶颈；现有证据不支持新增索引，
+  更不支持重复创建 `(org_id, budget_id, status)` 索引。
+- **HC-02 方向（本轮不执行）**：在真实热点数据规模下采集 `EXPLAIN ANALYZE`
+  （实测扫描行数、回表次数、`Handler_read_*`）与负载期执行计划，确认索引是否被选中、
+  有效预占集合多大；再评估覆盖索引 `(org_id, budget_id, status, reserved_amount)`
+  或查询改造的 A/B 收益，以及新增列/索引对预占 INSERT/UPDATE 的写放大。
+  `COMMIT` 累计 162,069 次、平均 20 ms，也说明每请求多次短事务是第二层成本。
 
 ## 3. Settlement 干扰
 
@@ -88,9 +121,15 @@ mixed 对照分开，不把 mixed 的低 RPS 当作 Gateway 容量。
   SSE 许可归零。
 - FINAL→Settlement→Ledger：最终收敛后 1:1:1，无重复 posting_key、无孤儿、
   无非 FINAL 结算、无非正金额结算。
-- 缺陷：SSE 请求在取得许可后、`invokeStream` 之前失败时泄漏许可；已修复并由
+- 缺陷 1：SSE 请求在取得许可后、`invokeStream` 之前失败时泄漏许可；已修复并由
   `StreamPermitCeilingIntegrationTest` 覆盖（强制 Redis 熔断打开，断言许可归零、
   无上游调用）。
+- 缺陷 2（审查补充）：取得许可后、`rateLimiter` / `quotaLimiter` /
+  `orchestrator.prepareInitial` 尚未完成时客户端取消订阅，只会触发
+  `doFinally(CANCEL)` 而不会触发 `onErrorResume`，原实现同样泄漏许可。已用可控
+  `Mono.never()` + 主动 cancel 在三个阶段分别复现（`activeStreams` 停留 1），
+  修复后归零且无上游调用；见
+  [`2026-11-11-hc-01-review-followup.md`](2026-11-11-hc-01-review-followup.md)。
 
 ## 5. HC-02 建议（按优先级）
 
@@ -98,9 +137,13 @@ mixed 对照分开，不把 mixed 的低 RPS 当作 Gateway 容量。
    `gateway_request` 外键引用的行上”（专用锁行/版本行），或 OPEN 期间用共享锁、
    Close 时排他升级；必须保留 Close 串行化、预算不变量与锁顺序，并用并发 +
    故障回归证明。禁止用 Redis 计数替代 MySQL 财务裁决。
-2. **缩短 TX1 临界区**：先验证 `budget_reservation(org_id,budget_id,status)` 索引
-   （只加索引，不改财务语义），把 `sumEffectiveReservations` 的扫描从亿级降到命中
-   索引；再评估定价/上界计算移到锁外。任何改动必须先通过财务不变量。
+2. **缩短 TX1 临界区（先测量，不先加索引）**：`budget_reservation`
+   `(org_id,budget_id,status)` 索引**已存在**（V19
+   `idx_budget_reservation_org_budget`），本轮不新增任何重复 DDL。HC-02 先在真实
+   热点数据规模下用 `EXPLAIN ANALYZE` / 负载期执行计划核对索引选择、实际扫描行数、
+   `reserved_amount` 回表成本与有效预占集合大小；再评估覆盖索引
+   `(org_id,budget_id,status,reserved_amount)` 或查询改造的 A/B 收益与写放大，
+   只有收益可量化且财务不变量不变时才实施。
 3. **协调结算与准入**：评估 Settlement Worker 的账期锁占用/批处理节奏，
    减少与在线准入的排队；保留 DB Scanner 兜底与结算幂等。
 4. **再调资源**：当前 12 DB 线程/12 连接在多组织无锁场景也接近上限；
