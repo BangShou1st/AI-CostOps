@@ -35,7 +35,7 @@
 - CI/CD 工作流极致加速与资源治理：
   - 并发控制与自动取消：`.github/workflows/ci.yml` 和 `security.yml` 引入 `concurrency` 机制，PR 连续推送自动取消旧运行以节省配额，`main` 分支保持独立执行保障发布审计
   - 路径变更检测与智能短路：引入 `dorny/paths-filter@v3` 进行模块级变更检测，纯文档变更跳过耗时编译与测试，各作业均正常报告 SUCCESS 以规避必需检查（Required Checks）挂起
-  - 集成测试套件分片并行：将 `backend-integration` 198 个集成测试类通过 Matrix 拆分为 2 个并行 Shard，添加 `-Dtest=none` 消除重复单元测试，墙钟时间从 409 秒腰斩至约 180 秒
+  - 集成测试套件分片并行：将 `backend-integration` 198 个集成测试类通过 Matrix 拆分为 2 个并行 Shard；作业使用 `-Dsurefire.skip=true`，但该属性在 Surefire 3.5.6 下不生效（每个分片仍会执行 694 个单测，属已知待优化项），墙钟时间较串行 409 秒显著下降
   - 浏览器端到端测试加速：`browser-e2e` 作业新增 Playwright 浏览器二进制缓存（`~/.cache/ms-playwright`），免去每次 67 秒外网下载
   - 容器镜像构建并行化与缓存加固：`docker-build` 与 `trivy` 中 3 个容器镜像构建由串行改为后台并发构建；Dockerfile 补全 BuildKit `--mount=type=cache`（Maven/npm 缓存）；补齐 `gateway/.dockerignore`
   - 微型作业整合：`backend-unit` / `gateway-unit` 原生整合架构测试（ArchUnit），`frontend-quality` 整合 lint 与 build，减少重复虚拟机冷启动与依赖安装开销
@@ -79,7 +79,7 @@
 - 集成测试隔离：`AuthorizationContextServiceIntegrationTest`、`ScopedBudgetRiskIntegrationTest`、`RecommendationAppliedLinkageIntegrationTest`、`SavingsRecommendationCommandAtomicityIntegrationTest` 改用 FK-safe 的 `M2DatabaseCleaner`，不再依赖"恰好排在污染源之前"的执行顺序
 - 集成测试隔离：`M2DatabaseCleaner` 补齐 V28 新增的 `cost_history_coverage` / `cost_history_coverage_revision`（两者都引用 `app_user` / `organization`）
 - 前端测试竞态：修复 `ImportWorkflow.test.tsx` 中的异步状态断言，避免高并发测试下的时序竞争假阴性
-- 安全依赖：`follow-redirects` 升级 1.16.0 → 1.16.1，关闭 CVE-2026-111755 / CVE-2026-111756（Trivy HIGH 阻断）
+- 安全依赖：`follow-redirects` 升级 1.16.0 → 1.16.1，关闭 CVE-2026-111755 / CVE-2026-111756；随后 pin 到 1.16.2，关闭 CVE-2026-116689（均为 Trivy HIGH 阻断）
 
 ### Security
 - M22 双组织浏览器隔离与模型可见性边界修复（跨租户私有模型元数据泄露与未授权定价关联写入）
