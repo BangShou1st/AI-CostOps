@@ -19,11 +19,11 @@
 - **真实故障，而不是 Mock 异常**：Redis 停服/黑洞、MySQL 停机、Gateway `taskkill /F /T`
   （Windows 上的 SIGKILL 等价物）、Backend 结算事务中 kill、真实 HTTP Close 全部实际执行。
   所有可停服务均为本任务独占容器，共享开发 MySQL/Redis 未被停止或 FLUSHALL。
-- **故障期间安全拒绝**：Redis 停服 13 ms、黑洞 604 ms 内 503；MySQL 停机 30.0 s 内 503
+- **故障期间安全拒绝**：Redis 停服 13 ms、黑洞 567 ms 内 503；MySQL 停机 30.0 s 内 503
   （Hikari 产品默认 `connectionTimeout`），Provider 调用数 **0**，无假成功、无无限等待。
 - **崩溃不造成财务重复**：F03b/F04 中“可能已派发”的请求保留 `PENDING_HOLD`、无 FINAL、
   无 settlement、同幂等身份重放 409；只有真实完成的请求产生唯一的 FINAL→Settlement→Ledger。
-- **双实例只提供对新请求的部分可用性**：A 被杀后 B 在 196 ms（中位）内服务新请求；
+- **双实例只提供对新请求的部分可用性**：A 被杀后 B 在 167 ms（中位）内服务新请求；
   旧 SSE 连接断开；harness 显式选择端口，**没有**入口负载均衡/自动接管。
 - **结算可恢复**：事务中 kill 后 0 posting、Budget Actual 不变；重启后唯一 SETTLED，
   `FINAL = SETTLED = postings`；真实数据库暂断期间 Backend 存活且可诊断，恢复后自动收敛。
@@ -78,15 +78,15 @@ node scripts/perf/hc03/runner.mjs --reps=3 --skip-build
 
 | ID | 结果 | t_detect（中位） | t_restore（中位） | 新请求/收敛 | 关键证据 |
 |---|---|---:|---:|---:|---|
-| F01 stop | PASS 3/3 | 13 ms | 784 ms | 1 237 / 245 ms | 503、Provider 0、恢复后 200 |
-| F01 pause | PASS 3/3 | 604 ms | 836 ms | 251 ms | 500 ms 命令超时封顶，无放行 |
-| F02 | PASS 3/3 | 30 014 ms | 34 408 ms | 4 074 ms | 503、无派发、连接池恢复 |
-| F03a | PASS 3/3 | 453 ms | 9 273 ms | 905 ms | PLANNED、无预留、FAILED_PRE_DISPATCH |
-| F03b | PASS 3/3 | 489 ms | 10 849 ms | 844 ms | PENDING_HOLD、无 FINAL、重放 409 |
-| F04 | PASS 3/3 | 508 ms | 8 455 ms（A 重启） | B 接管 196 ms | B 200、旧 SSE 断开、无重放 |
-| F05 kill | PASS 3/3 | 460 ms | 18 261 ms | 424 ms | 0 posting → 唯一 SETTLED |
-| F05 db | PASS 3/3 | 6 080 ms | 3 150 ms | 5 609 ms | Backend 存活、恢复后唯一结算 |
-| F06 | PASS 3/3（专项 PARTIAL） | — | — | Close 130–1 500 ms | BLOCKED + `PENDING_GATEWAY_FINANCIAL_WORK=FAIL(2)` |
+| F01 stop | PASS 3/3 | 13 ms | 777 ms | 232 ms | 503、Provider 0、恢复后 200 |
+| F01 pause | PASS 3/3 | 567 ms | 830 ms | 213 ms | 500 ms 命令超时封顶，无放行 |
+| F02 | PASS 3/3 | 30 012 ms | 34 241 ms | 4 938 ms | 503、无派发、连接池恢复 |
+| F03a | PASS 3/3 | 481 ms | 10 669 ms | 786 ms | PLANNED、无预留、FAILED_PRE_DISPATCH |
+| F03b | PASS 3/3 | 544 ms | 8 352 ms | 692 ms | PENDING_HOLD、无 FINAL、重放 409 |
+| F04 | PASS 3/3 | 479 ms | 7 663 ms（A 重启） | B 接管 167 ms | B 200、旧 SSE 断开、无重放 |
+| F05 kill | PASS 3/3 | 486 ms | 16 176 ms | 351 ms | 0 posting → 唯一 SETTLED |
+| F05 db | PASS 3/3 | 6 010 ms | 3 078 ms | 5 376 ms | Backend 存活、恢复后唯一结算 |
+| F06 | PASS 3/3（专项 PARTIAL） | — | — | Close 64–111 ms | BLOCKED + `PENDING_GATEWAY_FINANCIAL_WORK=FAIL(2)` |
 
 完整矩阵、逐项断言与边界见 [`fault-matrix.md`](fault-matrix.md)。
 
@@ -122,7 +122,7 @@ node scripts/perf/hc03/runner.mjs --reps=3 --skip-build
 | 判定 | 内容 |
 |---|---|
 | **PASS** | F01（stop/pause）、F02、F03a、F03b、F04、F05kill、F05db、F06（Close blocked 路径），各 3/3 |
-| **PARTIAL** | F06“Close 先胜 → CLOSING 窗口内 TX1/TX2 fail closed”仅在确定性集成测试中证明，真实 Close 窗口 130 ms 未命中 |
+| **PARTIAL** | F06“Close 先胜 → CLOSING 窗口内 TX1/TX2 fail closed”仅在确定性集成测试中证明，真实 Close 窗口 64–111 ms 未命中 |
 | **NOT_VERIFIED** | MySQL 单节点断电期间财务 API 持续可用；Gateway 流连接无缝迁移；跨机/跨 Region 高可用；生产 SLA/RTO/RPO；真实 Provider 故障 |
 | **FAIL** | 无 |
 
@@ -151,3 +151,4 @@ node scripts/perf/hc03/runner.mjs --reps=3 --skip-build
 | [`results.json`](results.json) | 逐轮 checks/timeline/metrics 与数据库快照 |
 | `scripts/perf/hc03/` | 可重复入口与 harness（`npm run perf:hc03`） |
 | `GatewayDataSourceOutageIntegrationTest` | TX1/TX2 数据源故障与连接池恢复回归 |
+

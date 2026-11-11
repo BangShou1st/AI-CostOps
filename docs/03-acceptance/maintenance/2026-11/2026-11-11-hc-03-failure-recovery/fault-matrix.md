@@ -23,15 +23,15 @@
 
 | 场景 | t_detect | t_restore（依赖/进程恢复） | t_healthy（新请求/结算成功） | 备注 |
 |---|---:|---:|---:|---|
-| F01-stop | 13 ms | 784 ms | 1 237 ms（首轮）/ 245 ms（后续） | Redis 拒绝连接，失败立即发生 |
-| F01-pause | 604 ms | 836 ms | 251 ms | 静默 Redis 由 500 ms 命令超时封顶 |
-| F02 | 30 014 ms | 34 408 ms | 4 074 ms | **30 s 来自 Hikari `connectionTimeout` 产品默认值** |
-| F03a | 453 ms（kill 完成） | 9 273 ms | 905 ms | TTL=20 s + 3 s 扫描后转 FAILED_PRE_DISPATCH（观测约 20–25 s） |
-| F03b | 489 ms（kill 完成） | 10 849 ms | 844 ms | TTL=20 s 后转 PENDING_HOLD（观测约 20–25 s） |
-| F04 | 508 ms（kill 完成） | 8 455 ms（A 重启） | B 接管 196 ms | **196 ms 是客户端显式切到 :18082，不是入口自动切换** |
-| F05-kill | 460 ms | 18 261 ms（Backend 重启） | 424 ms（结算收敛） | 事务回滚 + 重启后单次结算 |
-| F05-db | 6 080 ms（探针窗口） | 3 150 ms（MySQL 启动） | 5 609 ms | readiness/日志可见，Backend 未崩溃循环 |
-| F06 | — | — | Close 130–1 500 ms | Close 返回 BLOCKED；未观察到 CLOSING 窗口内的 503 |
+| F01-stop | 13 ms | 777 ms | 232 ms | Redis 拒绝连接，失败立即发生 |
+| F01-pause | 567 ms | 830 ms | 213 ms | 静默 Redis 由 500 ms 命令超时封顶 |
+| F02 | 30 012 ms | 34 241 ms | 4 938 ms | **30 s 来自 Hikari `connectionTimeout` 产品默认值** |
+| F03a | 481 ms（kill 完成） | 10 669 ms | 786 ms | TTL=20 s + 3 s 扫描后转 FAILED_PRE_DISPATCH（观测约 20–25 s） |
+| F03b | 544 ms（kill 完成） | 8 352 ms | 692 ms | TTL=20 s 后转 PENDING_HOLD（观测约 20–25 s） |
+| F04 | 479 ms（kill 完成） | 7 663 ms（A 重启） | B 接管 167 ms | **167 ms 是客户端显式切到 :18082，不是入口自动切换** |
+| F05-kill | 486 ms | 16 176 ms（Backend 重启） | 351 ms（结算收敛） | 事务回滚 + 重启后单次结算 |
+| F05-db | 6 010 ms（探针窗口） | 3 078 ms（MySQL 启动） | 5 376 ms | readiness/日志可见，Backend 未崩溃循环 |
+| F06 | — | — | Close 64–111 ms | Close 返回 BLOCKED；未观察到 CLOSING 窗口内的 503 |
 
 > `t_detect` 是“注入后第一次观测到故障语义”的时间：F01 为失败响应到达；F02 为 503 到达；
 > F03/F04/F05 为进程确认消失。`t_restore` 是从 detect 到依赖/进程重新 ready。
@@ -44,7 +44,7 @@
 - 注入前：预热请求 200，Provider 调用 1 次。
 - 停服后：连续 2 个请求均 **HTTP 503 `GATEWAY_DEPENDENCY_UNAVAILABLE`**；Provider 调用 **0**；
   被拒绝的幂等身份 **没有生成 `gateway_request` 行**（限流在准入前）。
-- 黑洞（`docker pause`）：失败延迟稳定在 ~604 ms，符合 `spring.data.redis.timeout=500ms` +
+- 黑洞（`docker pause`）：失败延迟稳定在 ~567 ms（中位），符合 `spring.data.redis.timeout=500ms` +
   `connect-timeout=1s` 的上界；**没有**因本地熔断降级而放行。
 - 恢复后（同一 Redis 容器）：新幂等身份 200，Provider **恰好 1 次**，FINAL→Settlement→Ledger
   各恰好 1 条；预算未超扣。
@@ -85,7 +85,7 @@
 ### F04 Gateway A 崩溃、B 继续服务
 
 - A 上存在被 Provider hold 的 SSE（`UPSTREAM_ACTIVE` + ACTIVE 预留）时 kill A。
-- A 的 SSE 客户端连接断开（无 `[DONE]` 伪造完成）；B 在 **196 ms（中位）** 内成功处理新请求。
+- A 的 SSE 客户端连接断开（无 `[DONE]` 伪造完成）；B 在 **167 ms（中位）** 内成功处理新请求。
 - 用 A 的旧幂等身份向 B 重放：**409**，Provider 调用不增加（无透明重放）。
 - A 的预留最终为 `PENDING_HOLD`；B 的新请求正常 FINAL→SETTLED；无重复 FINAL、无预算超扣。
 - 重启 A 后新请求 200。
@@ -114,7 +114,7 @@
   **`PENDING_GATEWAY_FINANCIAL_WORK = FAIL, itemCount=2`**（请求 + 预留），证明 Close blockers
   看见了已提交的派发事实；`OPEN_MATERIAL_RECONCILIATION` 同时因未完成的合成对账 case 为 FAIL
   （如实记录，不作为网关证据）。
-- 并发 6 个 Gateway 请求：**6/6 200**，0 个 503；没有观察到 CLOSING 窗口（Close 仅 130 ms）。
+- 并发 6 个 Gateway 请求：**6/6 200**，0 个 503；没有观察到 CLOSING 窗口（Close 仅 64–111 ms）。
   Provider 调用 = 6 + 1（held）；账期最终回到 OPEN；全部请求 FINAL→SETTLED 1:1；
   Gateway 无重复 attempt、无预算超扣。
 - 3/3 轮 PASS。
@@ -145,3 +145,4 @@
 | **PARTIAL** | F06“Close 先胜 → CLOSING 窗口内 TX1/TX2 fail closed”只在确定性集成测试中证明；真实 Close 窗口 130 ms 未命中 |
 | **NOT_VERIFIED** | MySQL 单节点断电期间财务 API 持续可用；Gateway 流连接无缝迁移；跨机/跨 Region 高可用；生产 SLA/RTO/RPO；真实 Provider 故障 |
 | **FAIL** | 无（最终执行 0 财务违例） |
+
