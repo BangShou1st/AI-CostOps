@@ -87,9 +87,9 @@ jobs:
 
       - name: Build security images in parallel
         run: |
-          docker build --tag ai-costops-backend:security backend & p1=$!
-          docker build --tag ai-costops-frontend:security frontend & p2=$!
-          docker build --tag ai-costops-gateway:security gateway & p3=$!
+          docker build --pull --no-cache --tag ai-costops-backend:security backend & p1=$!
+          docker build --pull --no-cache --tag ai-costops-frontend:security frontend & p2=$!
+          docker build --pull --no-cache --tag ai-costops-gateway:security gateway & p3=$!
           # Bare `wait` always exits 0 and would swallow a failed build,
           # letting Trivy scan a missing image. Propagate every failure.
           status=0
