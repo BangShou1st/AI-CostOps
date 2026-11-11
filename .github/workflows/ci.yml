@@ -26,7 +26,11 @@ jobs:
       gateway: ${{ steps.filter.outputs.gateway }}
       frontend: ${{ steps.filter.outputs.frontend }}
       scripts: ${{ steps.filter.outputs.scripts }}
-      docs_only: ${{ steps.filter.outputs.docs_only }}
+      code: ${{ steps.filter.outputs.code }}
+      # docs_only is only a proof when no non-documentation path changed.
+      # Without the second term, a docs+deploy change (or a .github-only
+      # change) could claim "docs only" and let every required job skip.
+      docs_only: ${{ steps.filter.outputs.docs_only == 'true' && steps.filter.outputs.code != 'true' }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v3
@@ -52,6 +56,22 @@ jobs:
               - 'scripts/**'
               - 'package*.json'
               - '.github/workflows/ci.yml'
+            # Every path that is not a documentation-only asset. A docs-only
+            # change set is the only one allowed to skip all required jobs.
+            code:
+              - 'backend/**'
+              - 'gateway/**'
+              - 'frontend/**'
+              - 'scripts/**'
+              - 'package*.json'
+              - 'compose*.yaml'
+              - 'docker-compose*.yml'
+              - 'deploy/**'
+              - '.github/**'
+              - '.trivyignore'
+              - '.env.example'
+              - 'Dockerfile*'
+              - '.dockerignore'
             docs_only:
               - 'docs/**'
               - '*.md'
@@ -567,13 +587,79 @@ jobs:
     steps:
       - name: Verify all required jobs succeeded
         shell: bash
+        env:
+          DOCS_ONLY: ${{ needs.detect-changes.outputs.docs_only }}
+          BACKEND: ${{ needs.detect-changes.outputs.backend }}
+          GATEWAY: ${{ needs.detect-changes.outputs.gateway }}
+          FRONTEND: ${{ needs.detect-changes.outputs.frontend }}
+          SCRIPTS: ${{ needs.detect-changes.outputs.scripts }}
+          DETECT_CHANGES: ${{ needs.detect-changes.result }}
+          SCRIPTS_UNIT: ${{ needs.scripts-unit.result }}
+          SCRIPTS_LIFECYCLE: ${{ needs.scripts-lifecycle.result }}
+          BACKEND_UNIT: ${{ needs.backend-unit.result }}
+          BACKEND_INTEGRATION: ${{ needs.backend-integration.result }}
+          GATEWAY_UNIT: ${{ needs.gateway-unit.result }}
+          GATEWAY_INTEGRATION: ${{ needs.gateway-integration.result }}
+          FRONTEND_QUALITY: ${{ needs.frontend-quality.result }}
+          FRONTEND_TEST: ${{ needs.frontend-test.result }}
+          DOCKER_BUILD: ${{ needs.docker-build.result }}
+          BROWSER_E2E: ${{ needs.browser-e2e.result }}
+          # Every job runs unconditionally on main, so a skip there is never
+          # justified regardless of the path filters.
+          FORCED: ${{ github.ref == 'refs/heads/main' }}
         run: |
-          RESULTS="${{ join(needs.*.result, ' ') }}"
-          echo "Job results: $RESULTS"
-          for res in $RESULTS; do
-            if [ "$res" = "failure" ] || [ "$res" = "cancelled" ]; then
-              echo "Error: At least one job failed or was cancelled."
-              exit 1
-            fi
-          done
-          echo "All checks passed successfully."
+          fail=0
+
+          # A skip is a failure unless the detect-changes filter for that job
+          # did not match. This is the "no unexplained skipped" rule; the
+          # all-skipped check below closes the out-of-band path hole
+          # (.github/**, deploy/**, .trivyignore) that the old gate let pass.
+          check() {
+            local name="$1" result="$2" expected="$3"
+            if [ "$FORCED" = "true" ]; then expected="true"; fi
+            case "$result" in
+              success)
+                return 0
+                ;;
+              skipped)
+                if [ "$expected" = "true" ]; then
+                  echo "::error::${name} was skipped although its change filter matched."
+                  fail=1
+                fi
+                ;;
+              *)
+                echo "::error::${name} ended as '${result}'."
+                fail=1
+                ;;
+            esac
+          }
+
+          check detect-changes "$DETECT_CHANGES" true
+          check scripts-unit "$SCRIPTS_UNIT" "$SCRIPTS"
+          check scripts-lifecycle "$SCRIPTS_LIFECYCLE" "$SCRIPTS"
+          check backend-unit "$BACKEND_UNIT" "$BACKEND"
+          check backend-integration "$BACKEND_INTEGRATION" "$BACKEND"
+          check gateway-unit "$GATEWAY_UNIT" "$GATEWAY"
+          check gateway-integration "$GATEWAY_INTEGRATION" "$GATEWAY"
+          check frontend-quality "$FRONTEND_QUALITY" "$FRONTEND"
+          check frontend-test "$FRONTEND_TEST" "$FRONTEND"
+
+          APP_CODE=false
+          if [ "$BACKEND" = "true" ] || [ "$GATEWAY" = "true" ] || [ "$FRONTEND" = "true" ]; then
+            APP_CODE=true
+          fi
+          check docker-build "$DOCKER_BUILD" "$APP_CODE"
+          check browser-e2e "$BROWSER_E2E" "$APP_CODE"
+
+          if [ "$DOCS_ONLY" != "true" ] \
+            && [ "$BACKEND" != "true" ] && [ "$GATEWAY" != "true" ] \
+            && [ "$FRONTEND" != "true" ] && [ "$SCRIPTS" != "true" ]; then
+            echo "::error::No tracked application area changed and the change set is not docs-only; changes outside the known filters (for example .github/**, deploy/** or .trivyignore) cannot pass this gate silently."
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "One or more required jobs did not satisfy the merge gate."
+            exit 1
+          fi
+          echo "All required checks passed (docs_only=$DOCS_ONLY)."

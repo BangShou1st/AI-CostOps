@@ -1,0 +1,22 @@
+# CODEOWNERS — AI CostOps
+#
+# The merge-gate configuration and deployment assets must be reviewed by the
+# repository owner. A pull request that only touches these paths cannot rely on
+# path-filtered CI jobs as its safety proof (see ci-status in ci.yml).
+#
+# Last matching pattern wins, so the specific entries below override `*`.
+# Replace @BangShou1st if the maintainer account changes.
+
+* @BangShou1st
+
+# Merge-gate and supply-chain configuration.
+/.github/ @BangShou1st
+/.trivyignore @BangShou1st
+
+# Deployment topology and production orchestration.
+/compose*.yaml @BangShou1st
+/docker-compose*.yml @BangShou1st
+/deploy/ @BangShou1st
+
+# Production configuration defaults referenced by the fail-fast validator.
+/.env.example @BangShou1st
