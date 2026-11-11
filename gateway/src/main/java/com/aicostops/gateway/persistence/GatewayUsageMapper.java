@@ -12,6 +12,14 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface GatewayUsageMapper {
 
+    /**
+     * Locks the request/route-attempt lineage ONLY. {@code FOR UPDATE OF gr, ra}
+     * deliberately excludes the joined pricing_version: that row is shared by
+     * every request in the organization, so locking it would serialize all
+     * usage finalizations (it became the next hotspot after the billing_period
+     * lock was shared). pricing_version's currency is immutable; only its
+     * status/activation timestamps can change.
+     */
     @Select("""
             SELECT gr.state AS request_state, gr.current_usage_fact_id,
                    gr.dispatch_intent_at, ra.status AS route_status,
@@ -23,7 +31,7 @@ public interface GatewayUsageMapper {
             JOIN pricing_version pv
               ON pv.id=ra.pricing_version_id AND pv.org_id=ra.org_id
             WHERE gr.id=#{requestId} AND gr.org_id=#{orgId}
-            FOR UPDATE
+            FOR UPDATE OF gr, ra
             """)
     LineageRow lockLineage(
             @Param("orgId") long orgId,

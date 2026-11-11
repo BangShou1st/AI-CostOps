@@ -11,6 +11,8 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- HC-02 账期锁竞争审计与最小优化（Issue #178）：`billing_period` 共享锁（TX1/TX2）+ TX1/TX2 `READ COMMITTED` 当前读，usage finalization 的 `lockLineage` 改为 `FOR UPDATE OF gr, ra`（不再 X 锁共享 `pricing_version` 行），预算行 X 锁、Close 账期 X 锁、财务语义与全部表/索引不变；新增 `PeriodLockSharedConcurrencyIntegrationTest`（共享锁并发、stale-snapshot 不超扣、CLOSING 拒绝）、`GatewayPeriodSharedLockCloseIntegrationTest`（Close 等待共享锁后 CLOSING、Gateway shared reader 观察到 CLOSING）与 usage finalization 的 pricing_version 锁范围回归；审计与设计见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/lock-boundary-audit.md`
+- HC-01 harness 新增 HC-02 A/B 入口：`--suite=hc02` 只跑账期热点矩阵，`--gateway-jar` 指定基线/优化 JAR，`--variant` 与 `--code-sha` 写入产物，避免优化前后 SHA 混淆
 - HC-01 Gateway 单/双实例高并发基线 harness（`scripts/perf/hc01/`）：隔离数据库/Redis、真实 Backend/Mock Provider、独立 Gateway JVM、热点/对照预算矩阵、逐轮财务不变量与结算收敛核对；一键入口 `npm run perf:hc01`
 - Gateway 阻塞 DB 调度器饱和可观测性：`gateway_db_active` / `gateway_db_queued` / `gateway_db_threads_max` / `gateway_db_queue_capacity`（仅新增指标，不改变调度语义）
 - HC-01 Gateway 单/双实例高并发基线验收（`docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-01-gateway-concurrency/`）：5–200 并发 ×3 轮、热点/多预算/多组织/双实例/慢上游/SSE/断流/同键/预算耗尽/正常限流，逐轮财务与 permit 不变量；首要瓶颈为 `billing_period` 行锁 + `gateway_request` 外键共享锁排队；修复预流失败 SSE permit 泄漏；补充限流验证。
@@ -37,6 +39,7 @@
 - CO-05 可观测/故障注入验收（`2026-11-11-co-05-observability/`）：关联键映射、traceId/MDC、导入失败与对象存储依赖指标、§8.2 故障矩阵与交付决策
 
 ### Changed
+- HC-02 账期热点锁优化 A/B：8 个场景各 3 轮，成功 RPS +14%～+206%、P95 −22%～−70%，`billing_period` 锁等待 254.8 ms→1.96 ms、`lockLineage` 56.1 ms→0.31 ms；两轮财务不变量 0 违例、结算完全收敛。单预算仍受按设计保留的预算行 X 锁限制（227.3 ms），后续若继续优化需改预占/可用额度策略。详见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/`
 - HC-01 合并前审查修正：更正 `findings.md` / 验收报告中“为 `budget_reservation` 新增 `(org_id,budget_id,status)` 索引”的错误建议（V19 已存在 `idx_budget_reservation_org_budget`），说明累计 `NO_INDEX_USED` 与末态 `EXPLAIN` 的口径差异，HC-02 改为先在真实规模测量执行计划、回表与覆盖索引收益/写放大；证据见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-01-gateway-concurrency/2026-11-11-hc-01-review-followup.md`
 - `CloseBlockerProviderIntegrationTest` 过时测试方法名更正（`registryContainsExactlySevenCanonicalProviders` → `registryContainsExactlyEightCanonicalProviders`，`CloseBlockerCode` 实为 8 项；仅改名，未改断言）
 - `CostIntelligenceSchedulerFailureVisibilityIntegrationTest` 与共享上下文的启动后台 sweep 隔离（`@MockitoBean` 薄调度包装器，与服务端测试同款做法），消除同一 SHA 并行运行一绿一红的偶发重复 WARN 断言失败

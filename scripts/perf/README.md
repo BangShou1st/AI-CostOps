@@ -7,7 +7,8 @@
 
 | 目录 | 用途 |
 |---|---|
-| `hc01/` | HC-01 AI Gateway 单/双实例高并发基线、热点预算竞争、过载与 SSE 资源验证 |
+| `hc01/` | HC-01 AI Gateway 单/双实例高并发基线、热点预算竞争、过载与 SSE 资源验证；HC-02 复用其 `--suite=hc02` 子集 |
+| `hc02/` | HC-02 账期锁 A/B 对比：读取 baseline/optimized 的 `load-results.json`，输出 Markdown 与 `results.json` |
 
 ## HC-01 一键入口
 
@@ -84,6 +85,41 @@ Hikari、GC、CPU、活跃 SSE）、MySQL 行锁/事务/线程压力、Redis Lua
 COMPLETED 必有 FINAL、上游调用数等于成功数（幂等/取消/断流场景按各自期望）。
 全部场景结束后等待 Settlement 收敛，核对 FINAL → Settlement → Ledger 的唯一性与
 `UNKNOWN/INCOMPLETE` 不入账。
+
+## HC-02 账期热点 A/B 用法
+
+同一 harness 支持只跑 HC-02 需要的账期热点子集，并可指定预构建的 Gateway JAR，
+用于优化前后 A/B：
+
+```bash
+node scripts/perf/hc01/runner.mjs \
+  --suite=hc02 \
+  --rounds=3 \
+  --variant=baseline \
+  --code-sha=<被测量版本的 git sha> \
+  --gateway-jar=.local-dev/hc02/gateway-baseline.jar \
+  --skip-build \
+  --output=docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/baseline
+```
+
+`--suite=hc02` 只运行 `hot_fast_mixed_settlement_c50`（1 轮）、
+`hot_fast_single_c20/50/100`、`multi_budget_single_c100`、`multi_org_single_c100`、
+`hot_fast_dual_c50/100`；仍然执行逐轮财务不变量、结算收敛和
+`environment.json` / `load-results.json` / `db-invariants.json` 产物。
+`--gateway-jar` 指向任意提交构建出的 Gateway 可执行 JAR；Backend 仍使用当前
+工作树构建的 JAR（HC-02 不改 Backend）。`--variant` 与 `--code-sha` 会写入
+`configuration`，避免优化前后 SHA 混淆。每次运行会重建专用库并清空
+`performance_schema.events_statements_summary_by_digest`，避免把上一次运行的
+SQL digest 混入本次 A/B 证据。
+
+比较两份结果并生成 `results.json` 与 Markdown 表：
+
+```bash
+node scripts/perf/hc02/compare.mjs \
+  docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/baseline/load-results.json \
+  docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/optimized/load-results.json \
+  docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock
+```
 
 ## 产物
 

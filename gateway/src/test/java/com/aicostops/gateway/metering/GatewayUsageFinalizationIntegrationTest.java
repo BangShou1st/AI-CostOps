@@ -12,7 +12,9 @@ import com.aicostops.gateway.persistence.GatewayUsageMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.ObjectMapper;
@@ -211,6 +214,38 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
                 Integer.class, env.orgId())).isZero();
     }
 
+    @Test
+    void finalizationDoesNotWaitForAnUnrelatedPricingVersionXLock() throws Exception {
+        // HC-02: lockLineage used to lock the joined pricing_version row with
+        // FOR UPDATE. Every request shares that row, so once the billing_period
+        // X lock was removed it became a new global serialization point. The
+        // lineage lock must cover only gateway_request/route_attempt.
+        var request = insertDispatchedRequest("pricing-lock");
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var holder = pool.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                jdbc.queryForObject("SELECT id FROM pricing_version WHERE id=? FOR UPDATE",
+                        Long.class, env.pricingVersionId());
+                locked.countDown();
+                await(release);
+                return null;
+            }));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+            var finalizationFuture = pool.submit(() -> publish(request));
+            try {
+                assertThat(finalizationFuture.get(10, TimeUnit.SECONDS).status())
+                        .isEqualTo(GatewayUsageStatus.FINAL);
+            } finally {
+                release.countDown();
+                holder.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
     private GatewayUsageFinalizationService.FinalizationResult publish(Request request) {
         return finalization.finalizeSuccess(request.requestId(), env.orgId(), request.attemptId(),
                 GatewayUsageObservation.providerFinal(5, 3, null, OBSERVED_AT)).block();
@@ -243,6 +278,17 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
         jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
                 attemptId, requestId);
         return new Request(requestId, attemptId);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(60, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("test latch timed out");
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(ex);
+        }
     }
 
     private static String rawKey() {

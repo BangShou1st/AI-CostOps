@@ -18,9 +18,9 @@
  * Infra (MySQL/Redis/MinIO) is never stopped by this script.
  */
 import { spawnSync } from 'node:child_process'
-import { createWriteStream } from 'node:fs'
+import { createWriteStream, existsSync } from 'node:fs'
 import http from 'node:http'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   DB_NAME, GATEWAY_DB_USER, HC01_DIR, LOG_DIR, MODEL_KEY, ROOT, config, ensureDirs,
   findJar, gitValue, hostEnvironment, httpRequest, mysql, mysqlNumber, mysqlRows, mysqlScalar,
@@ -47,6 +47,12 @@ const QUICK = flags.has('--quick')
 const SKIP_BUILD = flags.has('--skip-build')
 const FORCE_BUILD = flags.has('--build')
 const KEEP_RUNNING = flags.has('--keep-running')
+// HC-02 A/B support: run only the account-period hotspot suite and/or point
+// the runner at a pre-built Gateway jar from another commit.
+const SUITE = options.suite ?? (QUICK ? 'quick' : 'full')
+const VARIANT = options.variant ?? null
+const CODE_SHA = options['code-sha'] ?? null
+const GATEWAY_JAR_OVERRIDE = options['gateway-jar'] ? resolve(ROOT, options['gateway-jar']) : null
 const RUN_NONCE = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
 const ROUNDS = QUICK ? 1 : Number(options.rounds ?? 3)
 const WARMUP_SEC = QUICK ? 2 : Number(options.warmup ?? 8)
@@ -106,16 +112,17 @@ function runMaven(module) {
 }
 
 function ensureJars() {
-  const gatewayJar = findJar('gateway', 'gateway-')
+  const gatewayJar = GATEWAY_JAR_OVERRIDE ?? findJar('gateway', 'gateway-')
   const backendJar = findJar('backend', 'backend-')
   const needBuild = FORCE_BUILD || !gatewayJar || !backendJar
   if (needBuild && !SKIP_BUILD) {
-    runMaven('gateway')
-    runMaven('backend')
+    if (!GATEWAY_JAR_OVERRIDE) runMaven('gateway')
+    if (!backendJar) runMaven('backend')
   }
-  const gateway = findJar('gateway', 'gateway-')
+  const gateway = GATEWAY_JAR_OVERRIDE ?? findJar('gateway', 'gateway-')
   const backend = findJar('backend', 'backend-')
   if (!gateway || !backend) throw new Error('缺少可执行 JAR；请去掉 --skip-build 或先运行 npm run build')
+  if (!existsSync(gateway)) throw new Error(`Gateway JAR 不存在: ${gateway}`)
   return { gateway, backend }
 }
 
@@ -125,6 +132,11 @@ function prepareDatabase() {
     CREATE DATABASE \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
     GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${cfg.mysqlUser}'@'%';
     FLUSH PRIVILEGES;`, { database: null, password: cfg.mysqlRootPassword })
+  // performance_schema digest counters are server-wide and survive a database
+  // drop; clear them so topSql/NO_INDEX_USED belong to THIS run only (A/B
+  // evidence must not mix baseline and optimized digests).
+  mysql('TRUNCATE TABLE performance_schema.events_statements_summary_by_digest;',
+    { database: null, password: cfg.mysqlRootPassword })
 }
 
 function killDbConnections(user) {
@@ -244,7 +256,7 @@ async function startBackend(jar, pollInterval = '1s') {
 }
 
 async function startGatewayProcess(port, phase) {
-  const jar = findJar('gateway', 'gateway-')
+  const jar = GATEWAY_JAR_OVERRIDE ?? findJar('gateway', 'gateway-')
   const name = `gateway-${port}`
   startProcess(name, 'java', ['-jar', jar, `--server.port=${port}`], { env: gatewayEnvironment(port, phase) })
   await waitHttp(port, '/actuator/health/readiness', GATEWAY_READY_TIMEOUT_MS, `Gateway :${port}`)
@@ -1040,6 +1052,60 @@ async function runFullMatrix() {
   await stopGateways()
 }
 
+/**
+ * HC-02 A/B suite: only the account-period hotspot matrix the issue requires.
+ * It keeps the same fixtures, warmup/measure windows, rounds and invariant
+ * checks as the full matrix, but omits SSE/idempotency/disconnect/rate-limit
+ * scenarios that do not exercise the billing-period lock.
+ */
+async function runHc02Matrix() {
+  const hot = state.seed.hot
+  const singlePort = [cfg.gatewayPort]
+
+  for (const concurrency of [20, 50, 100]) {
+    await runScenario({
+      id: `hot_fast_single_c${concurrency}`,
+      fixture: hot,
+      ports: singlePort,
+      concurrency,
+      expectations: { providerOps: 'successCount', noServerError: false, maxMultiAttemptRequests: 0 },
+    })
+  }
+
+  await runScenario({
+    id: 'multi_budget_single_c100',
+    fixtures: fixtureList('multiBudget'),
+    ports: singlePort,
+    concurrency: 100,
+    expectations: { providerOps: 'successCount', maxMultiAttemptRequests: 0 },
+  })
+  await runScenario({
+    id: 'multi_org_single_c100',
+    fixtures: fixtureList('multiOrg'),
+    ports: singlePort,
+    concurrency: 100,
+    expectations: { providerOps: 'successCount', maxMultiAttemptRequests: 0 },
+  })
+
+  await startGatewayProcess(cfg.gatewayPort2, 'high')
+  state.gatewayPorts = [cfg.gatewayPort, cfg.gatewayPort2]
+  state.gatewayPhase = 'high'
+  log(`second Gateway ready (${cfg.gatewayPort2})`)
+  const dual = [cfg.gatewayPort, cfg.gatewayPort2]
+  for (const concurrency of [50, 100]) {
+    await runScenario({
+      id: `hot_fast_dual_c${concurrency}`,
+      fixture: hot,
+      ports: dual,
+      concurrency,
+      expectations: { providerOps: 'successCount', maxMultiAttemptRequests: 0 },
+    })
+  }
+
+  await stopGateways()
+  clearAllCircuitState()
+}
+
 async function finalVerification() {
   const fixtures = allFixtureBudgets(state.seed)
   const orgIds = orgIdsOf(fixtures)
@@ -1095,9 +1161,11 @@ function environmentSnapshot(sqlExplain) {
   return {
     capturedAt: nowIso(),
     git: {
-      sha: gitValue(['rev-parse', 'HEAD']),
+      sha: CODE_SHA ?? gitValue(['rev-parse', 'HEAD']),
+      worktreeSha: gitValue(['rev-parse', 'HEAD']),
       branch: gitValue(['rev-parse', '--abbrev-ref', 'HEAD']),
       dirty: host.gitDirty,
+      variant: VARIANT,
     },
     host,
     docker: {
@@ -1161,6 +1229,10 @@ function writeArtifacts(finalResult) {
     commit: environment.git.sha,
     quick: QUICK,
     configuration: {
+      suite: SUITE,
+      variant: VARIANT,
+      codeSha: CODE_SHA,
+      gatewayJar: options['gateway-jar'] ?? null,
       rounds: ROUNDS,
       warmupSec: WARMUP_SEC,
       measureSec: MEASURE_SEC,
@@ -1203,7 +1275,7 @@ async function stopAll() {
 
 async function main() {
   ensureDirs()
-  log(`HC-01 runner quick=${QUICK} rounds=${ROUNDS} warmup=${WARMUP_SEC}s measure=${MEASURE_SEC}s`)
+  log(`HC-01 runner quick=${QUICK} suite=${SUITE} variant=${VARIANT ?? 'n/a'} rounds=${ROUNDS} warmup=${WARMUP_SEC}s measure=${MEASURE_SEC}s`)
   await stopAll()
   await ensureRedis()
   killDbConnections(GATEWAY_DB_USER)
@@ -1238,7 +1310,11 @@ async function main() {
   killDbConnections(cfg.mysqlUser)
   log('Backend/settlement worker stopped for the isolated Gateway matrix')
 
-  await runFullMatrix()
+  if (SUITE === 'hc02') {
+    await runHc02Matrix()
+  } else {
+    await runFullMatrix()
+  }
 
   log('restarting Backend to drain FINAL usage into Settlement/Ledger')
   await startBackend(jars.backend, '500ms')
