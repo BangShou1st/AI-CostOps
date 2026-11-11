@@ -39,7 +39,7 @@ console.log(`\n### 负载场景（按轮次聚合）\n`)
 console.log('| 场景 | 实例 | 并发 | 轮次 | Provider | 成功 RPS（轮次中位） | P50 ms | P95 ms | P99 ms | 状态码 | Provider 调用 | DB 队列峰值 | Hikari 活跃峰值 | 行锁等待/轮 | 失败 |')
 console.log('|---|---:|---:|---:|---|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|')
 for (const [id, runs] of groups) {
-  const measured = runs.filter(run => run.load?.latencyMs)
+  const measured = runs.filter(run => run.load?.latencyMs && run.count === undefined)
   if (!measured.length) continue
   const rps = measured.map(run => run.load.successRps)
   const statusCounts = {}
@@ -63,7 +63,7 @@ console.log('| 场景 | Provider 调用 | 状态分布 | 关键观测 | 失败 |
 console.log('|---|---:|---|---|---:|')
 for (const [id, runs] of groups) {
   const run = runs[0]
-  if (run.load?.latencyMs) continue
+  if (run.load?.latencyMs && run.count === undefined) continue
   const observations = []
   if (run.activeStreamsDuringHold !== undefined) observations.push(`hold_active=${run.activeStreamsDuringHold}`)
   if (run.activeStreamsAfterRelease !== undefined) observations.push(`after_release=${run.activeStreamsAfterRelease}`)
@@ -76,6 +76,29 @@ for (const [id, runs] of groups) {
   if (run.count) observations.push(`count=${run.count}`)
   console.log(`| ${id} | ${run.providerOps ?? 'NOT_VERIFIED'} | ${JSON.stringify(run.load?.statusCounts ?? {})} | ${observations.join('；')} | ${(run.failures ?? []).length} |`)
 }
+
+console.log(`\n### 慢 SQL 摘要（performance_schema digest）\n`)
+console.log('| digest | calls | total s | avg ms | rows examined | rows affected | no-index |')
+console.log('|---|---:|---:|---:|---:|---:|---:|')
+for (const row of data.final?.topSql ?? []) {
+  const digest = String(row.digest ?? '').replaceAll('|', '\\|').replace(/\s+/g, ' ').slice(0, 140)
+  console.log(`| ${digest} | ${row.count} | ${round(row.totalSeconds, 2)} | ${round(row.avgMs, 2)} | ${row.rowsExamined} | ${row.rowsAffected} | ${row.noIndexUsed} |`)
+}
+
+console.log(`\n### 热点对照（轮次中位 RPS）\n`)
+const medianRps = id => {
+  const runs = groups.get(id)?.filter(run => run.load?.latencyMs) ?? []
+  return runs.length ? median(runs.map(run => run.load.successRps)) : null
+}
+const hot100 = medianRps('hot_fast_single_c100')
+const multiBudget = medianRps('multi_budget_single_c100')
+const multiOrg = medianRps('multi_org_single_c100')
+const hot50 = medianRps('hot_fast_single_c50')
+const mixed = medianRps('hot_fast_mixed_settlement_c50')
+console.log(`- hot c100: ${round(hot100)} rps`)
+console.log(`- same-period multi-budget c100: ${round(multiBudget)} rps（相对 hot c100 ${hot100 ? round((multiBudget / hot100) * 100, 0) : 'NOT_VERIFIED'}%）`)
+console.log(`- multi-org c100: ${round(multiOrg)} rps（相对 hot c100 ${hot100 ? round((multiOrg / hot100) * 100, 0) : 'NOT_VERIFIED'}%）`)
+console.log(`- mixed settlement c50: ${round(mixed)} rps；isolated hot c50: ${round(hot50)} rps`)
 
 console.log(`\n### 最终不变量\n`)
 console.log(`- converged: **${data.final?.converged ? 'PASS' : 'FAIL'}**`)
