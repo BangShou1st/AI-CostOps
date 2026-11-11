@@ -10,7 +10,7 @@
 | 关联计划 | `docs/02-development/designs/maintenance/2026-11-10-backend-reliability-refactor-design.md` §8 / §9 CO-P5 / §10 |
 | 基线 | `main = dev = 57696e2` |
 | 环境 | 真实 MySQL 8.4 + Redis 7 Testcontainers；本地 Spring Boot 4.1 / Java 21.0.10 |
-| 结论 | **PASS（附 PARTIAL / NOT_VERIFIED）**——关联标识与核心指标已存在并补充；故障矩阵 6/9 行有自动化证据，3 行明确标注边界 |
+| 结论 | **PASS（附 PARTIAL / NOT_VERIFIED）**——关联标识与核心指标已存在并补充；故障矩阵 7/9 行 PASS，2 行 PARTIAL（真实 MySQL 停机等边界标 `NOT_VERIFIED`） |
 
 ## 2. Scope（本 PR 只改这些）
 
