@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.evidence.application.EvidenceStorageService;
+import com.aicostops.evidence.application.ObjectStoragePort;
+import com.aicostops.evidence.infrastructure.ObjectStorageException;
 import com.aicostops.ingestion.domain.ImportIssueSeverity;
 import com.aicostops.ingestion.domain.ImportSourceType;
 import com.aicostops.ingestion.domain.RawRecordNormalizeStatus;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MinioContainerSupport;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -25,6 +28,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 @SpringBootTest(properties = "aicostops.ingestion.persistence-batch-size=2")
 @Tag("integration")
@@ -42,6 +46,10 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
     private EvidenceStorageService evidenceStorage;
     @Autowired
     private TestExecutorAdapter adapter;
+    @Autowired
+    private MeterRegistry meterRegistry;
+    @MockitoSpyBean
+    private ObjectStoragePort storage;
 
     private long organizationId;
     private long memberId;
@@ -347,15 +355,43 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         var evidenceId = storeEvidence("incompatible-content");
         var batchId = insertBatchWithAttempt(evidenceId);
         var lease = leases.claimNext("executor-worker").orElseThrow();
+        var failedBefore = failureMetricCount();
 
         executor.execute(lease);
 
+        assertThat(failureMetricCount()).isEqualTo(failedBefore + 1.0);
         assertThat(attemptStatus(lease.attemptId())).isEqualTo("FAILED");
         assertThat(errorCodeOf(lease.attemptId())).isEqualTo("SCHEMA_INCOMPATIBLE");
         assertThat(batchStatus(batchId)).isEqualTo("FAILED");
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM import_issue WHERE import_attempt_id=?",
                 Integer.class, lease.attemptId())).isEqualTo(1);
+    }
+
+    private double failureMetricCount() {
+        return meterRegistry.counter("aicostops.import.completed",
+                "provider", "TEST_PROVIDER", "result", "FAILED").count();
+    }
+
+    @Test
+    void unreadableEvidenceObjectFailsAttemptWithoutCanonicalOrLedgerRows() {
+        var evidenceId = storeEvidence("unreadable-object");
+        var batchId = insertBatchWithAttempt(evidenceId);
+        var lease = leases.claimNext("executor-worker").orElseThrow();
+        var objectKey = jdbc.queryForObject(
+                "SELECT object_key FROM evidence WHERE id=?", String.class, evidenceId);
+        org.mockito.Mockito.doThrow(new ObjectStorageException("object store unavailable"))
+                .when(storage).open(objectKey);
+        adapter.readSource = true;
+
+        executor.execute(lease);
+
+        assertThat(attemptStatus(lease.attemptId())).isEqualTo("FAILED");
+        assertThat(errorCodeOf(lease.attemptId())).isEqualTo("EXECUTION_FAILED");
+        assertThat(batchStatus(batchId)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM raw_provider_record WHERE import_attempt_id=?",
+                Integer.class, lease.attemptId())).isZero();
     }
 
     @Test
@@ -706,6 +742,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         static volatile List<NormalizedProviderRecord> records = List.of();
         static volatile int failAfterRecords = -1;
         static volatile boolean blockParse;
+        static volatile boolean readSource;
         static volatile CountDownLatch enteredLatch = new CountDownLatch(0);
         static volatile CountDownLatch releaseLatch = new CountDownLatch(0);
         static volatile String failMessage = "simulated late parse failure";
@@ -718,6 +755,7 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
             records = List.of();
             failAfterRecords = -1;
             blockParse = false;
+            readSource = false;
             enteredLatch = new CountDownLatch(0);
             releaseLatch = new CountDownLatch(0);
             failMessage = "simulated late parse failure";
@@ -737,6 +775,13 @@ class ImportAttemptExecutorIntegrationTest extends MinioContainerSupport {
         @Override
         public InspectionResult inspect(ProviderInput input) {
             capturedInput = input;
+            if (readSource) {
+                try (var stream = input.source().openStream()) {
+                    stream.read();
+                } catch (java.io.IOException exception) {
+                    throw new java.io.UncheckedIOException(exception);
+                }
+            }
             return new InspectionResult("TEST_PROVIDER", "test.file.v1", fingerprint, compatible, inspectionIssues);
         }
 

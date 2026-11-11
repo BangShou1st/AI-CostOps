@@ -126,3 +126,9 @@ aicostops:
     dev-bootstrap-email: ${AICOSTOPS_DEV_BOOTSTRAP_EMAIL:admin@example.test}
     dev-bootstrap-display-name: ${AICOSTOPS_DEV_BOOTSTRAP_DISPLAY_NAME:AI CostOps Local Admin}
     dev-bootstrap-password: ${AICOSTOPS_DEV_BOOTSTRAP_PASSWORD:}
+
+# Correlation id is placed in MDC by TraceIdFilter; the correlation pattern
+# appends it to every log line without replacing the console format.
+logging:
+  pattern:
+    correlation: "[%X{traceId:-}]"
