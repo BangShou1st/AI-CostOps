@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 /**
@@ -45,6 +46,15 @@ class CostIntelligenceSchedulerFailureVisibilityIntegrationTest
     @Autowired CostIntelligenceAnalysisService analysis;
     @MockitoSpyBean CostAnalysisInputService inputs;
     @MockitoSpyBean com.aicostops.intelligence.infrastructure.CostFactsMapper facts;
+
+    /**
+     * {@code @EnableScheduling} fires the scheduler wrapper once at context
+     * startup, which can run a second sweep concurrently with this test and
+     * emit a duplicate WARN for the same organization. Mocking the thin
+     * wrapper keeps every WARN attributable to the test's own sweep; the
+     * service under test is untouched.
+     */
+    @MockitoBean com.aicostops.intelligence.application.CostIntelligenceScheduler backgroundScheduler;
 
     private final List<Long> activeOrgs = new java.util.ArrayList<>();
     private long failingOrg;
