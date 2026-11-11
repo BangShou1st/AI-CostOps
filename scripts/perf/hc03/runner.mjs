@@ -18,7 +18,7 @@
  *   node scripts/perf/hc03/runner.mjs --cleanup            # remove HC-03 containers only
  */
 import { createHmac } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs'
 import http from 'node:http'
 import { join } from 'node:path'
 import {
@@ -28,13 +28,18 @@ import {
   ROOT, RUN_NONCE,
 } from './env.mjs'
 import {
-  EventLog, MySqlSession, Timeline, budgetRowLockWaiters, containerState, dataLockWaits, docker,
-  ensureDirs, ensureJars, hostEnvironment, httpRequest, httpStatus, isProcessRunning, jarSha256,
-  killProc, log, pauseRedis, pidOf, recreateMysql, recreateRedis, redisCli, redisPing,
-  removeContainer, sleep, sqlNumber, sqlQuote, sqlRows, sqlStatement, startMysql, startProc,
-  startRedis, stopMysql, stopProc, stopRedis, unpauseRedis, resolvePythonCommand, waitHttp,
-  waitMysqlReady, waitRedisReady, writeJson,
+  EventLog, MySqlSession, Timeline, assertContainerAccess, budgetRowLockWaiters, containerState,
+  dataLockWaits, docker, ensureDirs, ensureJars, getHarnessOwner, hostEnvironment, httpRequest,
+  httpStatus, inspectContainer, isProcessRunning, jarSha256, killProc, log, lookupProcess, pauseRedis,
+  pidFile, pidOf, readOwnerRecord, readPidRecord, recreateMysql, recreateRedis, redisCli, redisPing,
+  removeOwnedContainer, resolvePythonCommand, setHarnessOwner, sleep, sqlNumber, sqlQuote, sqlRows,
+  sqlStatement, startMysql, startProc, startRedis, stopMysql, stopProc, stopRedis, unpauseRedis,
+  waitHttp, waitMysqlReady, waitRedisReady, writeJson, writeOwnerRecord,
 } from './lib.mjs'
+import {
+  OWNER_LABEL, OwnershipError, RESOURCE_LABEL, RUN_LABEL, decideContainer, decideProcess,
+  newOwnerId,
+} from './ownership.mjs'
 import { config } from '../hc01/lib.mjs'
 import { createGatewayDbUser, seed } from './seed.mjs'
 import {
@@ -186,11 +191,142 @@ async function startMock() {
   log('Mock Provider ready')
 }
 
+// ---------------------------------------------------------------------------
+// Resource ownership: nothing is deleted or killed without proof
+// ---------------------------------------------------------------------------
+
+const MANAGED_PROCESSES = ['gateway-18081', 'gateway-18082', 'mock-provider', 'backend']
+const FIXED_CONTAINERS = [
+  { name: MYSQL_CONTAINER, resource: 'mysql' },
+  { name: REDIS_CONTAINER, resource: 'redis' },
+]
+
+function startNewOwner() {
+  const owner = newOwnerId(RUN_NONCE)
+  writeOwnerRecord({ owner, runId: RUN_NONCE, createdAt: new Date().toISOString() })
+  setHarnessOwner({ owner, runId: RUN_NONCE })
+  log(`harness owner ${owner}`)
+}
+
+/**
+ * A fresh run may only start when no fixed-name container and no managed
+ * process from an earlier run is still present. Nothing is removed here:
+ * leftovers must be cleaned explicitly with `--cleanup`, which itself verifies
+ * labels and PID identities.
+ */
+function preflightFreshEnvironment() {
+  const ownerRecord = readOwnerRecord()
+  const recordedOwner = ownerRecord?.owner ?? '<unowned>'
+  const problems = []
+
+  for (const { name } of FIXED_CONTAINERS) {
+    const existing = inspectContainer(name)
+    if (!existing.exists) continue
+    const decision = decideContainer({
+      mode: 'create', name, expectedOwner: recordedOwner, existing,
+    })
+    problems.push(decision.message
+      ?? `Container ${name} already exists; refusing to replace it implicitly.`)
+  }
+
+  for (const name of MANAGED_PROCESSES) {
+    const record = readPidRecord(name)
+    if (!record) continue
+    if (record.legacy) {
+      if (isProcessRunning(record.pid)) {
+        problems.push(`Process ${name} (pid ${record.pid}) still has a legacy bare-number PID file `
+          + 'without a verifiable owner/start time. The harness will not signal it. Inspect it, '
+          + `then delete ${pidFile(name)} if it is safe.`)
+      } else {
+        unlinkSync(pidFile(name))
+        log(`removed stale legacy PID file for ${name} (pid ${record.pid} is not running)`)
+      }
+      continue
+    }
+    if (record.corrupt) {
+      problems.push(`Process ${name} has an unreadable PID record at ${pidFile(name)}. `
+        + 'The harness will not signal it; inspect the file/process manually.')
+      continue
+    }
+    const actual = lookupProcess(record.pid)
+    if (!actual?.alive) {
+      unlinkSync(pidFile(name))
+      log(`removed stale PID record for ${name} (pid ${record.pid} is not running)`)
+      continue
+    }
+    const decision = decideProcess({
+      mode: 'stop', name, expectedOwner: record.owner, record, actual,
+    })
+    if (decision.allow) {
+      problems.push(`Process ${name} (pid ${record.pid}, owner ${record.owner}) is still running `
+        + 'from an earlier HC-03 run. Run `node scripts/perf/hc03/runner.mjs --cleanup`; the '
+        + 'harness will not kill it implicitly.')
+    } else {
+      problems.push(decision.message)
+    }
+  }
+
+  if (problems.length) {
+    throw new OwnershipError(
+      `HC-03 environment is not clean; refusing to start:\n- ${problems.join('\n- ')}`,
+      'ENVIRONMENT_NOT_CLEAN',
+    )
+  }
+  startNewOwner()
+}
+
+function attachToExistingEnvironment() {
+  const ownerRecord = readOwnerRecord()
+  if (!ownerRecord?.owner) {
+    throw new OwnershipError(
+      '--attach requires an HC-03 owner record at .local-dev/hc03/run-owner.json. '
+        + 'Refusing to attach to containers/processes of unknown ownership.',
+      'NO_OWNER_FILE',
+    )
+  }
+  setHarnessOwner({ owner: ownerRecord.owner, runId: ownerRecord.runId ?? RUN_NONCE })
+  for (const { name } of FIXED_CONTAINERS) {
+    assertContainerAccess('attach', name)
+  }
+  for (const name of MANAGED_PROCESSES) {
+    const record = readPidRecord(name)
+    if (!record || record.legacy || record.corrupt) {
+      throw new OwnershipError(
+        `--attach cannot verify process ${name}: missing, legacy or unreadable PID record.`,
+        'UNVERIFIABLE_PROCESS',
+      )
+    }
+    const actual = lookupProcess(record.pid)
+    if (!actual?.alive) {
+      throw new OwnershipError(`--attach expected ${name} (pid ${record.pid}) to be running.`)
+    }
+    const decision = decideProcess({
+      mode: 'stop', name, expectedOwner: ownerRecord.owner, record, actual,
+    })
+    if (!decision.allow) throw new OwnershipError(decision.message, decision.reason)
+  }
+  log(`attached to owner ${ownerRecord.owner}`)
+}
+
+async function cleanupOwnedEnvironment() {
+  const ownerRecord = readOwnerRecord()
+  if (!ownerRecord?.owner) {
+    throw new OwnershipError(
+      'No HC-03 owner record at .local-dev/hc03/run-owner.json; refusing to delete containers or '
+        + 'stop processes. If you are certain they belong to HC-03, inspect them with '
+        + '`docker inspect ai-costops-hc03-mysql ai-costops-hc03-redis`, then remove them manually.',
+      'NO_OWNER_FILE',
+    )
+  }
+  setHarnessOwner({ owner: ownerRecord.owner, runId: ownerRecord.runId ?? RUN_NONCE })
+  log(`cleanup for owner ${ownerRecord.owner}`)
+  return teardownProcesses({ removeContainers: true })
+}
+
 async function setupEnvironment() {
   log(`HC-03 run ${RUN_NONCE} database=${DB_NAME} mysql=:${MYSQL_PORT} redis=:${REDIS_PORT}`)
   configureSeedSecrets()
 
-  await teardownProcesses({ removeContainers: true })
   recreateMysql()
   waitMysqlReady()
   recreateRedis()
@@ -212,16 +348,36 @@ async function setupEnvironment() {
   await startGateways()
 }
 
+/**
+ * Best-effort teardown that never escalates: each stop/remove is ownership
+ * checked and a refusal is reported instead of forced.
+ */
 async function teardownProcesses({ removeContainers = false } = {}) {
-  for (const name of ['gateway-18081', 'gateway-18082', 'mock-provider', 'backend']) {
-    try { await stopProc(name) } catch (error) { log(`stop ${name}: ${error.message}`) }
+  if (!getHarnessOwner()) {
+    return { refusals: [] }
   }
-  if (removeContainers) {
-    // Only the two containers this task created. Shared infra is untouched.
-    for (const name of [MYSQL_CONTAINER, REDIS_CONTAINER]) {
-      removeContainer(name)
+  const refusals = []
+  for (const name of MANAGED_PROCESSES) {
+    try {
+      const result = await stopProc(name)
+      if (result?.stopped) log(`stopped ${name}`)
+    } catch (error) {
+      refusals.push(error.message)
+      log(`REFUSED to stop ${name}: ${error.message}`)
     }
   }
+  if (removeContainers) {
+    for (const { name } of FIXED_CONTAINERS) {
+      try {
+        const result = removeOwnedContainer(name)
+        if (result.removed) log(`removed container ${name}`)
+      } catch (error) {
+        refusals.push(error.message)
+        log(`REFUSED to remove ${name}: ${error.message}`)
+      }
+    }
+  }
+  return { refusals }
 }
 
 // ---------------------------------------------------------------------------
@@ -1563,6 +1719,14 @@ function environmentSnapshot() {
       database: DB_NAME,
       sharedInfraTouched: false,
     },
+    ownership: {
+      owner: getHarnessOwner(),
+      ownerLabels: [OWNER_LABEL, RUN_LABEL, RESOURCE_LABEL],
+      ownerFile: join(HC03_DIR, 'run-owner.json'),
+      pidRecordVersion: 2,
+      pidIdentity: 'owner + pid + process start time + command token',
+      refusalPolicy: 'foreign/unlabeled containers and legacy/foreign PID files are refused, never deleted or killed',
+    },
     processes: {
       backendPort: BACKEND_PORT,
       gatewayPorts: [GATEWAY_A_PORT, GATEWAY_B_PORT],
@@ -1681,18 +1845,30 @@ async function main() {
   ensureDirs()
   state.events = new EventLog(EVENTS_PATH)
   if (CLEANUP_ONLY) {
-    await teardownProcesses({ removeContainers: true })
-    log('HC-03 containers removed; shared infra untouched')
-    return 0
+    try {
+      const result = await cleanupOwnedEnvironment()
+      if (result.refusals.length) {
+        console.error(`[HC-03-CLEANUP-REFUSED] ${result.refusals.length} resource(s) were not removed:`)
+        for (const refusal of result.refusals) console.error(`  - ${refusal}`)
+        return 1
+      }
+      log('HC-03 processes and containers owned by this run were removed; shared infra untouched')
+      return 0
+    } catch (error) {
+      console.error(`[HC-03-CLEANUP-REFUSED] ${error.message}`)
+      return 1
+    }
   }
   let exitCode = 0
   try {
     if (ATTACH) {
       log('attaching to the existing HC-03 environment (--attach)')
+      attachToExistingEnvironment()
       state.seed = JSON.parse(readFileSync(join(HC03_DIR, 'seed.json'), 'utf8'))
       state.jars = ensureJars({ skipBuild: true })
       await ensureHealthy()
     } else {
+      preflightFreshEnvironment()
       await setupEnvironment()
     }
     await mockMode('ok')
@@ -1721,14 +1897,25 @@ async function main() {
     log(`db violations: ${written.invariants.violations.length}`)
     exitCode = failures.length ? 1 : 0
   } catch (error) {
-    console.error(`[HC-03-FAIL] ${error?.stack ?? error}`)
+    if (error instanceof OwnershipError) {
+      console.error(`[HC-03-REFUSED] ${error.message}`)
+    } else {
+      console.error(`[HC-03-FAIL] ${error?.stack ?? error}`)
+    }
     state.startErrors.push(String(error?.message ?? error))
-    await teardownProcesses({ removeContainers: false }).catch(() => {})
     exitCode = 1
   } finally {
     if (!KEEP_RUNNING) {
-      await teardownProcesses({ removeContainers: true }).catch(() => {})
-      log('HC-03 processes and its dedicated containers stopped; shared infrastructure untouched')
+      const result = await teardownProcesses({ removeContainers: true }).catch(() => ({ refusals: [] }))
+      if (result.refusals.length) {
+        console.error(`[HC-03-CLEANUP-REFUSED] ${result.refusals.length} resource(s) were not removed:`)
+        for (const refusal of result.refusals) console.error(`  - ${refusal}`)
+        exitCode = 1
+      } else if (getHarnessOwner()) {
+        log('HC-03 processes and its dedicated containers stopped; shared infrastructure untouched')
+      } else {
+        log('no HC-03 owner was established; nothing was stopped or removed')
+      }
     } else {
       log('environment left running (--keep-running)')
     }

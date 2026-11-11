@@ -24,10 +24,66 @@ import {
   MYSQL_IMAGE, MYSQL_PORT, MYSQL_ROOT_PASSWORD, PID_DIR, RAW_DIR, REDIS_CONTAINER, REDIS_IMAGE,
   REDIS_PASSWORD, REDIS_PORT, ROOT,
 } from './env.mjs'
+import {
+  OWNER_FILE_NAME, OwnershipError, buildPidRecord, commandToken, decideContainer, decideProcess,
+  labelsFor, parsePidRecord,
+} from './ownership.mjs'
 
 export {
   capture, decimalToScaled, findJar, gitValue, hostEnvironment, httpRequest, nowIso, readJson,
   scaledToDecimal, sleep, stats, waitFor, writeJson,
+}
+
+/**
+ * The current harness owner. Every created process/container carries it, and
+ * every destructive operation verifies it first. It is never inferred from a
+ * bare PID or a fixed container name.
+ */
+let harnessOwner = null
+let harnessRunId = null
+
+export function setHarnessOwner({ owner, runId }) {
+  if (!owner || !runId) throw new OwnershipError('setHarnessOwner requires owner and runId')
+  harnessOwner = owner
+  harnessRunId = runId
+}
+
+export function getHarnessOwner() {
+  return harnessOwner
+}
+
+function requireOwner() {
+  if (!harnessOwner) {
+    throw new OwnershipError(
+      'HC-03 harness owner is not initialised; refusing to create or destroy resources')
+  }
+  return harnessOwner
+}
+
+// ---------------------------------------------------------------------------
+// Run owner file
+// ---------------------------------------------------------------------------
+
+export function ownerFilePath() {
+  return join(HC03_DIR, OWNER_FILE_NAME)
+}
+
+export function readOwnerRecord() {
+  const file = ownerFilePath()
+  if (!existsSync(file)) return null
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'))
+    if (!parsed || typeof parsed.owner !== 'string' || !parsed.owner) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export function writeOwnerRecord(record) {
+  if (!record?.owner) throw new OwnershipError('owner record requires an owner')
+  mkdirSync(HC03_DIR, { recursive: true })
+  writeFileSync(ownerFilePath(), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
 }
 
 /** Resolves the real python.exe behind the Windows `py` launcher. */
@@ -74,15 +130,51 @@ export function containerState(name) {
   return docker(['inspect', '-f', '{{.State.Status}}', name], { allowFailure: true }).stdout || 'missing'
 }
 
-export function removeContainer(name) {
+export function inspectContainer(name) {
+  const result = docker(['inspect', '-f', '{{json .Config.Labels}}', name], { allowFailure: true })
+  if (result.status !== 0) {
+    const output = `${result.stderr || ''}\n${result.stdout || ''}`
+    if (/no such (object|container)/i.test(output)) return { exists: false, labels: null }
+    throw new Error(`docker inspect ${name} failed: ${output.trim()}`)
+  }
+  let labels = null
+  try { labels = JSON.parse(result.stdout || '{}') } catch { labels = null }
+  return { exists: true, labels }
+}
+
+/**
+ * Decide, from the live labels, whether this harness may act on a container.
+ * Throws OwnershipError with the decision's operator-facing message.
+ */
+export function assertContainerAccess(mode, name) {
+  const expectedOwner = requireOwner()
+  const existing = inspectContainer(name)
+  const decision = decideContainer({
+    mode, name, expectedOwner, existing: existing.exists ? existing : null,
+  })
+  if (!decision.allow) throw new OwnershipError(decision.message, decision.reason)
+  return { ...decision, existing }
+}
+
+function labelArgs(resource) {
+  const owner = requireOwner()
+  return Object.entries(labelsFor(owner, harnessRunId, resource))
+    .flatMap(([key, value]) => ['--label', `${key}=${value}`])
+}
+
+export function removeOwnedContainer(name) {
+  const decision = assertContainerAccess('delete', name)
+  if (decision.noop) return { removed: false, reason: 'missing' }
   docker(['rm', '-f', name], { allowFailure: true })
+  return { removed: true }
 }
 
 export function recreateMysql() {
   log(`recreating dedicated MySQL container ${MYSQL_CONTAINER} (127.0.0.1:${MYSQL_PORT})`)
-  removeContainer(MYSQL_CONTAINER)
+  assertContainerAccess('create', MYSQL_CONTAINER)
   const result = docker([
     'run', '-d', '--name', MYSQL_CONTAINER,
+    ...labelArgs('mysql'),
     '-p', `127.0.0.1:${MYSQL_PORT}:3306`,
     '-e', `MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}`,
     '-e', 'MYSQL_ROOT_HOST=%',
@@ -108,18 +200,21 @@ export function waitMysqlReady(timeoutMs = 180_000) {
 }
 
 export function stopMysql() {
+  assertContainerAccess('operate', MYSQL_CONTAINER)
   docker(['stop', '-t', '1', MYSQL_CONTAINER])
 }
 
 export function startMysql() {
+  assertContainerAccess('operate', MYSQL_CONTAINER)
   docker(['start', MYSQL_CONTAINER])
 }
 
 export function recreateRedis() {
   log(`recreating dedicated Redis container ${REDIS_CONTAINER} (127.0.0.1:${REDIS_PORT})`)
-  removeContainer(REDIS_CONTAINER)
+  assertContainerAccess('create', REDIS_CONTAINER)
   const result = docker([
     'run', '-d', '--name', REDIS_CONTAINER,
+    ...labelArgs('redis'),
     '-p', `127.0.0.1:${REDIS_PORT}:6379`,
     REDIS_IMAGE,
     'redis-server', '--requirepass', REDIS_PASSWORD, '--appendonly', 'no', '--save', '',
@@ -141,18 +236,22 @@ export function waitRedisReady(timeoutMs = 60_000) {
 }
 
 export function stopRedis() {
+  assertContainerAccess('operate', REDIS_CONTAINER)
   docker(['stop', '-t', '1', REDIS_CONTAINER])
 }
 
 export function startRedis() {
+  assertContainerAccess('operate', REDIS_CONTAINER)
   docker(['start', REDIS_CONTAINER])
 }
 
 export function pauseRedis() {
+  assertContainerAccess('operate', REDIS_CONTAINER)
   docker(['pause', REDIS_CONTAINER])
 }
 
 export function unpauseRedis() {
+  assertContainerAccess('operate', REDIS_CONTAINER)
   docker(['unpause', REDIS_CONTAINER])
 }
 
@@ -283,11 +382,19 @@ export function pidFile(name) {
   return join(PID_DIR, `${name}.pid`)
 }
 
-export function pidOf(name) {
+export function readPidRecord(name) {
   const file = pidFile(name)
   if (!existsSync(file)) return null
-  const pid = Number(readFileSync(file, 'utf8').trim())
-  return Number.isFinite(pid) && pid > 0 ? pid : null
+  try {
+    return parsePidRecord(readFileSync(file, 'utf8'))
+  } catch {
+    return { corrupt: true }
+  }
+}
+
+export function pidOf(name) {
+  const record = readPidRecord(name)
+  return record && Number.isFinite(record.pid) ? record.pid : null
 }
 
 export function isProcessRunning(pid) {
@@ -300,7 +407,65 @@ export function isProcessRunning(pid) {
   }
 }
 
+function linuxClockTicks() {
+  try {
+    const result = spawnSync('getconf', ['CLK_TCK'], { encoding: 'utf8', windowsHide: true })
+    const value = Number((result.stdout ?? '').trim())
+    return Number.isFinite(value) && value > 0 ? value : 100
+  } catch {
+    return 100
+  }
+}
+
+/**
+ * Reads the OS identity of a live PID: command line and start time. Returns
+ * `{alive:false}` when the process is gone. Never throws for a missing PID.
+ */
+export function lookupProcess(pid) {
+  if (!pid) return { alive: false }
+  if (process.platform === 'win32') {
+    const script = `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -ErrorAction SilentlyContinue; `
+      + 'if ($p) { [pscustomobject]@{ commandLine = $p.CommandLine; startedAt = $p.CreationDate.ToUniversalTime().ToString(\'o\') } | ConvertTo-Json -Compress }'
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], {
+      encoding: 'utf8', windowsHide: true, timeout: 30_000,
+    })
+    const text = (result.stdout ?? '').trim()
+    if (!text) return { alive: false }
+    try {
+      const parsed = JSON.parse(text)
+      return {
+        alive: true,
+        commandLine: parsed.commandLine ?? '',
+        startedAtEpochMs: Date.parse(parsed.startedAt),
+      }
+    } catch {
+      return { alive: true, commandLine: '', startedAtEpochMs: Number.NaN }
+    }
+  }
+
+  const proc = `/proc/${pid}`
+  if (!existsSync(proc)) return { alive: false }
+  try {
+    const commandLine = readFileSync(`${proc}/cmdline`, 'utf8').split('\u0000').join(' ').trim()
+    const stat = readFileSync(`${proc}/stat`, 'utf8')
+    const afterComm = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+    // /proc/<pid>/stat: after comm, token 0 is state (field 3); starttime is
+    // field 22, i.e. token index 19.
+    const startTicks = Number(afterComm[19])
+    const btimeLine = /btime (\d+)/.exec(readFileSync('/proc/stat', 'utf8'))
+    const btime = btimeLine ? Number(btimeLine[1]) : null
+    const ticks = linuxClockTicks()
+    const startedAtEpochMs = Number.isFinite(startTicks) && btime
+      ? (btime + startTicks / ticks) * 1000
+      : Number.NaN
+    return { alive: true, commandLine, startedAtEpochMs }
+  } catch {
+    return { alive: true, commandLine: '', startedAtEpochMs: Number.NaN }
+  }
+}
+
 export function startProc(name, command, args, options = {}) {
+  const owner = requireOwner()
   const logPath = join(LOG_DIR, `${name}.log`)
   mkdirSync(LOG_DIR, { recursive: true })
   appendFileSync(logPath, `\n===== ${nowIso()} start ${command} ${args.join(' ')} =====\n`, 'utf8')
@@ -316,7 +481,16 @@ export function startProc(name, command, args, options = {}) {
     stdio: ['ignore', fd, fd],
   })
   closeSync(fd)
-  if (child.pid) writeFileSync(pidFile(name), String(child.pid), 'utf8')
+  if (child.pid) {
+    writeFileSync(pidFile(name), `${JSON.stringify(buildPidRecord({
+      owner,
+      name,
+      pid: child.pid,
+      token: commandToken(command, args),
+      commandLine: [command, ...args].join(' '),
+      startedAtEpochMs: Date.now(),
+    }), null, 2)}\n`, 'utf8')
+  }
   child.on('exit', code => {
     appendFileSync(logPath, `===== ${nowIso()} exit ${code} =====\n`, 'utf8')
   })
@@ -324,10 +498,31 @@ export function startProc(name, command, args, options = {}) {
   return { child, logPath }
 }
 
-/** Graceful stop (used for teardown). */
+function verifiedProcess(name) {
+  const record = readPidRecord(name)
+  if (!record) return { record: null, actual: null }
+  const pid = record.legacy ? record.pid : record.pid
+  const actual = pid ? lookupProcess(pid) : null
+  return { record, actual }
+}
+
+function ownershipRefusal(decision) {
+  return new OwnershipError(decision.message, decision.reason)
+}
+
+/** Stop a harness-owned process after verifying its owner and OS identity. */
 export async function stopProc(name, timeoutMs = 25_000) {
-  const pid = pidOf(name)
-  if (!pid) return
+  const { record, actual } = verifiedProcess(name)
+  if (!record) return { stopped: false, reason: 'no-record' }
+  const decision = decideProcess({
+    mode: 'stop', name, expectedOwner: requireOwner(), record, actual,
+  })
+  if (!decision.allow) throw ownershipRefusal(decision)
+  const pid = record.pid
+  if (decision.noop) {
+    if (existsSync(pidFile(name))) unlinkSync(pidFile(name))
+    return { stopped: false, reason: 'already-exited' }
+  }
   if (process.platform === 'win32') {
     spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
       encoding: 'utf8', windowsHide: true, timeout: timeoutMs,
@@ -341,16 +536,29 @@ export async function stopProc(name, timeoutMs = 25_000) {
     }
   }
   if (existsSync(pidFile(name))) unlinkSync(pidFile(name))
+  return { stopped: true, pid }
 }
 
 /**
  * Forceful kill, the Windows equivalent of SIGKILL: taskkill /F /T terminates
  * the JVM and its children without shutdown hooks, so no graceful flush can
- * mask the durability behaviour under test.
+ * mask the durability behaviour under test. Refuses when the PID record does
+ * not prove the process is the one this harness started.
  */
 export async function killProc(name) {
-  const pid = pidOf(name)
-  if (!pid) throw new Error(`no pid recorded for ${name}`)
+  const { record, actual } = verifiedProcess(name)
+  if (!record) throw new OwnershipError(`no PID record for ${name}; refusing to kill an unverified process`,
+    'MISSING_PID_RECORD')
+  const decision = decideProcess({
+    mode: 'kill', name, expectedOwner: requireOwner(), record, actual,
+  })
+  if (!decision.allow) throw ownershipRefusal(decision)
+  const pid = record.pid
+  if (decision.noop) {
+    if (existsSync(pidFile(name))) unlinkSync(pidFile(name))
+    throw new OwnershipError(`process ${name} (pid ${pid}) is already gone; nothing to kill`,
+      'ALREADY_EXITED')
+  }
   const started = Date.now()
   if (process.platform === 'win32') {
     spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
