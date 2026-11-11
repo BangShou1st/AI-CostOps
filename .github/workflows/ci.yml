@@ -220,31 +220,17 @@ jobs:
           cache: maven
           cache-dependency-path: backend/pom.xml
 
-      # Partition the 198 integration tests across shards and skip Surefire unit tests (-Dsurefire.skip=true)
+      # Partition integration tests across shards. The selector fails the step
+      # on an empty enumeration or an empty shard, so this required job can
+      # never pass while running zero tests.
       - name: Run backend integration tests shard ${{ matrix.shard }}
         if: steps.check.outputs.should_run == 'true'
         working-directory: backend
         shell: bash
         run: |
-          TESTS=$(node -e '
-            const fs = require("fs");
-            const path = require("path");
-            function walk(dir) {
-              let files = [];
-              for (const f of fs.readdirSync(dir)) {
-                const p = path.join(dir, f);
-                if (fs.statSync(p).isDirectory()) files.push(...walk(p));
-                else if (f.endsWith("IntegrationTest.java")) files.push(f.replace(".java", ""));
-              }
-              return files;
-            }
-            const all = walk("src/test/java").sort();
-            const shard = parseInt(process.argv[1]);
-            const selected = all.filter((_, idx) => idx % 2 === shard);
-            console.log(selected.join(","));
-          ' ${{ matrix.shard }})
+          TESTS=$(node ../scripts/ci/select-integration-tests.mjs --shard ${{ matrix.shard }} --shards 2)
           echo "Selected $(echo "$TESTS" | tr ',' '\n' | wc -l) integration tests for shard ${{ matrix.shard }}"
-          ./mvnw -B verify -Dsurefire.skip=true "-Dit.test=$TESTS" -DfailIfNoSpecifiedTests=false
+          ./mvnw -B verify -Dsurefire.skip=true "-Dit.test=$TESTS" -DfailIfNoTests=true
 
       - name: Upload backend Failsafe reports
         if: always() && steps.check.outputs.should_run == 'true'
