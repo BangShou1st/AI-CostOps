@@ -33,3 +33,10 @@ management:
     health:
       probes:
         enabled: true
+
+# Production logs are ECS JSON so MDC fields (traceId) and key-value pairs are
+# machine-queryable by the log pipeline. Local/dev keep the human console format.
+logging:
+  structured:
+    format:
+      console: ecs

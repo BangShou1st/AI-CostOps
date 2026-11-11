@@ -1,5 +1,6 @@
 package com.aicostops.shared.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -44,6 +45,30 @@ class ProblemDetailAdviceTest {
         var headerTraceId = result.getResponse().getHeader(TraceIdFilter.TRACE_ID_HEADER);
         var body = result.getResponse().getContentAsString();
         org.assertj.core.api.Assertions.assertThat(body).contains("\"traceId\":\"" + headerTraceId + "\"");
+    }
+
+    @Test
+    void preservesAValidInboundTraceId() throws Exception {
+        var result = mockMvc.perform(get("/failure")
+                        .header(TraceIdFilter.TRACE_ID_HEADER, "trace-abc-123"))
+                .andExpect(status().isConflict())
+                .andExpect(header().string(TraceIdFilter.TRACE_ID_HEADER, "trace-abc-123"))
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString())
+                .contains("\"traceId\":\"trace-abc-123\"");
+    }
+
+    @Test
+    void rejectsAnUnsafeInboundTraceId() throws Exception {
+        var result = mockMvc.perform(get("/failure")
+                        .header(TraceIdFilter.TRACE_ID_HEADER, "bad trace id with spaces"))
+                .andExpect(status().isConflict())
+                .andReturn();
+
+        assertThat(result.getResponse().getHeader(TraceIdFilter.TRACE_ID_HEADER))
+                .startsWith("trc_")
+                .isNotEqualTo("bad trace id with spaces");
     }
 
     @Test

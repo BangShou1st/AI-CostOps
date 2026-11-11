@@ -15,11 +15,30 @@ the private-backend deployment boundary; it is not gated on this overlay.)
 
 Config lives under `deploy/observability/`:
 
-- `prometheus/prometheus.yml` — scrape job `aicostops-backend` (15s interval).
+- `prometheus/prometheus.yml` — scrape jobs `aicostops-backend` and `aicostops-gateway` (15s interval).
 - `prometheus/alerts.yml` — operational alert rules.
 - `grafana/provisioning/datasources/` — Prometheus datasource (`uid: prometheus`).
 - `grafana/provisioning/dashboards/` — dashboard provider.
 - `grafana/dashboards/aicostops-overview.json` — operational overview dashboard.
+
+## Correlation key mapping
+
+| Plan key | Actual column / field | Notes |
+|---|---|---|
+| `import_batch_id` | `import_batch.id` | Import batch identity |
+| `job_id` | `import_attempt.id` | No column named `job_id`; the attempt is the DB-backed job |
+| `import_attempt_id` | `import_attempt.id` | Lease, fencing and successor lineage |
+| `evidence_id` | `evidence.id` | Object key is derived from org + sha256 |
+| `posting_key` | `ledger_posting.posting_key` | Unique; preserved across Corrections |
+| `gateway_request_id` | `gateway_request.public_request_id` | Public id; internal `id` stays in DB/logs |
+| `idempotency_key` | `gateway_request.idempotency_key_digest` | BINARY(32) digest only; raw key is never logged |
+| `dispatch_intent_id` | `gateway_route_attempt.id` + `dispatch_intent_at` | No separate column |
+| `reservation_id` | `budget_reservation.id` | MySQL-authoritative hold |
+| `provider_request_id` | `gateway_route_attempt.provider_request_id` | Provider-side id when available |
+| `settlement_id` | `gateway_settlement.id` | Idempotent settlement row |
+
+`X-Trace-Id` is the per-request correlation header (backend also places it in MDC
+and the Problem body; Gateway returns it on the response).
 
 ## Starting the overlay
 
@@ -97,8 +116,8 @@ real stack using a bounded, deterministic signal (invalid-credential logins). It
 7. stops **only** the project it started (never a global prune, never unrelated
    projects) and machine-verifies the cleanup: the `down` exit code must be 0 and
    `docker compose -p aicostops-obs ... ps -q` must be empty afterwards;
-8. writes `docs/03-acceptance/m9-observability-evidence.md` with real run data,
-   including the machine-verified cleanup result.
+8. writes `docs/03-acceptance/maintenance/2026-11/2026-11-11-m9-observability-smoke-evidence.md`
+   with real run data, including the machine-verified cleanup result.
 
 The core Compose stack is validated separately by the repository's standard
 runtime smoke `scripts/smoke-v1.ps1`, run without this overlay.

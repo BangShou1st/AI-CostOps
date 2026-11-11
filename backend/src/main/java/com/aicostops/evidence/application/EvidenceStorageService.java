@@ -4,6 +4,7 @@ import com.aicostops.evidence.domain.Evidence;
 import com.aicostops.evidence.domain.EvidenceStorageStatus;
 import com.aicostops.evidence.infrastructure.EvidenceStorageProperties;
 import com.aicostops.evidence.infrastructure.ObjectStorageException;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.io.InputStream;
@@ -11,6 +12,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -25,20 +28,25 @@ import org.springframework.stereotype.Service;
 @Service
 public class EvidenceStorageService {
 
+    private static final Logger log = LoggerFactory.getLogger(EvidenceStorageService.class);
+
     private final EvidencePersistenceService persistence;
     private final ObjectStoragePort storage;
     private final EvidenceUploadStager stager;
     private final Clock clock;
+    private final AiCostOpsMetrics metrics;
 
     public EvidenceStorageService(
             EvidencePersistenceService persistence,
             ObjectStoragePort storage,
             EvidenceStorageProperties properties,
-            Clock clock) {
+            Clock clock,
+            AiCostOpsMetrics metrics) {
         this.persistence = persistence;
         this.storage = storage;
         this.stager = new EvidenceUploadStager(properties.uploadLimit().toBytes());
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     public StoredEvidence store(
@@ -90,7 +98,7 @@ public class EvidenceStorageService {
             } catch (ObjectStorageException outage) {
                 persistence.markFailedUnlessAvailable(
                         reserved.id(), organizationId, "STORAGE_UPLOAD_FAILED", now);
-                throw dependencyUnavailable();
+                throw dependencyUnavailable("UPLOAD");
             } catch (RuntimeException failure) {
                 persistence.markFailedUnlessAvailable(
                         reserved.id(), organizationId, "STORAGE_UPLOAD_FAILED", now);
@@ -111,11 +119,14 @@ public class EvidenceStorageService {
         try {
             return storage.stat(objectKey);
         } catch (ObjectStorageException outage) {
-            throw dependencyUnavailable();
+            throw dependencyUnavailable("STAT");
         }
     }
 
-    private DomainException dependencyUnavailable() {
+    private DomainException dependencyUnavailable(String operation) {
+        // Bounded signal only: operation name, never object key, filename or bytes.
+        metrics.dependencyError("OBJECT_STORAGE");
+        log.warn("Evidence object storage unavailable during {}", operation);
         return new DomainException(HttpStatus.SERVICE_UNAVAILABLE, ProblemCode.DEPENDENCY_TEMPORARILY_UNAVAILABLE,
                 "Evidence storage unavailable", "The evidence object store is temporarily unavailable.");
     }

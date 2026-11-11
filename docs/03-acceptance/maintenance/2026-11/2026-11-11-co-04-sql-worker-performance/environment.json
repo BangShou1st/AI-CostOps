@@ -1,0 +1,43 @@
+{
+  "package": "CO-04",
+  "date": "2026-11-11",
+  "baseline": "57696e25ca444658ec114a8152e7224f2fa67e45",
+  "host": {
+    "os": "Windows 11 10.0.26200 x64",
+    "dockerCpus": 8,
+    "dockerMemoryBytes": 1995673600,
+    "dockerMemoryNote": "docker info MemTotal as reported by Docker Desktop; the M9 2026-08 evidence recorded a different VM allocation"
+  },
+  "toolchain": {
+    "java": "21.0.10",
+    "mavenWrapper": "3.9.11",
+    "springBoot": "4.1.0",
+    "mysql": "8.4.11 (Testcontainers)",
+    "redis": "7 (Testcontainers)",
+    "objectStorage": "MinIO (Testcontainers)"
+  },
+  "benchmarks": {
+    "import": {
+      "test": "M9ImportScaleBenchmarkIntegrationTest",
+      "scales": ["10k", "100k"],
+      "runs": 3,
+      "command": "./mvnw -B verify -Dtest=NoSuchTest -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=M9ImportScaleBenchmarkIntegrationTest -Dfailsafe.failIfNoSpecifiedTests=false -Dm9.benchmark.scales=10k,100k -Dm9.benchmark.runs=3"
+    },
+    "reporting": {
+      "test": "M9ReportingScaleBenchmarkIntegrationTest",
+      "rows": 10000,
+      "runs": 3,
+      "command": "./mvnw -B verify -Dtest=NoSuchTest -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=M9ReportingScaleBenchmarkIntegrationTest -Dfailsafe.failIfNoSpecifiedTests=false -Dm9.reporting.rows=10000 -Dm9.reporting.runs=3"
+    },
+    "explainAnalyze": {
+      "test": "M8SchemaQueryExplainIntegrationTest#printsMySqlAnalyzePlansForM8CoreWorkloads",
+      "fixture": "240 charge_fact rows, 10,000 budget rows",
+      "command": "./mvnw -B verify -Dtest=NoSuchTest -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=M8SchemaQueryExplainIntegrationTest -Dfailsafe.failIfNoSpecifiedTests=false"
+    }
+  },
+  "notVerified": [
+    "500k reporting: the current Docker VM memory is below the historical 7790 MB allocation; not run",
+    "Cross-instance budget contention: tests use one JVM with multiple connections; the DB uniqueness/lock semantics are covered, real two-process deployment is NOT_VERIFIED",
+    "Production QPS / P95: no production traffic replay"
+  ]
+}

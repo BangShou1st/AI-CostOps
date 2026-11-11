@@ -168,7 +168,7 @@ class M9ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
             var uploadMillis = elapsedMillis(uploadStart);
 
             var workerStart = System.nanoTime();
-            coordinator.pollOnce();
+            pollUntilClaimed(created.latestAttemptId());
             awaitAttempt(created.latestAttemptId(), "SUCCEEDED");
             var workerMillis = elapsedMillis(workerStart);
 
@@ -259,6 +259,26 @@ class M9ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
     private int count(String table, String column, long value) {
         return jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE " + column + "=?",
                 Integer.class, value);
+    }
+
+    /**
+     * Calls pollOnce until the attempt leaves QUEUED. A single call can race
+     * the previous workload's permit release: the executor updates the attempt
+     * status just before its finally block returns the permit, so a multi-run
+     * benchmark can otherwise wait forever for a claim that never happens.
+     */
+    private void pollUntilClaimed(long attemptId) {
+        var deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            coordinator.pollOnce();
+            var status = jdbc.queryForObject(
+                    "SELECT status FROM import_attempt WHERE id=?", String.class, attemptId);
+            if (!"QUEUED".equals(status)) {
+                return;
+            }
+            sleep(50);
+        }
+        throw new AssertionError("M9 import attempt " + attemptId + " was never claimed");
     }
 
     private void awaitAttempt(long attemptId, String expected) {

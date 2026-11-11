@@ -65,6 +65,7 @@ public class ReservationRecoveryService {
             recoverOne(hold);
         }
         recoverSafeReleasedRequests();
+        recoverStalePreDispatchRequests();
     }
 
     private void recoverSafeReleasedRequests() {
@@ -101,6 +102,56 @@ public class ReservationRecoveryService {
         }
         return requestMapper.markRequestFailedPreDispatch(candidate.requestId(), candidate.orgId()) == 1
                 ? "SAFE_RELEASED_TERMINAL" : "SKIPPED";
+    }
+
+    /**
+     * Recovers pre-reservation orphans: a crash between the PLANNED attempt and
+     * TX1 budget admission leaves a VALIDATED/RESERVED request with no
+     * reservation and no dispatch evidence. Such a request is invisible to the
+     * expired-hold scan (no hold) and to the SAFE-attempt scan (the attempt is
+     * PLANNED, not SAFE). After the reservation TTL it is definitively
+     * pre-dispatch and can transition to FAILED_PRE_DISPATCH without touching
+     * money or Provider I/O; the age bound keeps live requests out of the scan.
+     */
+    private void recoverStalePreDispatchRequests() {
+        List<GatewayRequestMapper.StalePreDispatchRequest> requests;
+        try {
+            requests = requestMapper.findStalePreDispatchRequests(
+                    Math.max(1L, properties.reservationTtlMs() / 1000L),
+                    properties.reservationRecoveryBatchSize());
+        } catch (RuntimeException ex) {
+            log.warn("Stale pre-dispatch request recovery scan failed", ex);
+            metrics.recordReservationRecovery("FAILED");
+            return;
+        }
+        for (var request : requests) {
+            try {
+                var outcome = transactions.execute(status -> recoverStalePreDispatchRequest(request));
+                metrics.recordReservationRecovery(outcome == null ? "SKIPPED" : outcome);
+            } catch (RuntimeException ex) {
+                log.warn("Stale pre-dispatch request recovery failed for request {}",
+                        request.requestId(), ex);
+                metrics.recordReservationRecovery("FAILED");
+            }
+        }
+    }
+
+    private String recoverStalePreDispatchRequest(
+            GatewayRequestMapper.StalePreDispatchRequest candidate) {
+        var request = requestMapper.findByIdForUpdate(candidate.requestId(), candidate.orgId());
+        if (request == null || !List.of("VALIDATED", "RESERVED", "DISPATCH_INTENT", "UPSTREAM_ACTIVE")
+                .contains(request.state())) {
+            return "SKIPPED";
+        }
+        // Every attempt must be PLANNED or SAFE (no dispatch evidence), at least
+        // one PLANNED must remain, and no reservation may still be effective.
+        if (requestMapper.countDispatchedAttempts(candidate.orgId(), candidate.requestId()) != 0
+                || requestMapper.countPlannedAttempts(candidate.orgId(), candidate.requestId()) == 0
+                || requestMapper.countEffectiveReservations(candidate.orgId(), candidate.requestId()) != 0) {
+            return "SKIPPED";
+        }
+        return requestMapper.markRequestFailedPreDispatch(candidate.requestId(), candidate.orgId()) == 1
+                ? "STALE_PRE_DISPATCH_TERMINAL" : "SKIPPED";
     }
 
     private void recoverOne(ExpiredHold hold) {

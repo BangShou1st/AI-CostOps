@@ -5,13 +5,22 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.HttpStatus;
 
 public class RedisRateLimiter {
 
     private static final String PREFIX = "aicostops:v1:ratelimit:login:";
+    private static final DefaultRedisScript<Long> INCREMENT_WITH_EXPIRY = new DefaultRedisScript<>();
+
+    static {
+        INCREMENT_WITH_EXPIRY.setLocation(new ClassPathResource("redis/login-rate-limit.lua"));
+        INCREMENT_WITH_EXPIRY.setResultType(Long.class);
+    }
 
     private final StringRedisTemplate redis;
     private final Clock clock;
@@ -33,14 +42,15 @@ public class RedisRateLimiter {
     }
 
     public RateLimitDecision checkLogin(String remoteIp, String normalizedEmail) {
-        var windowSeconds = window.toSeconds();
+        var windowSeconds = Math.max(1L, window.toSeconds());
         var epochSeconds = clock.instant().getEpochSecond();
         var windowId = epochSeconds / windowSeconds;
+        var remainingMillis = Math.max(1L, windowSeconds - (epochSeconds % windowSeconds)) * 1000L;
         var ipKey = PREFIX + "ip:" + TokenDigest.sha256(remoteIp) + ":" + windowId;
         var accountKey = PREFIX + "account:" + TokenDigest.sha256(normalizedEmail) + ":" + windowId;
         try {
-            var ipCount = incrementWithExpiry(ipKey);
-            var accountCount = incrementWithExpiry(accountKey);
+            var ipCount = incrementWithExpiry(ipKey, remainingMillis);
+            var accountCount = incrementWithExpiry(accountKey, remainingMillis);
             if (ipCount > ipLimit || accountCount > accountLimit) {
                 return RateLimitDecision.deny(Math.max(1, windowSeconds - (epochSeconds % windowSeconds)));
             }
@@ -53,11 +63,8 @@ public class RedisRateLimiter {
         }
     }
 
-    private long incrementWithExpiry(String key) {
-        var count = redis.opsForValue().increment(key);
-        if (count != null && count == 1L) {
-            redis.expire(key, window);
-        }
+    private long incrementWithExpiry(String key, long remainingMillis) {
+        var count = redis.execute(INCREMENT_WITH_EXPIRY, List.of(key), Long.toString(remainingMillis));
         return count == null ? Long.MAX_VALUE : count;
     }
 }

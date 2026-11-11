@@ -27,6 +27,11 @@
 - OpenCode Zen minimax 真实浏览器验收记录（`docs/03-acceptance/maintenance/2026-10/2026-10-22-opencode-zen-minimax-real-browser-acceptance.md`）
 - 文档链接自动校验工具：`scripts/dev/verify-doc-links.mjs`，并通过根 `package.json` 提供 `npm run verify:links` 命令
 - 业务链路 B（外部账单归集与财务对账）端到端真实性验收记录（`docs/03-acceptance/maintenance/2026-11/2026-11-10-billing-chain-e2e-acceptance.md`）：8/8 检查点 PASS，含三层幂等键数据库核对与定向复跑测试证据
+- CO-00 安全与代码基线证据包（`docs/03-acceptance/maintenance/2026-11/2026-11-11-co-00-baseline/`）：分支/SHA/依赖清单、Trivy 与 CodeQL 脱敏结果、`main @ 57696e2` 的 CI 14/14 + Security 3/3 重新验证
+- CO-01/CO-02 核心链路可靠性补强验收（`2026-11-11-co-01-co-02-reliability/`）：预占前孤儿恢复、依赖不可用 503、对象不可读失败、导入失败指标与 50 并发同键
+- CO-03 Redis 正确性与降级验收（`2026-11-11-co-03-redis/`）：登录限流 Lua 原子化、工作台缓存权限指纹、Gateway Redis 命令超时与职责/故障矩阵
+- CO-04 SQL/Worker/性能复验（`2026-11-11-co-04-sql-worker-performance/`）：10k/100k import 各 3 轮、10k reporting 30 次 p50/p95、M8/M9 EXPLAIN ANALYZE；500k reporting 标 `NOT_VERIFIED`
+- CO-05 可观测/故障注入验收（`2026-11-11-co-05-observability/`）：关联键映射、traceId/MDC、导入失败与对象存储依赖指标、§8.2 故障矩阵与交付决策
 
 ### Changed
 - `CloseBlockerProviderIntegrationTest` 过时测试方法名更正（`registryContainsExactlySevenCanonicalProviders` → `registryContainsExactlyEightCanonicalProviders`，`CloseBlockerCode` 实为 8 项；仅改名，未改断言）
@@ -62,6 +67,12 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- 工作台缓存：缓存键加入调用者 ORG 权限集合的 SHA-256 指纹，修复同组织低权限成员命中高权限成员预热视图的跨权限读泄露
+- Gateway Redis 可靠性：`spring.data.redis.timeout=500ms` / `connect-timeout=1s`，Redis 已连接但慢响应/黑洞时在 Provider I/O 前有界 fail-closed；新增 blackhole 超时测试
+- 可观测性：`TraceIdFilter` 写入/清理 MDC 并校验入站 `X-Trace-Id`；导入失败最终化后发 `import.completed{result=FAILED}`（修复告警死链）；对象存储 STAT/UPLOAD 失败发 `dependency.error{OBJECT_STORAGE}`；Gateway Provider 标签补齐 `KILO_GATEWAY` / `OPENCODE_ZEN` / `CUSTOM_OPENAI_COMPATIBLE`
+- 关账校验异常消息从“exactly seven results”改为按 `CloseBlockerCode.values().length` 动态生成（当前 8）
+- Gateway 预占前孤儿请求恢复：`VALIDATED`/`RESERVED`/`DISPATCH_INTENT`/`UPSTREAM_ACTIVE` 下，所有 attempt 为 `PLANNED`/`SAFE_NO_BILLABLE_EXECUTION` 且至少一个 `PLANNED`、无有效预算预占的请求，此前既不被过期预占扫描发现（没有预占），也不被 SAFE attempt 扫描发现；新增超过 `reservation-ttl` 的有界扫描，将其收敛为 `FAILED_PRE_DISPATCH`，不触碰资金与 Provider I/O，且年龄阈值避免误伤在途请求
+- IAM 登录限流：`RedisRateLimiter` 的 `INCR` + `EXPIRE` 改为 Lua 原子脚本，消除进程崩溃在两条命令之间留下无 TTL 计数键的窗口；已有无 TTL 键在下一次登录时自愈，且不会延长进行中的固定窗口
 - 对账整体调整弹窗：分配目标搜索框补 `optionFilterProp="label"`（antd 默认按 value 即数字 id 过滤，按名称搜索此前永远无结果）；`m15-hybrid-reconciliation.spec.ts` 分配目标选择改为先输入搜索词再选项，消除复用数据库上虚拟滚动导致的选项不可见（未弱化断言）
 - 集成测试断言：`ImportWorkflowReadApiIntegrationTest` 的租户隔离排除检查从整个响应体的裸子串匹配收敛为 `items[*].id` 字段级排除，消除共享 Testcontainer 的 AUTO_INCREMENT 漂移导致的 ID 数值碰撞假阳性；断言意图与覆盖范围不变
 - 前端镜像基线：`frontend/Dockerfile` 基础镜像由 `nginx:1.30.4-alpine` 升级为 `nginx:1.30.6-alpine`（实装 `nginx=1.30.6-r1`），消除 CVE-2026-15176 / CVE-2026-93479 / CVE-2026-97205 三项 HIGH；不新增 `.trivyignore`、不调整 Trivy 阈值

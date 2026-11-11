@@ -31,6 +31,13 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:change-me-local-only}
     hikari:
       maximum-pool-size: ${AICOSTOPS_GATEWAY_DB_POOL_MAX:12}
+  data:
+    redis:
+      # A connected-but-silent Redis must not block the data plane for the
+      # Lettuce default of 60s. Rate limit, quota and circuit-breaker commands
+      # fail closed within this bounded window, before any Provider I/O.
+      timeout: ${SPRING_DATA_REDIS_TIMEOUT:500ms}
+      connect-timeout: ${SPRING_DATA_REDIS_CONNECT_TIMEOUT:1s}
 
 mybatis:
   configuration:
@@ -88,3 +95,9 @@ aicostops:
     circuit-failure-threshold: ${AICOSTOPS_GATEWAY_CIRCUIT_FAILURE_THRESHOLD:5}
     circuit-open-duration-ms: ${AICOSTOPS_GATEWAY_CIRCUIT_OPEN_DURATION_MS:30000}
     circuit-half-open-lease-ms: ${AICOSTOPS_GATEWAY_CIRCUIT_HALF_OPEN_LEASE_MS:15000}
+
+# Correlation id from CorrelationWebFilter (exchange attribute / response
+# header); MDC may be empty on reactive threads, so the pattern is optional.
+logging:
+  pattern:
+    correlation: "[%X{traceId:-}]"

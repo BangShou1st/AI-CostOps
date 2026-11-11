@@ -122,7 +122,13 @@ public class AiCostOpsMetrics {
 
     /** Provider labels are adapter catalog codes, never account/model identifiers. */
     public void gatewayReservationOverrun(String providerCode) {
-        var safeProvider = "MIMO".equals(providerCode) ? providerCode : "UNKNOWN";
+        // Fixed low-cardinality catalog of registered adapter codes. Never accept
+        // an arbitrary provider/model/account string as a label.
+        var safeProvider = switch (providerCode == null ? "" : providerCode) {
+            case "MIMO", "OPENAI", "KILO_GATEWAY", "OPENCODE_ZEN",
+                    "CUSTOM_OPENAI_COMPATIBLE" -> providerCode;
+            default -> "UNKNOWN";
+        };
         registry.counter("aicostops.gateway.reservation.overrun",
                 "provider_code", safeProvider).increment();
     }

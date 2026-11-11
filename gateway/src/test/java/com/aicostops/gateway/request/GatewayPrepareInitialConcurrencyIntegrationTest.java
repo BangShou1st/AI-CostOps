@@ -1,6 +1,7 @@
 package com.aicostops.gateway.request;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.request.GatewayRequestService.AuthorizeCommand;
@@ -45,11 +46,36 @@ class GatewayPrepareInitialConcurrencyIntegrationTest extends GatewayMySqlContai
 
     @Test
     void concurrentIdenticalPrepareConvergesWithoutTerminalMarking() throws Exception {
+        assertConcurrentPrepareConverges(20);
+    }
+
+    @Test
+    void fiftyConcurrentIdenticalPrepareStillConverges() throws Exception {
+        assertConcurrentPrepareConverges(50);
+    }
+
+    @Test
+    void unsafeReservationBoundFailsClosedWithDependencyUnavailable() {
+        var env = GatewayTestFixture.seed(jdbc, "prep-unsafe-" + System.nanoTime(), HMAC_KEY, rawKey());
+        jdbc.update("DELETE FROM pricing_rate WHERE pricing_version_id=? AND dimension_code='INPUT_TOKEN'",
+                env.pricingVersionId());
+        var body = "{\"model\":\"default-chat\"}".getBytes(StandardCharsets.UTF_8);
+
+        var error = catchThrowableOfType(GatewayErrorException.class, () ->
+                orchestrator.prepareInitial(new AuthorizeCommand(
+                        requiredPrincipal(env), env.modelId(), body, "prep-unsafe-key", 8192), false).block());
+
+        assertThat(error.code()).isEqualTo(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE);
+        assertThat(requestState(env)).isEqualTo("FAILED_PRE_DISPATCH");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_reservation WHERE org_id=?", Long.class, env.orgId())).isZero();
+    }
+
+    private void assertConcurrentPrepareConverges(int threads) throws Exception {
         var env = GatewayTestFixture.seed(jdbc, "prep-conc-" + System.nanoTime(), HMAC_KEY, rawKey());
         var principal = principal(env);
         var body = "{\"model\":\"default-chat\"}".getBytes(StandardCharsets.UTF_8);
 
-        int threads = 20;
         var prepared = new AtomicInteger();
         var inProgress = new AtomicInteger();
         var forbidden = new AtomicInteger();
@@ -111,6 +137,12 @@ class GatewayPrepareInitialConcurrencyIntegrationTest extends GatewayMySqlContai
         return new GatewayPrincipal(
                 env.credentialId(), env.orgId(), env.projectId(), "SERVICE", null,
                 env.serviceIdentityId(), "PROJECT", env.projectId(), "OPTIONAL");
+    }
+
+    private GatewayPrincipal requiredPrincipal(SeededEnv env) {
+        return new GatewayPrincipal(
+                env.credentialId(), env.orgId(), env.projectId(), "SERVICE", null,
+                env.serviceIdentityId(), "PROJECT", env.projectId(), "REQUIRED");
     }
 
     private static String rawKey() {

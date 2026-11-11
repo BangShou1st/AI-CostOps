@@ -14,7 +14,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class GatewayMetrics {
 
-    private static final Set<String> PROVIDER_CODES = Set.of("MIMO", "OPENAI", "UNKNOWN");
+    private static final Set<String> PROVIDER_CODES = Set.of(
+            "MIMO", "OPENAI", "KILO_GATEWAY", "OPENCODE_ZEN",
+            "CUSTOM_OPENAI_COMPATIBLE", "UNKNOWN");
     private static final Set<String> ROUTING_REASONS = Set.of(
             "INITIAL_PRIMARY", "INITIAL_FALLBACK", "SAFE_FAILOVER", "CIRCUIT_OPEN",
             "NO_ELIGIBLE_CANDIDATE", "UNKNOWN");
@@ -40,7 +42,8 @@ public class GatewayMetrics {
     private static final Set<String> PROVIDER_ERROR_CLASSES = Set.of(
             "HTTP_ERROR", "CONNECT", "TIMEOUT");
     private static final Set<String> RESERVATION_RECOVERY_OUTCOMES = Set.of(
-            "RELEASED", "PENDING_HOLD", "SKIPPED", "FAILED");
+            "RELEASED", "PENDING_HOLD", "SKIPPED", "FAILED",
+            "STALE_PRE_DISPATCH_TERMINAL");
     private static final Set<String> RESERVATION_ATTEMPTS = Set.of(
             "RESERVED", "UNBUDGETED", "REJECTED_BUDGET", "REJECTED_DEPENDENCY");
     private static final Set<String> QUOTA_OUTCOMES = Set.of(

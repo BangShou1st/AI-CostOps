@@ -6,6 +6,7 @@ import com.aicostops.ingestion.domain.ImportIssueSeverity;
 import com.aicostops.ingestion.infrastructure.ImportAttemptMapper;
 import com.aicostops.ingestion.infrastructure.ImportBatchMapper;
 import com.aicostops.ingestion.infrastructure.ImportWorkerProperties;
+import com.aicostops.observability.AiCostOpsMetrics;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,6 +32,7 @@ public class ImportAttemptExecutor {
     private final ObjectStoragePort storage;
     private final ImportWorkerProperties properties;
     private final ImportAttemptFinalizationService finalizer;
+    private final AiCostOpsMetrics metrics;
     private final ConcurrentHashMap<Long, ImportLeaseService.ImportLease> activeLeases =
             new ConcurrentHashMap<>();
 
@@ -43,7 +45,8 @@ public class ImportAttemptExecutor {
             EvidencePersistenceService evidencePersistence,
             ObjectStoragePort storage,
             ImportWorkerProperties properties,
-            ImportAttemptFinalizationService finalizer) {
+            ImportAttemptFinalizationService finalizer,
+            AiCostOpsMetrics metrics) {
         this.registry = registry;
         this.leases = leases;
         this.persistence = persistence;
@@ -53,6 +56,7 @@ public class ImportAttemptExecutor {
         this.storage = storage;
         this.properties = properties;
         this.finalizer = finalizer;
+        this.metrics = metrics;
     }
 
     public void execute(ImportLeaseService.ImportLease lease) {
@@ -109,7 +113,7 @@ public class ImportAttemptExecutor {
             attemptMapper.recordInspection(lease.attemptId(), lease.leaseOwner(), lease.leaseVersion(),
                     inspection.detectedProviderCode(), inspection.schemaFingerprint());
             if (!inspection.compatible() || hasError(inspection.issues())) {
-                fail(lease, "SCHEMA_INCOMPATIBLE",
+                fail(lease, batch.expectedProviderCode(), "SCHEMA_INCOMPATIBLE",
                         "Provider schema is not compatible with the registered adapter.");
                 return;
             }
@@ -121,7 +125,7 @@ public class ImportAttemptExecutor {
             // Lease lost: stop silently; a successor may already be queued by recovery.
             return;
         } catch (RuntimeException failure) {
-            fail(lease, "EXECUTION_FAILED", safeFailureSummary(failure));
+            fail(lease, batch.expectedProviderCode(), "EXECUTION_FAILED", safeFailureSummary(failure));
             return;
         }
 
@@ -132,7 +136,8 @@ public class ImportAttemptExecutor {
             throw new IllegalStateException("Executing ImportAttempt must remain readable");
         }
         if (finished.errorCount() > 0) {
-            fail(lease, "DATA_ERRORS", "Provider records contained ERROR issues.");
+            fail(lease, batch.expectedProviderCode(), "DATA_ERRORS",
+                    "Provider records contained ERROR issues.");
         } else {
             succeed(lease);
         }
@@ -146,8 +151,13 @@ public class ImportAttemptExecutor {
         finalizer.completeSuccess(lease);
     }
 
-    private void fail(ImportLeaseService.ImportLease lease, String errorCode, String errorSummary) {
-        finalizer.completeFailure(lease, errorCode, errorSummary);
+    private void fail(ImportLeaseService.ImportLease lease, String providerCode,
+            String errorCode, String errorSummary) {
+        if (finalizer.completeFailure(lease, errorCode, errorSummary)) {
+            // Only a finalized failure counts; a lease-lost attempt is superseded
+            // by its successor and must not be double-counted.
+            metrics.importCompleted(providerCode, "FAILED");
+        }
     }
 
     /**

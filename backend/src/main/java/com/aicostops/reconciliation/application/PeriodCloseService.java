@@ -301,7 +301,8 @@ public final class PeriodCloseService {
 
     private static void validateAllBlockers(List<CloseBlockerResult> results) {
         if (results.size() != CloseBlockerCode.values().length) {
-            throw new IllegalStateException("A Close evaluation must contain exactly seven results");
+            throw new IllegalStateException("A Close evaluation must contain exactly "
+                    + CloseBlockerCode.values().length + " results");
         }
         Map<CloseBlockerCode, CloseBlockerResult> unique = results.stream().collect(
                 Collectors.toMap(CloseBlockerResult::code, Function.identity(),

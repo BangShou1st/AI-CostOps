@@ -14,15 +14,16 @@ import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.script.RedisScript;
 
 class RedisRateLimiterTest {
     @SuppressWarnings("unchecked")
     @Test
     void failsClosedWithStableServiceUnavailableProblem() {
-        var redis = mock(StringRedisTemplate.class); var values = mock(ValueOperations.class);
-        when(redis.opsForValue()).thenReturn(values);
-        when(values.increment(org.mockito.ArgumentMatchers.anyString()))
+        var redis = mock(StringRedisTemplate.class);
+        when(redis.execute(org.mockito.ArgumentMatchers.any(RedisScript.class),
+                        org.mockito.ArgumentMatchers.anyList(),
+                        org.mockito.ArgumentMatchers.any(Object[].class)))
                 .thenThrow(new DataAccessResourceFailureException("redis down"));
         var limiter = new RedisRateLimiter(redis,
                 Clock.fixed(Instant.parse("2026-08-12T00:00:00Z"), ZoneOffset.UTC), 20, 8, Duration.ofMinutes(15));

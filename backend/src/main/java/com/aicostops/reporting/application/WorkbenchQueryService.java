@@ -4,6 +4,7 @@ import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.domain.AuthorizationContext;
 import com.aicostops.iam.domain.ScopeType;
 import com.aicostops.iam.domain.ScopedPermissionGrant;
+import com.aicostops.iam.domain.TokenDigest;
 import com.aicostops.reporting.application.WorkbenchReadModels.BudgetVarianceLine;
 import com.aicostops.reporting.application.WorkbenchReadModels.CloseStatus;
 import com.aicostops.reporting.application.WorkbenchReadModels.CurrencyAmount;
@@ -64,8 +65,13 @@ public class WorkbenchQueryService {
     public WorkbenchView get(AuthenticatedUser user, Long billingPeriodId) {
         var context = authorizationContexts.current(user);
         var orgPermissions = orgPermissions(context);
+        // Aggregated sections are permission-trimmed but not row-filtered, so a
+        // cached view is only valid for the exact ORG-scope permission set that
+        // produced it. Without the fingerprint a lower-privilege member could
+        // read a higher-privilege member's warm cache within the same org.
         var cacheKey = "workbench:" + context.organizationId() + ":"
-                + (billingPeriodId == null ? "current" : billingPeriodId);
+                + (billingPeriodId == null ? "current" : billingPeriodId)
+                + ":perm:" + permissionFingerprint(orgPermissions);
         var cached = cache.read(cacheKey, WorkbenchView.class);
         if (cached != null) {
             return cached;
@@ -173,6 +179,10 @@ public class WorkbenchQueryService {
                 .filter(grant -> grant.scopeType() == ScopeType.ORG)
                 .map(ScopedPermissionGrant::permissionCode)
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static String permissionFingerprint(Set<String> permissions) {
+        return TokenDigest.sha256(permissions.stream().sorted().collect(Collectors.joining(",")));
     }
 
     private static DomainException validation(String detail) {

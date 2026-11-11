@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.aicostops.evidence.domain.Evidence;
 import com.aicostops.evidence.domain.EvidenceStorageStatus;
 import com.aicostops.evidence.infrastructure.EvidenceStorageProperties;
+import com.aicostops.observability.AiCostOpsMetrics;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MinioContainerSupport;
@@ -48,6 +49,8 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
     private EvidenceStorageProperties properties;
     @Autowired
     private Clock clock;
+    @Autowired
+    private AiCostOpsMetrics metrics;
 
     private long organizationId;
     private long foreignOrganizationId;
@@ -139,7 +142,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
     @Test
     void sameBytesInSameOrganizationReuseEvidenceAndSkipObjectRewrite() {
         var recording = new RecordingObjectStoragePort(realStorage);
-        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock, metrics);
 
         var first = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT));
@@ -157,7 +160,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
     @Test
     void sameBytesInDifferentOrganizationsUseSeparateObjectNamespaces() {
         var recording = new RecordingObjectStoragePort(realStorage);
-        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock, metrics);
 
         var local = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT));
@@ -173,7 +176,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
     @Test
     void objectStoragePutNeverRunsInsideADatabaseTransaction() {
         var recording = new RecordingObjectStoragePort(realStorage);
-        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock, metrics);
 
         service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT));
@@ -197,7 +200,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         assertThat(reserved.evidence().storageStatus()).isEqualTo(EvidenceStorageStatus.STAGING);
 
         var recording = new RecordingObjectStoragePort(realStorage);
-        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock, metrics);
         var repaired = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT));
 
@@ -208,14 +211,14 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
 
     @Test
     void failedEvidenceRepairReportsReusedIdentity() {
-        var first = new EvidenceStorageService(persistence, realStorage, properties, clock)
+        var first = new EvidenceStorageService(persistence, realStorage, properties, clock, metrics)
                 .store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                         new ByteArrayInputStream(CONTENT));
         persistence.markFailedUnlessAvailable(first.evidence().id(), organizationId,
                 "STORAGE_UPLOAD_FAILED", Instant.now());
 
         var recording = new RecordingObjectStoragePort(realStorage);
-        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock, metrics);
         var repaired = service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT));
 
@@ -240,7 +243,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
         }
 
         var recording = new RecordingObjectStoragePort(realStorage);
-        var service = new EvidenceStorageService(persistence, recording, properties, clock);
+        var service = new EvidenceStorageService(persistence, recording, properties, clock, metrics);
         assertThatThrownBy(() -> service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT)))
                 .isInstanceOf(DomainException.class)
@@ -259,7 +262,7 @@ class EvidenceStorageServiceIntegrationTest extends MinioContainerSupport {
     @Test
     void storageFailureMarksEvidenceFailedButNeverDowngradesAvailable() {
         var failingStorage = new FailingObjectStoragePort();
-        var service = new EvidenceStorageService(persistence, failingStorage, properties, clock);
+        var service = new EvidenceStorageService(persistence, failingStorage, properties, clock, metrics);
 
         assertThatThrownBy(() -> service.store(organizationId, uploaderMemberId, "invoice.csv", "text/csv",
                 new ByteArrayInputStream(CONTENT)))
