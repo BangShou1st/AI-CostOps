@@ -19,6 +19,7 @@
     "infra:down": "node scripts/tasks.mjs infra:down",
     "infra:status": "node scripts/tasks.mjs infra:status",
     "task": "node scripts/tasks.mjs",
+    "perf:hc01": "node scripts/perf/hc01/runner.mjs",
     "verify:links": "node scripts/dev/verify-doc-links.mjs"
   }
 }
