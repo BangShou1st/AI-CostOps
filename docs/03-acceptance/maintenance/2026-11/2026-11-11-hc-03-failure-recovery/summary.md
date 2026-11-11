@@ -132,17 +132,17 @@ node scripts/perf/hc03/runner.mjs --reps=3 --skip-build
 |---|---|---|---|
 | R-1 | MySQL 不可达时 Hikari 默认 `connectionTimeout=30s` 才 503 | 故障期间请求排队 30s，可能放大上游超时 | 评估将 Gateway 数据源 `connection-timeout` 收紧到 3–5s；需单独评审产品默认值 |
 | R-2 | 两个 Gateway 无入口 LB；F04 是客户端显式切换端口 | 不能表述为生产自动故障切换/多活 | 生产需要入口健康检查与连接排空策略（不在本轮范围） |
-| R-3 | 未证明“commit 成功但响应未返回”的微秒边界崩溃 | 该边界理论上可能重复结算 | 已由事务注入点测试覆盖回滚语义；真实进程级需内核/故障注入工具，标 NOT_VERIFIED |
+| R-3 | 未证明进程在“数据库 commit 成功、HTTP 响应尚未返回”之间被 kill 的微秒级窗口；进程级仍为 **NOT_VERIFIED** | 该窗口理论上可能重复结算 | 实际防重复结算依赖数据库唯一约束与终态幂等：`gateway_settlement (org_id,request_id)` / `(org_id,usage_fact_id)` 唯一、`ledger_posting (org_id,posting_key)` 唯一、已 SETTLED 直接返回既有结果。事务注入点测试只证明回滚完整性，**不等价**于该窗口 |
 | R-4 | Close `beginOrResume` 有 3 次 deadlock 重试；finalize 不重试 | 重试耗尽会显式 500，不会静默吞掉 | 已有界；本轮未真实制造死锁耗尽，建议后续补 Chaos 注入 |
 | R-5 | `docker pause` 模拟 Redis 黑洞依赖 Docker 行为 | 与真实网络丢包/半开连接不完全等价 | 结论限定为“已连接但静默”的本地可控黑洞 |
 | R-6 | 单机、共享 Docker VM、测试短窗口 | 时间数字不能外推生产 RTO | 仅作为工程级恢复证据 |
 | R-7 | F06 的合成组织有一个未解决对账 case，`OPEN_MATERIAL_RECONCILIATION` 同时 FAIL | Close 被阻断的原因不止网关一条 | 网关 blocker 的 `itemCount=2` 是独立直接证据；生产需同时满足对账 blocker |
 
-## 11. 交付物
+## 11.1 审查修正（2026-11-12）\n\nPR #181 审查后的两项阻断修复见 [`review-followup.md`](review-followup.md)：\n\n- **Trivy / CI**：定位到 backend 安全镜像 runtime 阶段 `eclipse-temurin:21-jre-noble` 的 apt 2.8.3；\n  在 Dockerfile 增加 `apt >= 2.8.4ubuntu0.1` 构建期断言，security workflow 改为 `docker build --pull --no-cache`；\n  未修改 `.trivyignore`、未降低 severity。\n- **Harness 所有权**：容器 owner label、`run-owner.json`、v2 PID 身份记录（owner/命令 token/启动时间）；\n  新一轮、`--attach`、`--cleanup`、stop/kill 均先校验，foreign/unlabeled/legacy 一律拒绝；新增 13 个纯函数测试。\n- R-3 已按上表更正；F02 的 30 s 与 F06 的 PARTIAL 保持原判定。\n\n## 11. 交付物
 
 | 文件 | 内容 |
 |---|---|
-| [`runbook.md`](runbook.md) | 安全边界、环境、命令、场景、清理 |
+| [`runbook.md`](runbook.md) | 安全边界、资源所有权、环境、命令、场景、清理 |\n| [`review-followup.md`](review-followup.md) | 审查修正：Trivy/CI 与 harness 所有权加固、拒绝演练、R-3 更正 |
 | [`audit.md`](audit.md) | 阶段 A：代码路径与现有测试覆盖审计、本轮新增点 |
 | [`fault-matrix.md`](fault-matrix.md) | 故障矩阵、逐场景实测时间线与证据、判定汇总 |
 | [`environment.json`](environment.json) | 执行 SHA/分支/JAR sha256/镜像/端口/配置/资源 |
@@ -170,3 +170,4 @@ node scripts/perf/hc03/runner.mjs --reps=3 --skip-build
 > 未修改 `.trivyignore`、未降低 severity、未跳过扫描。若 CI 网络恢复，重跑 `trivy` 与
 > `browser-e2e` 即可；在此之前 Security 状态应如实视为 **BLOCKED（外部基础设施）**，
 > 不能宣称全绿。
+

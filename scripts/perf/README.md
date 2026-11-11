@@ -174,3 +174,4 @@ node scripts/perf/hc02/compare.mjs \
   正常限流阶段使用产品默认值，**没有关闭保护**。
 - 未跑到的级别、未采集到的指标必须写 `NOT_VERIFIED`；资源不足写 `BLOCKED`，
   不得以 429 或超时冒充吞吐。
+

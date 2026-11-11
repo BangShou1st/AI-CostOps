@@ -102,8 +102,11 @@
 - 数据库暂断：同一前置下真实 `docker stop` MySQL，Backend 存活、readiness 非 200、日志出现
   DATABASE/Hikari 依赖信号；MySQL 恢复后无需重启 Backend，结算自动收敛且无重复 posting。
 - 3/3 + 3/3 轮 PASS。
-- **未能证明**：进程在“commit 成功但响应未返回”的微秒级边界崩溃；该边界由
-  `GatewaySettlementTransactionIntegrationTest` 的 5 个事务注入点覆盖（见审计）。
+- **未能证明（进程级 NOT_VERIFIED）**：进程在“数据库 commit 成功、HTTP 响应尚未返回”之间被
+   kill 的微秒级窗口。事务注入点测试（`GatewaySettlementTransactionIntegrationTest` 的 5 个阶段）
+   只证明**回滚完整性**，不等价于该窗口；实际防重复结算依赖
+   `gateway_settlement (org_id,request_id)` / `(org_id,usage_fact_id)` 唯一、
+   `ledger_posting (org_id,posting_key)` 唯一与已 SETTLED 的终态幂等。
 
 ### F06 真实 Close × Gateway 并发
 
@@ -145,4 +148,5 @@
 | **PARTIAL** | F06“Close 先胜 → CLOSING 窗口内 TX1/TX2 fail closed”只在确定性集成测试中证明；真实 Close 窗口 130 ms 未命中 |
 | **NOT_VERIFIED** | MySQL 单节点断电期间财务 API 持续可用；Gateway 流连接无缝迁移；跨机/跨 Region 高可用；生产 SLA/RTO/RPO；真实 Provider 故障 |
 | **FAIL** | 无（最终执行 0 财务违例） |
+
 

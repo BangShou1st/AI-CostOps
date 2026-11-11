@@ -16,6 +16,24 @@
   然后才继续下一轮；脚本退出时默认删除两个专属容器（`--keep-running` 除外）。
 - 受控 Mock Provider 不是真实 Provider；本演练不接入任何收费上游、不读取真实凭据。
 
+### 1.1 资源所有权（审查后加固）
+
+破坏性操作只作用于**可证明属于本轮的资源**：
+
+- 容器创建时带 label：`aicostops.hc03.owner=<owner>`、`aicostops.hc03.run=<run>`、
+  `aicostops.hc03.resource=mysql|redis`。
+- 本轮 owner 记录在 `.local-dev/hc03/run-owner.json`（git-ignored）；`--attach` / `--cleanup`
+  必须能读到它，否则拒绝。
+- **新建一轮**时若固定名容器仍存在：不覆盖、不删除，直接报错并提示运行 `--cleanup`
+  （若属于已记录的 owner）或人工 `docker rm -f <name>`（无 label / 他人资源）。
+- **`--cleanup`** 只在容器 label 的 owner 与 owner 文件一致时删除；无 label 或 owner 不一致时
+  **拒绝并输出人工命令**，退出码 1。
+- 进程 PID 文件为 JSON（version=2）：`owner / pid / startedAtEpochMs / token / commandLine`。
+  `stopProc` / `killProc` 在发信号前校验 owner、进程命令行包含记录 token、进程启动时间在容差内；
+  旧式纯数字 PID 文件、命令不匹配、启动时间不匹配、owner 不匹配一律**拒绝**，不会仅凭 PID 杀进程。
+- 不允许通过“旧 PID 文件 + `taskkill /F`”清理未知进程；如需处理，先人工 `Get-CimInstance Win32_Process`
+  核对命令与启动时间，再删除 PID 文件。
+
 ## 2. 前置条件
 
 | 项 | 要求 |
@@ -104,18 +122,30 @@ Node harness (单进程)
 ## 7. 恢复与清理
 
 ```bash
-# 正常退出会自动：停止 Backend/Gateway/Mock 进程 + 删除两个 HC-03 容器
+# 正常退出会自动：仅停止/删除通过 owner 校验的进程与两个 HC-03 容器
 node scripts/perf/hc03/runner.mjs --cleanup
 
 # 手工确认（不应看到 ai-costops-hc03-*，也不应看到 18080/18081/18082/18089 监听）
 docker ps -a --filter name=ai-costops-hc03
 ```
 
+`--cleanup` 的拒绝语义：
+
+| 情况 | 行为 |
+|---|---|
+| `.local-dev/hc03/run-owner.json` 不存在 | 拒绝删除/停止任何资源，退出码 1 |
+| 容器 label owner 与 owner 文件一致 | 删除该容器 |
+| 容器无 owner label / owner 不一致 | **拒绝**，打印 `docker rm -f <name>` 供人工确认，退出码 1 |
+| PID 记录合法且 owner/命令/启动时间匹配 | 停止该进程 |
+| 旧式纯数字 PID、记录损坏、命令/启动时间/owner 不匹配 | **拒绝**发信号，打印原因，退出码 1 |
+
 如果 runner 被强制中断：
 
 1. `node scripts/perf/hc03/runner.mjs --cleanup`；
-2. 确认没有残留 `gw_hc03`/`hc03_app` 会话（可选：`KILL` 该数据库自己的连接）；
-3. 重新执行完整入口即可（每次 setup 都会重建专属容器与数据库）。
+2. 若 `--cleanup` 拒绝（例如容器来自旧版本、没有 label），先 `docker inspect` 确认归属，
+   再按输出的命令人工删除；
+3. 确认没有残留 `gw_hc03`/`hc03_app` 会话（可选：`KILL` 该数据库自己的连接）；
+4. 重新执行完整入口即可（每次 setup 都会先做干净环境检查，再生成新的 owner 与专属容器）。
 
 ## 8. 明确不做
 
