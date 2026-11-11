@@ -210,7 +210,14 @@ export function AuthSessionProvider({ children, coordinator = crossTabAuthCoordi
         await logoutWithCookieLock(authApi.logout, authApi.refresh, accessTokenStore, coordinator)
         succeeded = true
       } catch (error: unknown) {
-        if (isTerminalSessionError(error)) handleLocalTerminal()
+        if (isTerminalSessionError(error)) {
+          handleLocalTerminal()
+        } else if (isCurrentLifecycle(generation.epoch)) {
+          // Server-side revocation is best-effort: drop the local projection
+          // even when /auth/logout or the refresh fails, and leave the httpOnly
+          // cookie for the next refresh attempt to invalidate.
+          clearLocalSession()
+        }
         throw error
       } finally {
         if (succeeded && isCurrentLifecycle(generation.epoch)) {
