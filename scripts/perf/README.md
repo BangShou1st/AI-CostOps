@@ -7,7 +7,8 @@
 
 | 目录 | 用途 |
 |---|---|
-| `hc01/` | HC-01 AI Gateway 单/双实例高并发基线、热点预算竞争、过载与 SSE 资源验证 |
+| `hc01/` | HC-01 AI Gateway 单/双实例高并发基线、热点预算竞争、过载与 SSE 资源验证；HC-02 复用其 `--suite=hc02` 子集 |
+| `hc02/` | HC-02 账期锁 A/B 对比：读取 baseline/optimized 的 `load-results.json`，输出 Markdown 与 `results.json` |
 
 ## HC-01 一键入口
 
@@ -107,7 +108,18 @@ node scripts/perf/hc01/runner.mjs \
 `environment.json` / `load-results.json` / `db-invariants.json` 产物。
 `--gateway-jar` 指向任意提交构建出的 Gateway 可执行 JAR；Backend 仍使用当前
 工作树构建的 JAR（HC-02 不改 Backend）。`--variant` 与 `--code-sha` 会写入
-`configuration`，避免优化前后 SHA 混淆。
+`configuration`，避免优化前后 SHA 混淆。每次运行会重建专用库并清空
+`performance_schema.events_statements_summary_by_digest`，避免把上一次运行的
+SQL digest 混入本次 A/B 证据。
+
+比较两份结果并生成 `results.json` 与 Markdown 表：
+
+```bash
+node scripts/perf/hc02/compare.mjs \
+  docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/baseline/load-results.json \
+  docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/optimized/load-results.json \
+  docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock
+```
 
 ## 产物
 

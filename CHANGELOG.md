@@ -39,6 +39,7 @@
 - CO-05 可观测/故障注入验收（`2026-11-11-co-05-observability/`）：关联键映射、traceId/MDC、导入失败与对象存储依赖指标、§8.2 故障矩阵与交付决策
 
 ### Changed
+- HC-02 账期热点锁优化 A/B：8 个场景各 3 轮，成功 RPS +14%～+206%、P95 −22%～−70%，`billing_period` 锁等待 254.8 ms→1.96 ms、`lockLineage` 56.1 ms→0.31 ms；两轮财务不变量 0 违例、结算完全收敛。单预算仍受按设计保留的预算行 X 锁限制（227.3 ms），后续若继续优化需改预占/可用额度策略。详见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/`
 - HC-01 合并前审查修正：更正 `findings.md` / 验收报告中“为 `budget_reservation` 新增 `(org_id,budget_id,status)` 索引”的错误建议（V19 已存在 `idx_budget_reservation_org_budget`），说明累计 `NO_INDEX_USED` 与末态 `EXPLAIN` 的口径差异，HC-02 改为先在真实规模测量执行计划、回表与覆盖索引收益/写放大；证据见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-01-gateway-concurrency/2026-11-11-hc-01-review-followup.md`
 - `CloseBlockerProviderIntegrationTest` 过时测试方法名更正（`registryContainsExactlySevenCanonicalProviders` → `registryContainsExactlyEightCanonicalProviders`，`CloseBlockerCode` 实为 8 项；仅改名，未改断言）
 - `CostIntelligenceSchedulerFailureVisibilityIntegrationTest` 与共享上下文的启动后台 sweep 隔离（`@MockitoBean` 薄调度包装器，与服务端测试同款做法），消除同一 SHA 并行运行一绿一红的偶发重复 WARN 断言失败
