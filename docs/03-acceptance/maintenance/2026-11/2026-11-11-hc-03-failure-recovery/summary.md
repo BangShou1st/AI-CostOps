@@ -153,21 +153,18 @@ node scripts/perf/hc03/runner.mjs --reps=3 --skip-build
 | `GatewayDataSourceOutageIntegrationTest` | TX1/TX2 数据源故障与连接池恢复回归 |
 
 
-## 12. CI / Security 状态说明（2026-11-11）
+## 12. CI / Security 状态说明（2026-11-12 审查修正后）
 
-本轮 PR 的相关代码检查均为绿色；两项红色检查来自 GitHub 托管运行器的**外部基础设施故障**，
-与本 PR 改动无交集，未做任何忽略或抑制：
+**GREEN**（代码 SHA `5482ac4`；Canonical DNS 恢复后重跑原始 workflow）：
 
-| 检查 | 结果 | 证据与判断 |
-|---|---|---|
-| gateway-unit | PASS (58s) | 含架构/单元回归 |
-| gateway-integration | PASS (2m39s) | 含新增 `GatewayDataSourceOutageIntegrationTest` |
-| backend-unit / backend-integration / scripts / frontend / docker-build | PASS | 与改动无交集（路径过滤/短作业） |
-| CodeQL (java/js) | PASS | 无新增告警 |
-| browser-e2e | FAIL（2 次） | 失败在 `Install Chromium system dependencies`：`Temporary failure resolving archive.ubuntu.com / security.ubuntu.com`，属运行器 DNS 故障；未执行到前端测试 |
-| trivy | FAIL（2 次） | `apt 2.8.3` 命中 CVE-2026-109518（Ubuntu 基础镜像，HIGH，修复版 2.8.4ubuntu0.1）。同一 `eclipse-temurin:21-jre-noble` 在本机全新构建 `apt-get update && apt-get upgrade` 得到 2.8.4ubuntu0.1；CI 期间同批运行器出现 Ubuntu 镜像 DNS 解析失败，判断为基础镜像包索引未刷新，而非本 PR 引入依赖或代码 |
-
-> 未修改 `.trivyignore`、未降低 severity、未跳过扫描。若 CI 网络恢复，重跑 `trivy` 与
-> `browser-e2e` 即可；在此之前 Security 状态应如实视为 **BLOCKED（外部基础设施）**，
-> 不能宣称全绿。
-
+- **Code checks**：`gateway-unit`、`gateway-integration`（含新增 `GatewayDataSourceOutageIntegrationTest`）、
+  backend unit + 两个 integration shard、scripts、frontend、`docker-build`、`browser-e2e`、CodeQL 全部通过。
+- **Security `trivy`**：PASS（3m15s）。镜像构建日志显示 backend 与 gateway runtime 均为
+  `apt=2.8.4ubuntu0.1`、`libapt-pkg6.0t64=2.8.4ubuntu0.1`；HIGH/CRITICAL 扫描保持 exit-code 1，
+  未修改 `.trivyignore`、未降低 severity、未跳过扫描。
+- **曾经的红色**：2026-11-11T16:30Z 前后，GitHub runner 间歇性无法解析
+  `archive.ubuntu.com` / `security.ubuntu.com`，apt 停留在 2.8.3；新增的构建期版本断言正确地
+  拒绝生成含 CVE 的镜像。DNS 恢复后，同一提交的原始 Security/CI 直接通过。
+- 本机独立复验（可用网络）：与 Dockerfile 相同的 runtime 阶段重建后 apt 与 libapt-pkg6.0t64 均为
+  `2.8.4ubuntu0.1`。
+- 细节、原始日志摘录与时间线见 [`review-followup.md`](review-followup.md)。

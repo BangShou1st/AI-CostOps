@@ -64,14 +64,29 @@ docker run --rm --entrypoint bash hc03-runtime-probe -c \
 
 ### 2.3 验证结果
 
+**本机（可用网络）**：
+
 | 项 | 结果 |
 |---|---|
-| 本机 runtime 阶段 apt | `2.8.4ubuntu0.1`（apt 与 libapt-pkg6.0t64） |
-| 本机 Trivy | 未完成（Java DB 下载 `unexpected EOF`，网络问题；不作为结论） |
-| CI `gateway-unit` / `gateway-integration` / 后端 / scripts / docker-build / CodeQL | 待本轮推送后重跑 |
-| Security `trivy` | 待本轮推送后重跑（`--pull --no-cache` + 版本断言） |
-| CI `browser-e2e` | 待网络恢复后复跑 |
+| 与 Dockerfile 完全相同的 runtime 阶段重建 | apt `2.8.4ubuntu0.1`、libapt-pkg6.0t64 `2.8.4ubuntu0.1` |
+| 本机 Trivy 0.73.0 | 未完成（Java DB 下载 `unexpected EOF`，本机网络问题；不作为漏洞结论） |
 
+**GitHub Actions（`5482ac4`；Canonical DNS 恢复后重跑）**：
+
+| 检查 | 结果 | 证据 |
+|---|---|---|
+| Security `trivy` | **PASS**（3m15s） | run 43058883397 / job 130677365846；镜像构建日志 `runtime apt=2.8.4ubuntu0.1 libapt-pkg6.0t64=2.8.4ubuntu0.1`（backend 与 gateway） |
+| CodeQL (java/js) | PASS | 同 run |
+| CI `docker-build` | PASS（2m1s） | run 43058883406 / job 130683837109 |
+| CI `browser-e2e` | PASS（5m53s） | run 43058883406 / job 130683837084 |
+| CI `gateway-unit` / `gateway-integration` / 后端 / scripts / frontend | PASS | 同 run；`gateway-integration` 含新增 outage 测试 |
+| CI `ci-status` | PASS | run 43058883406 / job 130687273845 |
+
+> 期间 runner 对 `archive.ubuntu.com` / `security.ubuntu.com` 的解析间歇性失败：同一提交在 16:30Z
+> 的三次重跑均因 DNS 失败被构建期断言拦下；DNS 恢复后，**原始镜像、原始扫描、原始 exit-code 1**
+> 直接通过。没有修改 `.trivyignore`、没有降低 severity、没有跳过扫描。
+>
+> 结论：任务 A 的“真实 CI/Security 验收”已恢复为 GREEN（apt 2.8.4ubuntu0.1，Trivy HIGH/CRITICAL=0）。
 ## 3. 任务 B：资源所有权加固
 
 ### 3.1 设计
@@ -126,7 +141,7 @@ node --test scripts/tests/hc03-ownership.test.mjs
 |---|---|
 | `node scripts/perf/hc03/runner.mjs --quick --scenario=none --skip-build --keep-running` | PASS（setup + baseline，owner/label/pid 记录均正确） |
 | `node scripts/perf/hc03/runner.mjs --cleanup` | PASS（校验后清理，退出码 0） |
-| `node scripts/perf/hc03/runner.mjs --quick --scenario=F03pre --reps=1 --skip-build` | 见下方执行记录（kill 前校验 owner/命令/启动时间） |
+| `node scripts/perf/hc03/runner.mjs --quick --scenario=F03pre --reps=1 --skip-build` | **PASS**：加固后的 `killProc` 在校验 owner、`gateway-1.1.0.jar` token、进程启动时间后执行 kill；请求停在 `PLANNED`、无预留、Provider 0，TTL 后转 `FAILED_PRE_DISPATCH`，新请求 200；退出时 `--cleanup` 逐个校验后停止 4 个进程并删除 2 个容器 |
 
 > 本轮**不重跑**全部 27 轮：所有权加固不改变故障注入的时序/事务语义，且已有证据基线
 > `78ee975` 仍然有效。F03a 的 kill 路径被加固代码直接影响，因此单独 smoke 复验。
@@ -143,3 +158,6 @@ node --test scripts/tests/hc03-ownership.test.mjs
      **回滚完整性**，不等价于上述窗口的进程级证明。
 2. F02 的 30 s Hikari fail-closed 仍如实记录，本 PR 不改产品默认值。
 3. F06 真实 CLOSING 窗口未命中，保持 PARTIAL，不改写为“全场景高可用 PASS”。
+
+
+
