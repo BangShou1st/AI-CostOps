@@ -80,10 +80,10 @@ public class GatewayRequestOrchestrator {
                             authorized.principal().projectId(), authorized.logicalModelId(), Instant.now(clock));
                     var candidates = selector.orderedCandidates(policy);
                     if (candidates.isEmpty()) {
-                        return finishInitialNoRoute(authorized, false);
+                        return finishInitialNoRoute(authorized, false, false);
                     }
                     return tryInitialCandidates(authorized, policy, candidates, 0,
-                            false, false, false, Set.of(), streaming);
+                            false, false, false, false, Set.of(), streaming);
                 });
     }
 
@@ -92,10 +92,11 @@ public class GatewayRequestOrchestrator {
             ResolvedRoutingPolicy policy,
             java.util.List<ResolvedRoutingPolicy.Candidate> candidates,
             int index,
-            boolean skippedBefore, boolean budgetRejected, boolean safeAttemptProduced,
+            boolean skippedBefore, boolean budgetRejected, boolean dependencyRejected,
+            boolean safeAttemptProduced,
             Set<ResolvedRoutingPolicy.RouteIdentity> attempted, boolean streaming) {
         if (index >= candidates.size()) {
-            return finishInitialNoRoute(authorized, budgetRejected);
+            return finishInitialNoRoute(authorized, budgetRejected, dependencyRejected);
         }
         var candidate = candidates.get(index);
         var evaluated = eligibility.evaluate(candidate, policy.logicalModelId(),
@@ -104,7 +105,7 @@ public class GatewayRequestOrchestrator {
         if (!evaluated.eligible()) {
             metrics.recordCandidateRejection(evaluated.reason().name());
             return tryInitialCandidates(authorized, policy, candidates, index + 1,
-                    true, budgetRejected, safeAttemptProduced, attempted, streaming);
+                    true, budgetRejected, dependencyRejected, safeAttemptProduced, attempted, streaming);
         }
         return circuits.beforeCall(new RouteCircuitKey(authorized.principal().organizationId(),
                         candidate.providerAccountId(), candidate.providerModelId()))
@@ -112,11 +113,13 @@ public class GatewayRequestOrchestrator {
                     if (!decision.probeAllowed()) {
                         metrics.recordCandidateRejection("CIRCUIT_OPEN");
                         return tryInitialCandidates(authorized, policy, candidates, index + 1,
-                                true, budgetRejected, safeAttemptProduced, attempted, streaming);
+                                true, budgetRejected, dependencyRejected, safeAttemptProduced,
+                                attempted, streaming);
                     }
                     if (candidate.pricingVersionId() == null) {
                         return tryInitialCandidates(authorized, policy, candidates, index + 1,
-                                true, budgetRejected, safeAttemptProduced, attempted, streaming);
+                                true, budgetRejected, dependencyRejected, safeAttemptProduced,
+                                attempted, streaming);
                     }
                     var routeReason = safeAttemptProduced ? "SAFE_FAILOVER"
                             : skippedBefore ? "INITIAL_FALLBACK" : "INITIAL_PRIMARY";
@@ -148,12 +151,14 @@ public class GatewayRequestOrchestrator {
                                 authorized.principal(), authorized.requestId(), planned.id(),
                                 authorized.billingPeriodId(), candidate.pricingVersionId(), candidate.currency(),
                                 authorized.command().effectiveMaxOutputTokens(), -1L, true));
+                        metrics.recordReservationAttempt(admission.outcome().name());
                         if (admission.outcome() != AdmissionOutcome.RESERVED
                                 && admission.outcome() != AdmissionOutcome.UNBUDGETED) {
                             attempts.markSafe(authorized.principal().organizationId(), planned.id(),
                                     budgetSafetyReason(admission.outcome()));
                             return InitialCandidateResult.rejected(nextAttempted,
-                                    admission.outcome() == AdmissionOutcome.REJECTED_BUDGET);
+                                    admission.outcome() == AdmissionOutcome.REJECTED_BUDGET,
+                                    admission.outcome() == AdmissionOutcome.REJECTED_DEPENDENCY);
                         }
                         fence.commitDispatchFence(authorized.principal().organizationId(),
                                 authorized.requestId(), planned.id(), authorized.billingPeriodId(), admission);
@@ -165,13 +170,26 @@ public class GatewayRequestOrchestrator {
                             ? Mono.just(result.dispatch())
                             : tryInitialCandidates(authorized, policy, candidates, index + 1,
                                     true, budgetRejected || result.budgetRejected(),
+                                    dependencyRejected || result.dependencyRejected(),
                                     safeAttemptProduced || result.safeAttemptProduced(),
                                     result.attempted(), streaming));
                 });
     }
 
     private Mono<PreparedDispatch> finishInitialNoRoute(
-            GatewayRequestService.AuthorizedRequest authorized, boolean budgetRejected) {
+            GatewayRequestService.AuthorizedRequest authorized,
+            boolean budgetRejected, boolean dependencyRejected) {
+        if (dependencyRejected && !budgetRejected
+                && "REQUIRED".equals(authorized.principal().budgetEnforcementMode())) {
+            // The reservation bound could not be evaluated safely: this is a
+            // dependency failure, not a policy denial. Fail closed with 503
+            // after the request is terminally marked pre-dispatch.
+            return blockingIo.run(() -> requestMapper.markRequestFailedPreDispatch(
+                            authorized.requestId(), authorized.principal().organizationId()))
+                    .then(Mono.error(new GatewayErrorException(
+                            GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                            "Budget bound cannot be safely evaluated for all eligible routes")));
+        }
         if (budgetRejected && "REQUIRED".equals(authorized.principal().budgetEnforcementMode())) {
             return blockingIo.run(() -> requestMapper.markRequestRejectedBudget(
                             authorized.requestId(), authorized.principal().organizationId(),
@@ -199,21 +217,24 @@ public class GatewayRequestOrchestrator {
     }
 
     private record InitialCandidateResult(PreparedDispatch dispatch, boolean budgetRejected,
-            boolean safeAttemptProduced, Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
+            boolean dependencyRejected, boolean safeAttemptProduced,
+            Set<ResolvedRoutingPolicy.RouteIdentity> attempted) {
         private static InitialCandidateResult selected(PreparedDispatch dispatch) {
-            return new InitialCandidateResult(dispatch, false, false, dispatch.attempted());
+            return new InitialCandidateResult(dispatch, false, false, false, dispatch.attempted());
         }
 
         private static InitialCandidateResult rejected(
-                Set<ResolvedRoutingPolicy.RouteIdentity> attempted, boolean budgetRejected) {
-            return new InitialCandidateResult(null, budgetRejected, true, Set.copyOf(attempted));
+                Set<ResolvedRoutingPolicy.RouteIdentity> attempted, boolean budgetRejected,
+                boolean dependencyRejected) {
+            return new InitialCandidateResult(null, budgetRejected, dependencyRejected, true,
+                    Set.copyOf(attempted));
         }
 
         private static InitialCandidateResult skipped(
                 Set<ResolvedRoutingPolicy.RouteIdentity> attempted,
-                boolean budgetRejected, boolean safeAttemptProduced) {
-            return new InitialCandidateResult(null, budgetRejected, safeAttemptProduced,
-                    Set.copyOf(attempted));
+                boolean budgetRejected, boolean dependencyRejected, boolean safeAttemptProduced) {
+            return new InitialCandidateResult(null, budgetRejected, dependencyRejected,
+                    safeAttemptProduced, Set.copyOf(attempted));
         }
     }
 
@@ -333,6 +354,7 @@ public class GatewayRequestOrchestrator {
                                 previous.principal(), previous.requestId(), planned.id(), previous.billingPeriodId(),
                                 freshCandidate.pricingVersionId(), freshCandidate.currency(),
                                 previous.command().effectiveMaxOutputTokens(), -1L, true));
+                        metrics.recordReservationAttempt(admission.outcome().name());
                         if (admission.outcome() != BudgetReservationService.AdmissionOutcome.RESERVED
                                 && admission.outcome() != BudgetReservationService.AdmissionOutcome.UNBUDGETED) {
                             attempts.markSafe(previous.principal().organizationId(), planned.id(),

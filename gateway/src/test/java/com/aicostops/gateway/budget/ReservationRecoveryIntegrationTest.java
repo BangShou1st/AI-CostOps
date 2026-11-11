@@ -133,6 +133,94 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
     }
 
     @Test
+    void stalePreDispatchRequestWithoutReservationConvergesToTerminal() {
+        var env = GatewayTestFixture.seed(jdbc, "rec-orphan", HMAC_KEY, rawKey());
+        var ids = insertValidatedRequest(env, "rec-orphan-key");
+        // Simulates a crash between the PLANNED attempt and TX1 admission:
+        // the request exists, the attempt is PLANNED, but no reservation was
+        // ever created. The expired-hold scan cannot see it.
+        jdbc.update("""
+                UPDATE gateway_request
+                SET created_at=DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 16 MINUTE)
+                WHERE id=?
+                """, ids.requestId());
+
+        recoveryService.recoverExpiredBlocking();
+
+        assertThat(requestState(ids.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_reservation WHERE request_id=?",
+                Long.class, ids.requestId())).isZero();
+    }
+
+    @Test
+    void freshPreDispatchRequestWithoutReservationIsNotRecovered() {
+        var env = GatewayTestFixture.seed(jdbc, "rec-orphan-fresh", HMAC_KEY, rawKey());
+        var ids = insertValidatedRequest(env, "rec-orphan-fresh-key");
+
+        recoveryService.recoverExpiredBlocking();
+
+        // A request younger than the reservation TTL may still be in flight.
+        assertThat(requestState(ids.requestId())).isEqualTo("VALIDATED");
+    }
+
+    @Test
+    void staleSafeAndPlannedRequestWithoutReservationConvergesToTerminal() {
+        var env = GatewayTestFixture.seed(jdbc, "rec-orphan-safe", HMAC_KEY, rawKey());
+        var ids = insertValidatedRequest(env, "rec-orphan-safe-key");
+        requestMapper.markAttemptSafe(ids.attemptId(), env.orgId(), "DNS_PRE_CONNECT");
+        requestMapper.insertRouteAttempt(new GatewayRequestMapper.RouteAttemptInsert(
+                env.orgId(), ids.requestId(), 2, identityService.newRouteDecisionId(), null,
+                env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId(), null));
+        jdbc.update("""
+                UPDATE gateway_request
+                SET state='UPSTREAM_ACTIVE', created_at=DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 16 MINUTE)
+                WHERE id=?
+                """, ids.requestId());
+
+        recoveryService.recoverExpiredBlocking();
+
+        // SAFE + PLANNED with no reservation: no Provider I/O can have billed.
+        assertThat(requestState(ids.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+    }
+
+    @Test
+    void staleDispatchIntentWithOnlyPlannedAttemptConvergesToTerminal() {
+        var env = GatewayTestFixture.seed(jdbc, "rec-orphan-intent", HMAC_KEY, rawKey());
+        var ids = insertValidatedRequest(env, "rec-orphan-intent-key");
+        jdbc.update("""
+                UPDATE gateway_request
+                SET state='DISPATCH_INTENT', created_at=DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 16 MINUTE)
+                WHERE id=?
+                """, ids.requestId());
+
+        recoveryService.recoverExpiredBlocking();
+
+        // No reservation and the only attempt is still PLANNED: TX2 never
+        // produced dispatch evidence, so the request is safely terminal.
+        assertThat(requestState(ids.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+    }
+
+    @Test
+    void dispatchedAttemptIsNeverRecoveredAsStalePreDispatch() {
+        var env = GatewayTestFixture.seed(jdbc, "rec-orphan-dispatched", HMAC_KEY, rawKey());
+        var ids = insertValidatedRequest(env, "rec-orphan-dispatched-key");
+        requestMapper.markRequestDispatchIntent(ids.requestId(), env.orgId(), env.periodId());
+        requestMapper.markRouteAttemptDispatchIntent(ids.attemptId(), env.orgId());
+        jdbc.update("""
+                UPDATE gateway_request
+                SET created_at=DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 16 MINUTE)
+                WHERE id=?
+                """, ids.requestId());
+
+        recoveryService.recoverExpiredBlocking();
+
+        // A dispatched attempt may have reached the Provider; never release it
+        // through the pre-dispatch orphan path.
+        assertThat(requestState(ids.requestId())).isEqualTo("DISPATCH_INTENT");
+    }
+
+    @Test
     void recoveryFirstReleasesThenFenceMustFail() {
         var env = GatewayTestFixture.seed(jdbc, "rec-race", HMAC_KEY, rawKey());
         var ids = insertValidatedRequest(env, "rec-race-key");

@@ -161,12 +161,61 @@ public interface GatewayRequestMapper {
             """)
     List<SafeReleasedRequest> findSafeReleasedRequests(@Param("limit") int limit);
 
+    /**
+     * Pre-dispatch orphan scan: a request with no effective reservation and no
+     * dispatch evidence (every attempt is PLANNED or SAFE, at least one PLANNED)
+     * can only be a crash before TX2 or a failover that never reached Provider
+     * I/O. After the reservation TTL it is definitively pre-dispatch and safe
+     * to terminate; a fresh request may still be in flight and is excluded by
+     * the age bound. Covers VALIDATED/RESERVED plus the UPSTREAM_ACTIVE /
+     * DISPATCH_INTENT variants left by a partially-committed lifecycle.
+     */
+    @Select("""
+            SELECT gr.id AS request_id, gr.org_id AS org_id
+            FROM gateway_request gr
+            WHERE gr.state IN ('VALIDATED','RESERVED','DISPATCH_INTENT','UPSTREAM_ACTIVE')
+              AND gr.created_at < UTC_TIMESTAMP(6) - INTERVAL #{graceSeconds} SECOND
+              AND EXISTS (
+                SELECT 1 FROM gateway_route_attempt ra
+                WHERE ra.org_id=gr.org_id AND ra.request_id=gr.id)
+              AND NOT EXISTS (
+                SELECT 1 FROM gateway_route_attempt ra_live
+                WHERE ra_live.org_id=gr.org_id AND ra_live.request_id=gr.id
+                  AND ra_live.status NOT IN ('PLANNED','SAFE_NO_BILLABLE_EXECUTION'))
+              AND EXISTS (
+                SELECT 1 FROM gateway_route_attempt ra_planned
+                WHERE ra_planned.org_id=gr.org_id AND ra_planned.request_id=gr.id
+                  AND ra_planned.status='PLANNED')
+              AND NOT EXISTS (
+                SELECT 1 FROM budget_reservation br
+                WHERE br.org_id=gr.org_id AND br.request_id=gr.id
+                  AND br.status IN ('ACTIVE','PENDING_HOLD'))
+            ORDER BY gr.id
+            LIMIT #{limit}
+            """)
+    List<StalePreDispatchRequest> findStalePreDispatchRequests(
+            @Param("graceSeconds") long graceSeconds, @Param("limit") int limit);
+
     @Select("""
             SELECT COUNT(*) FROM budget_reservation
             WHERE org_id=#{orgId} AND request_id=#{requestId}
               AND status IN ('ACTIVE','PENDING_HOLD')
             """)
     int countEffectiveReservations(@Param("orgId") long orgId, @Param("requestId") long requestId);
+
+    @Select("""
+            SELECT COUNT(*) FROM gateway_route_attempt
+            WHERE org_id=#{orgId} AND request_id=#{requestId}
+              AND status NOT IN ('PLANNED','SAFE_NO_BILLABLE_EXECUTION')
+            """)
+    int countDispatchedAttempts(@Param("orgId") long orgId, @Param("requestId") long requestId);
+
+    @Select("""
+            SELECT COUNT(*) FROM gateway_route_attempt
+            WHERE org_id=#{orgId} AND request_id=#{requestId}
+              AND status='PLANNED'
+            """)
+    int countPlannedAttempts(@Param("orgId") long orgId, @Param("requestId") long requestId);
 
     @Update("""
             UPDATE gateway_request
@@ -362,6 +411,9 @@ public interface GatewayRequestMapper {
     }
 
     record SafeReleasedRequest(long requestId, long orgId) {
+    }
+
+    record StalePreDispatchRequest(long requestId, long orgId) {
     }
 
     record AttemptedCandidateRow(long providerAccountId, long providerModelId) {
