@@ -24,6 +24,9 @@ class ModuleDependencyArchitectureTest {
                         "java..",
                         "jakarta..",
                         "org.springframework..",
+                        // SLF4J is the logging facade used across the application;
+                        // MDC correlation in shared filters is a foundation concern.
+                        "org.slf4j..",
                         "com.fasterxml.jackson..",
                         "tools.jackson..");
 
