@@ -1,0 +1,70 @@
+{
+  "package": "CO-00",
+  "title": "代码、分支与安全基线",
+  "date": "2026-11-11",
+  "repository": "BangShou1st/AI-CostOps",
+  "baseline": {
+    "previousMain": "1fb5e74cff4b84081ff90a8717f8912b058aa793",
+    "currentMain": "57696e25ca444658ec114a8152e7224f2fa67e45",
+    "currentDev": "57696e25ca444658ec114a8152e7224f2fa67e45",
+    "perfBranchSha": "e2aa26ece44eeda3517be0f91b27096b3e373590",
+    "perfMergeCommit": "a8fe98779023194b0bc49145a1289e98ff54063b"
+  },
+  "toolchain": {
+    "java": "21.0.10",
+    "maven": "3.9.11",
+    "node": "24.14.0",
+    "springBoot": "4.1.0",
+    "flyway": {
+      "latest": "V32",
+      "applied": 32
+    }
+  },
+  "dependencies": {
+    "follow-redirects": {
+      "declaredBy": "axios 1.20.0 (^1.16.0)",
+      "override": "1.16.2",
+      "resolved": "1.16.2",
+      "fixedCves": [
+        "CVE-2026-111755",
+        "CVE-2026-111756",
+        "CVE-2026-116689"
+      ]
+    },
+    "guava": "33.7.2-jre",
+    "snappy-java": "1.1.10.9"
+  },
+  "ci": {
+    "runId": 42951085970,
+    "workflow": "CI",
+    "event": "push",
+    "headSha": "57696e25ca444658ec114a8152e7224f2fa67e45",
+    "conclusion": "success",
+    "jobs": 14
+  },
+  "security": {
+    "runId": 42951085983,
+    "workflow": "Security",
+    "event": "push",
+    "headSha": "57696e25ca444658ec114a8152e7224f2fa67e45",
+    "conclusion": "success",
+    "jobs": {
+      "trivy": "success",
+      "codeql (java-kotlin)": "success",
+      "codeql (javascript-typescript)": "success"
+    },
+    "acceptedRisks": "NONE"
+  },
+  "historicalEvidence": {
+    "perfCiRun": {
+      "runId": 42578509717,
+      "headSha": "e2aa26ece44eeda3517be0f91b27096b3e373590",
+      "conclusion": "success"
+    },
+    "mainSecurityFailure": {
+      "runId": 42646521102,
+      "headSha": "1fb5e74cff4b84081ff90a8717f8912b058aa793",
+      "conclusion": "failure"
+    }
+  }
+}

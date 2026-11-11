@@ -44,6 +44,7 @@ OpenCode Zen / Kilo Gateway 的接入与协议维护、Cost Intelligence 历史�
 ## 2026-11 维护验收
 
 - 业务链路 A（AI Gateway 实时成本治理）8 检查点端到端真实性验收：预算预占 / 并发 / 中断恢复 / 未知用量 / 幂等 / 故障注入 / Redis 降级 / 工作台追溯，156 个定向复跑用例全绿（真实 MySQL 8.4 + Redis Testcontainers，模拟上游）：[Gateway 链路 E2E 验收](maintenance/2026-11/2026-11-10-gateway-chain-e2e-acceptance.md)
+- CO-00 代码、分支与安全基线：分支/SHA/依赖清单、Trivy 与 CodeQL 脱敏结果、`follow-redirects` 1.16.2 与 guava/snappy 钉版，`main @ 57696e2` 的 CI 14/14 + Security 3/3 重新验证：[CO-00 基线证据](maintenance/2026-11/co-00-baseline/findings.md)
 
 M9 总入口：[`milestones/m9-acceptance-matrix.md`](milestones/m9-acceptance-matrix.md)；最终收敛报告：[`milestones/aic-083-m9-final-acceptance.md`](milestones/aic-083-m9-final-acceptance.md)；逐项证据见 [`milestones/`](milestones/)。
 
