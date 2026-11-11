@@ -234,6 +234,16 @@ public class ChatCompletionController {
                                             buildResponse(completed.dispatch(), request,
                                                     completed.completion())));
                 })
+                // A stream permit is acquired before rate/quota/orchestration.
+                // If any of those fail before invokeStream returns a body,
+                // the body's doFinally can never run; return the permit here.
+                // Once a streaming body exists, it owns the permit exclusively.
+                .onErrorResume(error -> {
+                    if (streamPermitHeld) {
+                        releaseStreamPermit.run();
+                    }
+                    return Mono.error(error);
+                })
                 .doFinally(ignored -> releasePermit.run());
     }
 

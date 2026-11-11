@@ -10,10 +10,12 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -57,6 +59,9 @@ class StreamPermitCeilingIntegrationTest extends GatewayMySqlContainerSupport {
 
     @Autowired
     private GatewayResourceLimiter limiter;
+
+    @Autowired
+    private ReactiveStringRedisTemplate redis;
 
     private SeededEnv env;
 
@@ -158,6 +163,33 @@ class StreamPermitCeilingIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(second.get(20, TimeUnit.SECONDS)).contains("data: [DONE]");
         awaitActiveStreams(0);
         assertThat(UPSTREAM_CALLS.get()).isEqualTo(2);
+    }
+
+    @Test
+    void streamPermitIsReleasedWhenRequestFailsBeforeStreamingBody() {
+        // Force the exact route circuit open in Redis (the same state a real
+        // provider outage produces). The stream request acquires a permit,
+        // then fails at routing before invokeStream returns a body; the permit
+        // must still be returned instead of leaking one ceiling slot.
+        var circuitKey = "aicostops:gateway:circuit:v1:" + env.orgId() + ":"
+                + env.providerAccountId() + ":" + env.providerModelId();
+        redis.opsForValue().set(circuitKey, "OPEN|0|" + System.currentTimeMillis())
+                .block(Duration.ofSeconds(5));
+        try {
+            web.post().uri("/v1/chat/completions")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                    .header("Idempotency-Key", "permit-pre-stream-failure-1")
+                    .bodyValue(body(env))
+                    .exchange()
+                    .expectStatus().isEqualTo(403)
+                    .expectBody()
+                    .jsonPath("$.error.code").isEqualTo("GATEWAY_FORBIDDEN");
+            awaitActiveStreams(0);
+            assertThat(UPSTREAM_CALLS.get()).isZero();
+        } finally {
+            redis.delete(circuitKey).block(Duration.ofSeconds(5));
+        }
     }
 
     private java.util.concurrent.Future<String> consumeStreamAsync(String idempotencyKey) {
