@@ -68,6 +68,23 @@ class RedisRateLimiterIntegrationTest extends RedisContainerSupport {
         assertThat(redis.opsForValue().get(key("account", "other@example.com", window))).isEqualTo("1");
     }
 
+    @Test
+    void healsTtlLessKeysLeftByAnInterruptedFirstIncrement() {
+        var fixedClock = Clock.fixed(Instant.parse("2026-08-14T00:00:00Z"), ZoneOffset.UTC);
+        limiter = new RedisRateLimiter(redis, fixedClock, 20, 8, Duration.ofMinutes(15));
+        var window = fixedClock.instant().getEpochSecond() / Duration.ofMinutes(15).toSeconds();
+        var key = key("account", "healed@example.com", window);
+        // Simulates a process failure between the old INCR and EXPIRE calls:
+        // the counter exists but has no TTL.
+        redis.opsForValue().set(key, "1");
+        assertThat(redis.getExpire(key)).isEqualTo(-1L);
+
+        assertThat(limiter.checkLogin("203.0.113.50", "healed@example.com").allowed()).isTrue();
+
+        assertThat(redis.opsForValue().get(key)).isEqualTo("2");
+        assertThat(redis.getExpire(key)).isBetween(1L, 900L);
+    }
+
     private String key(String scope, String value, long window) {
         return "aicostops:v1:ratelimit:login:" + scope + ":" + TokenDigest.sha256(value) + ":" + window;
     }
