@@ -2,6 +2,8 @@ package com.aicostops.config;
 
 import com.aicostops.gatewayadmin.security.GatewayKeyCodec;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
@@ -23,6 +25,15 @@ public class ProductionConfigurationValidator implements InitializingBean {
 
     private static final String LOCAL_DEV_PASSWORD = "change-me-local-only";
     private static final int MINIMUM_JWT_KEY_LENGTH = 32;
+    /**
+     * Public example material shipped in {@code .env.example} and
+     * {@code application-local.yml}. A production deployment that inherits
+     * either value has a credential that anyone with repository read access
+     * knows, regardless of its length.
+     */
+    private static final String LOCAL_DEV_JWT_PREFIX = "local-development-only-signing-key";
+    private static final List<String> LOCAL_DEV_STORAGE_CREDENTIALS = List.of(
+            "aicostops", LOCAL_DEV_PASSWORD);
 
     private final Environment environment;
 
@@ -59,8 +70,10 @@ public class ProductionConfigurationValidator implements InitializingBean {
         rejectExplicitEnvironment("AICOSTOPS_IAM_DEV_INVITATION_MAILBOX_PATH",
                 "the file-backed dev invitation mailbox is not supported in production");
         rejectLocalhostStorageEndpoint();
-        requireNonBlank("AICOSTOPS_STORAGE_ACCESS_KEY", "aicostops.storage.access-key");
-        requireNonBlank("AICOSTOPS_STORAGE_SECRET_KEY", "aicostops.storage.secret-key");
+        requireNonDefaultStorageCredential("AICOSTOPS_STORAGE_ACCESS_KEY",
+                "aicostops.storage.access-key");
+        requireNonDefaultStorageCredential("AICOSTOPS_STORAGE_SECRET_KEY",
+                "aicostops.storage.secret-key");
         rejectResolvedValue("SPRING_DATASOURCE_PASSWORD", "spring.datasource.password",
                 LOCAL_DEV_PASSWORD, "the local default database password is not acceptable in production");
         rejectLocalhostAllowedOrigins();
@@ -72,6 +85,11 @@ public class ProductionConfigurationValidator implements InitializingBean {
             throw fail("AICOSTOPS_JWT_SIGNING_KEY",
                     "the JWT signing key must be set to a strong value of at least "
                             + MINIMUM_JWT_KEY_LENGTH + " characters");
+        }
+        if (secret.toLowerCase(Locale.ROOT).startsWith(LOCAL_DEV_JWT_PREFIX)) {
+            throw fail("AICOSTOPS_JWT_SIGNING_KEY",
+                    "the repository's documented local-development signing key is not acceptable "
+                            + "in production");
         }
     }
 
@@ -119,9 +137,20 @@ public class ProductionConfigurationValidator implements InitializingBean {
         }
     }
 
-    private void requireNonBlank(String envName, String property) {
-        if (normalized(property).isBlank()) {
+    /**
+     * Object storage credentials fail both on a blank value and on any of the
+     * local defaults published in {@code .env.example}/{@code application.yml}.
+     * The error names only the environment variable, never the resolved value.
+     */
+    private void requireNonDefaultStorageCredential(String envName, String property) {
+        var value = normalized(property);
+        if (value.isBlank()) {
             throw fail(envName, "must be set explicitly in production");
+        }
+        if (LOCAL_DEV_STORAGE_CREDENTIALS.stream().anyMatch(value::equalsIgnoreCase)) {
+            throw fail(envName,
+                    "the repository's documented local-development storage credential is not "
+                            + "acceptable in production");
         }
     }
 
