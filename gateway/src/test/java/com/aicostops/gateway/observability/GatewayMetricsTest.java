@@ -31,6 +31,19 @@ class GatewayMetricsTest {
     }
 
     @Test
+    void reservationRecoveryCountsSafeReleasedTerminalAsABoundedOutcome() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new GatewayMetrics(registry);
+
+        metrics.recordReservationRecovery("SAFE_RELEASED_TERMINAL");
+
+        assertThat(registry.get("gateway_reservation_recovery_total")
+                .tag("outcome", "SAFE_RELEASED_TERMINAL").counter().count()).isEqualTo(1);
+        assertThat(registry.find("gateway_reservation_recovery_total")
+                .tag("outcome", "UNKNOWN").counter()).isNull();
+    }
+
+    @Test
     void activeStreamsGaugeReflectsLimiterState() {
         var registry = new SimpleMeterRegistry();
         var metrics = new GatewayMetrics(registry);

@@ -9,6 +9,7 @@ import { useAuthorizationMutation } from '../settings/useAuthorizationMutation'
 import { gatewayApi } from './api/gatewayApi'
 import { gatewayKeys } from './api/gatewayKeys'
 import type { GatewayCredential, GatewayCredentialCreated } from './api/gatewayTypes'
+import { sortByNumericIdDesc } from '../../lib/numericIdOrder'
 
 const statusColor: Record<GatewayCredential['status'], string> = { ACTIVE: 'green', REVOKED: 'red', DISABLED: 'orange' }
 
@@ -69,7 +70,7 @@ export function GatewayCredentialsPage() {
     })
   }
 
-  const rows = useMemo(() => [...(credentialsQuery.data ?? [])].sort((a, b) => b.id.localeCompare(a.id)), [credentialsQuery.data])
+  const rows = useMemo(() => sortByNumericIdDesc(credentialsQuery.data ?? []), [credentialsQuery.data])
 
   return (
     <main className="settings-page">
