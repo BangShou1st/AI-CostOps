@@ -85,6 +85,30 @@ COMPLETED 必有 FINAL、上游调用数等于成功数（幂等/取消/断流�
 全部场景结束后等待 Settlement 收敛，核对 FINAL → Settlement → Ledger 的唯一性与
 `UNKNOWN/INCOMPLETE` 不入账。
 
+## HC-02 账期热点 A/B 用法
+
+同一 harness 支持只跑 HC-02 需要的账期热点子集，并可指定预构建的 Gateway JAR，
+用于优化前后 A/B：
+
+```bash
+node scripts/perf/hc01/runner.mjs \
+  --suite=hc02 \
+  --rounds=3 \
+  --variant=baseline \
+  --code-sha=<被测量版本的 git sha> \
+  --gateway-jar=.local-dev/hc02/gateway-baseline.jar \
+  --skip-build \
+  --output=docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/baseline
+```
+
+`--suite=hc02` 只运行 `hot_fast_mixed_settlement_c50`（1 轮）、
+`hot_fast_single_c20/50/100`、`multi_budget_single_c100`、`multi_org_single_c100`、
+`hot_fast_dual_c50/100`；仍然执行逐轮财务不变量、结算收敛和
+`environment.json` / `load-results.json` / `db-invariants.json` 产物。
+`--gateway-jar` 指向任意提交构建出的 Gateway 可执行 JAR；Backend 仍使用当前
+工作树构建的 JAR（HC-02 不改 Backend）。`--variant` 与 `--code-sha` 会写入
+`configuration`，避免优化前后 SHA 混淆。
+
 ## 产物
 
 | 路径 | 是否入库 | 内容 |

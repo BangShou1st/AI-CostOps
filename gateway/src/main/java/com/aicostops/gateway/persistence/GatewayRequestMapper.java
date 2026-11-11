@@ -58,6 +58,18 @@ public interface GatewayRequestMapper {
             """)
     String lockBillingPeriod(@Param("periodId") long periodId, @Param("orgId") long orgId);
 
+    /**
+     * Shared (non-exclusive) OPEN-period fence for admission TX1 and dispatch
+     * TX2. It admits concurrent readers of the same period while Close/Reopen
+     * still take the exclusive lock above. The caller MUST NOT mutate the
+     * billing_period row (that would upgrade the lock and reintroduce the
+     * convoy); the Budget row remains the exclusive budget serializer.
+     */
+    @Select("""
+            SELECT status FROM billing_period WHERE id=#{periodId} AND org_id=#{orgId} FOR SHARE
+            """)
+    String lockBillingPeriodShared(@Param("periodId") long periodId, @Param("orgId") long orgId);
+
     @Insert("""
             INSERT INTO gateway_request(
               org_id,public_request_id,credential_id,principal_type,organization_member_id,

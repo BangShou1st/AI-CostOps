@@ -8,13 +8,14 @@ import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
 import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * The durable financial safety fence (TX2).
  *
- * <p>{@link #commitDispatchFence} runs one short MySQL transaction that locks
- * the OPEN BillingPeriod {@code FOR UPDATE}, verifies the M12 budget admission
+ * <p>{@link #commitDispatchFence} runs one short MySQL transaction that takes
+ * the shared OPEN BillingPeriod fence, verifies the M12 budget admission
  * (a budget-controlled RESERVED request must have a matching route attempt, a
  * matching ACTIVE reservation and a matching BillingPeriod; an explicitly
  * allowed unbudgeted OPTIONAL request may proceed), persists
@@ -22,9 +23,16 @@ import org.springframework.transaction.annotation.Transactional;
  * {@code DISPATCH_INTENT}. Only then may the caller perform potentially
  * billable Provider I/O.
  *
- * <p>Close and dispatch serialize on the same BillingPeriod lock. If Close
- * wins, the fence rejects before any Provider I/O; if dispatch wins, the
- * request remains possible-billable recovery evidence that blocks Close.
+ * <p>Close keeps the exclusive period lock and dispatch takes it shared: if
+ * Close wins, the fence reads CLOSING and rejects before any Provider I/O; if
+ * dispatch wins, the request remains possible-billable recovery evidence that
+ * blocks Close. TX2 never mutates the billing_period row, so it cannot upgrade
+ * the shared lock.
+ *
+ * <p>TX2 runs at READ COMMITTED because same-identity losers can execute the
+ * fence concurrently: after the winner commits DISPATCH_INTENT, a loser's
+ * post-update re-read must see that committed state and return
+ * GATEWAY_REQUEST_IN_PROGRESS instead of a stale REPEATABLE READ snapshot.
  */
 @Service
 public class DispatchFenceService {
@@ -41,11 +49,15 @@ public class DispatchFenceService {
         this.reservationMapper = reservationMapper;
     }
 
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void commitDispatchFence(
             long orgId, long requestId, long routeAttemptId, long periodId,
             AdmissionResult admission) {
-        var status = requestMapper.lockBillingPeriod(periodId, orgId);
+        // Shared period fence: TX2 only reads the status and never mutates the
+        // period row. Close/Reopen still take the exclusive lock and therefore
+        // cannot commit CLOSING/CLOSED while this fence is in flight; a fence
+        // that arrives after Close reads CLOSING and fails closed below.
+        var status = requestMapper.lockBillingPeriodShared(periodId, orgId);
         if (status == null) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                     "Billing period is unavailable");

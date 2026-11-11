@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import reactor.core.publisher.Mono;
 
@@ -20,12 +21,18 @@ import reactor.core.publisher.Mono;
  * M12 TX1: MySQL-authoritative budget admission.
  *
  * <p>One short synchronous MySQL transaction (offloaded from Reactor Netty):
- * lock OPEN BillingPeriod, resolve exact Budget or ORG fallback in the pricing
- * currency, lock the Budget row, observe Total/Actual/Committed plus effective
- * ACTIVE/PENDING_HOLD reservations under the same lock, then insert the ACTIVE
- * reservation and move VALIDATED to RESERVED (or to REJECTED_BUDGET when
- * insufficient). No Provider network I/O happens inside or before this
- * transaction commits.
+ * take the shared OPEN BillingPeriod fence, resolve the exact Budget or ORG
+ * fallback in the pricing currency, lock the Budget row exclusively, observe
+ * Total/Actual/Committed plus effective ACTIVE/PENDING_HOLD reservations under
+ * the same lock, then insert the ACTIVE reservation and move VALIDATED to
+ * RESERVED (or to REJECTED_BUDGET when insufficient). No Provider network I/O
+ * happens inside or before this transaction commits.
+ *
+ * <p>The period lock is shared so that concurrent admissions for one period do
+ * not queue behind each other; Close/Reopen keep the exclusive lock. Because
+ * the shared lock no longer serializes the first consistent read, TX1 runs
+ * under READ COMMITTED so the effective-hold SUM is a current read after the
+ * Budget X lock (see the constructor).
  */
 @Service
 public class BudgetReservationService {
@@ -49,6 +56,14 @@ public class BudgetReservationService {
         this.properties = properties;
         this.blockingIo = blockingIo;
         this.transactions = new TransactionTemplate(transactionManager);
+        // TX1 runs under READ COMMITTED so the effective-hold SUM below is a
+        // statement-level current read after the Budget row X lock. Under
+        // REPEATABLE READ the read view would be fixed by the earlier plain
+        // Budget lookup, before the row lock is acquired, and a concurrent
+        // committed hold could be missed (over-reservation). The Budget row X
+        // lock still serializes every effective-hold mutation, so the current
+        // read is the only consistent one.
+        this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = clock;
     }
 
@@ -73,8 +88,10 @@ public class BudgetReservationService {
         var orgId = principal.organizationId();
         var now = Instant.now(clock);
 
-        // 1. Lock the OPEN BillingPeriod: dispatch and Close serialize here.
-        var periodStatus = requestMapper.lockBillingPeriod(command.billingPeriodId(), orgId);
+        // 1. Shared OPEN BillingPeriod fence: concurrent admissions for this
+        // period proceed while Close/Reopen keep the exclusive lock. TX1 never
+        // mutates billing_period, so this lock cannot upgrade.
+        var periodStatus = requestMapper.lockBillingPeriodShared(command.billingPeriodId(), orgId);
         if (periodStatus == null || !"OPEN".equals(periodStatus)) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                     "Billing period is not open for reservation");
