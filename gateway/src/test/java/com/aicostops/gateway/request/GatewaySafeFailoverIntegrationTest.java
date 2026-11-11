@@ -6,6 +6,7 @@ import com.aicostops.gateway.testsupport.GatewayMySqlContainerSupport;
 import com.aicostops.gateway.testsupport.GatewayTestFixture;
 import com.aicostops.gateway.testsupport.GatewayTestFixture.SeededEnv;
 import com.sun.net.httpserver.HttpServer;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -47,6 +48,9 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private MeterRegistry meterRegistry;
 
     private SeededEnv env;
     private long secondAccountId;
@@ -150,6 +154,7 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
 
     @Test
     void safeDnsFailureBeforeStreamOutputSwitchesToBWithoutMixingAndEmitsOneDone() {
+        var completedBefore = completedRequests();
         var result = web.post().uri("/v1/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + RAW_KEY)
@@ -167,6 +172,7 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
         assertThat(body).contains("from B");
         assertThat(body).doesNotContain("from A");
         assertThat(body.split("\\[DONE\\]", -1).length - 1).isEqualTo(1);
+        assertThat(completedRequests() - completedBefore).isEqualTo(1.0);
         assertThat(jdbc.queryForList("SELECT status FROM gateway_route_attempt WHERE org_id=? ORDER BY attempt_no",
                 String.class, env.orgId())).containsExactly("SAFE_NO_BILLABLE_EXECUTION", "COMPLETED");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_usage_fact WHERE org_id=?",
@@ -217,5 +223,11 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
                 Integer.class, env.orgId())).containsExactly(1);
         assertThat(jdbc.queryForList("SELECT route_reason_code FROM gateway_route_attempt WHERE org_id=?",
                 String.class, env.orgId())).containsExactly("INITIAL_FALLBACK");
+    }
+
+    private double completedRequests() {
+        var counter = meterRegistry.find("gateway_request_total")
+                .tag("outcome", "COMPLETED").counter();
+        return counter == null ? 0.0 : counter.count();
     }
 }

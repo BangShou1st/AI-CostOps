@@ -43,7 +43,7 @@ public class GatewayMetrics {
             "HTTP_ERROR", "CONNECT", "TIMEOUT");
     private static final Set<String> RESERVATION_RECOVERY_OUTCOMES = Set.of(
             "RELEASED", "PENDING_HOLD", "SKIPPED", "FAILED",
-            "STALE_PRE_DISPATCH_TERMINAL");
+            "STALE_PRE_DISPATCH_TERMINAL", "SAFE_RELEASED_TERMINAL");
     private static final Set<String> RESERVATION_ATTEMPTS = Set.of(
             "RESERVED", "UNBUDGETED", "REJECTED_BUDGET", "REJECTED_DEPENDENCY");
     private static final Set<String> QUOTA_OUTCOMES = Set.of(
@@ -109,7 +109,7 @@ public class GatewayMetrics {
         registry.counter("gateway_redis_dependency_error_total").increment();
     }
 
-    /** outcome is a small fixed enum: RELEASED, PENDING_HOLD, SKIPPED, FAILED. */
+    /** outcome is a small fixed enum: RELEASED, PENDING_HOLD, SKIPPED, FAILED, STALE_PRE_DISPATCH_TERMINAL, SAFE_RELEASED_TERMINAL. */
     public void recordReservationRecovery(String outcome) {
         registry.counter("gateway_reservation_recovery_total", "outcome",
                 bounded(outcome, RESERVATION_RECOVERY_OUTCOMES)).increment();
