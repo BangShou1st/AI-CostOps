@@ -292,3 +292,25 @@ $ npm run verify:links
 - **判定**：本次深度审查 **PASS（无新增发布阻断缺陷）**。资金主链路的并发、幂等、状态机、不可变账本与关账栅栏在代码与 DB 约束层面均成立；本地 1516 个单测/架构/前端用例全绿，文档链接 0 死链。
 - **但**：P1-01~P1-04 说明“生产配置校验”“CI 门禁”“登出会话”这三道**外围防线**存在可被配置、命名或异常路径绕过的缺口。它们不改变已经发生的财务事实，但会让运维/评审误以为防线存在。
 - **影响边界**：本记录不构成任何环境的生产就绪声明；`STABLE_RELEASE` 仍为 `v3.0.0`，`main` 与 `dev` 仍指向 `75f02ea`。本次未修改代码、配置、CI 与脚本。
+
+---
+
+## 9. 处置记录（2026-11-12 追加）
+
+> 本节只追加处置结果，不改写上方原始发现、证据与结论。逐项 before/after、根因、验证命令输出摘要、
+> `NOT_VERIFIED` 与影响边界见 [2026-11-12 P1 外围防线加固与 P2 口径修复](2026-11-12-p1-hardening-fixes.md)。
+
+| 发现 | 处置 | 证据摘要 |
+|---|---|---|
+| P1-01 生产校验器放行默认密钥 | **FIXED** | 拒绝 `local-development-only-signing-key` 前缀及 `aicostops` / `change-me-local-only` storage 凭据；新增 3 用例先红（19 run / 3 failed）后绿（19/0/0） |
+| P1-02 CI 集成测试选择可静默为空 | **FIXED** | 抽出 `scripts/ci/select-integration-tests.mjs`，空枚举/空分片退出 1；199 个集成测试分片 100/99 与旧规则一致；删除 `-DfailIfNoSpecifiedTests=false` |
+| P1-03 合并门禁可被“全 skipped”绕过 | **FIXED（仓库内部分）** / `NOT_VERIFIED`（仓库设置） | 新增 `.github/CODEOWNERS`；`ci-status` 对无理由 skip 判红，docs-only/backend-only/frontend-only/scripts-only PASS、`.github`-only/forced-skip/failure FAIL；branch protection 与 ruleset 未验证 |
+| P1-04 登出失败不清本地会话 | **FIXED** | 500 logout 与 refresh 失败均清 token/缓存并置 anonymous，401 终态语义不变；调用点提示“已本地登出”，无 unhandled rejection |
+| P2-09 Gateway 可观测口径 | **FIXED** | 流式成功 `COMPLETED` 增量 1；`SAFE_RELEASED_TERMINAL` 不再落 `UNKNOWN`；定向 `GatewaySafeFailoverIntegrationTest` 4/4 |
+| P2-20 数字字符串 id 排序 | **FIXED** | 统一 `BigInt` 数值降序；`['9','10','100'] → ['100','10','9']` |
+
+**报告更正**：P1-02 引用的“198 个集成测试类”与当前代码不符，实际枚举为 **199** 个
+（shard 0 = 100，shard 1 = 99）；分片规则与结论不变。P1-03 引用的 `ci.yml:565-577` 在基线上实际为
+571–599 行（漂移，不影响结论）。
+
+**未处置**：本批仅处理上述 6 项；其余 20 项 P2 与 6 项 P3 保持原状，等待后续独立维护窗口。

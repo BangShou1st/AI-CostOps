@@ -11,6 +11,9 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- 维护期 P1 加固与 P2 口径修复记录（`docs/03-acceptance/maintenance/2026-11/2026-11-12-p1-hardening-fixes.md`）：P1-01 生产默认密钥拒绝、P1-02 集成测试选择 fail-closed、P1-03 `ci-status` skip 语义与 CODEOWNERS、P1-04 登出失败本地清理、P2-09 Gateway 指标口径、P2-20 数值 id 排序；含逐项 before/after、本地验证输出、`NOT_VERIFIED` 与影响边界
+- `.github/CODEOWNERS`：默认仓库 owner，并对 `.github/**`、`.trivyignore`、`compose*.yaml`、`docker-compose*.yml`、`deploy/`、`.env.example` 显式指定 owner；是否强制 review 取决于仓库 ruleset（`NOT_VERIFIED`）
+- CI 集成测试选择器：`scripts/ci/select-integration-tests.mjs`（纯函数枚举 + 分片，空枚举/空分片/非法参数非 0 退出）与 `scripts/tests/ci-select-integration-tests.test.mjs`（6 个用例）
 - 深度代码审查记录（`docs/03-acceptance/maintenance/2026-11/2026-11-12-deep-code-review.md`）：`75f02ea` 基线只读精读约 70 个文件 / 约 1.1 万行（Gateway 请求/预占/派发/计量/结算/恢复，Backend 结算/账本/预算/关账/配置校验，前端金额与认证层，CI 与 compose），复核 F-01~F-09 财务不变量全部成立，`npm test` 1516 用例全绿、文档 0 死链；记录 4 项 P1（生产默认密钥校验缺口、CI 集成测试选择可静默为空、CI 门禁可被 skipped 绕过、登出失败不清本地会话）、22 项 P2、6 项 P3，明确本次未修改任何业务代码
 - HC-03 harness 资源所有权加固（PR #181 审查）：容器带 `aicostops.hc03.owner/run/resource` label，新增 `run-owner.json` 与 v2 PID 身份记录（owner/命令 token/启动时间）；新一轮、`--attach`、`--cleanup`、stop/kill 均先校验，外部/无 label/旧式 PID 一律拒绝；新增 13 个纯函数测试；Dockerfile 增加 apt `>= 2.8.4ubuntu0.1` 构建期断言，Security 镜像改为 `--pull --no-cache`（不忽略 CVE、不降低 severity）
 - HC-03 真实故障注入与恢复验收（Issue #180）：新增 `scripts/perf/hc03/` 一键入口 `npm run perf:hc03`，只操作本任务创建的 `ai-costops-hc03-mysql` / `ai-costops-hc03-redis`，对真实 Redis 停服/黑洞、真实 MySQL 停机、Gateway JVM `taskkill /F`（SIGKILL 等价）、双实例部分可用、Backend 结算事务中断与数据库暂断、真实 HTTP Close 并发进行注入，输出 `environment.json` / `events.jsonl` / `db-invariants.json` / `results.json`；新增 `GatewayDataSourceOutageIntegrationTest` 覆盖 TX1/TX2 数据源故障后的无预留/无派发栅栏与连接池恢复；证据见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-03-failure-recovery/`
@@ -77,6 +80,12 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- 生产配置校验（审查 P1-01）：`prod` 校验器此前只要求 JWT ≥ 32 字符、storage 非空，`.env.example` 的 64 字符公开签名密钥与 `aicostops`/`change-me-local-only` 存储凭据可通过启动；现拒绝 `local-development-only-signing-key` 前缀与两个存储默认值（对称、空值仍拒绝），错误信息只报环境变量名；新增 3 个“解析结果等于示例值”用例（先红后绿）
+- CI 集成测试选择（审查 P1-02）：删除 workflow 内联枚举与 `-DfailIfNoSpecifiedTests=false`，改由 `scripts/ci/select-integration-tests.mjs` 枚举/分片并显式失败，Maven 使用 `-DfailIfNoTests=true`；当前 199 个 `*IntegrationTest.java` 的分片 100/99 与旧规则逐项一致，空目录/空分片退出码 1
+- 合并门禁（审查 P1-03，仓库内部分）：`docs_only` 现在同时要求 code 过滤器未命中；`ci-status` 对“过滤器命中却 skipped”与“非 docs-only 且无任何业务区域运行”判失败，`main` push 上强制运行的作业 skip 即失败；新增 `.github/CODEOWNERS` 覆盖 `.github/**`、`.trivyignore`、`compose*.yaml`、`deploy/`、`.env.example`。branch protection / ruleset 仍 `NOT_VERIFIED`
+- 登出会话卫生（审查 P1-04）：`logout()` 在服务端注销 5xx 或 refresh 失败时也执行本地清理（保留 httpOnly cookie 供下次 refresh 失效），401 终态路径、refresh 单飞、跨标签协调与 409 语义不变；调用点 catch 并提示“已本地登出”，消除 unhandled rejection
+- Gateway 可观测口径（审查 P2-09）：流式请求在终端 `[DONE]` 下发后补记 `gateway_request_total{outcome="COMPLETED"}`（此前仅非流式成功计数），`SAFE_RELEASED_TERMINAL` 加入 bounded 预占恢复 outcome，不再落 `UNKNOWN`
+- 列表排序（审查 P2-20）：网关凭证、定价版本、路由策略三处“最新在前”不再用 `localeCompare` 比较数字字符串 id，改用 `BigInt` 数值降序（`['9','10','100']` → `100,10,9`），未改后端分页顺序
 - Gateway SSE permit：建流前 `rateLimiter` / `quotaLimiter` / `orchestrator.prepareInitial` 未完成时客户端取消订阅只会触发 `doFinally(CANCEL)`，原实现在该路径泄漏 stream permit；新增 `StreamPermitLease` 三态所有权（外层 admission 链 → SSE body → released）显式移交并保证恰好一次释放，补三阶段取消回归，B04 流建立后外层完成不得提前释放的用例保持通过
 - 工作台缓存：缓存键加入调用者 ORG 权限集合的 SHA-256 指纹，修复同组织低权限成员命中高权限成员预热视图的跨权限读泄露
 - Gateway Redis 可靠性：`spring.data.redis.timeout=500ms` / `connect-timeout=1s`，Redis 已连接但慢响应/黑洞时在 Provider I/O 前有界 fail-closed；新增 blackhole 超时测试
@@ -104,6 +113,9 @@
 - 安全依赖：`follow-redirects` 升级 1.16.0 → 1.16.1，关闭 CVE-2026-111755 / CVE-2026-111756；随后 pin 到 1.16.2，关闭 CVE-2026-116689（均为 Trivy HIGH 阻断）
 
 ### Security
+- 生产默认凭据拒绝（审查 P1-01）：JWT 签名密钥与对象存储 access/secret 不再接受仓库内公开的
+  `.env.example` / `application-local.yml` 示例值，避免“有仓库读权限即可离线签发 HS256 token 或访问 Evidence 桶”；
+  校验器仍只在 `prod` profile 生效，错误信息不回声任何密钥值
 - M22 双组织浏览器隔离与模型可见性边界修复（跨租户私有模型元数据泄露与未授权定价关联写入）
 
 ## [3.0.0] - 2026-09-13
