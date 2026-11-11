@@ -952,12 +952,14 @@ async function f03PreDispatchKill(round, rep) {
   const before = fixtureSnapshot(fixture)
   const settledBase = before.settlements.statuses.SETTLED ?? 0
   const dispatchedBase = before.requests.possiblyDispatched ?? 0
-  const actualBase = before.budget.actual
 
   const baseline = await sendChat(GATEWAY_A_PORT, fixture, `hc03-f03pre-base-${rep}-${RUN_NONCE}`)
   expect(round.checks, 'warm request before injection is 200', baseline.status === 200,
     { status: baseline.status })
   await waitForSettlement(fixture, settledBase + 1, 120_000)
+  // Capture only after the warm request has settled: the killed admission must
+  // not change Actual/Committed/holds relative to this point.
+  const actualBase = budgetSnapshot(fixture).actual
   await mockReset()
 
   // Hold the exact BillingPeriod row exclusively. TX1's shared period fence
