@@ -1,5 +1,6 @@
 package com.aicostops.reporting;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -129,6 +130,40 @@ class WorkbenchIntegrationTest extends AllocationApiTestSupport {
                 .andExpect(jsonPath("$.pendingApprovals").doesNotExist())
                 .andExpect(jsonPath("$.openReconciliations").doesNotExist())
                 .andExpect(jsonPath("$.closeStatus").doesNotExist());
+    }
+
+    @Test
+    void cacheKeyIsScopedByCallerOrgPermissionFingerprint() throws Exception {
+        grant("WORKBENCH_FINANCE", List.of(
+                "PERIOD_READ", "COST_READ", "BUDGET_READ", "ALLOCATION_READ",
+                "DUPLICATE_REVIEW", "EXPENSE_REVIEW", "RECONCILIATION_READ"));
+        var periodId = insertOpenJanuaryPeriod();
+        insertCharge("10.00000000");
+        insertBudget(periodId, "100.00000000", "10.00000000", "0.00000000");
+        insertExpense(actorMemberId, "5.00000000", "SUBMITTED");
+
+        // Warm the cache with the full-permission actor.
+        mockMvc.perform(get("/api/v1/workbench").header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period.status").value("OPEN"))
+                .andExpect(jsonPath("$.costByProvider[0].totalAmount").value("10.00000000"))
+                .andExpect(jsonPath("$.budgetVariance[0].availableAmount").value("90.00000000"));
+
+        // The finance member has EXPENSE_REVIEW + ALLOCATION_READ only; it must
+        // not observe the actor's warm aggregate view within the same org.
+        mockMvc.perform(get("/api/v1/workbench")
+                        .header("Authorization", "Bearer " + tokens.issue(financeUserId, 7).token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.period").doesNotExist())
+                .andExpect(jsonPath("$.costByProvider").isEmpty())
+                .andExpect(jsonPath("$.costByProject").isEmpty())
+                .andExpect(jsonPath("$.budgetVariance").isEmpty())
+                .andExpect(jsonPath("$.duplicateCandidates").doesNotExist())
+                .andExpect(jsonPath("$.openReconciliations").doesNotExist())
+                .andExpect(jsonPath("$.pendingApprovals.submittedCount").value(1));
+
+        var keys = redis.keys("workbench:" + orgId + ":*");
+        assertThat(keys).filteredOn(key -> key.contains(":perm:")).hasSize(2);
     }
 
     @Test
