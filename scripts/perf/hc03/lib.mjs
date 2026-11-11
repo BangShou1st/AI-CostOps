@@ -8,6 +8,7 @@
  * a deterministic pre-dispatch window, and an append-only event log.
  */
 import { spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   appendFileSync, closeSync, createWriteStream, existsSync, mkdirSync, openSync, readFileSync,
   unlinkSync, writeFileSync,
@@ -399,15 +400,13 @@ export function ensureJars({ forceBuild = false, skipBuild = false } = {}) {
 }
 
 export function jarSha256(path) {
-  const result = capture('sha256sum', [path])
-  if (result.status === 0 && /^[0-9a-f]{64}$/i.test(result.stdout.split(/\s+/)[0] ?? '')) {
-    return result.stdout.split(/\s+/)[0].toLowerCase()
+  // In-process hashing: no dependency on a host `sha256sum` or PowerShell
+  // being present in the runner's environment (both were absent in one run).
+  try {
+    return createHash('sha256').update(readFileSync(path)).digest('hex')
+  } catch {
+    return null
   }
-  const powershell = spawnSync('powershell.exe', [
-    '-NoProfile', '-Command', `(Get-FileHash -Algorithm SHA256 -LiteralPath '${path}').Hash`,
-  ], { encoding: 'utf8', windowsHide: true })
-  const hash = (powershell.stdout ?? '').trim()
-  return /^[0-9a-f]{64}$/i.test(hash) ? hash.toLowerCase() : null
 }
 
 export async function waitHttp(port, path, timeoutMs, label) {
