@@ -10,7 +10,7 @@
 | 基线 | `main = edf416baa8e23a0b66dc00ef5734c6cf40628199`（PR #177 合并） |
 | 工作分支 | `perf/hc-02-billing-period-lock` |
 | 审计对象 | `BudgetReservationService` TX1、`DispatchFenceService` TX2、`GatewayRequestMapper`、`PeriodCloseService`/`BillingPeriodCloseService`、`GatewaySettlementService`、`BillingPeriodFinancialWriteFenceService`、`GatewayUsageFinalizationService`、`ReservationRecoveryService`、`SafeReservationReleaseService`、账期外键与索引 |
-| 第一道门结论 | **PASS**：完成只读审计与 DB 语义探针；发现并证明“仅把 TX1 改成 `FOR SHARE` 会超扣”的隐藏依赖，最终方案为 **TX1/TX2 共享账期锁 + TX1 READ COMMITTED + 预算行 X 锁不变 + 零 DDL** |
+| 第一道门结论 | **PASS**：完成只读审计与 DB 语义探针；发现并证明“仅把 TX1 改成 `FOR SHARE` 会超扣”的隐藏依赖，最终方案为 **TX1/TX2 共享账期锁 + TX1/TX2 READ COMMITTED + lineage 锁范围收敛 + 预算行 X 锁不变 + 零 DDL** |
 | 实现状态 | 待第二道门（测试先行）与第三道门（A/B）完成后回填 |
 
 ## 2. 一句话结论
@@ -179,7 +179,7 @@ B sees sum=80.00（A 已提交）-> B 的 80 会被 20 的可用额度拒绝
 
 | 方案 | 内容 | 结论 |
 |---|---|---|
-| **A（采用）** | TX1/TX2 账期 `FOR SHARE` + TX1 `READ COMMITTED` | 最小、零 DDL；共享锁放开并发，RC 恢复“锁内当前读”；预算 X 仍串行化同预算 |
+| **A（采用）** | TX1/TX2 账期 `FOR SHARE` + TX1/TX2 `READ COMMITTED` + lineage 锁仅 gr/ra | 最小、零 DDL；共享锁放开并发，RC 恢复“锁内当前读”；预算 X 仍串行化同预算 |
 | B | TX1 `FOR SHARE` + `sumEffectiveReservations ... FOR SHARE` | **拒绝**：聚合锁定读会在 reservation 行上加 S 锁；usage finalization 已持有 request 行 X 再取 reservation X，TX1 则取 reservation S 后再取 request X，形成新的死锁环 |
 | C | 预算查找改为 `FOR UPDATE`（用查找本身拿预算锁） | **拒绝**：缺失预算时产生 gap lock，改变不存在行/ORG 回退路径的锁行为；属更大 access-path 变更，收益不明确 |
 | D | 专用锁行/版本行/锁分片 | 超出本轮最小范围；需 DDL 与新不变量，留作 A 被证伪后的备选 |
@@ -303,3 +303,5 @@ Kubernetes、业务新功能、全仓重构、修改历史 Flyway、重复创建
 
 - HC-01 基线：[`../2026-11-11-hc-01-gateway-concurrency/`](../2026-11-11-hc-01-gateway-concurrency/2026-11-11-hc-01-gateway-concurrency.md)
 - HC-01 审查修正：[`../2026-11-11-hc-01-gateway-concurrency/2026-11-11-hc-01-review-followup.md`](../2026-11-11-hc-01-gateway-concurrency/2026-11-11-hc-01-review-followup.md)
+
+
