@@ -11,6 +11,8 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- HC-03 harness 资源所有权加固（PR #181 审查）：容器带 `aicostops.hc03.owner/run/resource` label，新增 `run-owner.json` 与 v2 PID 身份记录（owner/命令 token/启动时间）；新一轮、`--attach`、`--cleanup`、stop/kill 均先校验，外部/无 label/旧式 PID 一律拒绝；新增 13 个纯函数测试；Dockerfile 增加 apt `>= 2.8.4ubuntu0.1` 构建期断言，Security 镜像改为 `--pull --no-cache`（不忽略 CVE、不降低 severity）
+- HC-03 真实故障注入与恢复验收（Issue #180）：新增 `scripts/perf/hc03/` 一键入口 `npm run perf:hc03`，只操作本任务创建的 `ai-costops-hc03-mysql` / `ai-costops-hc03-redis`，对真实 Redis 停服/黑洞、真实 MySQL 停机、Gateway JVM `taskkill /F`（SIGKILL 等价）、双实例部分可用、Backend 结算事务中断与数据库暂断、真实 HTTP Close 并发进行注入，输出 `environment.json` / `events.jsonl` / `db-invariants.json` / `results.json`；新增 `GatewayDataSourceOutageIntegrationTest` 覆盖 TX1/TX2 数据源故障后的无预留/无派发栅栏与连接池恢复；证据见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-03-failure-recovery/`
 - HC-02 账期锁竞争审计与最小优化（Issue #178）：`billing_period` 共享锁（TX1/TX2）+ TX1/TX2 `READ COMMITTED` 当前读，usage finalization 的 `lockLineage` 改为 `FOR UPDATE OF gr, ra`（不再 X 锁共享 `pricing_version` 行），预算行 X 锁、Close 账期 X 锁、财务语义与全部表/索引不变；新增 `PeriodLockSharedConcurrencyIntegrationTest`（共享锁并发、stale-snapshot 不超扣、CLOSING 拒绝）、`GatewayPeriodSharedLockCloseIntegrationTest`（Close 等待共享锁后 CLOSING、Gateway shared reader 观察到 CLOSING）与 usage finalization 的 pricing_version 锁范围回归；审计与设计见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/lock-boundary-audit.md`
 - HC-01 harness 新增 HC-02 A/B 入口：`--suite=hc02` 只跑账期热点矩阵，`--gateway-jar` 指定基线/优化 JAR，`--variant` 与 `--code-sha` 写入产物，避免优化前后 SHA 混淆
 - HC-01 Gateway 单/双实例高并发基线 harness（`scripts/perf/hc01/`）：隔离数据库/Redis、真实 Backend/Mock Provider、独立 Gateway JVM、热点/对照预算矩阵、逐轮财务不变量与结算收敛核对；一键入口 `npm run perf:hc01`
@@ -145,3 +147,4 @@ V1 首个稳定版：多 Provider AI 成本统一为可信、可归属、可审�
 [1.1.0]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v1.1.0
 [1.0.1]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v1.0.1
 [1.0.0]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v1.0.0
+

@@ -22,6 +22,8 @@ FROM eclipse-temurin:21-jre-noble
 RUN apt-get update \
     && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends curl \
+    && echo "runtime apt=$(dpkg-query -W -f='${Version}' apt) libapt-pkg6.0t64=$(dpkg-query -W -f='${Version}' libapt-pkg6.0t64)" \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge "2.8.4ubuntu0.1" \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system aicostops \
     && useradd --system --gid aicostops --home-dir /app --shell /usr/sbin/nologin aicostops \

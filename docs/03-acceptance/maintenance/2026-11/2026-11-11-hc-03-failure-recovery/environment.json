@@ -1,0 +1,89 @@
+{
+  "capturedAt": "2026-11-11T15:06:50.195Z",
+  "runId": "20261111145234",
+  "git": {
+    "sha": "78ee97591fdaf0569f5545aaab43193d866f8955",
+    "branch": "perf/hc-03-failure-recovery",
+    "dirty": false
+  },
+  "host": {
+    "hostname": "榜首",
+    "platform": "win32",
+    "release": "10.0.26200",
+    "arch": "x64",
+    "cpuModel": "Intel(R) Core(TM) i9-14900HX",
+    "cpuCores": 32,
+    "totalMemBytes": 16872955904,
+    "freeMemBytes": 1413545984,
+    "dockerServer": "29.8.0",
+    "dockerMemBytes": 1995673600,
+    "node": "v24.14.0",
+    "java": "java version \"21.0.10\" 2026-01-20 LTS",
+    "python": "Python 3.13.0",
+    "gitSha": "78ee97591fdaf0569f5545aaab43193d866f8955",
+    "gitBranch": "perf/hc-03-failure-recovery",
+    "gitDirty": false
+  },
+  "docker": {
+    "serverVersion": "29.8.0",
+    "vmMemBytes": 1995673600
+  },
+  "images": {
+    "mysql": "mysql:8.4",
+    "redis": "redis:8.8.1-alpine",
+    "mysqlVersion": "8.4.11"
+  },
+  "dedicatedResources": {
+    "mysqlContainer": "ai-costops-hc03-mysql",
+    "mysqlPort": 13307,
+    "redisContainer": "ai-costops-hc03-redis",
+    "redisPort": 16379,
+    "database": "aicostops_hc03",
+    "sharedInfraTouched": false
+  },
+  "processes": {
+    "backendPort": 18080,
+    "gatewayPorts": [
+      18081,
+      18082
+    ],
+    "mockProviderPort": 18089,
+    "gatewayConfig": {
+      "hardTimeoutMs": 15000,
+      "headerTimeoutMs": 8000,
+      "streamIdleTimeoutMs": 8000,
+      "reservationTtlMs": 20000,
+      "reservationRecoveryIntervalMs": 3000,
+      "rateLimitEnabled": true,
+      "quotaEnabled": true,
+      "dbPoolMax": 12
+    },
+    "backendConfig": {
+      "settlementWorkerEnabled": true,
+      "settlementPollInterval": "500ms (test setting; product default 5s)"
+    }
+  },
+  "jars": {
+    "gateway": "E:\\project\\AI-CostOps\\gateway\\target\\gateway-1.1.0.jar",
+    "gatewaySha256": "bd1999526b1c8cdb007ea91e6be4a0ac87871366f1b23b91af41e8333e04721f",
+    "backend": "E:\\project\\AI-CostOps\\backend\\target\\backend-1.1.0.jar",
+    "backendSha256": "c78b59e90a495c552d51f7bb7224e0b97c499c40693b7d805d4ea49f15640ea8"
+  },
+  "scenarioSelection": [
+    "F01",
+    "F02",
+    "F03pre",
+    "F03post",
+    "F04",
+    "F05",
+    "F06"
+  ],
+  "repetitions": 3,
+  "limitsAndHonesty": [
+    "All dependency containers are dedicated to HC-03 and are stopped/started by this harness only.",
+    "The shared development MySQL/Redis/MinIO containers are never stopped, paused or flushed.",
+    "No external load balancer: the harness chooses the surviving Gateway port explicitly.",
+    "Single physical host; process and container share the same Docker VM.",
+    "F06 process-level Close requires an authenticated Control Plane recipe; otherwise it stays NOT_VERIFIED."
+  ]
+}

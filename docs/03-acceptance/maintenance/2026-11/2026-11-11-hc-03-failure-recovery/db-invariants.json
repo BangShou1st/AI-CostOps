@@ -1,0 +1,695 @@
+{
+  "generatedAt": "2026-11-11T15:06:53.962Z",
+  "runId": "20261111145234",
+  "orgs": {
+    "hot": {
+      "orgId": 1,
+      "finalUsage": 40,
+      "nonFinalUsage": 0,
+      "settled": 40,
+      "pendingSettlements": 0,
+      "reconciliationRequired": 0,
+      "postings": 40,
+      "duplicatePostingKeys": 0,
+      "settledNonFinalUsage": 0,
+      "settledWithoutPosting": 0,
+      "duplicateSources": 0,
+      "overspentBudgets": 0
+    },
+    "close": {
+      "orgId": 2,
+      "finalUsage": 27,
+      "nonFinalUsage": 0,
+      "settled": 27,
+      "pendingSettlements": 0,
+      "reconciliationRequired": 0,
+      "postings": 27,
+      "duplicatePostingKeys": 0,
+      "settledNonFinalUsage": 0,
+      "settledWithoutPosting": 0,
+      "duplicateSources": 0,
+      "overspentBudgets": 0
+    }
+  },
+  "fixtures": {
+    "hot": {
+      "projectId": 1,
+      "requests": {
+        "total": 1,
+        "states": {
+          "TRANSPORT_COMPLETED": 1
+        },
+        "possiblyDispatched": 1,
+        "multiAttempt": 0
+      },
+      "attempts": {
+        "total": 1,
+        "statuses": {
+          "COMPLETED": 1
+        }
+      },
+      "reservations": {
+        "total": 1,
+        "statuses": {
+          "FINALIZED": 1
+        }
+      },
+      "usage": {
+        "total": 1,
+        "statuses": {
+          "FINAL": 1
+        }
+      },
+      "settlements": {
+        "total": 1,
+        "statuses": {
+          "SETTLED": 1
+        }
+      },
+      "ledger": {
+        "postings": 1,
+        "entries": 1,
+        "badEntryCardinality": 0,
+        "duplicatePostingKeys": 0,
+        "duplicateSources": 0,
+        "nonSystemPostings": 0,
+        "finalWithoutSettlement": 0,
+        "settledNonFinalUsage": 0,
+        "settledWithoutPosting": 0
+      },
+      "budget": {
+        "budgetId": 1,
+        "total": "100000000.00000000",
+        "actual": "0.00033000",
+        "committed": "0.00000000",
+        "effectiveHolds": "0.00000000",
+        "used": "0.00033000",
+        "available": "99999999.99967000",
+        "activeHolds": 0,
+        "pendingHolds": 0,
+        "settledHolds": 0,
+        "overspent": false
+      },
+      "logicalPostingOk": true
+    },
+    "f01": {
+      "projectId": 2,
+      "requests": {
+        "total": 12,
+        "states": {
+          "TRANSPORT_COMPLETED": 12
+        },
+        "possiblyDispatched": 12,
+        "multiAttempt": 0
+      },
+      "attempts": {
+        "total": 12,
+        "statuses": {
+          "COMPLETED": 12
+        }
+      },
+      "reservations": {
+        "total": 12,
+        "statuses": {
+          "FINALIZED": 12
+        }
+      },
+      "usage": {
+        "total": 12,
+        "statuses": {
+          "FINAL": 12
+        }
+      },
+      "settlements": {
+        "total": 12,
+        "statuses": {
+          "SETTLED": 12
+        }
+      },
+      "ledger": {
+        "postings": 12,
+        "entries": 12,
+        "badEntryCardinality": 0,
+        "duplicatePostingKeys": 0,
+        "duplicateSources": 0,
+        "nonSystemPostings": 0,
+        "finalWithoutSettlement": 0,
+        "settledNonFinalUsage": 0,
+        "settledWithoutPosting": 0
+      },
+      "budget": {
+        "budgetId": 2,
+        "total": "100000000.00000000",
+        "actual": "0.00396000",
+        "committed": "0.00000000",
+        "effectiveHolds": "0.00000000",
+        "used": "0.00396000",
+        "available": "99999999.99604000",
+        "activeHolds": 0,
+        "pendingHolds": 0,
+        "settledHolds": 0,
+        "overspent": false
+      },
+      "logicalPostingOk": true
+    },
+    "f02": {
+      "projectId": 3,
+      "requests": {
+        "total": 6,
+        "states": {
+          "TRANSPORT_COMPLETED": 6
+        },
+        "possiblyDispatched": 6,
+        "multiAttempt": 0
+      },
+      "attempts": {
+        "total": 6,
+        "statuses": {
+          "COMPLETED": 6
+        }
+      },
+      "reservations": {
+        "total": 6,
+        "statuses": {
+          "FINALIZED": 6
+        }
+      },
+      "usage": {
+        "total": 6,
+        "statuses": {
+          "FINAL": 6
+        }
+      },
+      "settlements": {
+        "total": 6,
+        "statuses": {
+          "SETTLED": 6
+        }
+      },
+      "ledger": {
+        "postings": 6,
+        "entries": 6,
+        "badEntryCardinality": 0,
+        "duplicatePostingKeys": 0,
+        "duplicateSources": 0,
+        "nonSystemPostings": 0,
+        "finalWithoutSettlement": 0,
+        "settledNonFinalUsage": 0,
+        "settledWithoutPosting": 0
+      },
+      "budget": {
+        "budgetId": 3,
+        "total": "100000000.00000000",
+        "actual": "0.00198000",
+        "committed": "0.00000000",
+        "effectiveHolds": "0.00000000",
+        "used": "0.00198000",
+        "available": "99999999.99802000",
+        "activeHolds": 0,
+        "pendingHolds": 0,
+        "settledHolds": 0,
+        "overspent": false
+      },
+      "logicalPostingOk": true
+    },
+    "f03pre": {
+      "projectId": 4,
+      "requests": {
+        "total": 9,
+        "states": {
+          "TRANSPORT_COMPLETED": 6,
+          "FAILED_PRE_DISPATCH": 3
+        },
+        "possiblyDispatched": 6,
+        "multiAttempt": 0
+      },
+      "attempts": {
+        "total": 9,
+        "statuses": {
+          "COMPLETED": 6,
+          "PLANNED": 3
+        }
+      },
+      "reservations": {
+        "total": 6,
+        "statuses": {
+          "FINALIZED": 6
+        }
+      },
+      "usage": {
+        "total": 6,
+        "statuses": {
+          "FINAL": 6
+        }
+      },
+      "settlements": {
+        "total": 6,
+        "statuses": {
+          "SETTLED": 6
+        }
+      },
+      "ledger": {
+        "postings": 6,
+        "entries": 6,
+        "badEntryCardinality": 0,
+        "duplicatePostingKeys": 0,
+        "duplicateSources": 0,
+        "nonSystemPostings": 0,
+        "finalWithoutSettlement": 0,
+        "settledNonFinalUsage": 0,
+        "settledWithoutPosting": 0
+      },
+      "budget": {
+        "budgetId": 4,
+        "total": "100000000.00000000",
+        "actual": "0.00198000",
+        "committed": "0.00000000",
+        "effectiveHolds": "0.00000000",
+        "used": "0.00198000",
+        "available": "99999999.99802000",
+        "activeHolds": 0,
+        "pendingHolds": 0,
+        "settledHolds": 0,
+        "overspent": false
+      },
+      "logicalPostingOk": true
+    },
+    "f03post": {
+      "projectId": 5,
+      "requests": {
+        "total": 6,
+        "states": {
+          "UPSTREAM_ACTIVE": 3,
+          "TRANSPORT_COMPLETED": 3
+        },
+        "possiblyDispatched": 6,
+        "multiAttempt": 0
+      },
+      "attempts": {
+        "total": 6,
+        "statuses": {
+          "DISPATCH_INTENT": 3,
+          "COMPLETED": 3
+        }
+      },
+      "reservations": {
+        "total": 6,
+        "statuses": {
+          "FINALIZED": 3,
+          "PENDING_HOLD": 3
+        }
+      },
+      "usage": {
+        "total": 3,
+        "statuses": {
+          "FINAL": 3
+        }
+      },
+      "settlements": {
+        "total": 3,
+        "statuses": {
+          "SETTLED": 3
+        }
+      },
+      "ledger": {
+        "postings": 3,
+        "entries": 3,
+        "badEntryCardinality": 0,
+        "duplicatePostingKeys": 0,
+        "duplicateSources": 0,
+        "nonSystemPostings": 0,
+        "finalWithoutSettlement": 0,
+        "settledNonFinalUsage": 0,
+        "settledWithoutPosting": 0
+      },
+      "budget": {
+        "budgetId": 5,
+        "total": "100000000.00000000",
+        "actual": "0.00099000",
+        "committed": "0.00000000",
+        "effectiveHolds": "94.37472000",
+        "used": "94.37571000",
+        "available": "99999905.62429000",
+        "activeHolds": 0,
+        "pendingHolds": 3,
+        "settledHolds": 0,
+        "overspent": false
+      },
+      "logicalPostingOk": true
+    },
+    "f04": {
+      "projectId": 6,
+      "requests": {
+        "total": 9,
+        "states": {
+          "UPSTREAM_ACTIVE": 3,
+          "TRANSPORT_COMPLETED": 6
+        },
+        "possiblyDispatched": 9,
+        "multiAttempt": 0
+      },
+      "attempts": {
+        "total": 9,
+        "statuses": {
+          "DISPATCH_INTENT": 3,
+          "COMPLETED": 6
+        }
+      },
+      "reservations": {
+        "total": 9,
+        "statuses": {
+          "FINALIZED": 6,
+          "PENDING_HOLD": 3
+        }
+      },
+      "usage": {
+        "total": 6,
+        "statuses": {
+          "FINAL": 6
+        }
+      },
+      "settlements": {
+        "total": 6,
+        "statuses": {
+          "SETTLED": 6
+        }
+      },
+      "ledger": {
+        "postings": 6,
+        "entries": 6,
+        "badEntryCardinality": 0,
+        "duplicatePostingKeys": 0,
+        "duplicateSources": 0,
+        "nonSystemPostings": 0,
+        "finalWithoutSettlement": 0,
+        "settledNonFinalUsage": 0,
+        "settledWithoutPosting": 0
+      },
+      "budget": {
+        "budgetId": 6,
+        "total": "100000000.00000000",
+        "actual": "0.00198000",
+        "committed": "0.00000000",
+        "effectiveHolds": "94.37472000",
+        "used": "94.37670000",
+        "available": "99999905.62330000",
+        "activeHolds": 0,
+        "pendingHolds": 3,
+        "settledHolds": 0,
+        "overspent": false
+      },
+      "logicalPostingOk": true
+    },
+    "f05": {
+      "projectId": 7,
+      "requests": {
+        "total": 6,
+        "states": {
+          "TRANSPORT_COMPLETED": 6
+        },
+        "possiblyDispatched": 6,
+        "multiAttempt": 0
+      },
+      "attempts": {
+        "total": 6,
+        "statuses": {
+          "COMPLETED": 6
+        }
+      },
+      "reservations": {
+        "total": 6,
+        "statuses": {
+          "FINALIZED": 6
+        }
+      },
+      "usage": {
+        "total": 6,
+        "statuses": {
+          "FINAL": 6
+        }
+      },
+      "settlements": {
+        "total": 6,
+        "statuses": {
+          "SETTLED": 6
+        }
+      },
+      "ledger": {
+        "postings": 6,
+        "entries": 6,
+        "badEntryCardinality": 0,
+        "duplicatePostingKeys": 0,
+        "duplicateSources": 0,
+        "nonSystemPostings": 0,
+        "finalWithoutSettlement": 0,
+        "settledNonFinalUsage": 0,
+        "settledWithoutPosting": 0
+      },
+      "budget": {
+        "budgetId": 7,
+        "total": "100000000.00000000",
+        "actual": "0.00198000",
+        "committed": "0.00000000",
+        "effectiveHolds": "0.00000000",
+        "used": "0.00198000",
+        "available": "99999999.99802000",
+        "activeHolds": 0,
+        "pendingHolds": 0,
+        "settledHolds": 0,
+        "overspent": false
+      },
+      "logicalPostingOk": true
+    },
+    "f06": {
+      "projectId": 8,
+      "requests": {
+        "total": 27,
+        "states": {
+          "TRANSPORT_COMPLETED": 27
+        },
+        "possiblyDispatched": 27,
+        "multiAttempt": 0
+      },
+      "attempts": {
+        "total": 27,
+        "statuses": {
+          "COMPLETED": 27
+        }
+      },
+      "reservations": {
+        "total": 27,
+        "statuses": {
+          "FINALIZED": 27
+        }
+      },
+      "usage": {
+        "total": 27,
+        "statuses": {
+          "FINAL": 27
+        }
+      },
+      "settlements": {
+        "total": 27,
+        "statuses": {
+          "SETTLED": 27
+        }
+      },
+      "ledger": {
+        "postings": 27,
+        "entries": 27,
+        "badEntryCardinality": 0,
+        "duplicatePostingKeys": 0,
+        "duplicateSources": 0,
+        "nonSystemPostings": 0,
+        "finalWithoutSettlement": 0,
+        "settledNonFinalUsage": 0,
+        "settledWithoutPosting": 0
+      },
+      "budget": {
+        "budgetId": 8,
+        "total": "100000000.00000000",
+        "actual": "0.00891000",
+        "committed": "0.00000000",
+        "effectiveHolds": "0.00000000",
+        "used": "0.00891000",
+        "available": "99999999.99109000",
+        "activeHolds": 0,
+        "pendingHolds": 0,
+        "settledHolds": 0,
+        "overspent": false
+      },
+      "logicalPostingOk": true
+    }
+  },
+  "periods": {
+    "hot": {
+      "periodId": 1,
+      "status": "OPEN",
+      "closeGeneration": 0,
+      "version": 0,
+      "closingStartedAt": "NULL",
+      "closedAt": "NULL",
+      "runs": [],
+      "checks": []
+    },
+    "close": {
+      "periodId": 2,
+      "status": "OPEN",
+      "closeGeneration": 0,
+      "version": 6,
+      "closingStartedAt": "NULL",
+      "closedAt": "NULL",
+      "runs": [
+        {
+          "id": 3,
+          "status": "BLOCKED",
+          "attemptNo": 3,
+          "error": "NULL"
+        },
+        {
+          "id": 2,
+          "status": "BLOCKED",
+          "attemptNo": 2,
+          "error": "NULL"
+        },
+        {
+          "id": 1,
+          "status": "BLOCKED",
+          "attemptNo": 1,
+          "error": "NULL"
+        }
+      ],
+      "checks": [
+        {
+          "code": "OPEN_IMPORTS",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNRESOLVED_DUPLICATES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNALLOCATED_CHARGES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNPOSTED_APPROVED_EXPENSES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "OPEN_MATERIAL_RECONCILIATION",
+          "result": "FAIL",
+          "items": 1
+        },
+        {
+          "code": "PENDING_CORRECTIONS",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "LEDGER_INTEGRITY",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "PENDING_GATEWAY_FINANCIAL_WORK",
+          "result": "FAIL",
+          "items": 2
+        },
+        {
+          "code": "OPEN_IMPORTS",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNRESOLVED_DUPLICATES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNALLOCATED_CHARGES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNPOSTED_APPROVED_EXPENSES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "OPEN_MATERIAL_RECONCILIATION",
+          "result": "FAIL",
+          "items": 1
+        },
+        {
+          "code": "PENDING_CORRECTIONS",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "LEDGER_INTEGRITY",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "PENDING_GATEWAY_FINANCIAL_WORK",
+          "result": "FAIL",
+          "items": 2
+        },
+        {
+          "code": "OPEN_IMPORTS",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNRESOLVED_DUPLICATES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNALLOCATED_CHARGES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "UNPOSTED_APPROVED_EXPENSES",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "OPEN_MATERIAL_RECONCILIATION",
+          "result": "FAIL",
+          "items": 1
+        },
+        {
+          "code": "PENDING_CORRECTIONS",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "LEDGER_INTEGRITY",
+          "result": "PASS",
+          "items": 0
+        },
+        {
+          "code": "PENDING_GATEWAY_FINANCIAL_WORK",
+          "result": "FAIL",
+          "items": 2
+        }
+      ]
+    }
+  },
+  "mysqlCounters": {
+    "Aborted_connects": 0,
+    "Innodb_row_lock_current_waits": 0,
+    "Innodb_row_lock_time": 884,
+    "Innodb_row_lock_waits": 16,
+    "Max_used_connections": 35,
+    "Threads_connected": 35
+  },
+  "violations": []
+}
