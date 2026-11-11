@@ -382,8 +382,11 @@ function clearAllCircuitState() {
 
 function resetRedisLimits(credentialId) {
   const day = new Date().toISOString().slice(0, 10).replaceAll('-', '')
+  const rateBase = `aicostops:v2:gateway:ratelimit:${credentialId}`
   for (const key of [
-    `aicostops:v2:gateway:ratelimit:${credentialId}`,
+    rateBase,
+    `${rateBase}:tokens`,
+    `${rateBase}:ts`,
     `aicostops:v2:gateway:quota:${credentialId}:${day}`,
   ]) {
     try { redisCli(['del', key]) } catch { /* dedicated test Redis only */ }
