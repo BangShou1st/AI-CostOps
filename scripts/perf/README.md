@@ -9,6 +9,7 @@
 |---|---|
 | `hc01/` | HC-01 AI Gateway 单/双实例高并发基线、热点预算竞争、过载与 SSE 资源验证；HC-02 复用其 `--suite=hc02` 子集 |
 | `hc02/` | HC-02 账期锁 A/B 对比：读取 baseline/optimized 的 `load-results.json`，输出 Markdown 与 `results.json` |
+| `hc03/` | HC-03 真实故障注入与恢复：专属 MySQL/Redis 容器、双 Gateway 进程 kill、Backend 结算中断、真实 Close 并发；输出环境/事件/数据库不变量证据 |
 
 ## HC-01 一键入口
 
@@ -85,6 +86,37 @@ Hikari、GC、CPU、活跃 SSE）、MySQL 行锁/事务/线程压力、Redis Lua
 COMPLETED 必有 FINAL、上游调用数等于成功数（幂等/取消/断流场景按各自期望）。
 全部场景结束后等待 Settlement 收敛，核对 FINAL → Settlement → Ledger 的唯一性与
 `UNKNOWN/INCOMPLETE` 不入账。
+
+## HC-03 故障注入与恢复
+
+```bash
+npm run perf:hc03
+node scripts/perf/hc03/runner.mjs --quick                 # 每场景 1 轮自检
+node scripts/perf/hc03/runner.mjs --scenario=F01,F03post  # 指定场景
+node scripts/perf/hc03/runner.mjs --reps=3 --build        # 重新打包后完整演练
+node scripts/perf/hc03/runner.mjs --keep-running          # 保留环境
+node scripts/perf/hc03/runner.mjs --attach --scenario=F03post --skip-build
+node scripts/perf/hc03/runner.mjs --cleanup               # 只清理 HC-03 容器/进程
+```
+
+与 HC-01 的区别（也是本轮的全部价值）：
+
+1. **独占依赖**：`ai-costops-hc03-mysql`（:13307）与 `ai-costops-hc03-redis`（:16379）由
+   HC-03 创建，可被真实 `docker stop/start/pause`；共享 `ai-costops-mysql-1`/`ai-costops-redis-1`
+   从不被停止、暂停或 `FLUSHALL`。
+2. **真实进程故障**：Gateway A/B 与 Backend 是独立 JVM，用 `taskkill /F /T`（Windows 上的
+   SIGKILL 等价物）终止；不是 Mock 异常。
+3. **确定性崩溃窗口**：外部 MySQL 会话持有账期/预留行 X 锁，把请求精确停在“attempt 已 PLANNED、
+   TX1 未提交”或“结算事务已持锁”的窗口，再杀进程。
+4. **派生证据**：`environment.json`（SHA/JAR/镜像/配置）、`events.jsonl`（逐事件与 t_inject/
+   t_detect/t_restore/t_healthy）、`db-invariants.json`（财务不变量）、`results.json`（逐轮明细）。
+5. **真实 Close 演练**：F06 通过 DevAuthenticationBootstrap 在**已存在的专用组织**上获得
+   `PERIOD_CLOSE`，用真实 HTTP 调用 Close，同时并发 6 个 Gateway 请求，验证
+   `PENDING_GATEWAY_FINANCIAL_WORK` blocker 看见已提交派发事实。
+6. **不修改 HC-01**：只复用其 `lib.mjs` 的 HTTP/进程/统计工具和 Mock Provider 协议；
+   `npm run perf:hc01` 行为不变。
+
+安全规则见 [`docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-03-failure-recovery/runbook.md`](../../docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-03-failure-recovery/runbook.md)。
 
 ## HC-02 账期热点 A/B 用法
 
