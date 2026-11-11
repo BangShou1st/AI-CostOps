@@ -41,6 +41,7 @@
   - 微型作业整合：`backend-unit` / `gateway-unit` 原生整合架构测试（ArchUnit），`frontend-quality` 整合 lint 与 build，减少重复虚拟机冷启动与依赖安装开销
   - CodeQL 语言环境按需加载：按 matrix 语言按需安装 JDK/Maven 与 Node/npm，消除跨语言冗余下载
   - 分支门禁对齐：`Protect main` ruleset 的 Required Checks 更新为重构后的作业名（`backend-integration (shard 0)` / `(shard 1)`、`frontend-quality (lint & build)`、`ci-status`），移除已并入其他作业的旧 context（`backend-architecture`、`frontend-lint`、`frontend-build`），修复 PR 永久 `BLOCKED`
+  - `docker-build` 并行镜像构建改为逐 PID 等待并传播失败退出码（裸 `wait` 恒为 0 会吞掉构建失败、让必需检查在镜像损坏时仍通过），与 `security.yml` 同源修复对齐
 - 项目文档体系系统性治理：
   - `docs/03-acceptance/` 消除 73 个根目录平铺堆积，完成分层归档（`checklists/`、`milestones/`、`maintenance/2026-10/`、`quality/`）
   - `docs/02-development/` 重构为清晰的 `api/`（统一契约收口）、`designs/`（`v1/`, `v2/`, `maintenance/`）、`guides/`（源码精读）、`implementation/`
