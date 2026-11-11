@@ -76,6 +76,7 @@
   2. 修复过程中发现 `CaseAdjustmentModal` 分配目标搜索框**真实产品缺陷**：antd `Select` 的 `optionFilterProp` 默认为 `value`（数字 id），按名称搜索永远无结果 → 补 `optionFilterProp="label"`（与 `CommitmentLinkPicker` 既有写法对齐）。
   3. 修复后复跑已越过下拉选择与弹窗提交，最终失败点为关账就绪断言 `UNALLOCATED_CHARGES: FAIL`——系前几轮中断运行在本机复用数据库中留下的 4 条 4.00 CNY 未分摊残留费用（属环境污染，非缺陷）。**最终由 CI 浏览器 E2E（全新 Compose 栈）判定：17/17 规格全部 PASS，含 m15 完整闭环。**
 - 首轮 CI 曾红 4 项，均已修复并复绿：① 两个 Dockerfile 的 `--mount=type=cache` 覆盖了 mvnw 发行包自解压目录导致镜像构建 `inter-device move failed`（缓存范围收窄至 `/root/.m2/repository`）；② security.yml 裸 `wait` 吞掉镜像构建失败使 Trivy 扫描不存在的镜像（显式传播退出码）；③ 关闭账期 Alert 文案 title/description 双含「该账期已关闭」触发 Playwright strict mode 双匹配，m15 中断未重开账期，级联打挂 reconciliation-close 与 m22（description 去重 + 断言同步）。修复提交 `f32d861`，CI 13/13 作业 + Security 3/3 作业全绿。
+- 合并前发现 `Protect main` ruleset 的 Required Checks 仍是重构前的作业名（`backend-architecture` / `frontend-lint` / `frontend-build` / 裸 `backend-integration`）：新工作流下这些 context 永远不会上报，PR 会永久 `BLOCKED`（并非缺少人工审批）。已将必需检查对齐为 `backend-integration (shard 0)` / `(shard 1)`、`frontend-quality (lint & build)`、`backend-unit`、`frontend-test`、`docker-build`，并加入 `ci-status` 聚合总门禁；门禁说明同步更新至 `docs/02-development/implementation/04-pr-ci-release-process.md` §5。
 - 过程中顺带验证了登录限流器的真实 fail-closed 行为（重复登录触发 `AUTH_RATE_LIMITED` 429，Redis 键 TTL 正常递减）。
 
 ### 4.4 遗留（NOT_VERIFIED / 低优先级）
@@ -104,7 +105,7 @@ bca10d5 merge: frontend copy rewrite and Alert API unification
 ebd8c05 fix(frontend): translate raw enums and remove residual manual-style copy
 1610051 merge: translate raw enums, remove residual server-speak copy and antd deprecations
 f0ca935 docs(acceptance): record core business consistency acceptance report
-<待补> fix(reconciliation): allocation target search filter + m15 e2e robustness
+de7305e fix(reconciliation): enable allocation target name search and harden m15 e2e target pick
 ```
 
 ## 7. 总体结论

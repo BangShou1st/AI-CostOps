@@ -39,6 +39,7 @@
   - 容器镜像构建并行化与缓存加固：`docker-build` 与 `trivy` 中 3 个容器镜像构建由串行改为后台并发构建；Dockerfile 补全 BuildKit `--mount=type=cache`（Maven/npm 缓存）；补齐 `gateway/.dockerignore`
   - 微型作业整合：`backend-unit` / `gateway-unit` 原生整合架构测试（ArchUnit），`frontend-quality` 整合 lint 与 build，减少重复虚拟机冷启动与依赖安装开销
   - CodeQL 语言环境按需加载：按 matrix 语言按需安装 JDK/Maven 与 Node/npm，消除跨语言冗余下载
+  - 分支门禁对齐：`Protect main` ruleset 的 Required Checks 更新为重构后的作业名（`backend-integration (shard 0)` / `(shard 1)`、`frontend-quality (lint & build)`、`ci-status`），移除已并入其他作业的旧 context（`backend-architecture`、`frontend-lint`、`frontend-build`），修复 PR 永久 `BLOCKED`
 - 项目文档体系系统性治理：
   - `docs/03-acceptance/` 消除 73 个根目录平铺堆积，完成分层归档（`checklists/`、`milestones/`、`maintenance/2026-10/`、`quality/`）
   - `docs/02-development/` 重构为清晰的 `api/`（统一契约收口）、`designs/`（`v1/`, `v2/`, `maintenance/`）、`guides/`（源码精读）、`implementation/`

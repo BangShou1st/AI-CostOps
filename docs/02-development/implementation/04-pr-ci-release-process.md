@@ -61,17 +61,24 @@ UI 变化加截图。
 
 ## 5. CI 门禁
 
-M0 稳定后 Required Checks：
+`Protect main` ruleset 的 Required Checks（必须与 `.github/workflows/ci.yml` 实际作业名逐字一致）：
 
 ```text
 backend-unit
-backend-integration
-backend-architecture
-frontend-lint
+backend-integration (shard 0)
+backend-integration (shard 1)
+frontend-quality (lint & build)
 frontend-test
-frontend-build
 docker-build
+ci-status
 ```
+
+说明：
+
+- ArchUnit 架构测试已并入 `backend-unit` / `gateway-unit` 的同一 Maven 运行，不再单独设置 `backend-architecture` 作业。
+- 前端 lint 与 build 已合并为 `frontend-quality (lint & build)`。
+- `ci-status` 聚合全部作业结果（含 gateway、browser-e2e、scripts），作为单一总门禁。
+- **作业改名或合并时必须同步更新 Ruleset 的 Required Checks**；否则旧 context 永远不会上报，PR 将永久处于 `BLOCKED`。
 
 以后可增加：
 
@@ -85,9 +92,11 @@ compose-smoke
 
 ### backend-unit
 
-快速 Domain/Application Unit Tests。
+Domain/Application Unit Tests 与 ArchUnit 模块依赖规则在同一 Maven 运行中执行（`-DexcludedGroups=integration test`）。
 
 ### backend-integration
+
+矩阵作业，按测试类名排序后拆分为 `(shard 0)` / `(shard 1)` 两个并行分片：
 
 ```text
 Testcontainers MySQL
@@ -98,16 +107,13 @@ Flyway
 
 ### backend-architecture
 
-ArchUnit 模块依赖规则。
-
-Check 名尽量保持稳定，避免 Ruleset 反复修改。
+已并入 `backend-unit` 的同一 Maven 运行，不再单独设置作业。Check 名一旦变更，必须同步 Ruleset，避免 Required Checks 挂起。
 
 ## 7. Frontend CI
 
 ```text
-frontend-lint
+frontend-quality (lint & build)
 frontend-test
-frontend-build
 ```
 
 CI 使用 `npm ci`。
