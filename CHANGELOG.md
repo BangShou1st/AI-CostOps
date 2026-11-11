@@ -13,6 +13,7 @@
 ### Added
 - HC-01 Gateway 单/双实例高并发基线 harness（`scripts/perf/hc01/`）：隔离数据库/Redis、真实 Backend/Mock Provider、独立 Gateway JVM、热点/对照预算矩阵、逐轮财务不变量与结算收敛核对；一键入口 `npm run perf:hc01`
 - Gateway 阻塞 DB 调度器饱和可观测性：`gateway_db_active` / `gateway_db_queued` / `gateway_db_threads_max` / `gateway_db_queue_capacity`（仅新增指标，不改变调度语义）
+- HC-01 Gateway 单/双实例高并发基线验收（`docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-01-gateway-concurrency/`）：5–200 并发 ×3 轮、热点/多预算/多组织/双实例/慢上游/SSE/断流/同键/预算耗尽/正常限流，逐轮财务与 permit 不变量；首要瓶颈为 `billing_period` 行锁 + `gateway_request` 外键共享锁排队；修复预流失败 SSE permit 泄漏；补充限流验证。
 - 核心业务真实性与产品一致性验收总报告（`docs/03-acceptance/maintenance/2026-11/2026-11-10-core-business-consistency-acceptance.md`）：链路 A/B 各 8 检查点 PASS、产品一致性审查与修复、前端文案改造截图验收、审计驱动死代码清理
 - 业务链路 A（AI Gateway 实时成本治理）端到端真实性验收证据（`docs/03-acceptance/maintenance/2026-11/2026-11-10-gateway-chain-e2e-acceptance.md`）：8 检查点全部 PASS，定向复跑 156 个集成/单元用例（真实 MySQL 8.4 + Redis Testcontainers，模拟上游），未发现缺陷，无代码变更
 - 后端核心链路与并发可靠性改造设计文档（`docs/02-development/designs/maintenance/2026-11-10-backend-reliability-refactor-design.md`）：CO-00~CO-05 六个工作包，财务不变量 F-01~F-09、异常矩阵与分批实施计划
