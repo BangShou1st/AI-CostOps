@@ -166,10 +166,87 @@ class M8SchemaQueryExplainIntegrationTest extends MySqlContainerSupport {
                 """);
     }
 
+    /**
+     * CO-04 actual-execution evidence: the same core statements as the EXPLAIN
+     * test, but through EXPLAIN ANALYZE so the report carries real timings and
+     * row counts instead of planner estimates only.
+     */
+    @Test
+    void printsMySqlAnalyzePlansForM8CoreWorkloads() {
+        explainAnalyze("import_queue_claim", """
+                SELECT ia.id,ia.import_batch_id,ia.status,ia.available_at,ia.lease_until
+                FROM import_attempt ia
+                WHERE ia.status='QUEUED' AND ia.available_at<=UTC_TIMESTAMP(6)
+                ORDER BY ia.available_at,ia.id
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+                """);
+
+        explainAnalyze("budget_lookup_by_period", """
+                SELECT b.id,b.org_id,b.billing_period_id,b.scope_type,b.scope_id,b.currency,
+                       b.total_amount,b.actual_amount,b.committed_amount,b.status,b.version,
+                       b.created_at,b.updated_at
+                FROM budget b
+                WHERE b.org_id=? AND b.billing_period_id=?
+                ORDER BY b.created_at DESC,b.id DESC
+                LIMIT 50 OFFSET 0
+                """, organizationId, billingPeriodId);
+
+        explainAnalyze("duplicate_review_page", """
+                SELECT dc.id,dc.org_id,dc.charge_fact_id,dc.matched_charge_id,
+                       dc.candidate_type,dc.status,dc.created_at
+                FROM duplicate_candidate dc
+                WHERE dc.org_id=? AND dc.status='OPEN' AND dc.candidate_type='EXACT'
+                ORDER BY dc.created_at DESC,dc.id DESC
+                LIMIT 50 OFFSET 0
+                """, organizationId);
+
+        explainAnalyze("workbench_provider_cost", """
+                SELECT cf.provider_code AS providerCode,cf.currency AS currency,
+                       SUM(cf.amount) AS totalAmount,COUNT(*) AS chargeCount
+                FROM charge_fact cf
+                JOIN raw_provider_record rpr ON rpr.id=cf.raw_record_id
+                JOIN import_attempt ia ON ia.id=rpr.import_attempt_id
+                JOIN import_batch ib ON ib.id=ia.import_batch_id AND ib.org_id=cf.org_id
+                WHERE cf.org_id=?
+                  AND ib.status='CONFIRMED'
+                  AND ib.confirmed_attempt_id=ia.id
+                  AND cf.review_status='CLEAN'
+                  AND cf.period_start>=? AND cf.period_start<?
+                GROUP BY cf.provider_code,cf.currency
+                ORDER BY SUM(cf.amount) DESC,cf.provider_code ASC
+                LIMIT 20
+                """, organizationId, PERIOD_START, PERIOD_END);
+
+        explainAnalyze("workbench_unallocated_currency", """
+                SELECT cf.currency AS currency,SUM(cf.amount) AS amount,COUNT(*) AS chargeCount
+                FROM charge_fact cf
+                LEFT JOIN allocation_decision ad
+                  ON ad.id=cf.current_allocation_decision_id AND ad.org_id=cf.org_id
+                JOIN raw_provider_record rpr ON rpr.id=cf.raw_record_id
+                JOIN import_attempt ia ON ia.id=rpr.import_attempt_id
+                JOIN import_batch ib ON ib.id=ia.import_batch_id AND ib.org_id=cf.org_id
+                WHERE cf.org_id=? AND ib.status='CONFIRMED'
+                  AND ib.confirmed_attempt_id=ia.id AND cf.review_status='CLEAN'
+                  AND cf.period_start>=? AND cf.period_start<?
+                  AND (cf.current_allocation_decision_id IS NULL OR ad.status<>'CONFIRMED')
+                GROUP BY cf.currency
+                ORDER BY SUM(cf.amount) DESC
+                """, organizationId, PERIOD_START, PERIOD_END);
+    }
+
     private void explain(String label, String sql, Object... args) {
         List<Map<String, Object>> plan = jdbc.queryForList("EXPLAIN " + sql, args);
         assertThat(plan).as(label).isNotEmpty();
         System.out.println("M8_EXPLAIN|" + label + "|" + plan);
+    }
+
+    private void explainAnalyze(String label, String sql, Object... args) {
+        var started = System.nanoTime();
+        List<Map<String, Object>> plan = jdbc.queryForList("EXPLAIN ANALYZE " + sql, args);
+        var millis = (System.nanoTime() - started) / 1_000_000L;
+        assertThat(plan).as(label).isNotEmpty();
+        System.out.println("M8_EXPLAIN_ANALYZE|" + label + "|ms=" + millis + "|" + plan);
     }
 
     private void explainBudgetRepresentativeQueries(String label) {

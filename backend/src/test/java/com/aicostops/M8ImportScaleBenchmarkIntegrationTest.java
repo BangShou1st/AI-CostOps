@@ -110,7 +110,7 @@ class M8ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
         var uploadMillis = elapsedMillis(uploadStart);
 
         var workerStart = System.nanoTime();
-        coordinator.pollOnce();
+        pollUntilClaimed(created.latestAttemptId());
         awaitAttempt(created.latestAttemptId(), "SUCCEEDED");
         var workerMillis = elapsedMillis(workerStart);
 
@@ -174,6 +174,24 @@ class M8ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
     private int count(String table, String column, long value) {
         return jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE " + column + "=?",
                 Integer.class, value);
+    }
+
+    /**
+     * Calls pollOnce until the attempt leaves QUEUED, avoiding the permit-release
+     * race between consecutive workloads in a multi-run benchmark.
+     */
+    private void pollUntilClaimed(long attemptId) {
+        var deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            coordinator.pollOnce();
+            var status = jdbc.queryForObject(
+                    "SELECT status FROM import_attempt WHERE id=?", String.class, attemptId);
+            if (!"QUEUED".equals(status)) {
+                return;
+            }
+            sleep(25);
+        }
+        throw new AssertionError("Import attempt " + attemptId + " was never claimed");
     }
 
     private void awaitAttempt(long attemptId, String expected) {

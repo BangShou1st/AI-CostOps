@@ -69,7 +69,9 @@ class M9ReportingScaleBenchmarkIntegrationTest extends MinioAuthenticationContai
     @Test
     void runsWorkbenchScaleBenchmarkWithRealExplainAnalyze() {
         var rows = Integer.parseInt(System.getProperty("m9.reporting.rows", "10000"));
+        var runs = Integer.parseInt(System.getProperty("m9.reporting.runs", "1"));
         assertThat(rows).as("m9.reporting.rows").isPositive().isLessThanOrEqualTo(500_000);
+        assertThat(runs).as("m9.reporting.runs").isPositive();
 
         // Fixture is outside the timed section.
         var fixtureStart = System.nanoTime();
@@ -77,16 +79,25 @@ class M9ReportingScaleBenchmarkIntegrationTest extends MinioAuthenticationContai
         var fixtureMillis = elapsedMillis(fixtureStart);
         var user = new AuthenticatedUser(actorUserId, 7);
 
-        // Warm-up read (fills caches, warm pools), then flushes Redis so the
+        // Warm-up read (fills caches, warm pools), then flush Redis so every
         // measured run hits the SQL again.
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
         var view = workbench.get(user, periodId);
         assertThat(view.period()).isNotNull();
-        redis.getConnectionFactory().getConnection().serverCommands().flushAll();
 
-        var start = System.nanoTime();
-        var measured = workbench.get(user, periodId);
-        var totalMillis = elapsedMillis(start);
+        var samples = new ArrayList<Long>();
+        com.aicostops.reporting.application.WorkbenchReadModels.WorkbenchView measured = null;
+        for (var run = 1; run <= runs; run++) {
+            redis.getConnectionFactory().getConnection().serverCommands().flushAll();
+            var start = System.nanoTime();
+            measured = workbench.get(user, periodId);
+            var totalMillis = elapsedMillis(start);
+            samples.add(totalMillis);
+            System.out.printf(Locale.ROOT,
+                    "M9_REPORTING_BENCHMARK|measured|rows=%d|run=%d|fixture_ms=%d|workbench_ms=%d|providers=%d|projects=%d|period=%s%n",
+                    rows, run, fixtureMillis, totalMillis, measured.costByProvider().size(),
+                    measured.costByProject().size(), measured.period().status());
+        }
 
         // Correctness at this scale. The fixture folds the remainder row into the
         // last provider, so only the TOTAL amount is exact for every group size.
@@ -105,10 +116,11 @@ class M9ReportingScaleBenchmarkIntegrationTest extends MinioAuthenticationContai
         assertThat(measured.openReconciliations()).isNotNull();
         assertThat(measured.pendingApprovals()).isNull();
 
+        var sorted = samples.stream().sorted().toList();
         System.out.printf(Locale.ROOT,
-                "M9_REPORTING_BENCHMARK|measured|rows=%d|fixture_ms=%d|workbench_ms=%d|providers=%d|projects=%d|charges_sum=%s|period=%s%n",
-                rows, fixtureMillis, totalMillis, measured.costByProvider().size(),
-                measured.costByProject().size(), sum.toPlainString(), measured.period().status());
+                "M9_REPORTING_BENCHMARK|summary|rows=%d|runs=%d|min_ms=%d|median_ms=%d|max_ms=%d|p95_ms=%d%n",
+                rows, runs, sorted.getFirst(), percentile(sorted, 0.50),
+                sorted.getLast(), percentile(sorted, 0.95));
 
         // Real EXPLAIN ANALYZE for the dominant SQL (verbatim copies of the
         // statements in WorkbenchQueryMapper, executed against the same schema).
@@ -352,5 +364,11 @@ class M9ReportingScaleBenchmarkIntegrationTest extends MinioAuthenticationContai
 
     private static long elapsedMillis(long start) {
         return (System.nanoTime() - start) / 1_000_000L;
+    }
+
+    /** Nearest-rank percentile; n=1 returns the only sample. */
+    private static long percentile(List<Long> sorted, double percentile) {
+        var index = (int) Math.ceil(percentile * sorted.size()) - 1;
+        return sorted.get(Math.max(0, Math.min(index, sorted.size() - 1)));
     }
 }
