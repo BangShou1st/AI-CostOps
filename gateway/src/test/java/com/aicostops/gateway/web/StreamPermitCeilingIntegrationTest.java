@@ -1,8 +1,17 @@
 package com.aicostops.gateway.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
 
+import com.aicostops.gateway.auth.GatewayBearerWebFilter;
+import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.config.GatewayResourceLimiter;
+import com.aicostops.gateway.quota.GatewayQuotaLimiter;
+import com.aicostops.gateway.ratelimit.GatewayRateLimiter;
+import com.aicostops.gateway.request.GatewayRequestOrchestrator;
 import com.aicostops.gateway.testsupport.GatewayMySqlContainerSupport;
 import com.aicostops.gateway.testsupport.GatewayTestFixture;
 import com.aicostops.gateway.testsupport.GatewayTestFixture.SeededEnv;
@@ -15,6 +24,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import org.reactivestreams.Subscription;
+import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -28,9 +40,15 @@ import org.springframework.boot.webtestclient.autoconfigure.AutoConfigureWebTest
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.server.ServerWebExchange;
+import reactor.core.publisher.BaseSubscriber;
+import reactor.core.publisher.Mono;
 
 /**
  * B04 RED regression: an admitted SSE stream must hold its stream permit for
@@ -62,6 +80,18 @@ class StreamPermitCeilingIntegrationTest extends GatewayMySqlContainerSupport {
 
     @Autowired
     private ReactiveStringRedisTemplate redis;
+
+    @Autowired
+    private ChatCompletionController controller;
+
+    @MockitoSpyBean
+    private GatewayRateLimiter rateLimiter;
+
+    @MockitoSpyBean
+    private GatewayQuotaLimiter quotaLimiter;
+
+    @MockitoSpyBean
+    private GatewayRequestOrchestrator orchestrator;
 
     private SeededEnv env;
 
@@ -190,6 +220,95 @@ class StreamPermitCeilingIntegrationTest extends GatewayMySqlContainerSupport {
         } finally {
             redis.delete(circuitKey).block(Duration.ofSeconds(5));
         }
+    }
+
+    @Test
+    void cancelWhileRateLimitPendingReleasesPermit() throws Exception {
+        assertPreStreamCancelReleasesPermit(AdmissionStage.RATE_LIMIT);
+    }
+
+    @Test
+    void cancelWhileQuotaPendingReleasesPermit() throws Exception {
+        assertPreStreamCancelReleasesPermit(AdmissionStage.QUOTA);
+    }
+
+    @Test
+    void cancelWhileAdmissionPendingReleasesPermit() throws Exception {
+        assertPreStreamCancelReleasesPermit(AdmissionStage.ADMISSION);
+    }
+
+    /**
+     * The permit is acquired before rate/quota/admission. A client that cancels
+     * while one of those stages is still pending only produces a Reactor CANCEL
+     * on the outer Mono (never an onError), so the outer chain must return the
+     * permit when the SSE body never came into existence. The stage is stalled
+     * with a controllable {@code Mono.never()} instead of a sleep, and the
+     * subscription is cancelled by the test itself, so the direction is
+     * deterministic: RED before the ownership fix, GREEN after it.
+     */
+    private void assertPreStreamCancelReleasesPermit(AdmissionStage stage) throws Exception {
+        var stageEntered = new CountDownLatch(1);
+        Mono<Object> pending = Mono.never().doOnSubscribe(ignored -> stageEntered.countDown());
+        switch (stage) {
+            case RATE_LIMIT -> doReturn(pending).when(rateLimiter).tryAcquire(anyLong());
+            case QUOTA -> {
+                doReturn(Mono.just(GatewayRateLimiter.RateLimitResult.allowed(1)))
+                        .when(rateLimiter).tryAcquire(anyLong());
+                doReturn(pending).when(quotaLimiter).tryAcquire(anyLong());
+            }
+            case ADMISSION -> {
+                doReturn(Mono.just(GatewayRateLimiter.RateLimitResult.allowed(1)))
+                        .when(rateLimiter).tryAcquire(anyLong());
+                doReturn(Mono.just(GatewayQuotaLimiter.QuotaResult.allowed(1)))
+                        .when(quotaLimiter).tryAcquire(anyLong());
+                doReturn(pending).when(orchestrator).prepareInitial(any(), anyBoolean());
+            }
+        }
+
+        var subscription = new AtomicReference<Subscription>();
+        controller.createChatCompletion(streamExchange("permit-cancel-" + stage.name().toLowerCase()))
+                .subscribe(new BaseSubscriber<>() {
+                    @Override
+                    protected void hookOnSubscribe(Subscription value) {
+                        subscription.set(value);
+                        value.request(1);
+                    }
+                });
+
+        assertThat(stageEntered.await(20, TimeUnit.SECONDS))
+                .describedAs("request must reach the %s stage", stage)
+                .isTrue();
+        assertThat(limiter.activeStreams())
+                .describedAs("the stream permit must be held while admission is pending")
+                .isEqualTo(1);
+
+        subscription.get().cancel();
+
+        awaitActiveStreams(0);
+        assertThat(UPSTREAM_CALLS.get())
+                .describedAs("a cancelled pre-stream request must never reach the Provider")
+                .isZero();
+    }
+
+    private ServerWebExchange streamExchange(String idempotencyKey) {
+        var request = MockServerHttpRequest.post("/v1/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", idempotencyKey)
+                .body(Mono.just(DefaultDataBufferFactory.sharedInstance
+                        .wrap(body(env).getBytes(StandardCharsets.UTF_8))));
+        var exchange = MockServerWebExchange.from(request);
+        exchange.getAttributes().put(GatewayBearerWebFilter.PRINCIPAL_ATTRIBUTE, principal());
+        return exchange;
+    }
+
+    private GatewayPrincipal principal() {
+        return new GatewayPrincipal(env.credentialId(), env.orgId(), env.projectId(), "SERVICE",
+                null, env.serviceIdentityId(), "PROJECT", env.projectId(), "OPTIONAL");
+    }
+
+    private enum AdmissionStage {
+        RATE_LIMIT, QUOTA, ADMISSION
     }
 
     private java.util.concurrent.Future<String> consumeStreamAsync(String idempotencyKey) {
