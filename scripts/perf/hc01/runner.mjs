@@ -132,6 +132,11 @@ function prepareDatabase() {
     CREATE DATABASE \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
     GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${cfg.mysqlUser}'@'%';
     FLUSH PRIVILEGES;`, { database: null, password: cfg.mysqlRootPassword })
+  // performance_schema digest counters are server-wide and survive a database
+  // drop; clear them so topSql/NO_INDEX_USED belong to THIS run only (A/B
+  // evidence must not mix baseline and optimized digests).
+  mysql('TRUNCATE TABLE performance_schema.events_statements_summary_by_digest;',
+    { database: null, password: cfg.mysqlRootPassword })
 }
 
 function killDbConnections(user) {

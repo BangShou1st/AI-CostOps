@@ -26,6 +26,11 @@
 赢家的 `DISPATCH_INTENT` 误判为 `RESERVED` 并返回 503；TX2 同样改为
 `READ_COMMITTED`，既有 20 并发同键测试从 RED 变 GREEN。
 
+第三个发现：`lockLineage` 的 `FOR UPDATE` 把整条 join 链上的共享
+`pricing_version` 行也 X 锁，账期锁放开后它成为新的全局串行点（c100 仍约 18 rps）。
+改为 `FOR UPDATE OF gr, ra`，只锁 request/attempt 行。三项改动均为锁范围/隔离级别
+修正，零 DDL、零财务语义变更。
+
 ## 3. 锁图与事务边界
 
 ### 3.1 全局锁顺序
@@ -114,6 +119,19 @@ ledger_posting, period_close_run, reconciliation_run, reconciliation_adjustment
 因此当前 X 锁队列的主体是 TX1/TX2/Settlement/Close 自己对账期行的 X 请求，而不是
 “每个请求 INSERT 都取 S 锁”。
 
+### 3.8 实现期发现的第二个共享行锁：`pricing_version`
+
+`GatewayUsageMapper.lockLineage` 原来的
+`SELECT ... FROM gateway_request gr JOIN gateway_route_attempt ra JOIN pricing_version pv ... FOR UPDATE`
+会把 **join 到的 `pricing_version` 行也加 X 锁**。该行是 org 内所有请求共享的同一行；
+在 HC-01 中它被账期 X 锁的更大排队掩盖，账期锁一放开，它就成为新的全局串行点
+（smoke 采样：`pricing_version` X 锁 11 个等待者，c100 仍约 18 rps）。
+
+`pricing_version` 只允许改 `status`/`activated_at`/`retired_at`（不变量：currency 与
+rates 冻结）。因此把查询改为 `FOR UPDATE OF gr, ra`，只锁 request/attempt 行，
+不锁只读的 pricing_version 行；新增回归在持有 pricing_version X 锁时执行一次
+usage finalization，旧 SQL 会阻塞，新 SQL 正常提交。
+
 ## 4. 关键发现：X 锁的隐性正确性职责
 
 ### 4.1 探针：REPEATABLE READ + `FOR SHARE` 会超扣
@@ -182,7 +200,9 @@ TX2 只读账期状态、不修改账期行，S 与 Close 的 X 语义完全兼�
 3. `DispatchFenceService`：TX2 改用 `lockBillingPeriodShared`，并显式
    `@Transactional(isolation = Isolation.READ_COMMITTED)`（同一幂等身份的失败者
    必须当前读到赢家的 `DISPATCH_INTENT`，返回 409 而不是误报 503）。
-4. 不改预算/账本/结算/关账语义；不改任何表、索引、迁移；不引入 MQ。
+4. `GatewayUsageMapper.lockLineage`：`FOR UPDATE` 改为 `FOR UPDATE OF gr, ra`，
+   不再 X 锁共享的 `pricing_version` 行（该行 currency/rates 冻结，只有 status 可变）。
+5. 不改预算/账本/结算/关账语义；不改任何表、索引、迁移；不引入 MQ。
 
 ## 7. 安全性论证
 
@@ -250,6 +270,7 @@ MySQL 探针：A 持 S；B 请求 X 排队；C 随后请求 S。C **没有**插�
 | Gateway | `CLOSING`/`CLOSED` 后 TX1/TX2 均 fail closed | 关账写栅栏 |
 | Gateway | 既有 `BudgetReservationConcurrencyIntegrationTest`（80+80、50+50、8 并发、Actual 竞争、同键） | 同预算不超扣、幂等、Actual 竞争 |
 | Gateway | 既有 `GatewayRequestIdempotencyIntegrationTest#concurrentSameIdentityProducesOneRequestOneAttemptOneDispatch`（20 并发同键） | TX2 失败者必须返回 409 而非 503；未加 TX2 RC 时 RED（实测 1 次 `GATEWAY_DEPENDENCY_UNAVAILABLE`） |
+| Gateway | `GatewayUsageFinalizationIntegrationTest#finalizationDoesNotWaitForAnUnrelatedPricingVersionXLock` | `lockLineage` 不得 X 锁共享 `pricing_version` 行；旧 SQL 在持有该行 X 锁时阻塞（RED），`FOR UPDATE OF gr, ra` 后通过 |
 | Backend | Close `begin` 等待 Gateway 账期 S，提交后再 `CLOSING` | Close 与 TX1/TX2 的序列化 |
 | Backend | Close blocker 在 `CLOSING` 前看到已提交的 ACTIVE reservation | 无绕过窗口 |
 | Backend | 既有 `GatewaySettlementTransactionIntegrationTest`（settlement vs close） | 结算与 Close 既有语义不变 |
