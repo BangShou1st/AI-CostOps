@@ -9,12 +9,16 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: read
 
 jobs:
   codeql:
-    name: codeql
+    name: codeql (${{ matrix.language }})
     permissions:
       contents: read
       # Only this job may upload security events; the workflow stays read-only.
@@ -26,7 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+
+      # Setup runtime only for the target language matrix to avoid cross-language setup overhead
+      - name: Set up JDK 21 for Java CodeQL
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -34,16 +42,21 @@ jobs:
           cache-dependency-path: |
             backend/pom.xml
             gateway/pom.xml
-      - uses: actions/setup-node@v6
+
+      - name: Set up Node.js for JS/TS CodeQL
+        if: matrix.language == 'javascript-typescript'
+        uses: actions/setup-node@v6
         with:
           node-version: "24.14.0"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           config-file: .github/codeql/codeql-config.yml
+
       # Real builds so the extractors observe actual code, not just syntax.
       - name: Build real sources for the extractor
         shell: bash
@@ -54,6 +67,7 @@ jobs:
           else
             (cd frontend && npm ci && npm run build)
           fi
+
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
 
@@ -71,29 +85,21 @@ jobs:
           restore-keys: |
             trivy-db-v0.73.0-
 
-      - name: Build backend image
-        run: docker build --tag ai-costops-backend:security backend
-
-      - name: Build frontend image
-        run: docker build --tag ai-costops-frontend:security frontend
-
-      - name: Build gateway image
-        run: docker build --tag ai-costops-gateway:security gateway
+      - name: Build security images in parallel
+        run: |
+          docker build --tag ai-costops-backend:security backend & p1=$!
+          docker build --tag ai-costops-frontend:security frontend & p2=$!
+          docker build --tag ai-costops-gateway:security gateway & p3=$!
+          # Bare `wait` always exits 0 and would swallow a failed build,
+          # letting Trivy scan a missing image. Propagate every failure.
+          status=0
+          wait $p1 || status=1
+          wait $p2 || status=1
+          wait $p3 || status=1
+          exit $status
 
       # Filesystem scan must cover the approved AIC-079 surface:
       #   vuln + misconfig + secret, severity HIGH,CRITICAL, exit-code 1.
-      # It must NOT blanket-skip backend/pom.xml or the backend tree.
-      # The previous 429 on Maven Central is mitigated without weakening
-      # the control:
-      #   - Trivy DB is cached via actions/cache (.trivy-cache) and mounted
-      #     into the container, so DB download is not repeated on every run.
-      #   - The scan runs with --offline-scan: Trivy does not attempt to
-      #     reach Maven Central / registries during the filesystem scan; it
-      #     evaluates the locally-checked-out dependency manifests (pom.xml,
-      #     package-lock.json) against the cached vulnerability DB.
-      #     This keeps Java + JS dependency coverage while removing the
-      #     runner-IP 429 dependency that previously flaked CI.
-      #   - No --skip-files for backend/pom.xml; no --continue-on-error.
       - name: Trivy filesystem scan (vuln, misconfig, secret)
         run: |
           mkdir -p .trivy-cache

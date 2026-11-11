@@ -87,7 +87,7 @@ describe('ProviderImportUploadModal', () => {
     renderModal()
     await pickOption(/供应商账号/, /未知 Provider/)
 
-    expect(await screen.findByText(/该供应商暂不支持上传/)).toBeInTheDocument()
+    expect(await screen.findByText(/该供应商暂不支持在线上传/)).toBeInTheDocument()
     expect(screen.getByLabelText(/来源类型/)).toBeDisabled()
     expect(screen.getByRole('button', { name: /上\s*传/ })).toBeDisabled()
   })

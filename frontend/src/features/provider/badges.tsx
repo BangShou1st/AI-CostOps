@@ -22,8 +22,8 @@ export function ConnectionStatusPill(props: { status: string }) {
 }
 
 export function ProbePill(props: { status: string | null }) {
-  if (props.status === 'PASS') return <span className="v3-pill v3-pill-ok">探针通过</span>
-  if (props.status === 'FAIL') return <span className="v3-pill v3-pill-risk">探针失败</span>
+  if (props.status === 'PASS') return <span className="v3-pill v3-pill-ok">探测通过</span>
+  if (props.status === 'FAIL') return <span className="v3-pill v3-pill-risk">探测失败</span>
   return <span className="v3-pill v3-pill-neutral">未探测</span>
 }
 

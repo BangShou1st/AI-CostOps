@@ -10,6 +10,8 @@ import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
 import com.aicostops.gateway.provider.ProviderSafetyReason;
 import com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup;
+import com.aicostops.gateway.provider.openai.OpenAiSseDecoder;
+import com.aicostops.gateway.provider.openai.OpenAiWireDtos;
 import com.aicostops.gateway.request.ChatCompletionCommand;
 import com.aicostops.gateway.web.GatewayErrorCode;
 import com.aicostops.gateway.web.GatewayErrorException;
@@ -110,10 +112,10 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                     ProviderSafetyReason.UNKNOWN_POST_DISPATCH, ProviderHealthSignal.QUALIFYING_FAILURE,
                     null, null, false, null));
         }
-        var wireRequest = new MimoWireDtos.WireRequest(
+        var wireRequest = new OpenAiWireDtos.WireRequest(
                 context.providerModelName(),
                 command.messages().stream()
-                        .map(message -> new MimoWireDtos.WireMessage(message.role(), message.content()))
+                        .map(message -> new OpenAiWireDtos.WireMessage(message.role(), message.content()))
                         .toList(),
                 command.maxCompletionTokens(),
                 false);
@@ -151,14 +153,14 @@ public class MimoChatAdapter implements ProviderChatAdapter {
                     ProviderSafetyReason.UNKNOWN_POST_DISPATCH, ProviderHealthSignal.QUALIFYING_FAILURE,
                     null, null, false, null));
         }
-        var wireRequest = new MimoWireDtos.WireRequest(
+        var wireRequest = new OpenAiWireDtos.WireRequest(
                 context.providerModelName(),
                 command.messages().stream()
-                        .map(message -> new MimoWireDtos.WireMessage(message.role(), message.content()))
+                        .map(message -> new OpenAiWireDtos.WireMessage(message.role(), message.content()))
                         .toList(),
                 command.maxCompletionTokens(),
                 true);
-        var decoder = new MimoSseDecoder(properties.getMaxInMemoryBytes());
+        var decoder = new OpenAiSseDecoder(properties.getMaxInMemoryBytes());
         var hardTimeoutMs = properties.getHardTimeoutMs();
         return Flux.defer(() -> {
             var startNanos = System.nanoTime();
@@ -196,7 +198,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
         return event;
     }
 
-    private Flux<ProviderChatStreamEvent> decodeEvents(MimoSseDecoder decoder, DataBuffer buffer) {
+    private Flux<ProviderChatStreamEvent> decodeEvents(OpenAiSseDecoder decoder, DataBuffer buffer) {
         try {
             var bytes = new byte[buffer.readableByteCount()];
             buffer.read(bytes);
@@ -211,7 +213,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
             return new ProviderChatStreamEvent.Done();
         }
         try {
-            var wire = objectMapper.readValue(payload, MimoWireDtos.WireChunk.class);
+            var wire = objectMapper.readValue(payload, OpenAiWireDtos.WireChunk.class);
             var created = wire.created() == null ? 0L : wire.created();
             if (wire.usage() != null) {
                 return new ProviderChatStreamEvent.Metering(
@@ -234,7 +236,7 @@ public class MimoChatAdapter implements ProviderChatAdapter {
 
     private ProviderChatCompletion parseCompletion(ProviderCallContext context, byte[] body, String providerRequestId) {
         try {
-            var wire = objectMapper.readValue(body, MimoWireDtos.WireResponse.class);
+            var wire = objectMapper.readValue(body, OpenAiWireDtos.WireResponse.class);
             var choices = new ArrayList<ProviderChatCompletion.CompletionChoice>();
             if (wire.choices() != null) {
                 for (var choice : wire.choices()) {

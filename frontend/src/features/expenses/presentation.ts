@@ -10,3 +10,12 @@ export const EXPENSE_STATUS_COLOR: Record<ExpenseClaimStatus, string> = {
   DRAFT: 'default', SUBMITTED: 'processing', NEEDS_INFO: 'warning', APPROVED: 'success',
   POSTED: 'blue', REJECTED: 'error', CANCELED: 'default',
 }
+
+/** 审批案例状态（审核列）；未知值回退展示原始枚举。 */
+export const APPROVAL_STATUS_LABEL: Record<string, string> = {
+  PENDING: '待审核',
+  NEEDS_INFO: '需补充',
+  APPROVED: '已批准',
+  REJECTED: '已拒绝',
+  CANCELED: '已取消',
+}

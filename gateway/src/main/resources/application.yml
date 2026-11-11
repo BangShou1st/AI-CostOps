@@ -61,7 +61,6 @@ server:
 
 aicostops:
   gateway:
-    port: ${AICOSTOPS_GATEWAY_PORT:8081}
     credential-hmac-key-v1: ${AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1:}
     request-hmac-key-v1: ${AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1:}
     provider-kek-v1: ${AICOSTOPS_PROVIDER_KEK_V1:}

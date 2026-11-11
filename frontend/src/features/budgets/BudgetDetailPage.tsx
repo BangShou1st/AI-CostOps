@@ -82,7 +82,7 @@ export function BudgetDetailPage() {
           <Alert
             type="error"
             showIcon
-            message="预算超支"
+            title="预算超支"
             description="预算可用额度为负，请检查预算总额与实际 / 承诺支出。"
           />
         )}

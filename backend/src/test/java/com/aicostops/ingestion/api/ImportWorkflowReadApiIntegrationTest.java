@@ -266,14 +266,18 @@ class ImportWorkflowReadApiIntegrationTest extends AuthenticationContainersSuppo
                 SELECT id FROM import_batch WHERE org_id=? AND evidence_id=? AND provider_account_id=?
                 """, Long.class, organizationId, evidenceId, foreignAccountId);
 
-        var body = mockMvc.perform(get("/api/v1/evidence/{evidenceId}/imports", evidenceId)
+        mockMvc.perform(get("/api/v1/evidence/{evidenceId}/imports", evidenceId)
                         .header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.totalElements").value(1))
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].id").value(Long.toString(batchId)))
-                .andReturn().getResponse().getContentAsString();
-        assertThat(body).doesNotContain(Long.toString(anomalousBatchId) + "\"");
+                // Scope the exclusion to the item id list: a raw substring match on the
+                // whole body also matches unrelated id fields (for example
+                // latestAttempt.predecessorAttemptId) that happen to share the same
+                // numeric value on the shared test container.
+                .andExpect(jsonPath("$.items[*].id").value(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.hasItem(Long.toString(anomalousBatchId)))));
     }
 
     @Test

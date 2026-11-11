@@ -62,7 +62,7 @@ public class DispatchEndpointGuard {
         }
     }
 
-    static boolean isPublicUnicast(java.net.InetAddress address) {
+    public static boolean isPublicUnicast(java.net.InetAddress address) {
         if (address == null) {
             return false;
         }

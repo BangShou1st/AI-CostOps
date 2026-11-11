@@ -110,7 +110,7 @@ export function CommitmentLinkPicker({ lines, effectiveAt, value, onChange }: Co
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder={`第 ${line.lineIndex + 1} 行 · ${budget.scopeType === 'ORG' ? 'ORG' : budget.scopeType}`}
+            placeholder={`第 ${line.lineIndex + 1} 行 · ${budget.scopeType === 'ORG' ? '组织级' : budget.scopeType}`}
             value={selected}
             options={options}
             loading={commitmentQueries[uniqueBudgetIds.indexOf(budget.id)]?.isLoading}

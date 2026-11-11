@@ -34,8 +34,8 @@ export function TopDriversSection(props: { anomalies: CostAnomaly[]; currency: s
   return (
     <section className="v3-section" aria-labelledby="v3-drivers">
       <div className="v3-section-head">
-        <span className="v3-eyebrow">02 · What changed?</span>
-        <h3 id="v3-drivers" className="v3-h3">变化归因 · Top drivers</h3>
+        <span className="v3-eyebrow">02 · 有什么变化？</span>
+        <h3 id="v3-drivers" className="v3-h3">变化归因</h3>
         <p>异常金额归因到维度证据，按贡献绝对值取前五。</p>
       </div>
       {rows.length > 0 && (

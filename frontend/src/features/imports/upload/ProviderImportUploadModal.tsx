@@ -138,8 +138,7 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
           <Alert
             type="warning"
             showIcon
-            title="该供应商暂不支持上传"
-            description="当前供应商没有已注册的 M2 上传来源类型。"
+            title="该供应商暂不支持在线上传。"
           />
         )}
         {upload.isError && (() => {

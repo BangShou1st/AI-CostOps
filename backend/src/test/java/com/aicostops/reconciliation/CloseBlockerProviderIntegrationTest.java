@@ -40,7 +40,7 @@ class CloseBlockerProviderIntegrationTest extends AllocationApiTestSupport {
     }
 
     @Test
-    void registryContainsExactlySevenCanonicalProviders() {
+    void registryContainsExactlyEightCanonicalProviders() {
         assertThat(registry.providers()).extracting(CloseBlockerProvider::code)
                 .containsExactly(CloseBlockerCode.values());
     }

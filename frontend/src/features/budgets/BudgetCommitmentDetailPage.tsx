@@ -190,7 +190,7 @@ export function BudgetCommitmentDetailPage() {
           </Card>
         )}
         {actionProblem && (
-          <Alert type="error" showIcon message={actionProblem} closable onClose={() => setActionProblem(null)} />
+          <Alert type="error" showIcon title={actionProblem} closable onClose={() => setActionProblem(null)} />
         )}
         <Card title="审批历史" size="small">
           <HistoryTable history={commitment.history} />

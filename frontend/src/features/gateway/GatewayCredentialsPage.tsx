@@ -78,8 +78,8 @@ export function GatewayCredentialsPage() {
         {canManage && <Button type="primary" onClick={() => { setProblem(null); setCreateOpen(true) }}>创建凭证</Button>}
       </div>
       {credentialsQuery.isLoading && <div role="status">正在加载网关凭证…</div>}
-      {credentialsQuery.isError && <Alert type="error" role="alert" message={problemTitle(toProblemDetail(credentialsQuery.error))} showIcon />}
-      {problem && <Alert type="error" role="alert" message={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
+      {credentialsQuery.isError && <Alert type="error" role="alert" title={problemTitle(toProblemDetail(credentialsQuery.error))} showIcon />}
+      {problem && <Alert type="error" role="alert" title={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
       {credentialsQuery.data && rows.length === 0 && <div className="settings-empty">该组织暂无网关凭证。</div>}
       {rows.length > 0 && <Table<GatewayCredential>
         rowKey="id"
@@ -138,7 +138,7 @@ function CreateGatewayCredentialModal({ saving, onCancel, onCreate }: { saving: 
 function RawKeyModal({ credential, onClose }: { credential: GatewayCredentialCreated; onClose: () => void }) {
   return <Modal open title="凭证已创建 —— 请立即保存原始密钥" okText="我已保存" cancelButtonProps={{ style: { display: 'none' } }} onOk={onClose} onCancel={onClose} footer={<Button type="primary" onClick={onClose}>我已保存</Button>}>
     <Space direction="vertical" style={{ width: '100%' }}>
-      <Alert type="warning" showIcon message="原始密钥仅在本次创建时显示一次，刷新页面或再次查看凭证详情都不会恢复它。" />
+      <Alert type="warning" showIcon title="原始密钥仅在本次创建时显示一次，刷新页面或再次查看凭证详情都不会恢复它。" />
       <Typography.Paragraph copyable={{ text: credential.rawKey }} role="note">
         <code data-testid="raw-key">{credential.rawKey}</code>
       </Typography.Paragraph>

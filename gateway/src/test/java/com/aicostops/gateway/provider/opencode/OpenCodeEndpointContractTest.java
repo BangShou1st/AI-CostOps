@@ -199,19 +199,18 @@ class OpenCodeEndpointContractTest {
             var headers = new java.util.TreeMap<String, List<String>>(String.CASE_INSENSITIVE_ORDER);
             headers.putAll(wireHeaders.get(0));
             assertThat(headers.get("Accept")).containsExactly("*/*");
-            assertThat(headers.get("User-Agent")).containsExactly("opencode/latest/2.0.29/cli");
+            assertThat(headers.get("User-Agent")).containsExactly(OpenCodeZenChatAdapter.SERVER_USER_AGENT);
             assertThat(headers.get("x-opencode-client")).containsExactly("cli");
-            assertThat(headers.get("x-opencode-project")).containsExactly("global");
+            assertThat(headers.get("x-opencode-project").get(0)).matches("[0-9a-f]{40}");
             assertThat(headers.get("x-opencode-session")).hasSize(1);
             assertThat(headers.get("x-opencode-session").get(0))
                     .matches("ses_[0-9a-f]{12}[0-9A-Za-z]{14}");
             assertThat(headers.get("x-opencode-session-id")).isEqualTo(headers.get("x-opencode-session"));
             assertThat(headers).doesNotContainKeys("x-opencode-request", "x-session-affinity", "x-session-id");
             var json = new ObjectMapper().readTree(body);
-            assertThat(json.path("tools")).hasSize(2);
-            assertThat(json.path("tools").get(0).path("function").path("name").asText()).isEqualTo("shell");
-            assertThat(json.path("tools").get(1).path("function").path("name").asText()).isEqualTo("read");
-            for (var tool : com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy.reservedToolNames()) {
+            var reservedTools = com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy.reservedToolNames();
+            assertThat(json.path("tools")).hasSize(reservedTools.size());
+            for (var tool : reservedTools) {
                 assertThat(body).contains("\"" + tool + "\"");
             }
         });

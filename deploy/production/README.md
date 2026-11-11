@@ -1,6 +1,7 @@
 # AI CostOps — Production Deployment Boundary
 
-> M9 / v1.1 Production Foundation。本文件只定义部署拓扑、TLS 边界与安全约束；
+> V3 / v3.0.0 · MAINTENANCE_ONLY（本文档脱胎于 M9 Production Foundation，随 V3 演进维护）。
+> 本文件只定义部署拓扑、TLS 边界与安全约束；
 > 不包含任何真实 secret、证书或私钥，也不引入 Kubernetes/服务网格。
 
 ## 拓扑
@@ -59,6 +60,12 @@ prod 下被禁止的 dev-only 配置（显式提供即拒绝启动）：
 ```text
 docs/02-development/operations/01-production-configuration.md
 ```
+
+## Gateway 数据库授权
+
+Gateway 数据库的最小权限授权由 `scripts/m21/provision-gateway-db.ps1` 提供；
+早期的 M16 版本（`m16-gateway-grants.sql`，停留在 V23 schema）已随 V3 schema
+演进淘汰，不再维护。
 
 ## 非目标（M9 不引入）
 

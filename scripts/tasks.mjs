@@ -6,13 +6,14 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { capture, npmCommand, run, supervise, withSignals, isWindows } from './lib/processes.mjs'
-import { configuration, appPorts, nativeEnvironment, available, httpHealthy, requireFreePorts, isolatedPom, port } from './lib/workspace.mjs'
+import { configuration, appPorts, nativeEnvironment, available, httpHealthy, requireFreePorts, isolatedPom, port, pruneBuilds, RETAINED_BUILDS } from './lib/workspace.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const COMMANDS = ['help', 'setup', 'maven:settings', 'doctor', 'status', 'dev', 'build', 'test', 'verify', 'infra:up', 'infra:down', 'infra:status']
 const [command = 'help', ...options] = process.argv.slice(2)
 const dryRun = options.includes('--dry-run')
 const poms = []
+let currentBuild = null
 
 async function execute(label, executable, args, cwd, signal, env = process.env) {
   signal.throwIfAborted()
@@ -63,7 +64,10 @@ async function main(signal) {
   const output = join(ROOT, '.local-dev', 'builds', `${command}-${Date.now()}-${randomUUID()}`)
   const maven = (module, goals) => {
     const pom = dryRun ? '<isolated-pom>' : isolatedPom(ROOT, module, output)
-    if (!dryRun) poms.push(pom)
+    if (!dryRun) {
+      currentBuild ??= output
+      poms.push(pom)
+    }
     return { command: join(ROOT, module, isWindows ? 'mvnw.cmd' : 'mvnw'),
       args: ['-B', '-f', dryRun ? pom : pom.path, ...goals], cwd: join(ROOT, module), label: module }
   }
@@ -172,4 +176,11 @@ async function main(signal) {
 
 try { process.exitCode = await withSignals(main) }
 catch (error) { console.error(`[task failed] ${error.message}`); process.exitCode = 1 }
-finally { for (const pom of poms) pom.cleanup() }
+finally {
+  for (const pom of poms) pom.cleanup()
+  // Prune after this run so the directory it is still using is never a candidate.
+  if (currentBuild) {
+    const removed = pruneBuilds(ROOT, currentBuild)
+    if (removed.length > 0) console.log(`已清理 ${removed.length} 个历史构建目录，保留最近 ${RETAINED_BUILDS} 个：${join(ROOT, '.local-dev', 'builds')}`)
+  }
+}

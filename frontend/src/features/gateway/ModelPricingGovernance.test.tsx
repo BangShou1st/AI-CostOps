@@ -36,9 +36,9 @@ describe('ModelPricingPage governance', () => {
         <MemoryRouter><ModelPricingPage /></MemoryRouter>
       </QueryClientProvider>,
     )
-    expect(await screen.findByText('金融治理口径')).toBeInTheDocument()
+    expect(await screen.findByText('价格以已启用的定价版本为准。')).toBeInTheDocument()
     expect(await screen.findByText('已启用')).toBeInTheDocument()
-    expect(screen.getByText(/INPUT_TOKEN \$30\.00\/1000000/)).toBeInTheDocument()
+    expect(screen.getByText(/输入 \$30\.00\/1000000/)).toBeInTheDocument()
     expect(screen.getByText(/长期/)).toBeInTheDocument()
   })
 })

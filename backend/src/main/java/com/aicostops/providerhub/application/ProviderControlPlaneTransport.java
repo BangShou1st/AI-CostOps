@@ -16,6 +16,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 import javax.net.ssl.SSLException;
 import org.springframework.stereotype.Component;
@@ -83,17 +84,33 @@ public class ProviderControlPlaneTransport {
     }
 
     private final CustomEndpointValidator.DnsResolver dnsResolver;
-    private final Predicate<InetAddress> addressPolicy;
+    private final BiPredicate<InetAddress, Integer> addressPolicy;
+    private final boolean enforceRelayLoopbackGuard;
+    private final int trustedRelayPort;
     private final ConcurrentHashMap<Integer, HttpClient> clients = new ConcurrentHashMap<>();
 
     public ProviderControlPlaneTransport() {
-        this(CustomEndpointValidator.DnsResolver.system(), CustomEndpointValidator::isPublicUnicast);
+        this(CustomEndpointValidator.DnsResolver.system(),
+                (addr, port) -> CustomEndpointValidator.isPublicUnicast(addr)
+                        || (addr.isLoopbackAddress() && port == OpenCodeZenRelaySupport.DEFAULT_RELAY_PORT),
+                true,
+                OpenCodeZenRelaySupport.DEFAULT_RELAY_PORT);
     }
 
     ProviderControlPlaneTransport(CustomEndpointValidator.DnsResolver dnsResolver,
             Predicate<InetAddress> addressPolicy) {
+        this(dnsResolver, (addr, port) -> addressPolicy.test(addr), false,
+                OpenCodeZenRelaySupport.DEFAULT_RELAY_PORT);
+    }
+
+    ProviderControlPlaneTransport(CustomEndpointValidator.DnsResolver dnsResolver,
+            BiPredicate<InetAddress, Integer> addressPolicy,
+            boolean enforceRelayLoopbackGuard,
+            int trustedRelayPort) {
         this.dnsResolver = dnsResolver;
         this.addressPolicy = addressPolicy;
+        this.enforceRelayLoopbackGuard = enforceRelayLoopbackGuard;
+        this.trustedRelayPort = trustedRelayPort;
     }
 
     /** Bounded GET with no request body; redirects are never followed automatically. */
@@ -110,6 +127,7 @@ public class ProviderControlPlaneTransport {
 
     private Result exchange(String method, String url, Map<String, String> headers, String body,
             int connectTimeoutMs, int responseTimeoutMs) {
+        validateDestination(url, headers);
         var timeout = Duration.ofMillis(Math.max(responseTimeoutMs, 1));
         try {
             var sender = clientFor(connectTimeoutMs).request(HttpMethod.valueOf(method)).uri(url);
@@ -132,6 +150,42 @@ public class ProviderControlPlaneTransport {
             throw ex;
         } catch (RuntimeException ex) {
             throw mapFailure(ex);
+        }
+    }
+
+    private void validateDestination(String url, Map<String, String> headers) {
+        if (!enforceRelayLoopbackGuard) {
+            return;
+        }
+        try {
+            var uri = java.net.URI.create(url);
+            var host = uri.getHost();
+            if (host != null && (host.equalsIgnoreCase("127.0.0.1")
+                    || host.equalsIgnoreCase("localhost") || host.equalsIgnoreCase("::1"))) {
+                int port = uri.getPort();
+                if (port != trustedRelayPort) {
+                    throw new TransportException(TransportException.DNS_FAILED,
+                            "Loopback access is only permitted on trusted relay port "
+                                    + trustedRelayPort + ", got: " + port);
+                }
+                var relayTarget = headers == null ? null : headers.entrySet().stream()
+                        .filter(e -> e.getKey() != null && e.getKey().equalsIgnoreCase(com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy.RELAY_TARGET_HEADER))
+                        .map(Map.Entry::getValue)
+                        .findFirst()
+                        .orElse(null);
+                if (relayTarget == null || relayTarget.isBlank()) {
+                    throw new TransportException(TransportException.DNS_FAILED,
+                            "Loopback relay request requires " + com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy.RELAY_TARGET_HEADER);
+                }
+                try {
+                    OpenCodeZenRelaySupport.validateUpstreamTarget(relayTarget);
+                } catch (IllegalArgumentException ex) {
+                    throw new TransportException(TransportException.DNS_FAILED,
+                            "Invalid relay target: " + ex.getMessage());
+                }
+            }
+        } catch (IllegalArgumentException ex) {
+            throw new TransportException(TransportException.DNS_FAILED, "Malformed destination URI");
         }
     }
 

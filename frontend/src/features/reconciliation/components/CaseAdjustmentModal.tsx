@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Alert, Form, Input, Modal, Select, Space } from 'antd'
 import { useState } from 'react'
 import { reconciliationApi } from '../api/reconciliationApi'
+import { ADJUSTMENT_SCOPE_LABELS } from '../presentation'
 import { useIdempotentCommand } from '../../../lib/useIdempotentCommand'
 import { CaseError } from './CaseError'
 import { formatMoney } from '../../../lib/money'
@@ -63,14 +64,14 @@ export function CaseAdjustmentModal({ caseId, open, currency, requiredDifference
   return (
     <Modal
       open={open}
-      title="提交 CASE_FULL 调整"
+      title="提交整体调整"
       okText={postAdjustment.isPending ? '正在提交…' : '确认提交'}
       okButtonProps={{ disabled: adjustmentInvalid }}
       onOk={() => postAdjustment.mutate()}
       onCancel={onClose}
       closable={!postAdjustment.isPending}
       keyboard={!postAdjustment.isPending}
-      maskClosable={!postAdjustment.isPending}
+      mask={{ closable: !postAdjustment.isPending }}
       cancelButtonProps={{ disabled: postAdjustment.isPending }}
       width={640}
     >
@@ -78,12 +79,12 @@ export function CaseAdjustmentModal({ caseId, open, currency, requiredDifference
         type="info"
         showIcon
         className="m6-section-card"
-        title={`服务端要求金额：${formatMoney(requiredDifference || null, currency)}`}
-        description="调整金额必须等于当前外部金额 − 内部金额，且分配行金额之和必须精确等于该金额；提交后运行基准将失效，需要重新对账。"
+        title={`调整金额：${formatMoney(requiredDifference || null, currency)}`}
+        description="需与差异金额一致，并拆分到具体分配行。"
       />
       <CaseError error={postAdjustment.error} />
       <Form layout="vertical" disabled={postAdjustment.isPending}>
-        <Form.Item label="调整入账账期（必须为开启账期）" required>
+        <Form.Item label="调整入账账期" required>
           <Select
             value={adjustmentPeriodId || undefined}
             placeholder="选择调整账期"
@@ -92,20 +93,21 @@ export function CaseAdjustmentModal({ caseId, open, currency, requiredDifference
             aria-label="调整账期"
           />
         </Form.Item>
-        <Form.Item label="分配目标（恰好一个 PROJECT / COST_CENTER / TEAM）" required>
+        <Form.Item label="分配目标" required>
           <Space.Compact style={{ width: '100%' }}>
             <Select
               style={{ width: '40%', minWidth: 0 }}
               value={adjustmentScopeType}
-              options={(["PROJECT", "COST_CENTER", "TEAM"] as const).map((value) => ({ value, label: value }))}
+              options={(["PROJECT", "COST_CENTER", "TEAM"] as const).map((value) => ({ value, label: ADJUSTMENT_SCOPE_LABELS[value] ?? value }))}
               onChange={(value) => { setAdjustmentScopeType(value); setAdjustmentScopeId('') }}
               aria-label="分配目标类型"
             />
             <Select
               style={{ width: '60%', minWidth: 0 }}
               showSearch
+              optionFilterProp="label"
               value={adjustmentScopeId || undefined}
-              placeholder="选择 ACTIVE 同组织目标"
+              placeholder="选择目标"
               options={(targets.data ?? []).filter((target) => target.type === adjustmentScopeType).map((target) => ({ value: target.id, label: `#${target.id} · ${target.name}` }))}
               onChange={(value) => setAdjustmentScopeId(value)}
               aria-label="分配目标"

@@ -151,11 +151,11 @@ export function AllocationEditor({
       <Space orientation="vertical" style={{ width: '100%' }} size="middle">
         {suspectedDuplicate && (
           <Alert type="warning" showIcon title="疑似重复待处理"
-            description="该成本被标记为疑似重复，需先在重复审核中处理，确认分摊被阻止。" />
+            description="该成本疑似重复，请先完成重复审核，再确认分摊。" />
         )}
         {ruleDraft && (
           <Alert type="info" showIcon title="规则草案"
-            description="该分摊由规则生成，行内容只读；可直接确认，或手动覆盖生成 MANUAL 草稿后编辑。" />
+            description="该分摊由规则生成，可直接确认，或点击「手动覆盖」后编辑。" />
         )}
         {problem && (
           <Alert type="error" showIcon

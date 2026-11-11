@@ -11,6 +11,9 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- 核心业务真实性与产品一致性验收总报告（`docs/03-acceptance/maintenance/2026-11/2026-11-10-core-business-consistency-acceptance.md`）：链路 A/B 各 8 检查点 PASS、产品一致性审查与修复、前端文案改造截图验收、审计驱动死代码清理
+- 业务链路 A（AI Gateway 实时成本治理）端到端真实性验收证据（`docs/03-acceptance/maintenance/2026-11/2026-11-10-gateway-chain-e2e-acceptance.md`）：8 检查点全部 PASS，定向复跑 156 个集成/单元用例（真实 MySQL 8.4 + Redis Testcontainers，模拟上游），未发现缺陷，无代码变更
+- 后端核心链路与并发可靠性改造设计文档（`docs/02-development/designs/maintenance/2026-11-10-backend-reliability-refactor-design.md`）：CO-00~CO-05 六个工作包，财务不变量 F-01~F-09、异常矩阵与分批实施计划
 - 根级任务编排：根 `package.json` + `scripts/tasks.mjs`（零依赖、跨平台），统一 `dev / build / test / verify / infra:*` 入口
 - `scripts/dev/` 补充 `.sh` 版本（`start-infra.sh` / `stop-infra.sh` / `status.sh`），与 `.ps1` 一一对应
 - `scripts/README.md`：脚本目录职责说明与里程碑产物归档/命名策略
@@ -23,8 +26,22 @@
 - 根级 `AGENTS.md`：面向 AI 编码代理的项目上下文（结构、不变量、命令、测试约定、Git 与安全红线）
 - OpenCode Zen minimax 真实浏览器验收记录（`docs/03-acceptance/maintenance/2026-10/2026-10-22-opencode-zen-minimax-real-browser-acceptance.md`）
 - 文档链接自动校验工具：`scripts/dev/verify-doc-links.mjs`，并通过根 `package.json` 提供 `npm run verify:links` 命令
+- 业务链路 B（外部账单归集与财务对账）端到端真实性验收记录（`docs/03-acceptance/maintenance/2026-11/2026-11-10-billing-chain-e2e-acceptance.md`）：8/8 检查点 PASS，含三层幂等键数据库核对与定向复跑测试证据
 
 ### Changed
+- `CloseBlockerProviderIntegrationTest` 过时测试方法名更正（`registryContainsExactlySevenCanonicalProviders` → `registryContainsExactlyEightCanonicalProviders`，`CloseBlockerCode` 实为 8 项；仅改名，未改断言）
+- `CostIntelligenceSchedulerFailureVisibilityIntegrationTest` 与共享上下文的启动后台 sweep 隔离（`@MockitoBean` 薄调度包装器，与服务端测试同款做法），消除同一 SHA 并行运行一绿一红的偶发重复 WARN 断言失败
+- 根任务编排新增构建产物保留策略：`.local-dev/builds/` 只保留最近 3 次运行的目录（含本次），任务结束即清理更早的历史目录，避免单次约 200 MB 的构建树无限堆积（本地实测曾累积到 4.0 GB / 43 个目录）
+- CI/CD 工作流极致加速与资源治理：
+  - 并发控制与自动取消：`.github/workflows/ci.yml` 和 `security.yml` 引入 `concurrency` 机制，PR 连续推送自动取消旧运行以节省配额，`main` 分支保持独立执行保障发布审计
+  - 路径变更检测与智能短路：引入 `dorny/paths-filter@v3` 进行模块级变更检测，纯文档变更跳过耗时编译与测试，各作业均正常报告 SUCCESS 以规避必需检查（Required Checks）挂起
+  - 集成测试套件分片并行：将 `backend-integration` 198 个集成测试类通过 Matrix 拆分为 2 个并行 Shard；作业使用 `-Dsurefire.skip=true`，但该属性在 Surefire 3.5.6 下不生效（每个分片仍会执行 694 个单测，属已知待优化项），墙钟时间较串行 409 秒显著下降
+  - 浏览器端到端测试加速：`browser-e2e` 作业新增 Playwright 浏览器二进制缓存（`~/.cache/ms-playwright`），免去每次 67 秒外网下载
+  - 容器镜像构建并行化与缓存加固：`docker-build` 与 `trivy` 中 3 个容器镜像构建由串行改为后台并发构建；Dockerfile 补全 BuildKit `--mount=type=cache`（Maven/npm 缓存）；补齐 `gateway/.dockerignore`
+  - 微型作业整合：`backend-unit` / `gateway-unit` 原生整合架构测试（ArchUnit），`frontend-quality` 整合 lint 与 build，减少重复虚拟机冷启动与依赖安装开销
+  - CodeQL 语言环境按需加载：按 matrix 语言按需安装 JDK/Maven 与 Node/npm，消除跨语言冗余下载
+  - 分支门禁对齐：`Protect main` ruleset 的 Required Checks 更新为重构后的作业名（`backend-integration (shard 0)` / `(shard 1)`、`frontend-quality (lint & build)`、`ci-status`），移除已并入其他作业的旧 context（`backend-architecture`、`frontend-lint`、`frontend-build`），修复 PR 永久 `BLOCKED`
+  - `docker-build` 并行镜像构建改为逐 PID 等待并传播失败退出码（裸 `wait` 恒为 0 会吞掉构建失败、让必需检查在镜像损坏时仍通过），与 `security.yml` 同源修复对齐
 - 项目文档体系系统性治理：
   - `docs/03-acceptance/` 消除 73 个根目录平铺堆积，完成分层归档（`checklists/`、`milestones/`、`maintenance/2026-10/`、`quality/`）
   - `docs/02-development/` 重构为清晰的 `api/`（统一契约收口）、`designs/`（`v1/`, `v2/`, `maintenance/`）、`guides/`（源码精读）、`implementation/`
@@ -40,13 +57,19 @@
 - `dev` 分支 push 触发 GitHub CI 与 Security（保留 `main`、`pull_request` 触发与每周定时扫描，未弱化门禁）
 - 内置 `OPENCODE_ZEN` 推理基址迁移到共享 CLI 推理基址 `https://opencode.ai/inference/v1`；Flyway V30/V31 对 `provider_catalog` 与 ACTIVE `provider_connection_profile` 做显式、版本化端点变更，V24 迁移保持字节不变
 - OpenCode Zen 免费层准入统一为 FREE_ONLY，仅准入有证据的免费 Chat 模型
+- OpenCode Zen 共享库升级至 `v1.5.4`，对齐 2.x CLI 协议规范（User-Agent `opencode/latest/2.1.4/cli`，40-hex project hash，规范化端点 `/inference/openai/v1/chat/completions` 与键序 `orderedChatBody`），支持基于 loopback Bun relay 的零配置透明路由与 SSRF 安全防线
 - README 重写：改为面向新读者的结构（价值主张 → 快速开始 → 架构 → 功能 → 开发 → 文档 → 贡献），移除冻结历史叙述，链接逐条校验可达
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- 对账整体调整弹窗：分配目标搜索框补 `optionFilterProp="label"`（antd 默认按 value 即数字 id 过滤，按名称搜索此前永远无结果）；`m15-hybrid-reconciliation.spec.ts` 分配目标选择改为先输入搜索词再选项，消除复用数据库上虚拟滚动导致的选项不可见（未弱化断言）
+- 集成测试断言：`ImportWorkflowReadApiIntegrationTest` 的租户隔离排除检查从整个响应体的裸子串匹配收敛为 `items[*].id` 字段级排除，消除共享 Testcontainer 的 AUTO_INCREMENT 漂移导致的 ID 数值碰撞假阳性；断言意图与覆盖范围不变
+- 前端镜像基线：`frontend/Dockerfile` 基础镜像由 `nginx:1.30.4-alpine` 升级为 `nginx:1.30.6-alpine`（实装 `nginx=1.30.6-r1`），消除 CVE-2026-15176 / CVE-2026-93479 / CVE-2026-97205 三项 HIGH；不新增 `.trivyignore`、不调整 Trivy 阈值
+- 仓库忽略规则：新增 `.trivy-cache/`（CI 从仓库根挂载、本地扫描亦会生成的 Trivy 漏洞库缓存目录），避免 1.6 GB 缓存被误提交
 - 结算 Worker：组织扫描改为带环绕的 keyset 轮询以实现跨轮公平覆盖，并按异常类型分级隔离单组织失败；处理首次组织扫描的 datasource 故障
 - Cost Intelligence：预测要求可观测历史、拒绝反转主导的历史窗口、接受负 actual 并收紧预测窗口；调度分页就地重试并移除不安全的探针恢复，改用按组织与按页的 keyset 扫描
 - OpenCode Zen / Kilo Gateway：关闭 M-2 清单漂移、修正版本端点并校验 SSE 完成、修复共享免费准入与 keyless 派发；修复 Kilo Gateway provider review 发现的三项缺陷
+- OpenCode Zen 与 Gateway 流式聚合：修复 Gateway `AbstractOpenAiCompatibleAdapter` 在 SSE chunk 同时包含 choices 与 usage 时吞没 delta content 的流式反序列化缺陷；补齐 ModelProbe 与 Gateway 的 Relay loopback 白名单机制与指纹校验；对齐上游已废弃模型（410 Gone）并选用同系列免费模型 `deepseek-v4.1-flash-free` 达成真实上游 HTTP 200 验证
 - 组织隔离安全修复：Provider 私有模型按组织作用域收敛；Routing Options 不再返回外组织私有 Provider Model；Pricing Version 对外组织不可见模型与不存在 ID 返回同一 `RESOURCE_NOT_FOUND`，关闭跨组织模型存在性探针
 - M21 运维：Gateway 锁定读在 MySQL 8.4 下需数据库级 `LOCK TABLES`（不授予 `budget`/`billing_period` 的 `UPDATE`/`DELETE`）；补齐 Advisor Worker 的 `advisor_inference_job`/`advisor_inference_attempt`/`advisor_explanation`/`advisor_profile`/`advisor_evidence_snapshot` 表级最小权限
 - 网关测试夹具：将 id 派生的种子固定到单连接，消除间歇 403
@@ -56,7 +79,7 @@
 - 集成测试隔离：`AuthorizationContextServiceIntegrationTest`、`ScopedBudgetRiskIntegrationTest`、`RecommendationAppliedLinkageIntegrationTest`、`SavingsRecommendationCommandAtomicityIntegrationTest` 改用 FK-safe 的 `M2DatabaseCleaner`，不再依赖"恰好排在污染源之前"的执行顺序
 - 集成测试隔离：`M2DatabaseCleaner` 补齐 V28 新增的 `cost_history_coverage` / `cost_history_coverage_revision`（两者都引用 `app_user` / `organization`）
 - 前端测试竞态：修复 `ImportWorkflow.test.tsx` 中的异步状态断言，避免高并发测试下的时序竞争假阴性
-- 安全依赖：`follow-redirects` 升级 1.16.0 → 1.16.1，关闭 CVE-2026-111755 / CVE-2026-111756（Trivy HIGH 阻断）
+- 安全依赖：`follow-redirects` 升级 1.16.0 → 1.16.1，关闭 CVE-2026-111755 / CVE-2026-111756；随后 pin 到 1.16.2，关闭 CVE-2026-116689（均为 Trivy HIGH 阻断）
 
 ### Security
 - M22 双组织浏览器隔离与模型可见性边界修复（跨租户私有模型元数据泄露与未授权定价关联写入）

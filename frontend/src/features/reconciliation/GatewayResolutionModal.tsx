@@ -141,10 +141,10 @@ export function GatewayResolutionModal({
           type="warning"
           showIcon
           className="m6-section-card"
-          title={periodStatus === 'CLOSING' ? '账期正在关闭，禁止处理' : '账期上下文未知，禁止处理'}
+          title={periodStatus === 'CLOSING' ? '账期正在关闭，暂时无法处理' : '账期信息加载失败，暂时无法处理'}
           description={periodStatus === 'CLOSING'
-            ? '原账期处于 CLOSING 状态，网关财务处理被禁止。请等待账期状态明确后重试。'
-            : '未能加载账期上下文（加载中、加载失败或缺失），绝不默认按开启账期处理。请稍后重试。'}
+            ? '账期正在关闭，暂时无法处理，请稍后再试。'
+            : '账期信息加载失败，请稍后重试。'}
         />
       )}
       {resolutionType === 'STATEMENT_ADJUSTMENT_POSTED' ? (
@@ -152,8 +152,8 @@ export function GatewayResolutionModal({
           type="info"
           showIcon
           className="m6-section-card"
-          title="调整金额由服务端推导"
-          description="金额 = 绑定的账单费用金额 − 该请求已入账的内部金额，客户端不能输入金额。绑定分类（精确关联 / 人工绑定）由服务端依据运行证据推导，客户端不能声明。"
+          title="调整金额自动计算"
+          description="金额由系统自动计算，无需填写。"
         />
       ) : (
         <Alert
@@ -161,7 +161,7 @@ export function GatewayResolutionModal({
           showIcon
           className="m6-section-card"
           title="仅账单缺失不能证明无费用"
-          description="必须选择受限的积极证明类型并留下可审计的证明出处；该决定不产生任何账务变动。"
+          description="请选择证明方式并填写出处（如工单号），此操作不产生账务变动。"
         />
       )}
       {exactEvidence && (
@@ -170,7 +170,7 @@ export function GatewayResolutionModal({
           showIcon
           className="m6-section-card"
           title={`精确请求关联（费用 #${exactEvidence.chargeFactId ?? '?'}）`}
-          description="运行中已有该请求的精确关联证据，服务端将自动绑定该账单费用，无需手工输入。"
+          description="已自动关联账单费用，无需填写。"
         />
       )}
       <Form layout="vertical">
@@ -178,8 +178,8 @@ export function GatewayResolutionModal({
           <Select
             value={resolutionType}
             options={[
-              { value: 'NO_CHARGE_CONFIRMED', label: 'NO_CHARGE_CONFIRMED（确认无费用）' },
-              { value: 'STATEMENT_ADJUSTMENT_POSTED', label: 'STATEMENT_ADJUSTMENT_POSTED（按账单调整）' },
+              { value: 'NO_CHARGE_CONFIRMED', label: '确认无费用' },
+              { value: 'STATEMENT_ADJUSTMENT_POSTED', label: '按账单调整' },
             ]}
             onChange={(value) => setResolutionType(value)}
             aria-label="网关处理类型"
@@ -199,7 +199,7 @@ export function GatewayResolutionModal({
           ) : (
             <Form.Item label="入账账期">
               <Typography.Text type="secondary">
-                {originalPeriodId ? `原账期 #${originalPeriodId}（开启账期，调整固定入原账期）` : '由服务端按原账期入账'}
+                {originalPeriodId ? `原账期 #${originalPeriodId}（开启账期，调整固定入原账期）` : '按原账期入账'}
               </Typography.Text>
             </Form.Item>
           )
@@ -208,7 +208,7 @@ export function GatewayResolutionModal({
           <Form.Item
             label={exactEvidence
               ? '绑定的账单费用编号（精确关联已推导，可不填）'
-              : '绑定的账单费用编号（statementChargeFactId）'}
+              : '账单费用编号'}
             required={!exactEvidence}
           >
             <Input value={statementChargeId} maxLength={24} onChange={(event) => setStatementChargeId(event.target.value)} aria-label="账单费用编号" />
@@ -229,7 +229,7 @@ export function GatewayResolutionModal({
           </>
         )}
         {resolutionType === 'STATEMENT_ADJUSTMENT_POSTED' && (
-          <Form.Item label="业务原因代码（绑定分类由服务端推导）" required>
+          <Form.Item label="业务原因代码（绑定分类由系统自动计算）" required>
             <Input value={reasonCode} maxLength={64} onChange={(event) => setReasonCode(event.target.value)} aria-label="业务原因代码" />
           </Form.Item>
         )}
@@ -237,7 +237,7 @@ export function GatewayResolutionModal({
           <Input.TextArea value={reasonNote} maxLength={2000} rows={3} onChange={(event) => setReasonNote(event.target.value)} aria-label="网关处理说明" />
         </Form.Item>
         <Typography.Text type="secondary">
-          提交后该请求获得不可变的终端财务决定；单条证据的处理不会自动解决同案例下的其他证据。
+          提交后不可修改，且仅处理本条请求。
         </Typography.Text>
       </Form>
       {mutation.error && (

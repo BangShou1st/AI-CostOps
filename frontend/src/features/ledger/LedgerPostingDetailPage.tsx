@@ -22,7 +22,6 @@ export function LedgerPostingDetailPage() {
       <header className="page-header"><h1>账本发布 #{detail.id}</h1><Tag color={detail.sourceType === 'CORRECTION' ? 'warning' : 'blue'}>{LEDGER_SOURCE_LABEL[detail.sourceType]}</Tag></header>
       <Card size="small">
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="发布键">{detail.postingKey}</Descriptions.Item>
           <Descriptions.Item label="状态">{formatLedgerStatus(detail.status)}</Descriptions.Item>
           <Descriptions.Item label="来源 ID">{detail.sourceId}</Descriptions.Item>
           <Descriptions.Item label="账期">{detail.billingPeriodId}</Descriptions.Item>

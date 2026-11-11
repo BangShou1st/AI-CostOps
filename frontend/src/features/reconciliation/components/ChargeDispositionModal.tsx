@@ -51,7 +51,7 @@ export function ChargeDispositionModal({ caseId, target, onClose, onSuccess, onE
       onCancel={() => { setDispositionValue('RECONCILIATION_EVIDENCE'); onClose() }}
       closable={!decideDisposition.isPending}
       keyboard={!decideDisposition.isPending}
-      maskClosable={!decideDisposition.isPending}
+      mask={{ closable: !decideDisposition.isPending }}
       cancelButtonProps={{ disabled: decideDisposition.isPending }}
     >
       <CaseError error={decideDisposition.error} />
@@ -60,8 +60,8 @@ export function ChargeDispositionModal({ caseId, target, onClose, onSuccess, onE
           <Select
             value={dispositionValue}
             options={[
-              { value: 'RECONCILIATION_EVIDENCE', label: 'RECONCILIATION_EVIDENCE（作为对账证据，不再直接入账）' },
-              { value: 'DIRECT_PROVIDER_CHARGE', label: 'DIRECT_PROVIDER_CHARGE（作为直接供应商费用入账）' },
+              { value: 'RECONCILIATION_EVIDENCE', label: '作为对账证据（不再直接入账）' },
+              { value: 'DIRECT_PROVIDER_CHARGE', label: '作为直接供应商费用入账' },
             ]}
             onChange={(value) => setDispositionValue(value)}
             aria-label="费用处理方式"

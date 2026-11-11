@@ -5,15 +5,22 @@ FROM eclipse-temurin:21-jdk-noble AS build
 WORKDIR /workspace
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
-RUN --mount=type=secret,id=zen-maven-settings,target=/root/.m2/settings.xml,required=false \
+# Cache only the repository, not the whole /root/.m2: the mvnw wrapper
+# self-installs its distribution under /root/.m2/wrapper, and a restored
+# cache makes that install fail ("inter-device move failed ... Directory
+# not empty") when the dist directory already exists.
+RUN --mount=type=cache,target=/root/.m2/repository \
+    --mount=type=secret,id=zen-maven-settings,target=/root/.m2/settings.xml,required=false \
     sed -i 's/\r$//' mvnw && chmod +x mvnw && ./mvnw -B -DskipTests dependency:go-offline
 COPY src/ src/
-RUN --mount=type=secret,id=zen-maven-settings,target=/root/.m2/settings.xml,required=false \
+RUN --mount=type=cache,target=/root/.m2/repository \
+    --mount=type=secret,id=zen-maven-settings,target=/root/.m2/settings.xml,required=false \
     ./mvnw -B -DskipTests package
 
 FROM eclipse-temurin:21-jre-noble
 
 RUN apt-get update \
+    && apt-get upgrade --yes \
     && apt-get install --yes --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system aicostops \

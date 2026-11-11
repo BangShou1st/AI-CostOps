@@ -31,7 +31,7 @@
          data plane; Spring Boot major/minor stays 4.1.0. -->
     <netty.version>4.2.17.Final</netty.version>
     <!-- Public OpenCode Zen starter, consumed anonymously from JitPack. -->
-    <opencode-zen.version>v1.4.2</opencode-zen.version>
+    <opencode-zen.version>v1.5.4</opencode-zen.version>
     <!-- Public Kilo Gateway starter, consumed anonymously from JitPack (no credentials). -->
     <kilo-gateway.version>v0.2.1</kilo-gateway.version>
   </properties>

@@ -200,7 +200,7 @@ describe('ReconciliationPage', () => {
   it('uses the canonical discrepancy count and removes the unsupported provider filter', async () => {
     renderPage('list')
 
-    expect(await screen.findByText('M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2')).toBeInTheDocument()
+    expect(await screen.findByText('混合模式 · 按账期与币种聚合')).toBeInTheDocument()
     expect(screen.getAllByText('1').length).toBeGreaterThan(0)
     expect(screen.queryByLabelText('供应商账号')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '运行对账' })).not.toBeInTheDocument()
@@ -213,7 +213,7 @@ describe('ReconciliationRunDetailPage', () => {
 
     expect((await screen.findAllByText('0.00000001 USD')).length).toBeGreaterThan(0)
     expect(screen.getByText('匹配键总数')).toBeInTheDocument()
-    expect(screen.getByText('M15_HYBRID_PERIOD_PROVIDER_CURRENCY_V2')).toBeInTheDocument()
+    expect(screen.getByText('混合模式 · 按账期与币种聚合')).toBeInTheDocument()
     expect(screen.getByText('精确请求证据')).toBeInTheDocument()
     // The headline counts current actionable work; the run-generation
     // snapshot is labeled separately and never presented as current.
@@ -380,7 +380,7 @@ describe('ReconciliationRunDetailPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
     await screen.findByText('网关财务处理（请求 #42）')
     fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
-    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    fireEvent.click(await screen.findByText('按账单调整'))
 
     // The original billing period is CLOSED: the reviewer must explicitly
     // choose another OPEN correction period before submitting.
@@ -411,7 +411,7 @@ describe('ReconciliationRunDetailPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
     await screen.findByText('网关财务处理（请求 #42）')
     fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
-    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    fireEvent.click(await screen.findByText('按账单调整'))
     fireEvent.change(screen.getByLabelText('业务原因代码'), { target: { value: 'REVIEWED_EXACT_LINE' } })
     fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Exact correlation reviewed' } })
 
@@ -437,10 +437,10 @@ describe('ReconciliationRunDetailPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
     await screen.findByText('网关财务处理（请求 #42）')
-    expect(await screen.findByText('账期上下文未知，禁止处理')).toBeInTheDocument()
+    expect(await screen.findByText('账期信息加载失败，暂时无法处理')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '确认提交' })).toBeDisabled()
     fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
-    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    fireEvent.click(await screen.findByText('按账单调整'))
     expect(screen.queryByLabelText('调整入账账期')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '确认提交' })).toBeDisabled()
   })
@@ -455,7 +455,7 @@ describe('ReconciliationRunDetailPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /处\s*理/ }))
     await screen.findByText('网关财务处理（请求 #42）')
-    expect(await screen.findByText('账期正在关闭，禁止处理')).toBeInTheDocument()
+    expect(await screen.findByText('账期正在关闭，暂时无法处理')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '确认提交' })).toBeDisabled()
   })
 
@@ -583,7 +583,7 @@ describe('ReconciliationCaseDetailPage', () => {
       currency: 'USD', adjustmentPeriodId: '10',
     })
     renderCasePage(['RECONCILIATION_READ', 'RECONCILIATION_RESOLVE', 'LEDGER_CORRECT'])
-    fireEvent.click(await screen.findByRole('button', { name: '提交 CASE_FULL 调整' }))
+    fireEvent.click(await screen.findByRole('button', { name: '提交整体调整' }))
     const dialog = within(await screen.findByRole('dialog'))
     fireEvent.mouseDown(dialog.getByRole('combobox', { name: '调整账期' }))
     fireEvent.click(await screen.findByText('#10 · OPEN'))
@@ -653,7 +653,7 @@ describe('ReconciliationCaseDetailPage', () => {
 
     // Whole-case action area exists and the server-required difference is shown.
     expect(await screen.findByText('整体案例操作')).toBeInTheDocument()
-    expect(screen.getByText(/服务端要求的调整金额/)).toBeInTheDocument()
+    expect(screen.getByText(/调整金额：/)).toBeInTheDocument()
 
     // Evidence-item action for the unresolved gateway request.
     fireEvent.click(await screen.findByRole('button', { name: '处理网关财务工作' }))
@@ -691,7 +691,7 @@ describe('ReconciliationCaseDetailPage', () => {
     expect((await screen.findAllByText(/精确请求关联（费用 #33/)).length).toBeGreaterThan(0)
     // Switch the select to the statement type.
     fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
-    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    fireEvent.click(await screen.findByText('按账单调整'))
     fireEvent.change(screen.getByLabelText('业务原因代码'), { target: { value: 'REVIEWED_EXACT_LINE' } })
     fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Exact correlation reviewed' } })
     mockedReconciliationApi.postGatewayResolution.mockResolvedValue({
@@ -723,7 +723,7 @@ describe('ReconciliationCaseDetailPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '处理网关财务工作' }))
     await screen.findByText('网关财务处理（请求 #42）')
     fireEvent.mouseDown(screen.getByLabelText('网关处理类型'))
-    fireEvent.click(await screen.findByText('STATEMENT_ADJUSTMENT_POSTED（按账单调整）'))
+    fireEvent.click(await screen.findByText('按账单调整'))
     fireEvent.change(screen.getByLabelText('业务原因代码'), { target: { value: 'REVIEWED_STATEMENT_LINE' } })
     fireEvent.change(screen.getByLabelText('网关处理说明'), { target: { value: 'Reviewed statement line' } })
     // Without exact evidence the submit stays disabled until the reviewer
@@ -748,7 +748,7 @@ describe('ReconciliationCaseDetailPage', () => {
     expect(await screen.findByText('混合证据与单条证据操作')).toBeInTheDocument()
     expect(screen.queryByText('整体案例操作')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '处理网关财务工作' })).not.toBeInTheDocument()
-    expect(screen.getAllByText(/无处理权限|需要 RECONCILIATION_RESOLVE/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/无处理权限|需要财务处理权限/).length).toBeGreaterThan(0)
   })
 
   it('pages case evidence from the server instead of slicing the first page', async () => {
@@ -817,7 +817,7 @@ describe('ReconciliationCaseDetailPage', () => {
 
     expect(await screen.findByText('混合证据与单条证据操作')).toBeInTheDocument()
     // The Charge already carries its final disposition.
-    expect(await screen.findByText(/DIRECT_PROVIDER_CHARGE/)).toBeInTheDocument()
+    expect(await screen.findByText(/已定：直接供应商费用/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '决定费用处理方式' })).not.toBeInTheDocument()
   })
 })

@@ -97,7 +97,7 @@ export function RulesPage({ externalForm }: RulesPageProps) {
   })
 
   if (!canManage) {
-    return <main className="settings-page"><h1>分摊规则</h1><Alert type="warning" showIcon title="缺少 ALLOCATION_RULE_MANAGE 权限" /></main>
+    return <main className="settings-page"><h1>分摊规则</h1><Alert type="warning" showIcon title="暂无操作权限，请联系管理员" /></main>
   }
 
   const listProblem = list.error ? toProblemDetail(list.error) : null
@@ -206,7 +206,7 @@ export function RulesPage({ externalForm }: RulesPageProps) {
         onOk={() => form.submit()}
       >
         <Typography.Paragraph type="secondary">
-          版本号由服务端按规则键自动分配；新定义将作为不可变新版本追加。
+          版本号由系统按规则键自动分配；新定义将作为不可变新版本追加。
         </Typography.Paragraph>
         <Form<RuleVersionFormValues>
           form={form}

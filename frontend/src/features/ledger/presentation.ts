@@ -1,4 +1,5 @@
 import type { LedgerEntryType, LedgerSourceType } from './api/ledgerApi'
+import { formatMoney } from '../../lib/money'
 
 export const LEDGER_SOURCE_LABEL: Record<LedgerSourceType, string> = {
   PROVIDER_CHARGE: '供应商成本',
@@ -24,7 +25,7 @@ export function formatLedgerStatus(status: string): string {
 }
 
 export function currencyTotals(totals: Record<string, string>): string[] {
-  return Object.entries(totals).map(([currency, amount]) => `${amount} ${currency}`)
+  return Object.entries(totals).map(([currency, amount]) => formatMoney(amount, currency))
 }
 
 export function lineageLabel(value: string | null | undefined, fallback = '—'): string {

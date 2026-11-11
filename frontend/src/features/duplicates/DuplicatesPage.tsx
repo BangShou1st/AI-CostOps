@@ -60,7 +60,7 @@ export function DuplicatesPage() {
   const listProblem = list.error ? toProblemDetail(list.error) : null
 
   if (!canReview) {
-    return <main className="settings-page"><h1>重复审核</h1><Alert type="warning" showIcon title="缺少 DUPLICATE_REVIEW 权限" /></main>
+    return <main className="settings-page"><h1>重复审核</h1><Alert type="warning" showIcon title="暂无操作权限，请联系管理员" /></main>
   }
 
   return (

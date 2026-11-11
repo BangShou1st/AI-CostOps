@@ -10,6 +10,7 @@ import { gatewayKeys } from './api/gatewayKeys'
 import type { ServiceIdentity } from './api/gatewayTypes'
 
 const statusColor: Record<ServiceIdentity['status'], string> = { ACTIVE: 'green', DISABLED: 'orange', ARCHIVED: 'default' }
+const STATUS_LABELS: Record<ServiceIdentity['status'], string> = { ACTIVE: '已启用', DISABLED: '已停用', ARCHIVED: '已归档' }
 
 export function ServiceIdentitiesPage() {
   const auth = useAuth()
@@ -28,12 +29,12 @@ export function ServiceIdentitiesPage() {
   return (
     <main className="settings-page">
       <div className="settings-toolbar">
-        <div><h1>服务身份</h1><Typography.Text type="secondary">组织级服务身份，用于绑定网关凭证的主体验证。</Typography.Text></div>
+        <div><h1>服务身份</h1><Typography.Text type="secondary">用于创建和管理网关凭证的服务身份。</Typography.Text></div>
         {canManage && <Button type="primary" onClick={() => { setProblem(null); setCreateOpen(true) }}>创建服务身份</Button>}
       </div>
       {identitiesQuery.isLoading && <div role="status">正在加载服务身份…</div>}
-      {identitiesQuery.isError && <Alert type="error" role="alert" message={problemTitle(toProblemDetail(identitiesQuery.error))} showIcon />}
-      {problem && <Alert type="error" role="alert" message={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
+      {identitiesQuery.isError && <Alert type="error" role="alert" title={problemTitle(toProblemDetail(identitiesQuery.error))} showIcon />}
+      {problem && <Alert type="error" role="alert" title={problemTitle(problem)} description={errorText(problem)} showIcon closable onClose={() => setProblem(null)} />}
       {identitiesQuery.data && identitiesQuery.data.length === 0 && <div className="settings-empty">该组织暂无服务身份。</div>}
       {identitiesQuery.data && <Table<ServiceIdentity>
         rowKey="id"
@@ -42,7 +43,7 @@ export function ServiceIdentitiesPage() {
         columns={[
           { title: '代号', dataIndex: 'code', key: 'code' },
           { title: '名称', dataIndex: 'name', key: 'name' },
-          { title: '状态', dataIndex: 'status', key: 'status', render: (status: ServiceIdentity['status']) => <Tag color={statusColor[status]}>{status}</Tag> },
+          { title: '状态', dataIndex: 'status', key: 'status', render: (status: ServiceIdentity['status']) => <Tag color={statusColor[status] ?? 'default'}>{STATUS_LABELS[status] ?? status}</Tag> },
           { title: 'ID', dataIndex: 'id', key: 'id' },
         ]}
       />}

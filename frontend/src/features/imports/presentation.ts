@@ -27,7 +27,7 @@ const ATTEMPT_STATUS_LABELS: Record<ImportAttemptStatus, string> = {
 
 const ATTEMPT_TRIGGER_LABELS: Record<ImportAttemptTrigger, string> = {
   INITIAL: '首次处理',
-  LEASE_RECOVERY: '租约恢复',
+  LEASE_RECOVERY: '系统自动重试',
   MANUAL_RETRY: '手动重试',
 }
 

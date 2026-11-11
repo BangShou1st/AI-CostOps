@@ -34,14 +34,14 @@ export function ResolveCaseModal({ caseId, open, onClose, onSuccess, onPendingCh
   return (
     <Modal
       open={open}
-      title="接受已解释差异（ACCEPT_EXPLAINED_DIFFERENCE）"
+      title="接受差异并解决"
       okText={resolve.isPending ? '正在提交…' : '确认解决'}
       okButtonProps={{ disabled: !reasonCode.trim() || !resolutionNote.trim() || resolve.isPending }}
       onOk={() => resolve.mutate()}
       onCancel={onClose}
       closable={!resolve.isPending}
       keyboard={!resolve.isPending}
-      maskClosable={!resolve.isPending}
+      mask={{ closable: !resolve.isPending }}
       cancelButtonProps={{ disabled: resolve.isPending }}
     >
       <CaseError error={resolve.error} />

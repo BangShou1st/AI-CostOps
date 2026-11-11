@@ -95,8 +95,8 @@ export function HistoryCoverageSection({ currency }: { currency: string }) {
         <Button aria-expanded={open} aria-controls="history-coverage-content" onClick={() => setOpen(!open)} disabled={pending}>{open ? '收起复核' : '展开复核'}</Button>
       </div>
       {open && <div id="history-coverage-content">
-        <p className="v3-note">复核是一项人工财务声明，表示已核对所选范围当天的全部预期成本记账来源。导入成功不等于完整采集；声明只作用于所选范围及币种。后续成本入账会使旧声明失效。</p>
-        <p className="v3-footnote">本页采用网关、对账调整与直接账单的有效成本口径。报销及 Advisor 自身费用仍按原有规则计入财务账本和预算实际支出。</p>
+        <p className="v3-note">复核即确认当日成本已完整入账；仅对所选范围与币种生效，后续有新入账会使其失效。</p>
+        <p className="v3-footnote">不含报销与 Advisor 自身费用。</p>
         <div className="history-coverage-controls">
           <label><span>复核范围</span><Select showSearch filterOption={false} value={value} options={choices} onSearch={setSearch}
             aria-label="复核范围" loading={scopes.isLoading} disabled={pending}
@@ -105,11 +105,11 @@ export function HistoryCoverageSection({ currency }: { currency: string }) {
             onChange={event => { if (event.target.value) { setLastDay(event.target.value); setEditing(null); setNotice('') } }} /></label>
           {canManage && <Button onClick={() => analyze.mutate()} loading={analyze.isPending} disabled={pending || Boolean(editing)}>重新分析</Button>}
         </div>
-        <p className="v3-footnote">查看 {start} 至 {lastDay} 的 29 个 UTC 记账日，币种 {currency}。重新分析使用当前分析窗口；查看其他日期不会改变分析范围。</p>
-        {!canManage && <p className="v3-note">你可以查看覆盖状态。确认及撤销由具有覆盖复核权限的财务人员操作。</p>}
-        {scopes.error && <Alert type="error" showIcon message="范围列表加载失败" description={errorDetail(scopes.error)} />}
-        {report.error && <Alert type="error" showIcon message="覆盖状态加载失败" description={errorDetail(report.error)} />}
-        {notice && <Alert role="status" type={noticeError ? 'error' : 'success'} showIcon message={notice} />}
+        <p className="v3-footnote">统计区间：{start} 至 {lastDay}（UTC）· 币种 {currency}</p>
+        {!canManage && <p className="v3-note">如需复核，请联系财务管理员。</p>}
+        {scopes.error && <Alert type="error" showIcon title="范围列表加载失败" description={errorDetail(scopes.error)} />}
+        {report.error && <Alert type="error" showIcon title="覆盖状态加载失败" description={errorDetail(report.error)} />}
+        {notice && <Alert role="status" type={noticeError ? 'error' : 'success'} showIcon title={notice} />}
         {report.isLoading && <div className="v3-figure" role="status" aria-label="正在加载覆盖状态" />}
         {report.data && <div className="history-coverage-table" tabIndex={0} aria-label="覆盖状态表，可滚动查看">
           <table><caption>日期覆盖状态 · {currency}</caption><thead><tr><th scope="col">UTC 记账日</th><th scope="col">观测依据</th><th scope="col">金额</th><th scope="col">复核状态</th>{canManage && <th scope="col">操作</th>}</tr></thead>

@@ -47,7 +47,7 @@ describe('LedgerListPage', () => {
     mockedLedgerApi.listPostings.mockResolvedValue({ items: [POSTING, { ...POSTING, id: '905', sourceType: 'CORRECTION', postingKey: 'CORRECTION:5' }], page: 0, size: 50, totalElements: 2, totalPages: 1 })
     renderPage(<LedgerListPage />)
     await waitFor(() => expect(screen.getAllByText('纠正').length).toBeGreaterThan(0))
-    expect(screen.getAllByText('10.00000000 CNY').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('10.00 CNY').length).toBeGreaterThan(0)
     expect(screen.getByText('供应商成本')).toBeInTheDocument()
     expect(screen.getAllByText('2026-08-19 18:00')).toHaveLength(2)
     expect(screen.queryByText(POSTING.postedAt)).not.toBeInTheDocument()
@@ -60,7 +60,7 @@ describe('Ledger detail pages', () => {
     renderPage(<Routes><Route path="/ledger/postings/:id" element={<LedgerPostingDetailPage />} /></Routes>, ['/ledger/postings/900'])
     await waitFor(() => expect(screen.getByText('账本发布 #900')).toBeInTheDocument())
     expect(screen.getByText('查看')).toBeInTheDocument()
-    expect(screen.getAllByText('10.00000000 CNY').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('10.00 CNY').length).toBeGreaterThan(0)
   })
 
   it('entry detail renders provider lineage and keeps stable IDs visible', async () => {

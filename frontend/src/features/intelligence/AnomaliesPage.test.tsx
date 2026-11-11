@@ -22,8 +22,7 @@ describe('AnomaliesPage', () => {
   it('renders deterministic detection framing, not AI wording', () => {
     renderPreview()
     expect(screen.getByRole('heading', { name: '异常', level: 1 })).toBeInTheDocument()
-    expect(screen.getByText(/median／MAD／robust-z/)).toBeInTheDocument()
-    expect(screen.getByText(/不是 AI 异常检测/)).toBeInTheDocument()
+    expect(screen.getByText(/由固定统计规则自动检出/)).toBeInTheDocument()
     expect(screen.getAllByText(/LOGICAL_MODEL/).length).toBeGreaterThanOrEqual(1)
   })
   it('opens an evidence drawer with drivers and methodology', async () => {

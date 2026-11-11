@@ -47,6 +47,9 @@ coverage/
 test-results/
 playwright-report/
 
+# Trivy vulnerability DB cache (CI mounts it from the repo root; local scans create it too)
+.trivy-cache/
+
 *.hprof
 *.heapdump
 

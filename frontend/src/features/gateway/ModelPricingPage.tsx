@@ -13,6 +13,17 @@ import type { PricingRate } from './api/gatewayTypes'
 
 const DECIMAL_PATTERN = /^\d+(\.\d{1,8})?$/
 
+const DIMENSION_LABEL: Record<string, string> = {
+  INPUT_TOKEN: '输入',
+  OUTPUT_TOKEN: '输出',
+  REQUEST: '请求',
+}
+
+const MODEL_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: '已启用',
+  RETIRED: '已退役',
+}
+
 export function isValidDecimalRate(value: string): boolean {
   return DECIMAL_PATTERN.test(value)
 }
@@ -72,7 +83,7 @@ export function ModelPricingPage() {
         <div><h1>模型与定价</h1><Typography.Text type="secondary">查看全局模型目录与服务商模型，维护组织定价版本。</Typography.Text></div>
         {canManage && <Button type="primary" onClick={() => { setProblem(null); setCreateOpen(true) }}>创建定价版本</Button>}
       </div>
-      <Alert style={{ marginBottom: 16 }} type="info" showIcon message="金融治理口径" description="只有 ACTIVE 定价版本才是 Financial Truth；manifest 的 VERIFIED_FREE 只是价格分类元数据，有 ACTIVE 零价格版本才是零价格。" />
+      <Alert style={{ marginBottom: 16 }} type="info" showIcon title="价格以已启用的定价版本为准。" />
       {problem && <div role="alert"><Typography.Text type="danger">{errorText(problem)}</Typography.Text></div>}
       <section className="settings-card" aria-label="模型目录">
         <Typography.Title level={4} style={{ marginTop: 0 }}>模型目录</Typography.Title>
@@ -81,7 +92,7 @@ export function ModelPricingPage() {
           columns={[
             { title: '模型键', dataIndex: 'modelKey', key: 'modelKey' },
             { title: '名称', dataIndex: 'name', key: 'name' },
-            { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => <Tag color="green">{status}</Tag> },
+            { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => <Tag color={status === 'ACTIVE' ? 'green' : 'default'}>{MODEL_STATUS_LABEL[status] ?? status}</Tag> },
           ]}
         />
       </section>
@@ -106,7 +117,7 @@ export function ModelPricingPage() {
             { title: '版本', dataIndex: 'version', key: 'version', width: 80 },
             { title: '币种', dataIndex: 'currency', key: 'currency', width: 80 },
             { title: '状态', key: 'status', width: 110, render: (_: unknown, version) => <Tag color={version.status === 'ACTIVE' ? 'green' : version.status === 'DRAFT' ? 'blue' : 'default'}>{version.status === 'ACTIVE' ? '已启用' : version.status === 'DRAFT' ? '草稿' : '已退役'}</Tag> },
-            { title: '费率', key: 'rates', width: 280, render: (_: unknown, version) => version.rates.map((rate: PricingRate) => `${rate.dimensionCode} ${formatMoney(String(rate.unitPrice), version.currency)}/${rate.unitQuantity}`).join('；') },
+            { title: '费率', key: 'rates', width: 280, render: (_: unknown, version) => version.rates.map((rate: PricingRate) => `${DIMENSION_LABEL[rate.dimensionCode] ?? rate.dimensionCode} ${formatMoney(String(rate.unitPrice), version.currency)}/${rate.unitQuantity}`).join('；') },
             { title: '有效期', key: 'effective', width: 220, render: (_: unknown, version) => `${formatDateTime(version.effectiveFrom)} → ${version.effectiveTo ? formatDateTime(version.effectiveTo) : '长期'}` },
             { title: '操作', key: 'actions', width: 100, render: (_: unknown, version) => canManage && version.status === 'DRAFT'
               ? <Button size="small" type="primary" loading={activate.isPending} onClick={() => activate.mutate(version.id)}>启用版本</Button>

@@ -50,9 +50,8 @@ describe('RoutingPoliciesPage governance', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     )
-    expect(await screen.findByText(/人工治理/)).toBeInTheDocument()
+    expect(await screen.findByText(/所有路由变更均需人工操作/)).toBeInTheDocument()
     expect(screen.getByText(/来自节约建议 #3 的检查/)).toBeInTheDocument()
     expect(screen.getByText('回节约建议')).toBeInTheDocument()
-    expect(screen.getByText(/节约建议不会自动修改路由/)).toBeInTheDocument()
   })
 })

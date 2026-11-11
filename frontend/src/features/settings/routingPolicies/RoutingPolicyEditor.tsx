@@ -87,7 +87,7 @@ export function RoutingPolicyEditor({
           {!readonly && <Button type="primary" loading={saving} onClick={submit}>保存草稿</Button>}
         </Space>
       </div>
-      {error && <Alert type="error" role="alert" message={error} showIcon />}
+      {error && <Alert type="error" role="alert" title={error} showIcon />}
       <Table
         rowKey={(_, index) => `${policy.id}-${index}`}
         pagination={false}

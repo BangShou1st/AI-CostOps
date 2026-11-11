@@ -114,24 +114,29 @@ test.describe('m15 hybrid reconciliation', () => {
       await page.goto(`${E2E_BASE_URL}/reconciliation/cases/${caseId}`)
       await expect(page.getByRole('heading', { name: '对账案例详情', level: 1 })).toBeVisible({ timeout: 20_000 })
 
-      // The whole-case action area shows the server-required difference.
+      // The whole-case action area shows the required difference.
       await expect(page.getByText('整体案例操作')).toBeVisible()
-      await expect(page.getByText(/服务端要求的调整金额/)).toBeVisible()
+      await expect(page.getByText(/调整金额：.+需拆分到具体分配行/)).toBeVisible()
       // Evidence-item actions stay separate and never claim to resolve the case.
       await expect(page.getByText('混合证据与单条证据操作')).toBeVisible()
-      await expect(page.getByText('处理单条证据不会自动解决同案例下的其他证据')).toBeVisible()
+      await expect(page.getByText('仅作用于本条证据')).toBeVisible()
 
-      // Investigate, then post the CASE_FULL adjustment with an explicit line.
+      // Investigate, then post the whole-case adjustment with an explicit line.
       await page.getByRole('button', { name: '开始调查' }).click()
-      await expect(page.getByRole('button', { name: '提交 CASE_FULL 调整' })).toBeVisible({ timeout: 20_000 })
-      await page.getByRole('button', { name: '提交 CASE_FULL 调整' }).click()
+      await expect(page.getByRole('button', { name: '提交整体调整' })).toBeVisible({ timeout: 20_000 })
+      await page.getByRole('button', { name: '提交整体调整' }).click()
 
       const modal = page.locator('.ant-modal:visible').last()
-      await expect(modal.getByText(/服务端要求金额/)).toBeVisible()
+      await expect(modal.getByText(/调整金额：/)).toBeVisible()
       await pickAntdSelect(page, '调整入账账期', /#/)
       // The allocation target picker is the search-enabled select inside the
-      // Space.Compact pair (type select is not searchable).
-      await modal.locator('.ant-select-show-search').click()
+      // Space.Compact pair (type select is not searchable). It renders options
+      // in a virtualized list ordered by id: on a reused local database the
+      // freshly created m15-e2e-* project sits far below the fold, so type the
+      // search text first to bring the matching option into the DOM.
+      const targetSelect = modal.locator('.ant-select-show-search')
+      await targetSelect.click()
+      await targetSelect.locator('input').fill('m15-e2e')
       await page.locator('.ant-select-dropdown:visible').last()
         .locator('.ant-select-item-option')
         .filter({ hasText: /m15-e2e-/ })
@@ -211,7 +216,7 @@ test.describe('m15 hybrid reconciliation', () => {
       await page.goto(`${E2E_BASE_URL}/reconciliation/cases/${caseId}`)
       await expect(page.getByRole('heading', { name: '对账案例详情', level: 1 })).toBeVisible({ timeout: 20_000 })
       await expect(page.getByText('该账期已关闭')).toBeVisible({ timeout: 20_000 })
-      await expect(page.getByText('对账仅作证据查阅，不会自动重开历史账期')).toBeVisible()
+      await expect(page.getByText('仅供查阅；如需更正请先重新开放账期。')).toBeVisible()
 
       // Restore the OPEN period through the explicit governed reopen so the
       // following E2E specs keep their own open-period assumptions.

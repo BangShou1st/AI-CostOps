@@ -17,6 +17,7 @@ import io.netty.channel.ChannelOption;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeoutException;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -52,6 +53,17 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
             GatewayProperties properties,
             DispatchEndpointGuard endpointGuard,
             boolean directOnly) {
+        this(builder, objectMapper, properties, endpointGuard, directOnly,
+                new com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup());
+    }
+
+    protected AbstractOpenAiCompatibleAdapter(
+            WebClient.Builder builder,
+            ObjectMapper objectMapper,
+            GatewayProperties properties,
+            DispatchEndpointGuard endpointGuard,
+            boolean directOnly,
+            io.netty.resolver.AddressResolverGroup<java.net.InetSocketAddress> resolverGroup) {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.endpointGuard = endpointGuard;
@@ -59,7 +71,7 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()))
                 .followRedirect(false)
-                .resolver(new com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup());
+                .resolver(resolverGroup != null ? resolverGroup : new com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup());
         if (directOnly) {
             httpClient = httpClient.noProxy();
         }
@@ -84,13 +96,17 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
         spec.header("Authorization", "Bearer " + secret);
     }
 
+    protected String outboundUri(ProviderCallContext context) {
+        return targetUrl(context);
+    }
+
     @Override
     public Mono<ProviderChatCompletion> complete(ProviderCallContext context,
             ChatCompletionCommand command) {
         validateCredentials(context);
         endpointGuard.check(context.baseUrl(), context.completionPath(), context.networkPolicy());
         var request = decorateWirePayload(wireRequest(context, command, false), context, false);
-        return webClient.post().uri(targetUrl(context))
+        return webClient.post().uri(outboundUri(context))
                 .headers(headers -> applyHeaders(headers, context))
                 .contentType(MediaType.APPLICATION_JSON).bodyValue(request)
                 .exchangeToMono(response -> {
@@ -113,7 +129,7 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
         var hardTimeoutMs = properties.getHardTimeoutMs();
         return Flux.defer(() -> {
             var startNanos = System.nanoTime();
-            return webClient.post().uri(targetUrl(context))
+            return webClient.post().uri(outboundUri(context))
                     .headers(headers -> applyHeaders(headers, context))
                     .contentType(MediaType.APPLICATION_JSON).bodyValue(request)
                     .exchangeToFlux(response -> {
@@ -179,24 +195,31 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
         try {
             var bytes = new byte[buffer.readableByteCount()];
             buffer.read(bytes);
-            return Flux.fromIterable(decoder.feed(bytes)).map(this::parseChunk);
+            return Flux.fromIterable(decoder.feed(bytes)).flatMapIterable(this::parseChunks);
         } finally {
             DataBufferUtils.release(buffer);
         }
     }
 
-    private ProviderChatStreamEvent parseChunk(String payload) {
-        if (DONE_MARKER.equals(payload)) return new ProviderChatStreamEvent.Done();
+    private List<ProviderChatStreamEvent> parseChunks(String payload) {
+        if (DONE_MARKER.equals(payload)) return List.of(new ProviderChatStreamEvent.Done());
         try {
             var wire = objectMapper.readValue(payload, OpenAiWireDtos.WireChunk.class);
             var created = wire.created() == null ? 0L : wire.created();
-            if (wire.usage() != null) {
-                return new ProviderChatStreamEvent.Metering(wire.id(), created, wire.model(),
-                        wire.usage().prompt_tokens(), wire.usage().completion_tokens(), wire.usage().total_tokens());
-            }
+            var events = new ArrayList<ProviderChatStreamEvent>();
             var choice = wire.choices() == null || wire.choices().isEmpty() ? null : wire.choices().get(0);
             var content = choice == null || choice.delta() == null ? null : choice.delta().content();
-            return new ProviderChatStreamEvent.Delta(wire.id(), created, wire.model(), content);
+            if (content != null || choice != null) {
+                events.add(new ProviderChatStreamEvent.Delta(wire.id(), created, wire.model(), content));
+            }
+            if (wire.usage() != null) {
+                events.add(new ProviderChatStreamEvent.Metering(wire.id(), created, wire.model(),
+                        wire.usage().prompt_tokens(), wire.usage().completion_tokens(), wire.usage().total_tokens()));
+            }
+            if (events.isEmpty()) {
+                events.add(new ProviderChatStreamEvent.Delta(wire.id(), created, wire.model(), null));
+            }
+            return List.copyOf(events);
         } catch (Exception ex) {
             throw new ProviderExecutionException(ProviderSafetyOutcome.BILLABLE_POSSIBLE,
                     ProviderSafetyReason.MALFORMED_PROVIDER_RESPONSE, ProviderHealthSignal.QUALIFYING_FAILURE,

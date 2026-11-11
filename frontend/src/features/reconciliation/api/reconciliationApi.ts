@@ -22,7 +22,7 @@ import type {
   ReconciliationFinancialResolutionContext,
 } from '../types'
 
-/** Reconciliation API values mirror docs/02-development/api/openapi.yaml. */
+/** Reconciliation API values align with the backend implementation contract; V3 extensions see m18-v3-openapi.yaml and DTO docs. */
 export const reconciliationApi = {
   async listRuns(params: ReconciliationRunListParams): Promise<ReconciliationRunPage> {
     return (await apiClient.get<PageResponse<ReconciliationRunResponse>>('/reconciliation-runs', { params })).data
