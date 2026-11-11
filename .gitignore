@@ -23,6 +23,10 @@ gateway/target/
 hs_err_pid*
 replay_pid*
 
+# Python bytecode from local harness helpers (scripts/perf/hc01/mock_provider.py)
+__pycache__/
+*.pyc
+
 # 注意：
 # 不要忽略 backend/.mvn/
 # 不要忽略 backend/mvnw

@@ -43,6 +43,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.core.io.buffer.DataBufferLimitException;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -57,6 +58,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.SignalType;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -161,36 +163,16 @@ public class ChatCompletionController {
         var modelId = catalog.modelId();
         var effectiveMaxTokens = resolveEffectiveMaxTokens(request, catalog);
 
-        // A stream permit is held for the whole streaming lifetime and always
-        // released (complete/error/cancel, or any early failure in this chain).
-        // The permit MUST NOT be released by the outer Mono's doFinally: for
-        // SSE the outer Mono completes as soon as the response headers commit,
-        // while the Flux body keeps streaming. Releasing there would free the
-        // ceiling slot while the upstream call still occupies it (B04 RED).
-        // Non-stream requests and pre-stream early failures release through
-        // the outer doFinally; streaming requests release ONLY through the
-        // Flux body's doFinally in invokeStream.
-        var permitHeld = new AtomicBoolean(false);
-        var streamPermit = false;
-        if (request.stream()) {
-            if (!resourceLimiter.tryAcquireStreamPermit()) {
-                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
-                        "Too many concurrent streams");
-            }
-            permitHeld.set(true);
-            streamPermit = true;
-        }
-        var streamPermitHeld = streamPermit;
-        Runnable releasePermit = () -> {
-            if (!streamPermitHeld && permitHeld.getAndSet(false)) {
-                resourceLimiter.releaseStreamPermit();
-            }
-        };
-        Runnable releaseStreamPermit = () -> {
-            if (streamPermitHeld && permitHeld.getAndSet(false)) {
-                resourceLimiter.releaseStreamPermit();
-            }
-        };
+        // A stream permit is held for the whole streaming lifetime. Ownership
+        // starts with this admission chain and moves to the SSE body only when
+        // invokeStream has built it. The lease records that hand-off so every
+        // terminal path releases exactly once: a client cancel while rate/
+        // quota/admission is still pending never produces onErrorResume, only
+        // doFinally(CANCEL), and must still return the slot. Conversely the
+        // outer Mono must never release a permit the body already owns: for SSE
+        // it completes when the response headers commit while the upstream call
+        // keeps streaming (B04), which would free the slot far too early.
+        var streamPermit = request.stream() ? acquireStreamPermit() : null;
 
         return rateLimiter.tryAcquire(principal.credentialId())
                 .onErrorResume(ex -> {
@@ -227,14 +209,31 @@ public class ChatCompletionController {
                 .flatMap(prepared -> {
                     return request.stream()
                             ? invokeStream(exchange, principal, prepared, request,
-                                    effectiveMaxTokens, releaseStreamPermit)
+                                    effectiveMaxTokens, streamPermit)
                                     .map(entity -> (ResponseEntity<?>) entity)
                             : invokeProviderWithFailover(exchange, principal, prepared, request, effectiveMaxTokens)
                                     .map(completed -> (ResponseEntity<?>) ResponseEntity.ok(
                                             buildResponse(completed.dispatch(), request,
                                                     completed.completion())));
                 })
-                .doFinally(ignored -> releasePermit.run());
+                // The permit spans two lifetimes. Until invokeStream hands it to
+                // the SSE body, this outer chain is its only owner, so every
+                // pre-hand-off terminal (error, client cancel, or an empty
+                // admission completion) returns the slot. After the hand-off
+                // the body owns it and this callback does not release it.
+                .doFinally(signal -> {
+                    if (streamPermit != null) {
+                        streamPermit.releaseFromOuter(signal);
+                    }
+                });
+    }
+
+    private StreamPermitLease acquireStreamPermit() {
+        if (!resourceLimiter.tryAcquireStreamPermit()) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
+                    "Too many concurrent streams");
+        }
+        return new StreamPermitLease(resourceLimiter);
     }
 
     private Mono<ResolvedCatalogModel> resolveCatalog(GatewayPrincipal principal, byte[] rawBody) {
@@ -270,7 +269,7 @@ public class ChatCompletionController {
 
     private Mono<ResponseEntity<Flux<ServerSentEvent<String>>>> invokeStream(
             ServerWebExchange exchange, GatewayPrincipal principal, PreparedDispatch initial,
-            ChatCompletionRequest request, int effectiveMaxTokens, Runnable releasePermit) {
+            ChatCompletionRequest request, int effectiveMaxTokens, StreamPermitLease permit) {
         setCorrelationHeaders(exchange, initial.publicRequestId());
         var current = new AtomicReference<>(initial);
         var emitted = new AtomicBoolean(false);
@@ -297,10 +296,18 @@ public class ChatCompletionController {
                     finalizeCancellation(target, cancellationFinalizedAttempts);
                     orchestrator.convergeSafeTerminal(target).subscribe();
                 })
-                .doFinally(ignored -> releasePermit.run());
-        return Mono.just(ResponseEntity.ok()
+                .doOnSubscribe(ignored -> permit.bodySubscribed())
+                .doFinally(ignored -> permit.releaseFromBody());
+        var entity = ResponseEntity.ok()
                 .contentType(MediaType.TEXT_EVENT_STREAM)
-                .body(body));
+                .body(body);
+        if (!permit.handOffToBody()) {
+            // The admission chain was cancelled and already returned the slot.
+            // Never start a stream that no permit covers.
+            return Mono.error(new GatewayErrorException(GatewayErrorCode.GATEWAY_RATE_LIMITED,
+                    "The request was cancelled before the stream started"));
+        }
+        return Mono.just(entity);
     }
 
     private Flux<ServerSentEvent<String>> streamAttempt(
@@ -597,6 +604,67 @@ public class ChatCompletionController {
     }
 
     private record CompletedDispatch(DispatchResult dispatch, ProviderChatCompletion completion) {
+    }
+
+    /**
+     * Exactly-once ownership of one inbound stream permit across the two
+     * lifetimes of an SSE request. The admission chain owns the permit until
+     * {@link #handOffToBody()} runs at the instant the SSE body is built; from
+     * then on only the body may release it. Before the hand-off, error, client
+     * cancel and an empty admission completion all return the slot; after the
+     * hand-off the outer chain stays silent because it completes at header
+     * commit while the upstream call keeps streaming (B04).
+     */
+    private static final class StreamPermitLease {
+
+        private static final int OUTER_OWNED = 0;
+        private static final int BODY_OWNED = 1;
+        private static final int RELEASED = 2;
+
+        private final GatewayResourceLimiter limiter;
+        private final AtomicInteger state = new AtomicInteger(OUTER_OWNED);
+        private final AtomicBoolean bodySubscribed = new AtomicBoolean(false);
+
+        private StreamPermitLease(GatewayResourceLimiter limiter) {
+            this.limiter = limiter;
+        }
+
+        /**
+         * Moves ownership to the SSE body. Returns false when the outer chain
+         * already released (the subscription was cancelled while the last
+         * admission stage completed), so the caller must not start a stream.
+         */
+        private boolean handOffToBody() {
+            return state.compareAndSet(OUTER_OWNED, BODY_OWNED);
+        }
+
+        private void bodySubscribed() {
+            bodySubscribed.set(true);
+        }
+
+        /**
+         * Terminal of the admission chain. A cancel that lands after the
+         * hand-off but before the framework subscribes to the body is the one
+         * post-hand-off case the outer chain must clean up: the response will
+         * never be written, so the body can never run its own release.
+         */
+        private void releaseFromOuter(SignalType signal) {
+            if (state.compareAndSet(OUTER_OWNED, RELEASED)) {
+                limiter.releaseStreamPermit();
+                return;
+            }
+            if (signal == SignalType.CANCEL && !bodySubscribed.get()
+                    && state.compareAndSet(BODY_OWNED, RELEASED)) {
+                limiter.releaseStreamPermit();
+            }
+        }
+
+        /** Terminal of the SSE body: normal completion, error or client cancel. */
+        private void releaseFromBody() {
+            if (state.compareAndSet(BODY_OWNED, RELEASED)) {
+                limiter.releaseStreamPermit();
+            }
+        }
     }
 
     /**

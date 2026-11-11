@@ -11,6 +11,9 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- HC-01 Gateway 单/双实例高并发基线 harness（`scripts/perf/hc01/`）：隔离数据库/Redis、真实 Backend/Mock Provider、独立 Gateway JVM、热点/对照预算矩阵、逐轮财务不变量与结算收敛核对；一键入口 `npm run perf:hc01`
+- Gateway 阻塞 DB 调度器饱和可观测性：`gateway_db_active` / `gateway_db_queued` / `gateway_db_threads_max` / `gateway_db_queue_capacity`（仅新增指标，不改变调度语义）
+- HC-01 Gateway 单/双实例高并发基线验收（`docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-01-gateway-concurrency/`）：5–200 并发 ×3 轮、热点/多预算/多组织/双实例/慢上游/SSE/断流/同键/预算耗尽/正常限流，逐轮财务与 permit 不变量；首要瓶颈为 `billing_period` 行锁 + `gateway_request` 外键共享锁排队；修复预流失败 SSE permit 泄漏；补充限流验证。
 - 核心业务真实性与产品一致性验收总报告（`docs/03-acceptance/maintenance/2026-11/2026-11-10-core-business-consistency-acceptance.md`）：链路 A/B 各 8 检查点 PASS、产品一致性审查与修复、前端文案改造截图验收、审计驱动死代码清理
 - 业务链路 A（AI Gateway 实时成本治理）端到端真实性验收证据（`docs/03-acceptance/maintenance/2026-11/2026-11-10-gateway-chain-e2e-acceptance.md`）：8 检查点全部 PASS，定向复跑 156 个集成/单元用例（真实 MySQL 8.4 + Redis Testcontainers，模拟上游），未发现缺陷，无代码变更
 - 后端核心链路与并发可靠性改造设计文档（`docs/02-development/designs/maintenance/2026-11-10-backend-reliability-refactor-design.md`）：CO-00~CO-05 六个工作包，财务不变量 F-01~F-09、异常矩阵与分批实施计划
@@ -34,6 +37,7 @@
 - CO-05 可观测/故障注入验收（`2026-11-11-co-05-observability/`）：关联键映射、traceId/MDC、导入失败与对象存储依赖指标、§8.2 故障矩阵与交付决策
 
 ### Changed
+- HC-01 合并前审查修正：更正 `findings.md` / 验收报告中“为 `budget_reservation` 新增 `(org_id,budget_id,status)` 索引”的错误建议（V19 已存在 `idx_budget_reservation_org_budget`），说明累计 `NO_INDEX_USED` 与末态 `EXPLAIN` 的口径差异，HC-02 改为先在真实规模测量执行计划、回表与覆盖索引收益/写放大；证据见 `docs/03-acceptance/maintenance/2026-11/2026-11-11-hc-01-gateway-concurrency/2026-11-11-hc-01-review-followup.md`
 - `CloseBlockerProviderIntegrationTest` 过时测试方法名更正（`registryContainsExactlySevenCanonicalProviders` → `registryContainsExactlyEightCanonicalProviders`，`CloseBlockerCode` 实为 8 项；仅改名，未改断言）
 - `CostIntelligenceSchedulerFailureVisibilityIntegrationTest` 与共享上下文的启动后台 sweep 隔离（`@MockitoBean` 薄调度包装器，与服务端测试同款做法），消除同一 SHA 并行运行一绿一红的偶发重复 WARN 断言失败
 - 根任务编排新增构建产物保留策略：`.local-dev/builds/` 只保留最近 3 次运行的目录（含本次），任务结束即清理更早的历史目录，避免单次约 200 MB 的构建树无限堆积（本地实测曾累积到 4.0 GB / 43 个目录）
@@ -67,6 +71,7 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- Gateway SSE permit：建流前 `rateLimiter` / `quotaLimiter` / `orchestrator.prepareInitial` 未完成时客户端取消订阅只会触发 `doFinally(CANCEL)`，原实现在该路径泄漏 stream permit；新增 `StreamPermitLease` 三态所有权（外层 admission 链 → SSE body → released）显式移交并保证恰好一次释放，补三阶段取消回归，B04 流建立后外层完成不得提前释放的用例保持通过
 - 工作台缓存：缓存键加入调用者 ORG 权限集合的 SHA-256 指纹，修复同组织低权限成员命中高权限成员预热视图的跨权限读泄露
 - Gateway Redis 可靠性：`spring.data.redis.timeout=500ms` / `connect-timeout=1s`，Redis 已连接但慢响应/黑洞时在 Provider I/O 前有界 fail-closed；新增 blackhole 超时测试
 - 可观测性：`TraceIdFilter` 写入/清理 MDC 并校验入站 `X-Trace-Id`；导入失败最终化后发 `import.completed{result=FAILED}`（修复告警死链）；对象存储 STAT/UPLOAD 失败发 `dependency.error{OBJECT_STORAGE}`；Gateway Provider 标签补齐 `KILO_GATEWAY` / `OPENCODE_ZEN` / `CUSTOM_OPENAI_COMPATIBLE`

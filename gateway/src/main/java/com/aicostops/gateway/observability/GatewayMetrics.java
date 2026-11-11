@@ -75,6 +75,23 @@ public class GatewayMetrics {
                 com.aicostops.gateway.config.GatewayResourceLimiter::activeStreams);
     }
 
+    /**
+     * Bounded blocking-DB scheduler saturation. Active + queued are gauges on
+     * the scheduler bean; configured limits are exported once as constants so
+     * a load run can compute queue/thread pressure without guessing.
+     */
+    public void bindDbScheduler(
+            com.aicostops.gateway.config.GatewayBlockingIoScheduler scheduler) {
+        registry.gauge("gateway_db_active", scheduler,
+                com.aicostops.gateway.config.GatewayBlockingIoScheduler::activeTasks);
+        registry.gauge("gateway_db_queued", scheduler,
+                com.aicostops.gateway.config.GatewayBlockingIoScheduler::queuedTasks);
+        registry.gauge("gateway_db_threads_max", scheduler,
+                com.aicostops.gateway.config.GatewayBlockingIoScheduler::maxThreads);
+        registry.gauge("gateway_db_queue_capacity", scheduler,
+                com.aicostops.gateway.config.GatewayBlockingIoScheduler::queueCapacity);
+    }
+
     /** Outcome is a small fixed enum: COMPLETED, FAILED, TIMED_OUT, CANCELED, RATE_LIMITED, REJECTED, DEPENDENCY_UNAVAILABLE. */
     public void recordRequestOutcome(String outcome) {
         registry.counter("gateway_request_total", "outcome", bounded(outcome, REQUEST_OUTCOMES))

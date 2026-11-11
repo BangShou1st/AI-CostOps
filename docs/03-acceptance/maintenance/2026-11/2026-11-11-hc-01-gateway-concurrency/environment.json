@@ -1,0 +1,101 @@
+{
+  "capturedAt": "2026-11-11T08:53:24.628Z",
+  "git": {
+    "sha": "5ca7df839fa3340fec67c325ed08de6db687440c",
+    "branch": "perf/hc-01-gateway-load-baseline",
+    "dirty": false
+  },
+  "host": {
+    "hostname": "榜首",
+    "platform": "win32",
+    "release": "10.0.26200",
+    "arch": "x64",
+    "cpuModel": "Intel(R) Core(TM) i9-14900HX",
+    "cpuCores": 32,
+    "totalMemBytes": 16872955904,
+    "freeMemBytes": 818782208,
+    "dockerServer": "29.8.0",
+    "dockerMemBytes": 1995673600,
+    "node": "v24.14.0",
+    "java": "java version \"21.0.10\" 2026-01-20 LTS",
+    "python": "Python 3.13.0",
+    "gitSha": "5ca7df839fa3340fec67c325ed08de6db687440c",
+    "gitBranch": "perf/hc-01-gateway-load-baseline",
+    "gitDirty": false
+  },
+  "docker": {
+    "serverVersion": "29.8.0",
+    "vmMemBytes": 1995673600
+  },
+  "mysql": {
+    "version": "8.4.11",
+    "database": "aicostops_hc01",
+    "innodbBufferPoolBytes": 134217728,
+    "maxConnections": 151,
+    "innodbFlushLogAtTrxCommit": 1,
+    "syncBinlog": 1,
+    "innodbLockWaitTimeoutSec": 50,
+    "transactionIsolation": "REPEATABLE-READ"
+  },
+  "redis": {
+    "version": "8.8.1",
+    "mode": "standalone",
+    "os": "Linux 6.6.87.2-microsoft-standard-WSL2 x86_64"
+  },
+  "backend": {
+    "port": 18080,
+    "profile": "default (empty)",
+    "settlementPollInterval": "1s (test setting; product default 5s)",
+    "importWorkerEnabled": false,
+    "jvm": "java version \"21.0.10\" 2026-01-20 LTS"
+  },
+  "gateway": {
+    "ports": [
+      18081,
+      18082
+    ],
+    "processes": 2,
+    "profile": "default (empty)",
+    "dbThreads": 12,
+    "dbQueueCapacity": 256,
+    "dbPoolMax": 12,
+    "maxActiveStreams": 128,
+    "highRateLimit": {
+      "capacity": 500000,
+      "refillPerSecond": 50000,
+      "quotaPerDay": 100000000
+    },
+    "normalRateLimit": {
+      "capacity": 60,
+      "refillPerSecond": 1,
+      "quotaPerDay": 1000
+    }
+  },
+  "mockProvider": {
+    "port": 18089,
+    "modes": [
+      "ok",
+      "delay",
+      "slow-stream",
+      "disconnect",
+      "http500",
+      "timeout",
+      "hold"
+    ],
+    "usage": {
+      "promptTokens": 5,
+      "completionTokens": 3,
+      "totalTokens": 8
+    }
+  },
+  "loadClient": {
+    "runtime": "v24.14.0",
+    "model": "closed-loop fixed concurrency; success RPS = completed responses / measured window"
+  },
+  "limitsAndHonesty": [
+    "Docker VM memory is recorded above; MySQL buffer pool is small relative to production.",
+    "Load client and both Gateway JVMs share one physical host.",
+    "No external load balancer; the dual-instance client distributes VUs across ports.",
+    "No rate-limit protection was disabled; the isolated test used a raised threshold and the normal phase used product defaults."
+  ]
+}
