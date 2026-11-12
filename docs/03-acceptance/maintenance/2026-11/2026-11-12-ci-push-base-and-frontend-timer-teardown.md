@@ -9,7 +9,7 @@
 | 代码基线 | `dev` = `acbf6b7`（`main` = `75f02ea`） |
 | 关联分支 | `fix/ci-push-base-and-frontend-timer-teardown` |
 | 变更性质 | CI 比较基准修正 + 测试 teardown 加固；无业务代码、无 API、无 Flyway、无依赖变更 |
-| 总体判定 | 本地验证 **PASS**；远程 PR 检查项结果见 PR（合并前确认） |
+| 总体判定 | **PASS**（本地 + [PR #182](https://github.com/BangShou1st/AI-CostOps/pull/182) 全部检查项）；合并后 `docs_only` 短路由纯文档 push 复验 |
 
 ---
 
@@ -69,6 +69,19 @@
 
 远程 PR 检查项（`ci.yml` 新语义、完整 backend/gateway/frontend 套件）以 PR 页面为准；合并后另以一次
 纯文档 push 验证 `base: ${{ github.ref }}` 的 `docs_only` 短路。
+
+### 2.2 远程结果
+
+| 项 | 结果 |
+|---|---|
+| [PR #182](https://github.com/BangShou1st/AI-CostOps/pull/182) | 18 项检查全部 pass：`detect-changes`、`backend-unit`、`backend-integration` 两片、`gateway-unit`、`gateway-integration`、`frontend-quality`、`frontend-test`（3m17s）、`scripts-unit` 两个平台、`scripts-lifecycle`、`docker-build`、`browser-e2e`、`ci-status`、`trivy`、CodeQL 两项 |
+| 合并 | squash merge 为 `5ceec9a`，源分支已删除 |
+| 合并后文档 push | 见 §2.3（`docs_only` 短路复验） |
+
+### 2.3 `docs_only` 短路复验
+
+合并后本记录自身的更新以纯文档 push 提交；`detect-changes` 应只命中 `docs_only`，其余作业 skip，
+`ci-status` 在数秒内通过。实际 run 链接在本次 push 完成后补入。
 
 ---
 
