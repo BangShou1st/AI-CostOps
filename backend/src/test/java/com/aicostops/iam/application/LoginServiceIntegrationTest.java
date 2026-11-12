@@ -1,6 +1,10 @@
 package com.aicostops.iam.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 import com.aicostops.iam.infrastructure.JwtTokenService;
 import com.aicostops.shared.web.DomainException;
@@ -12,10 +16,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 @SpringBootTest(properties = {
         "aicostops.auth.allow-public-registration=true",
@@ -39,6 +46,9 @@ class LoginServiceIntegrationTest extends AuthenticationContainersSupport {
 
     @Autowired
     private StringRedisTemplate redis;
+
+    @MockitoSpyBean
+    private PasswordEncoder passwordEncoder;
 
     @BeforeEach
     void setUp() {
@@ -103,6 +113,35 @@ class LoginServiceIntegrationTest extends AuthenticationContainersSupport {
         assertThat(unknown.status()).isEqualTo(wrong.status()).isEqualTo(org.springframework.http.HttpStatus.UNAUTHORIZED);
         assertThat(unknown.code()).isEqualTo(wrong.code()).isEqualTo(ProblemCode.AUTH_INVALID_CREDENTIALS);
         assertThat(unknown.getMessage()).isEqualTo(wrong.getMessage());
+    }
+
+    /**
+     * Unknown emails must still pay for exactly one full bcrypt verification. Without it the
+     * 401 latency itself would disclose whether an email exists.
+     */
+    @Test
+    void unknownEmailStillRunsOneFullPasswordVerification() {
+        register("known-timing@auth.test");
+        clearInvocations(passwordEncoder);
+
+        var unknown = capture(new LoginCommand(
+                "unknown-timing@auth.test", "valid-password", "203.0.113.16", "browser"));
+        var wrong = capture(new LoginCommand(
+                "known-timing@auth.test", "wrong-password", "203.0.113.17", "browser"));
+
+        assertThat(unknown.status()).isEqualTo(wrong.status())
+                .isEqualTo(org.springframework.http.HttpStatus.UNAUTHORIZED);
+        assertThat(unknown.code()).isEqualTo(wrong.code()).isEqualTo(ProblemCode.AUTH_INVALID_CREDENTIALS);
+
+        var encodedPasswords = ArgumentCaptor.forClass(String.class);
+        verify(passwordEncoder, times(2)).matches(anyString(), encodedPasswords.capture());
+        var verifiedHashes = encodedPasswords.getAllValues();
+        assertThat(verifiedHashes)
+                .as("both failure modes must verify against a cost-10 bcrypt hash")
+                .allSatisfy(hash -> assertThat(hash).startsWith("{bcrypt}$2a$10$"));
+        assertThat(verifiedHashes.get(0))
+                .as("an unknown email must not verify against a stored account hash")
+                .isNotEqualTo(verifiedHashes.get(1));
     }
 
     @Test
