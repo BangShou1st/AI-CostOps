@@ -8,7 +8,7 @@
 | 缺陷来源 | [2026-11-12 深度代码审查](2026-11-12-deep-code-review.md) P2-10 / P2-11 / P2-13 / P2-14 / P2-15 / P3-03 / P3-04 |
 | 代码基线 | `dev` = `c6b2a6e`（`main` = `39560cc`） |
 | 关联分支 | `fix/b-gateway-fence`、`fix/b-pricing-routing`、`fix/b-reconciliation-expense` → 集成 `fix/remaining-b-backend` |
-| 关联 PR | 本批 PR（创建后回填编号） |
+| 关联 PR | [#186](https://github.com/BangShou1st/AI-CostOps/pull/186) |
 | 变更性质 | 维护期既有缺陷最小修复；无新功能、无 Flyway、无 API 契约、无财务语义变更 |
 | 总体判定 | **PASS（本地）**；远程 CI/Security 另行标注 |
 
