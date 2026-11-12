@@ -246,12 +246,48 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
         }
     }
 
+    @Test
+    void successfulFinalizationCompletesFromDispatchIntent() {
+        var request = insertDispatchIntentRequest("dispatch-intent");
+
+        var result = finalization.finalizeSuccess(request.requestId(), env.orgId(),
+                request.attemptId(), GatewayUsageObservation.providerFinal(5, 3, null, OBSERVED_AT))
+                .block();
+
+        assertThat(result.status()).isEqualTo(GatewayUsageStatus.FINAL);
+        assertThat(result.newlyPublished()).isTrue();
+        assertThat(jdbc.queryForObject("SELECT state FROM gateway_request WHERE id=?",
+                String.class, request.requestId())).isEqualTo("TRANSPORT_COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT status FROM gateway_route_attempt WHERE id=?",
+                String.class, request.attemptId())).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM gateway_usage_fact WHERE org_id=?",
+                Integer.class, env.orgId())).isOne();
+    }
+
+    @Test
+    void transportCompletionUpdateAcceptsDispatchIntentState() {
+        var request = insertDispatchIntentRequest("intent-map");
+
+        assertThat(requestMapper.markRequestTransportCompleted(request.requestId(), env.orgId()))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT state FROM gateway_request WHERE id=?",
+                String.class, request.requestId())).isEqualTo("TRANSPORT_COMPLETED");
+    }
+
     private GatewayUsageFinalizationService.FinalizationResult publish(Request request) {
         return finalization.finalizeSuccess(request.requestId(), env.orgId(), request.attemptId(),
                 GatewayUsageObservation.providerFinal(5, 3, null, OBSERVED_AT)).block();
     }
 
     private Request insertDispatchedRequest(String suffix) {
+        return insertRequest(suffix, "UPSTREAM_ACTIVE", "BILLABLE_POSSIBLE");
+    }
+
+    private Request insertDispatchIntentRequest(String suffix) {
+        return insertRequest(suffix, "DISPATCH_INTENT", "DISPATCH_INTENT");
+    }
+
+    private Request insertRequest(String suffix, String requestState, String attemptStatus) {
         env = GatewayTestFixture.seed(jdbc, "m13-final-" + suffix + System.nanoTime(), HMAC_KEY,
                 rawKey());
         jdbc.update("""
@@ -262,18 +298,19 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
                   billing_period_id,current_route_attempt_id,current_usage_fact_id,created_at,validated_at,
                   dispatch_intent_at,updated_at)
                 VALUES (?,?,?,'SERVICE',NULL,?,?,'PROJECT',?,?,'CHAT_COMPLETIONS',?,?,1,
-                  'UPSTREAM_ACTIVE',?,NULL,NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                  ?,?,NULL,NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, env.orgId(), "gwr_m13_" + suffix + System.nanoTime(), env.credentialId(),
                 env.serviceIdentityId(), env.projectId(), env.projectId(), env.modelId(),
-                digest(1), digest(2), env.periodId());
+                digest(1), digest(2), requestState, env.periodId());
         var requestId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         jdbc.update("""
                 INSERT INTO gateway_route_attempt(
                   org_id,request_id,attempt_no,route_decision_id,provider_account_id,provider_model_id,
                   pricing_version_id,status,created_at,dispatch_intent_at)
-                VALUES (?,?,1,?,?,?,?,'BILLABLE_POSSIBLE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                VALUES (?,?,1,?,?,?,?,?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, env.orgId(), requestId, "grd_m13_" + suffix + System.nanoTime(),
-                env.providerAccountId(), env.providerModelId(), env.pricingVersionId());
+                env.providerAccountId(), env.providerModelId(), env.pricingVersionId(),
+                attemptStatus);
         var attemptId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
                 attemptId, requestId);
