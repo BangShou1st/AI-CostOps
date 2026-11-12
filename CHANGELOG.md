@@ -80,6 +80,8 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- CI 变更检测（2026-11-12）：`dorny/paths-filter` 增加 `base: ${{ github.ref }}`，`dev` push 改为与同一分支上一提交比较，不再把“相对 `main` 的全部历史提交”计入；纯文档 push 重新走 `docs_only` 短路，`pull_request` 行为不变
+- 前端测试 teardown（2026-11-12）：Vitest 全局 `afterEach` 增加 20ms 收敛窗口（fake timers 先切回真实计时器），避免 antd `useDelayState` 的 0/10ms 定时器在 jsdom 销毁后触发、以 unhandled `window is not defined` 判整文件失败（CI 43140181777 的 `frontend-test`）
 - 生产配置校验（审查 P1-01）：`prod` 校验器此前只要求 JWT ≥ 32 字符、storage 非空，`.env.example` 的 64 字符公开签名密钥与 `aicostops`/`change-me-local-only` 存储凭据可通过启动；现拒绝 `local-development-only-signing-key` 前缀与两个存储默认值（对称、空值仍拒绝），错误信息只报环境变量名；新增 3 个“解析结果等于示例值”用例（先红后绿）
 - CI 集成测试选择（审查 P1-02）：删除 workflow 内联枚举与 `-DfailIfNoSpecifiedTests=false`，改由 `scripts/ci/select-integration-tests.mjs` 枚举/分片并显式失败，Maven 使用 `-DfailIfNoTests=true`；当前 199 个 `*IntegrationTest.java` 的分片 100/99 与旧规则逐项一致，空目录/空分片退出码 1。2026-11-12 推送 `dev` 后远程日志确认 `Selected 100 / Selected 99`（[run 43137592677](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592677)）
 - 合并门禁（审查 P1-03，仓库内部分）：`docs_only` 现在同时要求 code 过滤器未命中；`ci-status` 对“过滤器命中却 skipped”与“非 docs-only 且无任何业务区域运行”判失败，`main` push 上强制运行的作业 skip 即失败；新增 `.github/CODEOWNERS` 覆盖 `.github/**`、`.trivyignore`、`compose*.yaml`、`deploy/`、`.env.example`。branch protection / ruleset 仍 `NOT_VERIFIED`。2026-11-12 远程 CI 14/14（`ci-status` 输出 `docs_only=false`）与 Security 3/3 已通过（[CI](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592677)、[Security](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592638)）；`dorny/paths-filter` 未设 `base` 时 `dev` push 按 `main` 比较，纯文档 push 仍跑全量（成本问题，非门禁漏洞）
