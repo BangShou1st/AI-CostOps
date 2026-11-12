@@ -256,10 +256,18 @@ public interface GatewayRequestMapper {
             """)
     int markRequestUpstreamActive(@Param("requestId") long requestId, @Param("orgId") long orgId);
 
+    /**
+     * Successful transport convergence. A request may still be DISPATCH_INTENT
+     * when the beginUpstream transition was not persisted but the upstream call
+     * did return; the success evidence is authoritative, so both post-dispatch
+     * states converge instead of rolling back an already determined usage fact.
+     * {@link #markAttemptCompleted} accepts the same two states.
+     */
     @Update("""
             UPDATE gateway_request
             SET state='TRANSPORT_COMPLETED', terminal_at=UTC_TIMESTAMP(6), updated_at=UTC_TIMESTAMP(6)
-            WHERE id=#{requestId} AND org_id=#{orgId} AND state='UPSTREAM_ACTIVE'
+            WHERE id=#{requestId} AND org_id=#{orgId}
+              AND state IN ('DISPATCH_INTENT','UPSTREAM_ACTIVE')
             """)
     int markRequestTransportCompleted(@Param("requestId") long requestId, @Param("orgId") long orgId);
 

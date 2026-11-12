@@ -11,6 +11,8 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- 剩余 P2/P3 后端修复记录（批次 B，`docs/03-acceptance/maintenance/2026-11/2026-11-12-remaining-p2-p3-backend.md`）：P2-10 授权前置段抽公共、P2-11 成功终结谓词放宽、P2-13 定价维度去重/版本串行化/409、P2-14 路由候选批量查询、P2-15 僵尸对账 run 收敛、P3-03/P3-04 死代码删除；含逐项 before/after、红/绿证据、`NOT_VERIFIED` 与影响边界
+- 对账僵尸 run 回收：`ReconciliationRunRecoveryScheduler`（默认启动后 30s 首扫、5m 间隔、30m 超时、100 条/批，可经 `AICOSTOPS_RECONCILIATION_*` 覆盖）与 `ReconciliationRunService.failStaleRunningRuns`；测试默认关闭 sweep
 - 剩余 P2/P3 低风险清理记录（批次 A，`docs/03-acceptance/maintenance/2026-11/2026-11-12-remaining-p2-p3-cleanup.md`）：P2-03 dev Compose 回环绑定、P2-04 HC-01 Redis 容器归属校验、P2-05 CodeQL 覆盖 `scripts/`、P2-19 前端依赖声明、P3-02 `percentOf` 正则、P3-05 分摊编辑器金额兜底、P3-06 死代码与幽灵权限码；含逐项 before/after、红/绿证据、`NOT_VERIFIED` 与影响边界
 - 导航权限目录一致性测试：`scripts/tests/nav-permission-catalog.test.mjs`，从全部 Flyway 迁移解析 `permission` 种子，断言前端导航的每个 `readPermission` 都存在于 `/permissions` 的数据来源；HC-01 Redis 所有权测试 `scripts/tests/hc01-ownership.test.mjs`
 - 维护期 P1 加固与 P2 口径修复记录（`docs/03-acceptance/maintenance/2026-11/2026-11-12-p1-hardening-fixes.md`）：P1-01 生产默认密钥拒绝、P1-02 集成测试选择 fail-closed、P1-03 `ci-status` skip 语义与 CODEOWNERS、P1-04 登出失败本地清理、P2-09 Gateway 指标口径、P2-20 数值 id 排序；含逐项 before/after、本地验证输出、`NOT_VERIFIED` 与影响边界
@@ -82,6 +84,12 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- Gateway 成功终结（审查 P2-11）：`markRequestTransportCompleted` 的谓词从只允许 `UPSTREAM_ACTIVE` 放宽为 `DISPATCH_INTENT` / `UPSTREAM_ACTIVE`，与成功终结 guard 及 attempt 侧 `markAttemptCompleted` 一致；避免 `beginUpstream` 未持久化但上游已返回时 0 行更新导致整个成功终结事务（含用量事实）回滚。定向 `GatewayUsageFinalizationIntegrationTest` 9/9
+- 仅测试派发入口（审查 P2-10）：`GatewayRequestService` 抽出生产/测试共用的 `authorizePrelude`（身份、模型白名单、打开账期、VALIDATED 请求收敛），`authorizeAndFence` 显式标注 test-only legacy single-candidate path，生产统一走 `GatewayRequestOrchestrator.prepareInitial`
+- 定价创建（审查 P2-13）：重复 `dimensionCode` 在任何写入前返回 400；事务内先锁 organization 行再分配 `MAX(version)+1`；`DuplicateKeyException` 映射为 409 `STATE_CONFLICT` 可重试，不再 500；未实现维度覆盖校验（建议在 activate 时补）
+- 路由策略列表（审查 P2-14）：`list` 改为一次 `findCandidatesByPolicyIds` 批量查询并在内存分组，消除每行一次 `findCandidates` 的 N+1
+- 对账 run 僵尸 `RUNNING`（审查 P2-15）：新增启动 + 定时收敛（行锁 + 状态 CAS + `RECONCILIATION_RUN_ABANDONED` + 审计 + 指标），崩溃进程遗留的活跃 run 不再永久非零；未改 Workbench/close blocker 读侧
+- 死代码（审查 P3-03/P3-04）：删除 `ExpenseIdempotency.OPERATION_RESUBMIT` / `resubmitRequestHash` 与 `InitialCandidateResult.skipped()`，全仓确认 0 引用
 - dev 基础设施端口暴露（审查 P2-03）：`compose.dev.yaml` 的 MySQL / Redis / MinIO 端口补 `127.0.0.1:` 前缀，与生产 / M16 overlay 对齐，同网段主机不再能直连财务库 / Redis / MinIO 控制台
 - HC-01 Redis 容器归属（审查 P2-04）：`scripts/perf/hc01/runner.mjs` 不再无条件 `docker rm -f ai-costops-hc01-redis`；创建时打 `aicostops.hc01.owner/run/resource` label（owner 每次 run 唯一），删除前 `docker inspect` 校验，无 label / 他人 owner / 仅 HC-03 label 一律拒绝并给出人工命令；HC-03 所有权决策仅做向后兼容的 `labelKey`/`harness` 参数扩展
 - 前端依赖声明（审查 P2-19）：显式声明 `dayjs@1.11.21`（此前仅靠 antd 传递依赖 hoist），删除零引用 `echarts@6.1.0` 及只被它使用的 `zrender` / `tslib`；同步 `AGENTS.md` / `README.md` 技术栈描述

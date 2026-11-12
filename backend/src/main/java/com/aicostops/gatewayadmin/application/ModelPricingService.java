@@ -8,9 +8,11 @@ import com.aicostops.shared.json.ApiId;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -95,19 +97,45 @@ public class ModelPricingService {
             throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
                     "Pricing interval is invalid", "effectiveTo must be after effectiveFrom.");
         }
-        if (!DIMENSIONS.containsAll(request.rates().stream().map(r -> r.dimensionCode().toUpperCase(Locale.ROOT)).toList())) {
+        var normalizedDimensions = new LinkedHashSet<String>();
+        var duplicateDimensions = new LinkedHashSet<String>();
+        for (ControlPlaneDtos.PricingRateInput rate : request.rates()) {
+            var dimensionCode = rate.dimensionCode().toUpperCase(Locale.ROOT);
+            if (!normalizedDimensions.add(dimensionCode)) {
+                duplicateDimensions.add(dimensionCode);
+            }
+        }
+        if (!duplicateDimensions.isEmpty()) {
+            throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
+                    "Pricing dimension is duplicated",
+                    "Duplicate pricing dimensions: " + String.join(", ", duplicateDimensions) + ".");
+        }
+        if (!DIMENSIONS.containsAll(normalizedDimensions)) {
             throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
                     "Pricing dimension is invalid",
                     "Supported dimensions: INPUT_TOKEN, OUTPUT_TOKEN, CACHED_INPUT_TOKEN, REQUEST.");
         }
 
+        // Serialize version allocation per organization: lock order is
+        // organization -> MAX(version) -> pricing_version -> pricing_rate.
+        if (mapper.lockOrganization(orgId) == null) {
+            throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
+                    "Resource not found", "The resource is not available at the granted scope.");
+        }
         int version = mapper.selectMaxPricingVersion(orgId, request.providerAccountId(), request.providerModelId()) + 1;
-        mapper.insertPricingVersion(orgId, request.providerAccountId(), request.providerModelId(),
-                version, request.currency().toUpperCase(Locale.ROOT), request.effectiveFrom(), request.effectiveTo());
-        long pricingVersionId = mapper.lastInsertId();
-        for (ControlPlaneDtos.PricingRateInput rate : request.rates()) {
-            mapper.insertPricingRate(orgId, pricingVersionId,
-                    rate.dimensionCode().toUpperCase(Locale.ROOT), rate.unitQuantity(), rate.unitPrice());
+        long pricingVersionId;
+        try {
+            mapper.insertPricingVersion(orgId, request.providerAccountId(), request.providerModelId(),
+                    version, request.currency().toUpperCase(Locale.ROOT), request.effectiveFrom(), request.effectiveTo());
+            pricingVersionId = mapper.lastInsertId();
+            for (ControlPlaneDtos.PricingRateInput rate : request.rates()) {
+                mapper.insertPricingRate(orgId, pricingVersionId,
+                        rate.dimensionCode().toUpperCase(Locale.ROOT), rate.unitQuantity(), rate.unitPrice());
+            }
+        } catch (DuplicateKeyException concurrentVersion) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Pricing version conflict",
+                    "A concurrent pricing version was created for this scope; retry the create.");
         }
         audit.pricingVersionCreated(orgId, user.userId(), pricingVersionId,
                 request.providerAccountId(), request.providerModelId(), version,

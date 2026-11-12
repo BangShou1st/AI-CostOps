@@ -345,3 +345,27 @@ P3-06 的 `AuthPages.tsx:47-50` 在 P1-04 修复后位移到 48-52，属正常�
 
 **未处置**：本批只做上述 7 项。P2-01/02/06/07/08/10/11/12/13/14/15/16/17/18/21/22 与
 P3-01/03/04 保持原状，留待批次 B/C。
+
+---
+
+## 11. 处置记录（第三批：批次 B 后端修复，2026-11-12 追加）
+
+> 本节只追加处置结果，不改写上方原始发现、证据与结论。逐项 before/after、红/绿输出、`NOT_VERIFIED`
+> 与影响边界见 [2026-11-12 剩余 P2/P3 后端修复（批次 B）](2026-11-12-remaining-p2-p3-backend.md)。
+
+| 发现 | 处置 | 证据摘要 |
+|---|---|---|
+| P2-10 仅测试的授权/派发路径 | **FIXED** | 抽出 `authorizePrelude`（身份/模型/账期/请求收敛）供两条路径共用；`authorizeAndFence` Javadoc 标注 test-only；3 个定向集成测试 5+3+12 全过。test-only 路径“无路由 + 无账期”同时出现时错误码由 403 变 503（生产路径不变） |
+| P2-11 成功终结 `DISPATCH_INTENT` 矛盾 | **FIXED** | 选择“放宽 SQL”：`markRequestTransportCompleted` 接受 `DISPATCH_INTENT` / `UPSTREAM_ACTIVE`，与 guard 及 attempt 侧一致；旧 SQL 下新用例 `2 errors`（`got 0`），修复后 9/9 |
+| P2-13 定价创建维度/版本/409 | **FIXED** | 重复维度任何写入前 400（旧实现 500 → 新 15/15）；organization 行锁后分配版本；`DuplicateKeyException` → 409；维度覆盖校验按审查要求只给建议（activate 时校验 INPUT/OUTPUT）。并发双击仍可能得到 409（可重试契约），未做并发压测 |
+| P2-14 路由策略列表 N+1 | **FIXED** | 新增 `findCandidatesByPolicyIds` 一次批量查询 + 内存分组；Mockito 断言批量查询 1 次、单条查询 0 次；真实 MySQL 列表集成测试 1/1 |
+| P2-15 僵尸 `RUNNING` 对账 run | **FIXED** | 选择“启动 + 定时收敛”：行锁 + 状态 CAS + `RECONCILIATION_RUN_ABANDONED` + 审计 + 指标；默认 30s 首扫 / 5m 间隔 / 30m 超时；测试默认关闭。新增集成测试先红（方法不存在）后绿 1/1 |
+| P3-03 `EXPENSE_RESUBMIT` 死代码 | **FIXED** | 删除常量与 `resubmitRequestHash`；全仓 0 引用 |
+| P3-04 `InitialCandidateResult.skipped()` | **FIXED** | 删除方法；`NextCandidateResult.skipped()` 保留 |
+
+**报告更正**：本批未发现审查报告与代码的事实冲突，无需更正。两项处置选择均在审查建议范围内：
+P2-10 采用“抽公共段 + 显式标注仅测试入口”；P2-11 采用“放宽 SQL 谓词”，理由为成功证据存在时
+`DISPATCH_INTENT` 应能收敛为 `TRANSPORT_COMPLETED`，与 attempt 侧谓词一致。
+
+**未处置**：批次 B 只做上述 7 项。P2-01/02/06/07/08/12/16/17/18/21/22 与 P3-01 留待批次 C
+（需要先拍板的方案项）。

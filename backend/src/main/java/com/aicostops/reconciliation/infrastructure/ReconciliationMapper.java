@@ -14,6 +14,10 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface ReconciliationMapper {
 
+    record StaleRunningRun(long id, long orgId, long billingPeriodId, long createdByMemberId,
+            Instant startedAt, Long userId) {
+    }
+
     String RUN_COLUMNS = """
             rr.id,rr.org_id,rr.billing_period_id,rr.status,rr.algorithm_version,
             rr.tolerance_amount,rr.basis_hash,rr.summary_json,rr.created_by_member_id,
@@ -119,6 +123,20 @@ public interface ReconciliationMapper {
             @Param("summaryJson") String summaryJson,
             @Param("finishedAt") Instant finishedAt,
             @Param("updatedAt") Instant updatedAt);
+
+    @Select("""
+            SELECT rr.id,rr.org_id,rr.billing_period_id,rr.created_by_member_id,
+                   rr.started_at,om.user_id
+            FROM reconciliation_run rr
+            LEFT JOIN organization_member om
+              ON om.id=rr.created_by_member_id AND om.org_id=rr.org_id
+            WHERE rr.status='RUNNING' AND rr.started_at < #{cutoff}
+            ORDER BY rr.started_at,rr.id
+            LIMIT #{limit}
+            """)
+    List<StaleRunningRun> selectStaleRunningRuns(
+            @Param("cutoff") Instant cutoff,
+            @Param("limit") int limit);
 
     @Update("""
             UPDATE reconciliation_run

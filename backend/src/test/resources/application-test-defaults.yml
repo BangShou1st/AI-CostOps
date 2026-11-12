@@ -9,6 +9,11 @@ aicostops:
   gateway:
     settlement:
       worker-enabled: false
+  reconciliation:
+    # Test default: the stale-run sweep stays off so the shared Testcontainer
+    # database is not mutated by a background scheduler between fixtures.
+    # Recovery tests call the service directly.
+    stale-run-recovery-enabled: false
 
 spring:
   data:

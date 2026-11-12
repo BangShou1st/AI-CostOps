@@ -23,7 +23,6 @@ public final class ExpenseIdempotency {
 
     public static final String OPERATION_CREATE = "EXPENSE_CREATE";
     public static final String OPERATION_SUBMIT = "EXPENSE_SUBMIT";
-    public static final String OPERATION_RESUBMIT = "EXPENSE_RESUBMIT";
     public static final String OPERATION_CANCEL = "EXPENSE_CANCEL";
     public static final String OPERATION_REQUEST_INFO = "EXPENSE_REQUEST_INFO";
     public static final String OPERATION_APPROVE = "EXPENSE_APPROVE";
@@ -60,16 +59,6 @@ public final class ExpenseIdempotency {
     public String submitRequestHash(long organizationId, long actorMemberId, long expenseId,
             long expectedVersion) {
         var canonical = "operation=" + OPERATION_SUBMIT
-                + "\norgId=" + organizationId
-                + "\nactorMemberId=" + actorMemberId
-                + "\nexpenseId=" + expenseId
-                + "\nexpectedVersion=" + expectedVersion;
-        return sha256Hex(canonical);
-    }
-
-    public String resubmitRequestHash(long organizationId, long actorMemberId, long expenseId,
-            long expectedVersion) {
-        var canonical = "operation=" + OPERATION_RESUBMIT
                 + "\norgId=" + organizationId
                 + "\nactorMemberId=" + actorMemberId
                 + "\nexpenseId=" + expenseId
