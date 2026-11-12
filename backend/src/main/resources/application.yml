@@ -126,6 +126,14 @@ aicostops:
     dev-bootstrap-email: ${AICOSTOPS_DEV_BOOTSTRAP_EMAIL:admin@example.test}
     dev-bootstrap-display-name: ${AICOSTOPS_DEV_BOOTSTRAP_DISPLAY_NAME:AI CostOps Local Admin}
     dev-bootstrap-password: ${AICOSTOPS_DEV_BOOTSTRAP_PASSWORD:}
+  reconciliation:
+    # A crashed process leaves its RUNNING run behind; the bounded sweep marks
+    # it FAILED once it outlives the timeout so active-run checks converge.
+    stale-run-recovery-enabled: ${AICOSTOPS_RECONCILIATION_STALE_RUN_RECOVERY_ENABLED:true}
+    stale-run-timeout: ${AICOSTOPS_RECONCILIATION_STALE_RUN_TIMEOUT:30m}
+    stale-run-sweep-interval: ${AICOSTOPS_RECONCILIATION_STALE_RUN_SWEEP_INTERVAL:5m}
+    stale-run-sweep-initial-delay: ${AICOSTOPS_RECONCILIATION_STALE_RUN_SWEEP_INITIAL_DELAY:30s}
+    stale-run-sweep-batch-size: ${AICOSTOPS_RECONCILIATION_STALE_RUN_SWEEP_BATCH_SIZE:100}
 
 # Correlation id is placed in MDC by TraceIdFilter; the correlation pattern
 # appends it to every log line without replacing the console format.
