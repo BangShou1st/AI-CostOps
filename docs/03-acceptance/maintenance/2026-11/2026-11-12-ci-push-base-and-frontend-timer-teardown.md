@@ -80,8 +80,17 @@
 
 ### 2.3 `docs_only` 短路复验
 
-合并后本记录自身的更新以纯文档 push 提交；`detect-changes` 应只命中 `docs_only`，其余作业 skip，
-`ci-status` 在数秒内通过。实际 run 链接在本次 push 完成后补入。
+合并后本记录自身的更新以纯文档 push `fe26a79` 提交，结果：
+
+| 证据 | 值 |
+|---|---|
+| run | [CI 43145593559](https://github.com/BangShou1st/AI-CostOps/actions/runs/43145593559) |
+| `detect-changes` | `Detected 1 changed files`（修复前同一类 push 为 26 个） |
+| `ci-status` | `All required checks passed (docs_only=true)` |
+| 墙钟 | 44s（修复前同类 push 约 6 分钟） |
+
+注：合并提交本身的 push run（43145519872）被 `concurrency.cancel-in-progress` 取消——dev 分支连续
+push 的既有行为，与本次改动无关。
 
 ---
 
