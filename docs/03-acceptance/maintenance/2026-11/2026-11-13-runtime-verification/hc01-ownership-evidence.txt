@@ -1,0 +1,192 @@
+HC-01 Redis ownership real-Docker probe
+timestamp: 2026-11-12T09:16:46.070Z
+container: ai-costops-hc01-redis
+image: redis:8.8.1-alpine
+probe owner: hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9
+probe run nonce: probe-1794475006067-9bd7a3
+node: v24.14.0
+$ docker version --format {{.Server.Version}}
+  exit=0
+  stdout: 29.8.0
+
+===== Initial safety guard =====
+$ docker inspect --format '{{json .Config.Labels}}' ai-costops-hc01-redis
+  exit=1
+  stderr: error: no such object: ai-costops-hc01-redis
+  normalized labels: <container absent>
+PASS initial fixed-name container is absent
+
+===== Scenario A: unlabeled foreign container is refused and preserved =====
+  labels: <none>
+$ docker run -d --name ai-costops-hc01-redis redis:8.8.1-alpine
+  exit=0
+  stdout: 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+  created unlabeled container: 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+$ docker inspect --format '{{json .Config.Labels}}' ai-costops-hc01-redis
+  exit=0
+  stdout: {}
+  normalized labels (null -> {}): {}
+ASSERT A container exists and labels were read: actual=true expected=true
+PASS A container exists and labels were read
+A decision: {"allow":false,"reason":"UNLABELED_RESOURCE","message":"Refusing to delete HC-01 container ai-costops-hc01-redis: expected owner hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9, found no owner label. Inspect it with `docker inspect ai-costops-hc01-redis`; if it is safe to remove, run `docker rm -f ai-costops-hc01-redis` explicitly.","manualCommand":"docker rm -f ai-costops-hc01-redis"}
+ASSERT A allow: actual=false expected=false
+PASS A allow
+ASSERT A reason: actual="UNLABELED_RESOURCE" expected="UNLABELED_RESOURCE"
+PASS A reason
+$ docker inspect --format {{.Id}} 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+  exit=0
+  stdout: 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+ASSERT A container still exists after refusal: actual=true expected=true
+PASS A container still exists after refusal
+$ docker inspect --format {{.Id}} ai-costops-hc01-redis
+  exit=0
+  stdout: 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+ASSERT A fixed-name container still exists after refusal: actual=true expected=true
+PASS A fixed-name container still exists after refusal
+Removing scenario A test container by exact container ID: 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+$ docker rm -f 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+  exit=0
+  stdout: 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+$ docker inspect --format {{.Id}} 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+  exit=1
+  stderr: error: no such object: 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6
+ASSERT scenario A test container removed: actual=false expected=false
+PASS scenario A test container removed
+
+===== Scenario B: foreign-owner labeled container is refused and preserved =====
+  labels: {"aicostops.hc01.owner":"foreign-owner","aicostops.hc01.run":"foreign-run","aicostops.hc01.resource":"redis"}
+$ docker run -d --name ai-costops-hc01-redis --label aicostops.hc01.owner=foreign-owner --label aicostops.hc01.run=foreign-run --label aicostops.hc01.resource=redis redis:8.8.1-alpine
+  exit=0
+  stdout: 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+  created foreign-owner container: 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+$ docker inspect --format '{{json .Config.Labels}}' ai-costops-hc01-redis
+  exit=0
+  stdout: {"aicostops.hc01.owner":"foreign-owner","aicostops.hc01.resource":"redis","aicostops.hc01.run":"foreign-run"}
+  normalized labels (null -> {}): {"aicostops.hc01.owner":"foreign-owner","aicostops.hc01.resource":"redis","aicostops.hc01.run":"foreign-run"}
+ASSERT B observed owner label: actual="foreign-owner" expected="foreign-owner"
+PASS B observed owner label
+B decision: {"allow":false,"reason":"OWNER_MISMATCH","message":"Refusing to delete HC-01 container ai-costops-hc01-redis: expected owner hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9, found foreign-owner. Inspect it with `docker inspect ai-costops-hc01-redis`; if it is safe to remove, run `docker rm -f ai-costops-hc01-redis` explicitly.","manualCommand":"docker rm -f ai-costops-hc01-redis"}
+ASSERT B allow: actual=false expected=false
+PASS B allow
+ASSERT B reason: actual="OWNER_MISMATCH" expected="OWNER_MISMATCH"
+PASS B reason
+$ docker inspect --format {{.Id}} 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+  exit=0
+  stdout: 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+ASSERT B container still exists after refusal: actual=true expected=true
+PASS B container still exists after refusal
+$ docker inspect --format {{.Id}} ai-costops-hc01-redis
+  exit=0
+  stdout: 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+ASSERT B fixed-name container still exists after refusal: actual=true expected=true
+PASS B fixed-name container still exists after refusal
+Removing scenario B test container by exact container ID: 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+$ docker rm -f 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+  exit=0
+  stdout: 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+$ docker inspect --format {{.Id}} 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+  exit=1
+  stderr: error: no such object: 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630
+ASSERT scenario B test container removed: actual=false expected=false
+PASS scenario B test container removed
+
+===== Scenario C: probe-owned container is authorized and removed like delete =====
+  labels: {"aicostops.hc01.owner":"hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9","aicostops.hc01.run":"probe-1794475006067-9bd7a3","aicostops.hc01.resource":"redis"}
+$ docker run -d --name ai-costops-hc01-redis --label aicostops.hc01.owner=hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9 --label aicostops.hc01.run=probe-1794475006067-9bd7a3 --label aicostops.hc01.resource=redis redis:8.8.1-alpine
+  exit=0
+  stdout: a980130c9c4707d35bbdac8b948e4cadc0eb222fd0b41cd1e9816cd094daf14d
+  created probe-owned container: a980130c9c4707d35bbdac8b948e4cadc0eb222fd0b41cd1e9816cd094daf14d
+$ docker inspect --format '{{json .Config.Labels}}' ai-costops-hc01-redis
+  exit=0
+  stdout: {"aicostops.hc01.owner":"hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9","aicostops.hc01.resource":"redis","aicostops.hc01.run":"probe-1794475006067-9bd7a3"}
+  normalized labels (null -> {}): {"aicostops.hc01.owner":"hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9","aicostops.hc01.resource":"redis","aicostops.hc01.run":"probe-1794475006067-9bd7a3"}
+ASSERT C observed owner label: actual="hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9" expected="hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9"
+PASS C observed owner label
+ASSERT C observed run label: actual="probe-1794475006067-9bd7a3" expected="probe-1794475006067-9bd7a3"
+PASS C observed run label
+ASSERT C observed resource label: actual="redis" expected="redis"
+PASS C observed resource label
+C decision: {"allow":true}
+ASSERT C allow: actual=true expected=true
+PASS C allow
+Executing runner removeRedis semantics: docker rm -f by fixed name after allow=true
+$ docker rm -f ai-costops-hc01-redis
+  exit=0
+  stdout: ai-costops-hc01-redis
+$ docker inspect --format '{{json .Config.Labels}}' ai-costops-hc01-redis
+  exit=1
+  stderr: error: no such object: ai-costops-hc01-redis
+  normalized labels: <container absent>
+ASSERT C fixed-name container removed: actual=null expected=null
+PASS C fixed-name container removed
+$ docker inspect --format {{.Id}} a980130c9c4707d35bbdac8b948e4cadc0eb222fd0b41cd1e9816cd094daf14d
+  exit=1
+  stderr: error: no such object: a980130c9c4707d35bbdac8b948e4cadc0eb222fd0b41cd1e9816cd094daf14d
+ASSERT C container ID removed: actual=false expected=false
+PASS C container ID removed
+
+===== Additional check: HC-03 owner labels do not authorize HC-01 removal =====
+  labels: {"aicostops.hc03.owner":"hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9","aicostops.hc03.run":"probe-1794475006067-9bd7a3","aicostops.hc03.resource":"redis"}
+$ docker run -d --name ai-costops-hc01-redis --label aicostops.hc03.owner=hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9 --label aicostops.hc03.run=probe-1794475006067-9bd7a3 --label aicostops.hc03.resource=redis redis:8.8.1-alpine
+  exit=0
+  stdout: 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+  created HC-03-labeled container: 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+$ docker inspect --format '{{json .Config.Labels}}' ai-costops-hc01-redis
+  exit=0
+  stdout: {"aicostops.hc03.owner":"hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9","aicostops.hc03.resource":"redis","aicostops.hc03.run":"probe-1794475006067-9bd7a3"}
+  normalized labels (null -> {}): {"aicostops.hc03.owner":"hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9","aicostops.hc03.resource":"redis","aicostops.hc03.run":"probe-1794475006067-9bd7a3"}
+HC-03 namespace decision: {"allow":false,"reason":"UNLABELED_RESOURCE","message":"Refusing to delete HC-01 container ai-costops-hc01-redis: expected owner hc01-owner-probe-1794475006067-9bd7a3-1ecb67d9, found no owner label. Inspect it with `docker inspect ai-costops-hc01-redis`; if it is safe to remove, run `docker rm -f ai-costops-hc01-redis` explicitly.","manualCommand":"docker rm -f ai-costops-hc01-redis"}
+ASSERT HC-03 allow: actual=false expected=false
+PASS HC-03 allow
+ASSERT HC-03 reason: actual="UNLABELED_RESOURCE" expected="UNLABELED_RESOURCE"
+PASS HC-03 reason
+$ docker inspect --format {{.Id}} 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+  exit=0
+  stdout: 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+ASSERT HC-03-labeled container still exists after refusal: actual=true expected=true
+PASS HC-03-labeled container still exists after refusal
+Removing HC-03-labeled test container by exact container ID: 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+$ docker rm -f 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+  exit=0
+  stdout: 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+$ docker inspect --format {{.Id}} 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+  exit=1
+  stderr: error: no such object: 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38
+ASSERT HC-03-labeled test container removed: actual=false expected=false
+PASS HC-03-labeled test container removed
+
+===== Cleanup =====
+cleanup: 718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6 already removed during its scenario
+cleanup: 19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630 already removed during its scenario
+cleanup: a980130c9c4707d35bbdac8b948e4cadc0eb222fd0b41cd1e9816cd094daf14d already removed during its scenario
+cleanup: 37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38 already removed during its scenario
+$ docker inspect --format '{{json .Config.Labels}}' ai-costops-hc01-redis
+  exit=1
+  stderr: error: no such object: ai-costops-hc01-redis
+  normalized labels: <container absent>
+PASS no residual fixed-name container
+
+===== Summary =====
+created IDs: ["718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6","19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630","a980130c9c4707d35bbdac8b948e4cadc0eb222fd0b41cd1e9816cd094daf14d","37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38"]
+removed IDs: ["718f7ec1efe07de29e3f9a31846d2afd9ceb920affa7294941e50ccc71a4c3f6","19b92229dc52ebfe226f4aa1eb3b0e28fbd7686cdddbd51c0b5a0017c7ca9630","a980130c9c4707d35bbdac8b948e4cadc0eb222fd0b41cd1e9816cd094daf14d","37e90e135c98fe4cfc65f1ea4450482fb8249945c341e51e401bedcc50526b38"]
+RESULT: PASS
+
+===== Baseline script tests =====
+timestamp: 2026-11-12T17:16:55+08:00
+environment: Node v24.14.0, npm 11.x, Docker server 29.8.0
+
+$ npm run test:scripts   # first run
+RESULT: tests 54, pass 53, fail 1
+FAIL: scripts/tests/processes.test.mjs:40
+      Windows background batch keeps owned console windows hidden
+      SyntaxError: Unexpected end of JSON input
+      at waitForFile (scripts/tests/helpers.mjs:32)
+
+$ node --test --test-name-pattern 'Windows background batch keeps owned console windows hidden' scripts/tests/processes.test.mjs
+RESULT: tests 1, pass 1, fail 0
+
+$ node --test scripts/tests/hc01-ownership.test.mjs
+RESULT: tests 6, pass 6, fail 0
+
+$ npm run test:scripts   # verification rerun
+RESULT: tests 54, pass 54, fail 0, duration_ms 8611.5738

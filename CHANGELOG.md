@@ -8,7 +8,12 @@
 
 ## [Unreleased]
 
-暂无未发布变更。
+### Added
+- 运行期专项验收报告（`docs/03-acceptance/maintenance/2026-11/2026-11-13-runtime-verification.md`）：HC-01 Redis 归属生命周期、Edge UTC 展示与证据下载、对账僵尸 `RUNNING` 回收 PASS；保留修复前 `prod` 构造器装配失败与微小费率 `1E-8` / `—` 的 FAIL 证据，并记录修复后复核。
+
+### Fixed
+- `prod` profile 无法启动：为 `ProductionConfigurationValidator(Environment)` 显式加 `@Autowired`，真实 prod 配置 8/8 case PASS（1-5/8 正确 fail-fast，6/7 启动并保持运行）。
+- 微小定价费率：新增 `Scale8DecimalSerializer`，`PricingRateResponse.unitPrice` 以 `setScale(8).toPlainString()` 输出；`0.00000001` 在 API 与 Edge 页面均精确显示，新增 serializer 与集成回归测试。
 
 ## [3.1.1] - 2026-11-12
 

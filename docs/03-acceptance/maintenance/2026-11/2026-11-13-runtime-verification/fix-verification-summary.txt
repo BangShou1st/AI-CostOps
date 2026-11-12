@@ -1,0 +1,22 @@
+修复复核证据摘要（2026-11-12）
+
+DEF-RT-01 / P2-02
+- ProductionConfigurationValidator 的 Environment 构造器增加 @Autowired。
+- ProductionConfigurationValidatorTest: 33/33 passed（含 Spring 构造器选择回归）。
+- 真实 prod profile 8 case 重跑：8/8 PASS。
+  - case 1-5/8: fail-fast，原因匹配，wiring=False。
+  - case 6/7: Started AiCostOpsApplication，保持运行至主动停止，wiring=False。
+- 证据: prod-config-cases-after-fix.csv / prod-config-after-fix.json。
+
+DEF-RT-02 / P2-12
+- 新增 Scale8DecimalSerializer: BigDecimal.setScale(8, UNNECESSARY).toPlainString()。
+- PricingRateResponseSerializationTest: 2/2 passed。
+- ModelPricingApiIntegrationTest: 17/17 passed（含 0.00000001 / 0.00000002）。
+- Backend 全量单测（verify 的 surefire 阶段）: 728 run / 0 failed / 2 skipped。
+- 真实 API GET /api/v1/pricing-versions 返回 unitPrice "0.00000001" / "0.00000002"。
+- Edge /settings/model-pricing 显示 输入 0.00000001 USD/1000000；输出 0.00000002 USD/1000000。
+- 证据: pricing-tiny-rate-fixed.png / pricing-fixed-get.json / pricing-fixed-browser.md。
+
+清理
+- 临时库 aicostops_rv / aicostops_rv_recon / aicostops_prodverify 已 DROP。
+- 18080 / 15173 / 18082 已释放；原 8080 / 5173 未动。
