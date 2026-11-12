@@ -18,6 +18,14 @@ import org.springframework.stereotype.Service;
 @Service
 public class LoginService {
 
+    /**
+     * Fixed cost-10 BCrypt hash of a password no account can hold. Unknown emails still run one
+     * full password verification against it so the 401 path costs the same bcrypt work as a wrong
+     * password for a known email; otherwise response time alone would disclose which emails exist.
+     */
+    private static final String UNKNOWN_EMAIL_PASSWORD_HASH =
+            "{bcrypt}$2a$10$/HAXz24vtCxOj58Y75vBCO6MTqLABCS2Bgu8x5W1wWvoiOfVFDC1C";
+
     private final RedisRateLimiter rateLimiter;
     private final IamMapper iamMapper;
     private final PasswordEncoder passwordEncoder;
@@ -54,7 +62,11 @@ public class LoginService {
         }
 
         var identity = iamMapper.findLoginIdentity(email);
-        if (identity == null || !passwordEncoder.matches(command.password(), identity.passwordHash())) {
+        // The verification always runs exactly once, even when the email is unknown: the dummy
+        // hash keeps the bcrypt cost identical for both failure modes.
+        var passwordMatches = passwordEncoder.matches(command.password(),
+                identity == null ? UNKNOWN_EMAIL_PASSWORD_HASH : identity.passwordHash());
+        if (identity == null || !passwordMatches) {
             auditService.append("LOGIN_FAILED", identity == null ? null : identity.organizationId(),
                     identity == null ? null : identity.userId(), "USER",
                     identity == null ? null : identity.userId(), Map.of("result", "INVALID_CREDENTIALS"));

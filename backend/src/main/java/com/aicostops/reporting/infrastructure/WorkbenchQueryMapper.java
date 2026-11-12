@@ -68,6 +68,12 @@ public interface WorkbenchQueryMapper {
             @Param("periodEnd") Instant periodEnd,
             @Param("limit") int limit);
 
+    /**
+     * Project rollup on the same charge basis as {@link #CHARGE_BASIS} (confirmed import, CLEAN
+     * review, period-bounded) plus the confirmed allocation. Without the shared basis a charge
+     * allocated while CLEAN and later excluded by duplicate review would still count here while
+     * provider totals and unallocated charges had already dropped it.
+     */
     @Select("""
             SELECT al.project_id AS projectId, p.name AS projectName,
                    al.currency AS currency, SUM(al.allocated_amount) AS totalAmount
@@ -78,11 +84,9 @@ public interface WorkbenchQueryMapper {
               ON cf.id=ad.charge_fact_id AND cf.org_id=ad.org_id
             JOIN project p
               ON p.id=al.project_id AND p.org_id=al.org_id
-            WHERE al.org_id=#{organizationId}
+            """ + CHARGE_BASIS + """
               AND ad.status='CONFIRMED' AND ad.subject_type='CHARGE_FACT'
               AND al.project_id IS NOT NULL
-              AND cf.period_start >= #{periodStart}
-              AND cf.period_start < #{periodEnd}
             GROUP BY al.project_id, p.name, al.currency
             ORDER BY SUM(al.allocated_amount) DESC, al.project_id ASC
             LIMIT #{limit}
