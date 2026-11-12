@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -67,6 +68,10 @@ class AdvisorInferenceWorkerTest {
             Clock.fixed(Instant.parse("2026-09-09T00:00:00Z"), ZoneId.of("UTC"));
 
     private AdvisorInferenceWorker worker() {
+        return worker(10);
+    }
+
+    private AdvisorInferenceWorker worker(int batchLimit) {
         when(transactionManager.getTransaction(any()))
                 .thenReturn(new SimpleTransactionStatus());
         return new AdvisorInferenceWorker(jobs, orchestrator, lifecycleService,
@@ -74,7 +79,32 @@ class AdvisorInferenceWorkerTest {
                 usageFinalization, new ObjectMapper(),
                 new AdvisorSnapshotPromptBuilder(new ObjectMapper()),
                 new AdvisorNarrativeValidator(new ObjectMapper()),
-                clock, transactionManager);
+                clock, batchLimit, transactionManager);
+    }
+
+    @Test
+    void tickStopsAtBatchLimitAndLeavesRemainderForNextTick() {
+        var worker = worker(2);
+        when(jobs.claimEligibleAny(any()))
+                .thenReturn(jobRow(100L))
+                .thenReturn(jobRow(101L))
+                .thenReturn(jobRow(102L))
+                .thenReturn(null);
+        when(jobs.markClaimed(anyLong(), anyString(), any(), any())).thenReturn(1);
+        // A missing job row ends each claimed execution before any Provider I/O.
+        when(jobs.findJob(anyLong(), anyLong())).thenReturn(null);
+
+        worker.tick();
+
+        // Only the batch limit is claimed and executed; no row is claimed without being run.
+        verify(jobs, times(2)).claimEligibleAny(any());
+        verify(jobs, times(2)).markClaimed(anyLong(), anyString(), any(), any());
+
+        worker.tick();
+
+        // The remainder of the backlog is picked up by the next tick.
+        verify(jobs, times(4)).claimEligibleAny(any());
+        verify(jobs, times(3)).markClaimed(anyLong(), anyString(), any(), any());
     }
 
     @Test
@@ -452,7 +482,11 @@ class AdvisorInferenceWorkerTest {
     }
 
     private static AdvisorJobMapper.JobRow jobRow() {
-        return new AdvisorJobMapper.JobRow(100L, 7L, 8L, "ANOMALY", 3L, snapshotFingerprint(),
+        return jobRow(100L);
+    }
+
+    private static AdvisorJobMapper.JobRow jobRow(long jobId) {
+        return new AdvisorJobMapper.JobRow(jobId, 7L, 8L, "ANOMALY", 3L, snapshotFingerprint(),
                 "[\"anomaly:3:observed\"]", 1,
                 10L, "PENDING", null, null, null, 1, null, Instant.now(), null, null);
     }
