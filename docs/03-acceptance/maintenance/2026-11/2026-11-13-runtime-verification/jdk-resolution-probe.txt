@@ -1,0 +1,26 @@
+INPUT http://0.0.0.0:9000
+  URI.getHost()=0.0.0.0
+  ADDRESS=0.0.0.0 class=Inet4Address anyLocal=true loopback=false linkLocal=false siteLocal=false
+INPUT http://127.1:9000
+  URI.getHost()=null
+  RESULT=NO_HOST
+INPUT http://2130706433:9000
+  URI.getHost()=2130706433
+  ADDRESS=127.0.0.1 class=Inet4Address anyLocal=false loopback=true linkLocal=false siteLocal=false
+INPUT http://[::ffff:127.0.0.1]:9000
+  URI.getHost()=[::ffff:127.0.0.1]
+  ADDRESS=127.0.0.1 class=Inet4Address anyLocal=false loopback=true linkLocal=false siteLocal=false
+INPUT http://host.docker.internal:9000
+  URI.getHost()=host.docker.internal
+  ADDRESS=10.61.104.23 class=Inet4Address anyLocal=false loopback=false linkLocal=false siteLocal=true
+INPUT https://example.com
+  URI.getHost()=example.com
+  ADDRESS=104.20.23.154 class=Inet4Address anyLocal=false loopback=false linkLocal=false siteLocal=false
+  ADDRESS=172.66.147.243 class=Inet4Address anyLocal=false loopback=false linkLocal=false siteLocal=false
+INPUT http://example.com
+  URI.getHost()=example.com
+  ADDRESS=104.20.23.154 class=Inet4Address anyLocal=false loopback=false linkLocal=false siteLocal=false
+  ADDRESS=172.66.147.243 class=Inet4Address anyLocal=false loopback=false linkLocal=false siteLocal=false
+INPUT https://console.example.com
+  URI.getHost()=console.example.com
+  RESULT=UNKNOWN_HOST 不知道这样的主机。 (console.example.com)

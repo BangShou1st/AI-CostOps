@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
@@ -54,6 +55,7 @@ public class ProductionConfigurationValidator implements InitializingBean {
     private final Environment environment;
     private final HostResolver hostResolver;
 
+    @Autowired
     public ProductionConfigurationValidator(Environment environment) {
         this(environment, InetAddress::getAllByName);
     }

@@ -1,0 +1,41 @@
+SOURCE=E:\project\AI-CostOps\.local-dev\logs\prod-config\case-01-wildcard-loopback.out.log
+ERROR_TYPE=org.springframework.beans.factory.BeanCreationException
+ERROR_MESSAGE=Error creating bean with name 'productionConfigurationValidator' defined in URL [jar:nested:/E:/project/AI-CostOps/backend/target/backend-1.1.0.jar/!BOOT-INF/classes/!/com/aicostops/config/ProductionConfigurationValidator.class]: Failed to instantiate [com.aicostops.config.ProductionConfigurationValidator]: No default constructor found
+STACK_TRACE_BEGIN
+org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'productionConfigurationValidator' defined in URL [jar:nested:/E:/project/AI-CostOps/backend/target/backend-1.1.0.jar/!BOOT-INF/classes/!/com/aicostops/config/ProductionConfigurationValidator.class]: Failed to instantiate [com.aicostops.config.ProductionConfigurationValidator]: No default constructor found
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.instantiateBean(AbstractAutowireCapableBeanFactory.java:1342)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBeanInstance(AbstractAutowireCapableBeanFactory.java:1229)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.doCreateBean(AbstractAutowireCapableBeanFactory.java:565)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.createBean(AbstractAutowireCapableBeanFactory.java:525)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.lambda$doGetBean$0(AbstractBeanFactory.java:333)
+	at org.springframework.beans.factory.support.DefaultSingletonBeanRegistry.getSingleton(DefaultSingletonBeanRegistry.java:371)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.doGetBean(AbstractBeanFactory.java:331)
+	at org.springframework.beans.factory.support.AbstractBeanFactory.getBean(AbstractBeanFactory.java:196)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.instantiateSingleton(DefaultListableBeanFactory.java:1225)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingleton(DefaultListableBeanFactory.java:1191)
+	at org.springframework.beans.factory.support.DefaultListableBeanFactory.preInstantiateSingletons(DefaultListableBeanFactory.java:1121)
+	at org.springframework.context.support.AbstractApplicationContext.finishBeanFactoryInitialization(AbstractApplicationContext.java:994)
+	at org.springframework.context.support.AbstractApplicationContext.refresh(AbstractApplicationContext.java:621)
+	at org.springframework.boot.web.server.servlet.context.ServletWebServerApplicationContext.refresh(ServletWebServerApplicationContext.java:143)
+	at org.springframework.boot.SpringApplication.refresh(SpringApplication.java:756)
+	at org.springframework.boot.SpringApplication.refreshContext(SpringApplication.java:445)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:321)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1365)
+	at org.springframework.boot.SpringApplication.run(SpringApplication.java:1354)
+	at com.aicostops.AiCostOpsApplication.main(AiCostOpsApplication.java:12)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.springframework.boot.loader.launch.Launcher.launch(Launcher.java:106)
+	at org.springframework.boot.loader.launch.Launcher.launch(Launcher.java:64)
+	at org.springframework.boot.loader.launch.JarLauncher.main(JarLauncher.java:40)
+Caused by: org.springframework.beans.BeanInstantiationException: Failed to instantiate [com.aicostops.config.ProductionConfigurationValidator]: No default constructor found
+	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiate(SimpleInstantiationStrategy.java:102)
+	at org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory.instantiateBean(AbstractAutowireCapableBeanFactory.java:1336)
+	... 24 common frames omitted
+Caused by: java.lang.NoSuchMethodException: com.aicostops.config.ProductionConfigurationValidator.<init>()
+	at java.base/java.lang.Class.getConstructor0(Class.java:3763)
+	at java.base/java.lang.Class.getDeclaredConstructor(Class.java:2932)
+	at org.springframework.beans.factory.support.SimpleInstantiationStrategy.instantiate(SimpleInstantiationStrategy.java:98)
+	... 25 common frames omitted
+
+STACK_TRACE_END

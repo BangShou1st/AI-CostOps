@@ -13,7 +13,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import tools.jackson.databind.annotation.JsonSerialize;
-import tools.jackson.databind.ser.std.ToStringSerializer;
 
 /**
  * Wire DTOs of the governed Control Plane surface (Service Identity, Gateway
@@ -112,7 +111,7 @@ public final class ControlPlaneDtos {
             ApiId id,
             String dimensionCode,
             long unitQuantity,
-            @JsonSerialize(using = ToStringSerializer.class) BigDecimal unitPrice) {
+            @JsonSerialize(using = Scale8DecimalSerializer.class) BigDecimal unitPrice) {
     }
 
     public record ModelCatalogResponse(ApiId id, String modelKey, String name, String status) {

@@ -1,0 +1,60 @@
+[
+  {
+    "id": "2",
+    "providerAccountId": "32",
+    "providerModelId": "1",
+    "version": 2,
+    "currency": "USD",
+    "status": "ACTIVE",
+    "effectiveFrom": "2026-11-12T10:10:03.381927Z",
+    "effectiveTo": null,
+    "createdAt": "2026-11-12T10:10:04.137823Z",
+    "activatedAt": "2026-11-12T10:10:04.201837Z",
+    "rates": [
+      {
+        "id": "22",
+        "dimensionCode": "INPUT_TOKEN",
+        "unitQuantity": 1000000,
+        "unitPrice": "0.00000001"
+      },
+      {
+        "id": "23",
+        "dimensionCode": "OUTPUT_TOKEN",
+        "unitQuantity": 1000000,
+        "unitPrice": "0.00000002"
+      }
+    ]
+  },
+  {
+    "id": "1",
+    "providerAccountId": "32",
+    "providerModelId": "1",
+    "version": 1,
+    "currency": "USD",
+    "status": "RETIRED",
+    "effectiveFrom": "2026-09-01T00:00:00Z",
+    "effectiveTo": "2026-10-01T00:00:00Z",
+    "createdAt": "2026-09-02T13:57:29.437904Z",
+    "activatedAt": "2026-09-02T13:57:29.437904Z",
+    "rates": [
+      {
+        "id": "1",
+        "dimensionCode": "INPUT_TOKEN",
+        "unitQuantity": 1000000,
+        "unitPrice": "30.00000000"
+      },
+      {
+        "id": "2",
+        "dimensionCode": "OUTPUT_TOKEN",
+        "unitQuantity": 1000000,
+        "unitPrice": "60.00000000"
+      },
+      {
+        "id": "3",
+        "dimensionCode": "REQUEST",
+        "unitQuantity": 1,
+        "unitPrice": "0.00010000"
+      }
+    ]
+  }
+]
