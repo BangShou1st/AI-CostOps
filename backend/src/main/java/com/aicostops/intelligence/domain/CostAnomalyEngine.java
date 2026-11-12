@@ -50,7 +50,11 @@ public final class CostAnomalyEngine {
 
     /**
      * Evaluates the latest completed bucket against its lookback history.
-     * Returns an empty list when history is insufficient or no gate fires.
+     *
+     * <p>Only observed buckets are evidence: a calendar day with no ledger facts is a gap, not a
+     * zero-cost day, so it is neither evaluated nor allowed to dilute the median/MAD baseline.
+     * Returns an empty list when the evaluated bucket is unobserved, when the observed history is
+     * insufficient, or when no gate fires.
      */
     public static List<Anomaly> detect(
             String grainType,
@@ -68,7 +72,15 @@ public final class CostAnomalyEngine {
             return List.of();
         }
         var observed = history.get(history.size() - 1);
-        var baselineBuckets = history.subList(0, history.size() - 1);
+        if (!observed.observed()) {
+            return List.of();
+        }
+        var baselineBuckets = history.subList(0, history.size() - 1).stream()
+                .filter(DailyBucket::observed)
+                .toList();
+        if (baselineBuckets.size() < MIN_HISTORY_BUCKETS) {
+            return List.of();
+        }
         var currency = observed.currency();
         for (var bucket : baselineBuckets) {
             if (!currency.equals(bucket.currency())) {
@@ -104,7 +116,8 @@ public final class CostAnomalyEngine {
                 delta, deltaPercent, zScore, List.copyOf(drivers)));
     }
 
-    private static BigDecimal median(List<BigDecimal> sorted) {
+    /** Median of an already-sorted sample; even sizes average the two middle values. */
+    public static BigDecimal median(List<BigDecimal> sorted) {
         var size = sorted.size();
         if (size % 2 == 1) {
             return sorted.get(size / 2);
