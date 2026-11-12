@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   HC01_OWNER_LABEL, HC01_RESOURCE_LABEL, HC01_RUN_LABEL,
-  decideRedisCreate, decideRedisRemoval, labelsForRedis,
+  decideRedisRemoval, labelsForRedis,
 } from '../perf/hc01/ownership.mjs'
 import { labelsFor as hc03LabelsFor } from '../perf/hc03/ownership.mjs'
 
@@ -50,19 +50,6 @@ test('redis: hc03 owner labels do not authorize an hc01 container', () => {
   assert.equal(decision.allow, false)
   assert.equal(decision.reason, 'UNLABELED_RESOURCE')
   assert.match(decision.message, /HC-01/)
-})
-
-test('redis: create is allowed only when the container is absent', () => {
-  assert.equal(decideRedisCreate({ name: NAME, expectedOwner: OWNER, labels: null }).allow, true)
-
-  const unlabeled = decideRedisCreate({ name: NAME, expectedOwner: OWNER, labels: {} })
-  assert.equal(unlabeled.allow, false)
-  assert.equal(unlabeled.reason, 'FOREIGN_RESOURCE')
-  assert.match(unlabeled.message, /HC-01/)
-
-  const foreign = decideRedisCreate({ name: NAME, expectedOwner: OWNER, labels: labeled(OTHER) })
-  assert.equal(foreign.allow, false)
-  assert.equal(foreign.reason, 'FOREIGN_RESOURCE')
 })
 
 test('redis: labels carry the hc01 owner, run and resource namespaces', () => {

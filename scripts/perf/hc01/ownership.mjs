@@ -39,20 +39,3 @@ export function decideRedisRemoval({ name, expectedOwner, labels }) {
     harness: HC01_HARNESS,
   })
 }
-
-/**
- * @param {object} input
- * @param {string} input.name
- * @param {string} input.expectedOwner
- * @param {null|object} input.labels observed container labels (null when absent)
- */
-export function decideRedisCreate({ name, expectedOwner, labels }) {
-  return decideContainer({
-    mode: 'create',
-    name,
-    expectedOwner,
-    existing: labels ? { labels } : null,
-    labelKey: HC01_OWNER_LABEL,
-    harness: HC01_HARNESS,
-  })
-}
