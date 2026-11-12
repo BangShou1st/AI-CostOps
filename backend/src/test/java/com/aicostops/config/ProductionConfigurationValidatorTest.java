@@ -1,5 +1,6 @@
 package com.aicostops.config;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -7,6 +8,9 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.AutowiredAnnotationBeanPostProcessor;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.core.env.Environment;
 import org.springframework.mock.env.MockEnvironment;
 
 /**
@@ -385,6 +389,20 @@ class ProductionConfigurationValidatorTest {
     void explicitSafeProductionValuesPass() {
         assertThatCode(() -> validator(safeProd()).validate())
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void springSelectsTheEnvironmentConstructorForProductionInjection() {
+        var beanFactory = new DefaultListableBeanFactory();
+        var processor = new AutowiredAnnotationBeanPostProcessor();
+        processor.setBeanFactory(beanFactory);
+        beanFactory.addBeanPostProcessor(processor);
+
+        var candidates = processor.determineCandidateConstructors(
+                ProductionConfigurationValidator.class, "productionConfigurationValidator");
+
+        assertThat(candidates).hasSize(1);
+        assertThat(candidates[0].getParameterTypes()).containsExactly(Environment.class);
     }
 
     private static MockEnvironment prod() {
