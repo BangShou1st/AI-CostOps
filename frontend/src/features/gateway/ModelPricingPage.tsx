@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography } from 'antd'
-import { formatDateTime, formatMoney } from '../intelligence/format'
+import { formatDateTime } from '../intelligence/format'
+import { formatMoney } from '../../lib/money'
 import { useMemo, useState } from 'react'
 import { problemDetail, problemTitle, toProblemDetail, type ProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
@@ -118,7 +119,7 @@ export function ModelPricingPage() {
             { title: '版本', dataIndex: 'version', key: 'version', width: 80 },
             { title: '币种', dataIndex: 'currency', key: 'currency', width: 80 },
             { title: '状态', key: 'status', width: 110, render: (_: unknown, version) => <Tag color={version.status === 'ACTIVE' ? 'green' : version.status === 'DRAFT' ? 'blue' : 'default'}>{version.status === 'ACTIVE' ? '已启用' : version.status === 'DRAFT' ? '草稿' : '已退役'}</Tag> },
-            { title: '费率', key: 'rates', width: 280, render: (_: unknown, version) => version.rates.map((rate: PricingRate) => `${DIMENSION_LABEL[rate.dimensionCode] ?? rate.dimensionCode} ${formatMoney(String(rate.unitPrice), version.currency)}/${rate.unitQuantity}`).join('；') },
+            { title: '费率', key: 'rates', width: 280, render: (_: unknown, version) => version.rates.map((rate: PricingRate) => `${DIMENSION_LABEL[rate.dimensionCode] ?? rate.dimensionCode} ${formatMoney(rate.unitPrice, version.currency)}/${rate.unitQuantity}`).join('；') },
             { title: '有效期', key: 'effective', width: 220, render: (_: unknown, version) => `${formatDateTime(version.effectiveFrom)} → ${version.effectiveTo ? formatDateTime(version.effectiveTo) : '长期'}` },
             { title: '操作', key: 'actions', width: 100, render: (_: unknown, version) => canManage && version.status === 'DRAFT'
               ? <Button size="small" type="primary" loading={activate.isPending} onClick={() => activate.mutate(version.id)}>启用版本</Button>

@@ -71,7 +71,7 @@ export interface PricingRate {
   id: string
   dimensionCode: string
   unitQuantity: number
-  unitPrice: number
+  unitPrice: string
 }
 
 export interface PricingVersion {
