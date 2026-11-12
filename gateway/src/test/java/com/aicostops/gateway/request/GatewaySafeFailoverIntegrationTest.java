@@ -115,7 +115,13 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
 
     @Test
     void safeDnsFailureReleasesAAndDispatchesBOnce() {
-        web.post().uri("/v1/chat/completions")
+        // The public-only transport resolver performs a real DNS lookup before
+        // the connection can fail SAFE. A guaranteed-NXDOMAIN .invalid name can
+        // take longer than the WebTestClient 5s default on CI DNS, so this one
+        // failover assertion gets a wider client budget; the invariant
+        // assertions below are unchanged.
+        web.mutate().responseTimeout(java.time.Duration.ofSeconds(20)).build()
+                .post().uri("/v1/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + RAW_KEY)
                 .header("Idempotency-Key", "safe-failover-1")
