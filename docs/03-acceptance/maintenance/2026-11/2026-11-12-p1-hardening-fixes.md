@@ -284,3 +284,15 @@ gateway/src/test/java/com/aicostops/gateway/request/GatewaySafeFailoverIntegrati
   原引用无须更正（此前“571–599 行”的说法越过了文件末尾）。
 - 审查报告 P1-04 提到的 `AuthPages.tsx:49` 调用点属于审查 P3-06 已标注的 `AppPage` 死代码；本次仍按
   “所有调用点”要求补了 catch，未删除该页面（死代码清理不在本批范围）。这一条成立。
+
+---
+
+## 8. 发布同步（2026-11-12）
+
+- `dev → main` 发布 PR [#183](https://github.com/BangShou1st/AI-CostOps/pull/183)（19 个提交）经全部检查项
+  通过后 squash 为 `39560cc`；`main` 由此包含本次 P1/P2 修复与审查/验收文档。
+- 仓库开启了“合并后自动删除 head 分支”，而本次 PR 的 head 是常驻维护线 `dev`，因此 `origin/dev` 被
+  GitHub 删除。已用本地 `dev`（`b885938`：`66acf4d` 与 `39560cc` 的 merge）恢复远程分支。
+- **后续约定**：`dev → main` 发布应使用 `release/<date>` 临时分支作为 PR head，合并后只删除临时分支，
+  不再让 `dev` 承担 PR head。
+- 同步后拓扑：`main`（`39560cc`）是 `dev` 的祖先，无分叉；`dev` 仅多一个回到 dev 的 merge 提交与本节记录。
