@@ -73,6 +73,17 @@ public class GatewayRequestService {
         this.eligibilityEvaluator = eligibilityEvaluator;
     }
 
+    /**
+     * Test-only legacy single-candidate path.
+     *
+     * <p><strong>Production must not call this method.</strong> The M14
+     * {@link GatewayRequestOrchestrator#prepareInitial} owns candidate ordering,
+     * circuit filtering, per-candidate admission and TX2. This method is kept
+     * only for the three integration tests that exercise the dispatch fence,
+     * idempotency and reservation recovery against a single deterministic
+     * candidate; any dispatch or reservation semantic change belongs in the
+     * orchestrator, not here.
+     */
     public Mono<DispatchResult> authorizeAndFence(AuthorizeCommand command) {
         return blockingIo.call(() -> authorizeAndFenceBlocking(command));
     }
@@ -87,34 +98,16 @@ public class GatewayRequestService {
     }
 
     private AuthorizedRequest authorizeForRoutingBlocking(AuthorizeCommand command) {
-        var now = Instant.now(clock);
-        var principal = command.principal();
-
-        identityService.validateIdempotencyKey(command.rawIdempotencyKey());
-        var idemDigest = identityService.idempotencyKeyDigest(command.rawIdempotencyKey());
-        var fingerprint = identityService.requestFingerprint(command.rawBodyBytes());
-        if (!readMapper.findActiveModelIds(principal.credentialId())
-                .contains(command.logicalModelId())) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
-                    "The requested model is not allowed for this credential");
-        }
-        var model = readMapper.findModelById(command.logicalModelId());
-        if (model == null || !"ACTIVE".equals(model.status())) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
-                    "The requested model is not active");
-        }
-        var periodId = readMapper.findOpenBillingPeriodId(principal.organizationId(), now);
-        if (periodId == null) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                    "No open billing period is available for dispatch");
-        }
-        var request = convergeExistingOrCreate(principal, command, idemDigest, fingerprint);
-        return new AuthorizedRequest(request.requestId(), request.publicRequestId(),
-                principal, command, model.id(), model.modelKey(), model.maxOutputTokens(),
-                model.defaultMaxOutputTokens(), periodId);
+        return authorizePrelude(command);
     }
 
-    private DispatchResult authorizeAndFenceBlocking(AuthorizeCommand command) {
+    /**
+     * Route-independent authorization prelude shared by the production routing
+     * path and the test-only single-candidate fence path: idempotency identity,
+     * credential-model allowlist, ACTIVE model catalog, OPEN BillingPeriod
+     * fence and VALIDATED request convergence.
+     */
+    private AuthorizedRequest authorizePrelude(AuthorizeCommand command) {
         var now = Instant.now(clock);
         var principal = command.principal();
 
@@ -134,14 +127,33 @@ public class GatewayRequestService {
                     "The requested model is not active");
         }
 
-        // 2. Resolve the exact project policy first; only when it is absent do
+        // 2. Resolve the OPEN BillingPeriod financial fence for dispatch time.
+        var periodId = readMapper.findOpenBillingPeriodId(principal.organizationId(), now);
+        if (periodId == null) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "No open billing period is available for dispatch");
+        }
+
+        // 3. Converge or create the durable VALIDATED request.
+        var request = convergeExistingOrCreate(principal, command, idemDigest, fingerprint);
+        return new AuthorizedRequest(request.requestId(), request.publicRequestId(),
+                principal, command, model.id(), model.modelKey(), model.maxOutputTokens(),
+                model.defaultMaxOutputTokens(), periodId);
+    }
+
+    private DispatchResult authorizeAndFenceBlocking(AuthorizeCommand command) {
+        var authorized = authorizePrelude(command);
+        var principal = authorized.principal();
+        var now = Instant.now(clock);
+
+        // 4. Resolve the exact project policy first; only when it is absent do
         // we use the organization-default policy. Candidate order is frozen
         // by (priority ASC, candidate id ASC), and a candidate is rejected
         // before any reservation or Provider I/O when its readiness is stale.
         ResolvedRoutingPolicy policy;
         try {
             policy = routingPolicyResolver.resolve(principal.organizationId(), principal.projectId(),
-                    command.logicalModelId(), now);
+                    authorized.logicalModelId(), now);
         } catch (IllegalStateException ex) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
                     "No eligible Provider route is available for the requested model");
@@ -163,27 +175,13 @@ public class GatewayRequestService {
         }
         var routeReasonCode = skippedBefore ? "INITIAL_FALLBACK" : "INITIAL_PRIMARY";
 
-        // 3. M12 TX1 MySQL-authoritative budget admission is resolved after
-        // the VALIDATED request and PLANNED attempt exist (step 5/6 below);
-        // REQUIRED without a matching/insufficient Budget fails there.
-
-        // 4. Resolve the OPEN BillingPeriod financial fence for dispatch time.
-        var periodId = readMapper.findOpenBillingPeriodId(principal.organizationId(), now);
-        if (periodId == null) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                    "No open billing period is available for dispatch");
-        }
-
-        // 5. Converge or create the durable VALIDATED request.
-        var request = convergeExistingOrCreate(principal, command, idemDigest, fingerprint);
-
-        // 6. Route attempt 1 PLANNED (append-only; a duplicate converges).
-        var attempt = requestMapper.findFirstAttempt(principal.organizationId(), request.requestId());
+        // 5. Route attempt 1 PLANNED (append-only; a duplicate converges).
+        var attempt = requestMapper.findFirstAttempt(principal.organizationId(), authorized.requestId());
         long attemptId;
         String routeDecisionId;
         if (attempt == null) {
             routeDecisionId = identityService.newRouteDecisionId();
-            long requestId = request.requestId();
+            long requestId = authorized.requestId();
             try {
                 requestMapper.insertRouteAttempt(new GatewayRequestMapper.RouteAttemptInsert(
                         principal.organizationId(), requestId, 1, routeDecisionId,
@@ -211,14 +209,14 @@ public class GatewayRequestService {
             routeDecisionId = attempt.routeDecisionId();
         }
 
-        // 7. M12 TX1: MySQL-authoritative budget admission. TX1 persists its
+        // 6. M12 TX1: MySQL-authoritative budget admission. TX1 persists its
         // terminal business result (RESERVED / UNBUDGETED / REJECTED_*) and
         // commits; rejections are mapped to errors here, after commit, so the
         // REJECTED_BUDGET state is durable and idempotent replay converges.
         // admitSync() owns the TX1 transaction boundary; never call the
         // blocking core directly or the Budget lock loses its transaction.
         AdmissionResult admission = reservationService.admitSync(new AdmissionCommand(
-                principal, request.requestId(), attemptId, periodId,
+                principal, authorized.requestId(), attemptId, authorized.billingPeriodId(),
                 route.pricingVersionId(), route.currency(),
                 command.effectiveMaxOutputTokens(), -1L));
         if (admission.outcome() == AdmissionOutcome.REJECTED_BUDGET) {
@@ -230,14 +228,14 @@ public class GatewayRequestService {
                     "Reservation cannot be safely evaluated for this request");
         }
 
-        // 8. Durable financial safety fence (TX2); only then is Provider I/O legal.
+        // 7. Durable financial safety fence (TX2); only then is Provider I/O legal.
         dispatchFenceService.commitDispatchFence(
-                principal.organizationId(), request.requestId(), attemptId, periodId,
-                admission);
+                principal.organizationId(), authorized.requestId(), attemptId,
+                authorized.billingPeriodId(), admission);
 
         return new DispatchResult(
-                request.requestId(),
-                request.publicRequestId(),
+                authorized.requestId(),
+                authorized.publicRequestId(),
                 attemptId,
                 routeDecisionId,
                 policy.id(),
@@ -249,9 +247,9 @@ public class GatewayRequestService {
                 route.adapterCode(),
                 route.providerModelName(),
                 command.logicalModelId(),
-                model.maxOutputTokens(),
-                model.defaultMaxOutputTokens(),
-                periodId,
+                authorized.maxOutputTokens(),
+                authorized.defaultMaxOutputTokens(),
+                authorized.billingPeriodId(),
                 route.providerConnectionProfileId(),
                 route.completionPath(),
                 route.protocolCode(),
