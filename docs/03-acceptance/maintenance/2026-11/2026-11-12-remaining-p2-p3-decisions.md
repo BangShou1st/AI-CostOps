@@ -138,7 +138,7 @@
 ```text
 $ npm run verify:links
 [verify-doc-links] Found 250 Markdown files to inspect.
-[verify-doc-links] Checked 423 links.
+[verify-doc-links] Checked 424 links.
 [verify-doc-links] SUCCESS: 0 broken links found! All local document links are valid.
 ```
 
