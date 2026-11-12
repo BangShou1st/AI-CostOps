@@ -159,14 +159,13 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
         var env = GatewayTestFixture.seed(jdbc, "tx1-orgfb", HMAC_KEY, rawKey());
         jdbc.update("DELETE FROM budget_reservation");
         jdbc.update("DELETE FROM budget WHERE org_id=?", env.orgId());
-        jdbc.update("""
+        var orgBudgetId = GatewayTestFixture.insertAndReturnId(jdbc, """
                 INSERT INTO budget(
                   org_id,billing_period_id,scope_type,scope_id,currency,
                   total_amount,actual_amount,committed_amount,status,version,created_at,updated_at)
                 VALUES (?,?, 'ORG',?,'USD','100.00000000',0,0,'ACTIVE',0,
                   UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, env.orgId(), env.periodId(), env.orgId());
-        var orgBudgetId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         var ids = insertValidatedRequest(env, "tx1-orgfb-key");
 
         var result = reservationService.admit(command(

@@ -255,7 +255,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var fingerprint = identity.requestFingerprint(
                 ("{\"model\":\"default-chat\",\"suffix\":\"" + suffix + "\"}")
                         .getBytes(StandardCharsets.UTF_8));
-        jdbc.update("""
+        return GatewayTestFixture.insertAndReturnId(jdbc, """
                 INSERT INTO gateway_request(
                   org_id,public_request_id,credential_id,principal_type,organization_member_id,
                   service_identity_id,project_id,financial_scope_type,financial_scope_id,logical_model_id,
@@ -265,7 +265,6 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
                   'VALIDATED',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
               """, env.orgId(), identity.newPublicRequestId(), env.credentialId(),
                 env.serviceIdentityId(), env.projectId(), env.projectId(), env.modelId(), idem, fingerprint);
-        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
 
     private long policyId() {

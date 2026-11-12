@@ -1,10 +1,12 @@
 package com.aicostops.gateway.testsupport;
 
 import java.nio.charset.StandardCharsets;
+import java.sql.Statement;
 import java.util.Base64;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
 
 /**
  * Seeds one org-scoped M11 runtime projection for gateway integration tests:
@@ -379,6 +381,26 @@ public final class GatewayTestFixture {
     private static long insertId(JdbcTemplate jdbc, String columns, String values, Object... args) {
         jdbc.update("INSERT INTO " + columns + " " + values, args);
         return insertLastId(jdbc);
+    }
+
+    /**
+     * Inserts one row and returns its generated key without relying on a later
+     * {@code SELECT LAST_INSERT_ID()} borrowing the same pooled connection.
+     */
+    public static long insertAndReturnId(JdbcTemplate jdbc, String sql, Object... args) {
+        var keyHolder = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            var statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+            for (int i = 0; i < args.length; i++) {
+                statement.setObject(i + 1, args[i]);
+            }
+            return statement;
+        }, keyHolder);
+        var key = keyHolder.getKey();
+        if (key == null) {
+            throw new IllegalStateException("Insert did not return a generated key");
+        }
+        return key.longValue();
     }
 
     private static long insertLastId(JdbcTemplate jdbc) {

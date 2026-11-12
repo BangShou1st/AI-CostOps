@@ -249,11 +249,10 @@ class PeriodLockSharedConcurrencyIntegrationTest extends GatewayMySqlContainerSu
     }
 
     private long insertProject(String code) {
-        jdbc.update("""
+        return GatewayTestFixture.insertAndReturnId(jdbc, """
                 INSERT INTO project(org_id,code,name,status,created_at,updated_at)
                 VALUES (?,?,?,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, env.orgId(), code, code);
-        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
 
     private void insertOrgBudget() {
