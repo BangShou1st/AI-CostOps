@@ -27,6 +27,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       scripts: ${{ steps.filter.outputs.scripts }}
       code: ${{ steps.filter.outputs.code }}
+      changed: ${{ steps.filter.outputs.changed }}
       # docs_only is only a proof when no non-documentation path changed.
       # Without the second term, a docs+deploy change (or a .github-only
       # change) could claim "docs only" and let every required job skip.
@@ -78,6 +79,12 @@ jobs:
               - '.env.example'
               - 'Dockerfile*'
               - '.dockerignore'
+            # Distinguishes an empty push (for example, a merge whose tree is
+            # identical to its first parent) from a change set made only of
+            # paths outside the known filters. Only the latter must fail the
+            # merge gate.
+            changed:
+              - '**'
             docs_only:
               - 'docs/**'
               - '*.md'
@@ -585,6 +592,7 @@ jobs:
           GATEWAY: ${{ needs.detect-changes.outputs.gateway }}
           FRONTEND: ${{ needs.detect-changes.outputs.frontend }}
           SCRIPTS: ${{ needs.detect-changes.outputs.scripts }}
+          CHANGED: ${{ needs.detect-changes.outputs.changed }}
           DETECT_CHANGES: ${{ needs.detect-changes.result }}
           SCRIPTS_UNIT: ${{ needs.scripts-unit.result }}
           SCRIPTS_LIFECYCLE: ${{ needs.scripts-lifecycle.result }}
@@ -643,7 +651,7 @@ jobs:
           check docker-build "$DOCKER_BUILD" "$APP_CODE"
           check browser-e2e "$BROWSER_E2E" "$APP_CODE"
 
-          if [ "$DOCS_ONLY" != "true" ] \
+          if [ "$CHANGED" = "true" ] && [ "$DOCS_ONLY" != "true" ] \
             && [ "$BACKEND" != "true" ] && [ "$GATEWAY" != "true" ] \
             && [ "$FRONTEND" != "true" ] && [ "$SCRIPTS" != "true" ]; then
             echo "::error::No tracked application area changed and the change set is not docs-only; changes outside the known filters (for example .github/**, deploy/** or .trivyignore) cannot pass this gate silently."
@@ -654,4 +662,4 @@ jobs:
             echo "One or more required jobs did not satisfy the merge gate."
             exit 1
           fi
-          echo "All required checks passed (docs_only=$DOCS_ONLY)."
+          echo "All required checks passed (changed=$CHANGED, docs_only=$DOCS_ONLY)."
