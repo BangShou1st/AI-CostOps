@@ -59,4 +59,13 @@ afterEach(async () => {
     vi.useRealTimers()
   }
   await new Promise((resolve) => setTimeout(resolve, 20))
+  // React 19's scheduler falls back to setImmediate in jsdom. Flush one
+  // immediate turn after the timer so a task queued during the wait cannot
+  // outlive the environment (observed on CI in GatewayCredentialsPage.test).
+  const flushImmediate = (globalThis as unknown as {
+    setImmediate?: (callback: () => void) => void
+  }).setImmediate
+  if (flushImmediate) {
+    await new Promise<void>((resolve) => flushImmediate(resolve))
+  }
 })
