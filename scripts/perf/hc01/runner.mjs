@@ -224,6 +224,9 @@ function gatewayEnvironment(port, phase) {
     AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1: cfg.requestHmacKey,
     AICOSTOPS_PROVIDER_KEK_V1: cfg.providerKek,
     AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED: 'false',
+    // The harness Provider is a loopback mock; the public-only transport
+    // resolver stays on by default for every real deployment.
+    AICOSTOPS_GATEWAY_PROVIDER_ALLOW_PRIVATE_ENDPOINTS: 'true',
     AICOSTOPS_GATEWAY_RATE_LIMIT_ENABLED: 'true',
     AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY: high ? '500000' : '60',
     AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND: high ? '50000' : '1',
