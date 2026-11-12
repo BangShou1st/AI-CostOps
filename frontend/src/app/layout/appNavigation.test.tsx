@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { NAV_ICONS } from './AuthenticatedLayout'
-import { BUSINESS_NAV, visibleBusinessNav } from './appNavigation'
+import { BUSINESS_NAV, INTELLIGENCE_NAV, visibleBusinessNav } from './appNavigation'
 
 describe('business navigation presentation', () => {
   it('has a non-empty icon for every business navigation item', () => {
@@ -20,15 +20,15 @@ describe('visibleBusinessNav expense entries', () => {
 
   it('admits the workbench with any ORG section grant and orders it first', () => {
     const nav = visibleBusinessNav(['EXPENSE_REVIEW'])
-    expect(nav[0]).toEqual({ path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' })
+    expect(nav[0]).toEqual({ path: '/workbench', label: '工作台' })
     expect(visibleBusinessNav(['COST_READ'])).toContainEqual(
-      { path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' },
+      { path: '/workbench', label: '工作台' },
     )
     expect(visibleBusinessNav(['EXPENSE_READ_OWN'])).not.toContainEqual(
-      { path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' },
+      { path: '/workbench', label: '工作台' },
     )
     expect(visibleBusinessNav([])).not.toContainEqual(
-      { path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' },
+      { path: '/workbench', label: '工作台' },
     )
   })
 
@@ -67,5 +67,13 @@ describe('visibleBusinessNav ledger entry', () => {
     expect(visibleBusinessNav([])).not.toContainEqual(
       { path: '/ledger', label: '账本', readPermission: 'LEDGER_READ' },
     )
+  })
+})
+
+describe('navigation permission catalogue', () => {
+  it('declares only non-empty read permission codes', () => {
+    const codes: Array<string | undefined> = [...BUSINESS_NAV, ...INTELLIGENCE_NAV]
+      .map((entry) => entry.readPermission)
+    expect(codes.every((code) => code === undefined || code.trim().length > 0)).toBe(true)
   })
 })
