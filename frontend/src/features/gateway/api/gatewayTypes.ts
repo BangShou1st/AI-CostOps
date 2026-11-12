@@ -88,11 +88,23 @@ export interface PricingVersion {
   rates: PricingRate[]
 }
 
+/**
+ * Pricing rate request payload. The Control Plane accepts either a JSON number
+ * or a non-negative plain decimal string with at most 8 fraction digits; this
+ * client always sends the string form so sub-cent rates keep exact scale-8
+ * precision (JavaScript numbers can serialise as scientific notation).
+ */
+export interface PricingRateInput {
+  dimensionCode: string
+  unitQuantity: number
+  unitPrice: string
+}
+
 export interface PricingVersionCreateInput {
   providerAccountId: number
   providerModelId: number
   currency: string
   effectiveFrom: string
   effectiveTo?: string | null
-  rates: { dimensionCode: string; unitQuantity: number; unitPrice: string }[]
+  rates: PricingRateInput[]
 }
