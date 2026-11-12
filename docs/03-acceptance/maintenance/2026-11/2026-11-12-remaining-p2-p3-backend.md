@@ -10,7 +10,7 @@
 | 关联分支 | `fix/b-gateway-fence`、`fix/b-pricing-routing`、`fix/b-reconciliation-expense` → 集成 `fix/remaining-b-backend` |
 | 关联 PR | [#186](https://github.com/BangShou1st/AI-CostOps/pull/186) |
 | 变更性质 | 维护期既有缺陷最小修复；无新功能、无 Flyway、无 API 契约、无财务语义变更 |
-| 总体判定 | **PASS（本地）**；远程 CI/Security 另行标注 |
+| 总体判定 | **PASS（本地 + 远程 CI / Security）**；并发隔离级别、SQL 计数与 scheduler 定时触发为 `NOT_VERIFIED` |
 
 本批只处理审查报告 §3.2 / §3.3 中剩余的 7 项后端发现，未触碰批次 A 已完成的 7 项，也未开始批次 C 的方案项。
 
@@ -109,9 +109,19 @@
 ```text
 $ npm run verify:links
 [verify-doc-links] Found 249 Markdown files to inspect.
-[verify-doc-links] Checked 416 links.
+[verify-doc-links] Checked 420 links.
 [verify-doc-links] SUCCESS: 0 broken links found! All local document links are valid.
 ```
+
+### 2.3 远程验证（PR #186，2026-11-12）
+
+| 工作流 | run | 结果 |
+|---|---|---|
+| CI | [43160048752](https://github.com/BangShou1st/AI-CostOps/actions/runs/43160048752) | 18/18 success：`detect-changes`、`backend-unit`、`backend-integration` 两片（5m52s / 5m06s）、`gateway-unit`、`gateway-integration`（2m10s）、`frontend-quality`、`frontend-test`、`scripts-unit` 两平台、`scripts-lifecycle`、`docker-build`、`browser-e2e`、`ci-status` |
+| Security | [43160048548](https://github.com/BangShou1st/AI-CostOps/actions/runs/43160048548) | `trivy` + `codeql (java-kotlin)` + `codeql (javascript-typescript)` 3/3 success |
+| 合并 | PR [#186](https://github.com/BangShou1st/AI-CostOps/pull/186) | squash 为 `e992444`；仓库自动删除 head 分支 `fix/remaining-b-backend` |
+
+合并后本地清理：三个子分支（`fix/b-gateway-fence`、`fix/b-pricing-routing`、`fix/b-reconciliation-expense`）、集成分支与三个临时 worktree 全部移除；本地与远程最终只保留 `dev`、`main`。
 
 ---
 
@@ -124,8 +134,8 @@ $ npm run verify:links
 | P2-13 维度覆盖校验 | `NOT_IMPLEMENTED`（按审查要求） | 建议后续在 `activate` 校验 INPUT/OUTPUT 覆盖 |
 | P2-14 SQL 往返次数的运行时计数 | `NOT_VERIFIED` | 用 Mockito 断言“批量查询 1 次、单条查询 0 次”证明调用面；未接入 SQL 计数探针 |
 | P2-15 scheduler 的真实定时触发 | `NOT_VERIFIED` | 集成测试直接调用 `failStaleRunningRuns`；测试默认关闭 scheduler，避免污染共享 Testcontainer。`@Scheduled` 间隔/超时默认值属静态配置 |
-| 本批 PR 的远程 CI / Security | `NOT_VERIFIED`（本地阶段） | 以 PR 页面实际结果为准 |
-| 前端测试 | `NOT_RUN` | 本批无前端改动；CI 的 `frontend-test` 会覆盖 |
+| 本批 PR 的远程 CI / Security | **VERIFIED（远程）** | CI 18/18、Security 3/3，见 §2.3 |
+| 前端测试 | **VERIFIED（远程）** | 本批无前端改动；CI 的 `frontend-quality` / `frontend-test` 均 success（路径过滤器未命中时短路） |
 
 ---
 
@@ -172,4 +182,4 @@ CHANGELOG.md
 
 ## 6. 结论
 
-批次 B 的 7 项后端发现全部按“测试先行、最小修复”完成。Gateway 成功终结的 guard/SQL 已一致；定价创建对重复维度返回 400、对并发唯一键冲突返回 409；路由策略列表消除 N+1；对账僵尸 RUNNING 具备启动 + 定时收敛与审计；两处确认无引用的死代码已删除。本地后端/网关单元、架构、定向集成测试全部通过；远程 CI/Security 与并发隔离级别行为按 §3 标注为待验证。
+批次 B 的 7 项后端发现全部按“测试先行、最小修复”完成。Gateway 成功终结的 guard/SQL 已一致；定价创建对重复维度返回 400、对并发唯一键冲突返回 409；路由策略列表消除 N+1；对账僵尸 RUNNING 具备启动 + 定时收敛与审计；两处确认无引用的死代码已删除。本地后端/网关单元、架构、定向集成测试全部通过，PR #186 的远程 CI 18/18 与 Security 3/3 进一步确认全量集成与安全扫描通过。并发隔离级别行为、SQL 往返计数与 scheduler 真实定时触发仍按 §3 标注为待验证。
