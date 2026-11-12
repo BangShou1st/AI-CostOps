@@ -8,7 +8,7 @@
 | 缺陷来源 | [2026-11-12 深度代码审查](2026-11-12-deep-code-review.md) P2-03 / P2-04 / P2-05 / P2-19 / P3-02 / P3-05 / P3-06 |
 | 代码基线 | `dev` = `278e27a`（`main` = `39560cc`） |
 | 关联分支 | `fix/a-infra-deps`、`fix/a-hc01-ownership`、`fix/a-frontend-cleanup` → 集成 `fix/remaining-a-cleanup` |
-| 关联 PR | 本批 PR（创建后回填编号） |
+| 关联 PR | [#184](https://github.com/BangShou1st/AI-CostOps/pull/184) |
 | 变更性质 | 维护期既有缺陷最小修复；无新功能、无 Flyway、无 API 契约、无财务语义变更、无新增运行时依赖 |
 | 总体判定 | **PASS（本地）**；CodeQL `scripts` 路径的远程分析结果与 PR 远程 CI 另行标注 |
 
