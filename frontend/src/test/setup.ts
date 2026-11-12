@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest'
+import { cleanup } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 
 // Configurable matchMedia: desktop (true) by default so layout tests exercise
@@ -58,6 +59,10 @@ afterEach(async () => {
   if (vi.isFakeTimers()) {
     vi.useRealTimers()
   }
+  // Unmount React roots before yielding. Testing Library's automatic cleanup
+  // may otherwise run after this hook and schedule work that outlives jsdom
+  // (observed on CI in GatewayCredentialsPage.test).
+  cleanup()
   await new Promise((resolve) => setTimeout(resolve, 20))
   // React 19's scheduler falls back to setImmediate in jsdom. Flush one
   // immediate turn after the timer so a task queued during the wait cannot
@@ -66,6 +71,8 @@ afterEach(async () => {
     setImmediate?: (callback: () => void) => void
   }).setImmediate
   if (flushImmediate) {
-    await new Promise<void>((resolve) => flushImmediate(resolve))
+    for (let i = 0; i < 2; i++) {
+      await new Promise<void>((resolve) => flushImmediate(resolve))
+    }
   }
 })
