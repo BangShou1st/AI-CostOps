@@ -81,6 +81,29 @@ class ModelPricingApiIntegrationTest extends ControlPlaneApiTestSupport {
     }
 
     @Test
+    void decimalStringUnitPriceIsAcceptedAndReturnedAsScale8String() throws Exception {
+        var create = mockMvc.perform(post("/api/v1/pricing-versions")
+                        .header("Authorization", managerBearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(pricingJsonWithDecimalStrings("0.00000001", "0.00000002")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.rates[0].unitPrice").value("0.00000001"))
+                .andExpect(jsonPath("$.rates[1].unitPrice").value("0.00000002"))
+                .andReturn();
+
+        long versionId = readLong(create, "id");
+        var rates = jdbc.queryForList("""
+                SELECT dimension_code, unit_price FROM pricing_rate
+                WHERE pricing_version_id=? ORDER BY dimension_code
+                """, versionId);
+        Assertions.assertThat(rates).hasSize(2);
+        Assertions.assertThat(new BigDecimal(rates.get(0).get("unit_price").toString()))
+                .isEqualByComparingTo("0.00000001");
+        Assertions.assertThat(new BigDecimal(rates.get(1).get("unit_price").toString()))
+                .isEqualByComparingTo("0.00000002");
+    }
+
+    @Test
     void duplicateDimensionsAreRejectedWithoutWritingPricingRows() throws Exception {
         int versionsBefore = pricingVersionCount(providerModelId);
         int ratesBefore = pricingRateCount();
@@ -436,6 +459,21 @@ class ModelPricingApiIntegrationTest extends ControlPlaneApiTestSupport {
                 }
                 """.formatted(account, providerModel, new BigDecimal(Double.toString(input)).toPlainString(),
                 new BigDecimal(Double.toString(output)).toPlainString());
+    }
+
+    private String pricingJsonWithDecimalStrings(String input, String output) {
+        return """
+                {
+                  "providerAccountId":%d,
+                  "providerModelId":%d,
+                  "currency":"USD",
+                  "effectiveFrom":"2026-09-08T00:00:00Z",
+                  "rates":[
+                    {"dimensionCode":"INPUT_TOKEN","unitQuantity":1000000,"unitPrice":"%s"},
+                    {"dimensionCode":"OUTPUT_TOKEN","unitQuantity":1000000,"unitPrice":"%s"}
+                  ]
+                }
+                """.formatted(providerAccountId, providerModelId, input, output);
     }
 
     private ForeignPrivateModel insertForeignPrivateModel() {

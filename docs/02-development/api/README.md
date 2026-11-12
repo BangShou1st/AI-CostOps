@@ -82,6 +82,12 @@ api/05-前后端API协作规则.md
 
 Frontend 不能凭页面需要自行发明 Endpoint、字段或错误码。
 
+### 定价 `unitPrice` 输入
+
+`PricingRateInput.unitPrice` 同时接受 JSON number 与最多 8 位小数的非负 plain decimal string（如 `"0.00000001"`）。
+前端继续发送 decimal string，以避免 JavaScript Number 精度与科学计数法问题；
+`PricingRateResponse.unitPrice` 始终保持 scale-8 decimal string，不回退为 number。
+
 ---
 
 ## 三、Gateway Data Plane 开发入口
