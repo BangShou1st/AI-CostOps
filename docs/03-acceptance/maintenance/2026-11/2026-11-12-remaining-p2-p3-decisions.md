@@ -10,7 +10,7 @@
 | 关联分支 | `fix/c-gateway-scheduling`、`fix/c-security-config`、`fix/c-analytics-login`、`fix/c-contract-pricing`、`fix/c-frontend-display` → 集成 `fix/remaining-c-decisions` |
 | 关联 PR | [#188](https://github.com/BangShou1st/AI-CostOps/pull/188) |
 | 变更性质 | 维护期决策项落地；含**有意的契约/展示/错误语义变化**：定价费率响应 number→string、技术时间统一 UTC、`CACHED_INPUT_TOKEN` 配置返回 400；无 Flyway、无财务语义变更 |
-| 总体判定 | **PASS（本地）**；远程 CI/Security 另行标注 |
+| 总体判定 | **PASS（本地 + 远程 CI / Security）**；§3 的环境/外部消费方项仍为 `NOT_VERIFIED` |
 
 本批处理审查报告剩余的全部 12 项（P2-01/02/06/07/08/12/16/17/18/21/22、P3-01），每项均按 2026-11-12 确认的推荐方案执行。
 
@@ -138,7 +138,7 @@
 ```text
 $ npm run verify:links
 [verify-doc-links] Found 250 Markdown files to inspect.
-[verify-doc-links] Checked 424 links.
+[verify-doc-links] Checked 427 links.
 [verify-doc-links] SUCCESS: 0 broken links found! All local document links are valid.
 ```
 
@@ -180,6 +180,18 @@ PR #188 首轮 CI 的 `frontend-test` 在 73 个文件 / 560 个用例全部通�
 WebTestClient 默认 5s。仅该用例的客户端响应预算放宽到 20s（failover/预算/用量断言不变），
 本地复跑 4/4 通过。
 
+### 2.4 远程验证（PR #188，2026-11-12）
+
+| 工作流 | run | 结果 |
+|---|---|---|
+| CI | [43172440487](https://github.com/BangShou1st/AI-CostOps/actions/runs/43172440487) | 18/18 success：`detect-changes`、`backend-unit`、`backend-integration` 两片（5m44s / 10m55s）、`gateway-unit`、`gateway-integration`（2m21s）、`frontend-quality`、`frontend-test`（2m4s）、`scripts-unit` 两平台、`scripts-lifecycle`、`docker-build`、`browser-e2e`、`ci-status` |
+| Security | [43172440485](https://github.com/BangShou1st/AI-CostOps/actions/runs/43172440485) | `trivy` + `codeql (java-kotlin)` + `codeql (javascript-typescript)` 3/3 success |
+| 合并 | PR [#188](https://github.com/BangShou1st/AI-CostOps/pull/188) | squash 为 `d81b48a`；仓库自动删除 head 分支 `fix/remaining-c-decisions` |
+
+CI 共三轮：第一轮 `frontend-test` 因 React scheduler teardown 未处理错误失败；第二轮 `gateway-integration`
+因真实 DNS 延迟超过 5s 客户端预算失败；两处修复后第三轮 18/18 全绿。合并后本地清理：五条子分支、
+集成分支与五个临时 worktree 全部移除；本地与远程最终只保留 `dev`、`main`。
+
 ---
 
 ## 3. `NOT_VERIFIED` 与已知边界
@@ -194,7 +206,7 @@ WebTestClient 默认 5s。仅该用例的客户端响应预算放宽到 20s（fa
 | P2-17 外部消费方 | `NOT_VERIFIED` | 契约只服务本仓库；未通知外部消费方 |
 | P2-18 真实 SSRF 场景 | `NOT_VERIFIED` | 未做真实 DNS rebinding/内网 Provider 部署验证；内置主机白名单现默认开启，非官方 OpenAI/MiMo 主机需显式 opt-in |
 | P2-22 真实浏览器下载 | `NOT_VERIFIED` | 仅组件测试断言 revoke 时序；未在 Firefox/Safari 实机下载 |
-| 本批 PR 的远程 CI / Security | `NOT_VERIFIED`（本地阶段） | 以 PR 页面实际结果为准 |
+| 本批 PR 的远程 CI / Security | **VERIFIED（远程）** | CI 18/18、Security 3/3，见 §2.4 |
 
 ---
 
@@ -283,4 +295,4 @@ CHANGELOG.md
 
 ## 6. 结论
 
-批次 C 的 12 项决策项全部落地。安全边界（生产存储 endpoint、Provider 传输层 SSRF、登录计时侧信道）按推荐方案收紧；分析/报表口径（未观察日、Workbench 同基）与业务决策一致；定价费率改为 decimal string、技术时间统一 UTC、账期客户端合并、证据下载 revoke 延迟、`CACHED_INPUT_TOKEN` 拦截均按已确认方案执行。本地后端/网关单元与架构、定向集成、前端全量测试/构建、脚本测试与文档链接全部通过。远程 CI/Security 与 §3 列出的真实环境验证留待 PR 与后续运维确认。
+批次 C 的 12 项决策项全部落地。安全边界（生产存储 endpoint、Provider 传输层 SSRF、登录计时侧信道）按推荐方案收紧；分析/报表口径（未观察日、Workbench 同基）与业务决策一致；定价费率改为 decimal string、技术时间统一 UTC、账期客户端合并、证据下载 revoke 延迟、`CACHED_INPUT_TOKEN` 拦截均按已确认方案执行。本地后端/网关单元与架构、定向集成、前端全量测试/构建、脚本测试与文档链接全部通过；PR #188 的远程 CI 18/18 与 Security 3/3 进一步确认全量集成、浏览器 E2E 与安全扫描通过。仅 §3 列出的真实环境/外部消费方项保持 `NOT_VERIFIED`。
