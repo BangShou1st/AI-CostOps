@@ -60,8 +60,12 @@ class OpenAiChatAdapterTest {
         auth = null;
         clientRequestId = null;
         body = null;
+        // The mock upstream is a loopback server; the public-only resolver is
+        // on by default everywhere else.
+        var env = new MockEnvironment();
+        env.setProperty("aicostops.gateway.provider.allow-private-endpoints", "true");
         adapter = new OpenAiChatAdapter(WebClient.builder(), new ObjectMapper(),
-                new GatewayProperties(), new MockEnvironment());
+                new GatewayProperties(), env);
     }
 
     @Test

@@ -46,12 +46,12 @@ V2 Gateway
 
 | 规格 | 覆盖面 | 状态 |
 |---|---|---|
-| `api/openapi.yaml` | Control Plane V1/V2 冻结面 | 冻结基线 |
+| `api/openapi.yaml` | Control Plane V1/V2 冻结面 + M11 定价/路由/服务身份/网关凭证 | 冻结基线 |
 | `api/gateway-openapi.yaml` | Gateway Data Plane | 冻结基线 |
 | `api/m18-v3-openapi.yaml` | Provider Hub 增量（M18 起） | 增量契约 |
 
-V3 引入的**成本智能、AI Advisor、预算承诺（Commitment）、路由策略**等能力面，
-**尚未回填 OpenAPI**：这些接口以对应模块的 DTO 定义与 DTO 文档（`03-DTO与Schema约定.md` 及各模块设计文档）为权威契约；
+V3 引入的**成本智能、AI Advisor** 等能力面以 `m18-v3-openapi.yaml` 及对应模块 DTO 为权威契约；
+定价版本、路由策略、路由候选、服务身份与网关凭证已回填 `openapi.yaml`。
 在回填完成前，不要把它们当作 `openapi.yaml` 的缺失，也不要凭截图或猜测发明字段。
 
 ---
@@ -173,7 +173,7 @@ Control Plane：
 - `03-DTO与Schema约定.md`：V1 核心 DTO 的字段与 JSON 约定。
 - `04-错误码幂等并发.md`：ProblemDetail、409、Idempotency、Version。
 - `05-前后端API协作规则.md`：前后端如何避免接口漂移。
-- `openapi.yaml`：Control Plane 机器可读接口基线（V1/V2 冻结面）。
+- `openapi.yaml`：Control Plane 机器可读接口基线（V1/V2 冻结面 + M11 定价/路由/服务身份/网关凭证）。
 - `m18-v3-openapi.yaml`：Provider Hub 增量契约；V3 其余能力面见「三份 spec 的契约优先级」。
 
 Gateway Data Plane：

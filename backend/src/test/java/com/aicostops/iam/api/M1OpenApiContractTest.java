@@ -456,6 +456,27 @@ class M1OpenApiContractTest {
         // M7 read-only audit event query (AIC-065): another org's orgId is a
         // privacy-preserving 404, hence the extra status.
         add(operations, "GET /audit-events", "200", "400", "401", "403", "404");
+        // M11/M17 governed setup surface: model catalog, pricing versions,
+        // routing policies, gateway credentials and service identities (P2-17).
+        add(operations, "GET /model-catalog", "200", "401", "403");
+        add(operations, "GET /provider-models", "200", "401", "403");
+        add(operations, "GET /pricing-versions", "200", "401", "403");
+        add(operations, "POST /pricing-versions", "201", "400", "401", "403", "404", "409");
+        add(operations, "POST /pricing-versions/{id}/activate", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /routing-policies", "200", "400", "401", "403");
+        add(operations, "POST /routing-policies", "201", "400", "401", "403", "404", "409");
+        add(operations, "GET /routing-policies/{id}", "200", "401", "403", "404");
+        add(operations, "PUT /routing-policies/{id}", "200", "400", "401", "403", "404", "409");
+        add(operations, "POST /routing-policies/{id}/revisions", "201", "400", "401", "403", "404", "409");
+        add(operations, "POST /routing-policies/{id}/activate", "200", "400", "401", "403", "404", "409");
+        add(operations, "GET /routing-options", "200", "400", "401", "403", "404");
+        add(operations, "GET /gateway-credentials", "200", "401", "403");
+        add(operations, "POST /gateway-credentials", "201", "400", "401", "403", "404", "409");
+        add(operations, "GET /gateway-credentials/{id}", "200", "401", "403", "404");
+        add(operations, "POST /gateway-credentials/{id}/revoke", "200", "401", "403", "404", "409");
+        add(operations, "GET /service-identities", "200", "401", "403");
+        add(operations, "POST /service-identities", "201", "400", "401", "403", "409");
+        add(operations, "GET /service-identities/{id}", "200", "401", "403", "404");
         return Map.copyOf(operations);
     }
 

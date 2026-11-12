@@ -139,6 +139,9 @@ function gatewayEnvironment(port) {
     AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1: dotenv.AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1,
     AICOSTOPS_PROVIDER_KEK_V1: dotenv.AICOSTOPS_PROVIDER_KEK_V1,
     AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED: 'false',
+    // The harness Provider is a loopback mock; the public-only transport
+    // resolver stays on by default for every real deployment.
+    AICOSTOPS_GATEWAY_PROVIDER_ALLOW_PRIVATE_ENDPOINTS: 'true',
     // The limiter/quota stay enabled: they are the fail-closed gate under test.
     AICOSTOPS_GATEWAY_RATE_LIMIT_ENABLED: 'true',
     AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY: '100000',

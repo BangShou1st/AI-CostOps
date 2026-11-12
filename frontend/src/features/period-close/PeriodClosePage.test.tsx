@@ -2,13 +2,18 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../auth/AuthSessionProvider'
+import { billingPeriodApi, billingPeriodKeys } from '../budgets/api/billingPeriodApi'
 import { periodCloseApi } from './api/periodCloseApi'
 import { PeriodClosePage } from './PeriodClosePage'
 
 vi.mock('../auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
 vi.mock('./api/periodCloseApi', () => ({
-  periodCloseApi: { listBillingPeriods: vi.fn(), getReadiness: vi.fn(), listCloseRuns: vi.fn(), close: vi.fn(), reopen: vi.fn() },
+  periodCloseApi: { getReadiness: vi.fn(), listCloseRuns: vi.fn(), close: vi.fn(), reopen: vi.fn() },
 }))
+vi.mock('../budgets/api/billingPeriodApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../budgets/api/billingPeriodApi')>()
+  return { ...actual, billingPeriodApi: { list: vi.fn() } }
+})
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>()
   return { ...actual, useNavigate: () => vi.fn(), useParams: () => ({ periodId: '10' }) }
@@ -16,6 +21,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 
 const mockedUseAuth = vi.mocked(useAuth)
 const mockedPeriodCloseApi = vi.mocked(periodCloseApi)
+const mockedBillingPeriodApi = vi.mocked(billingPeriodApi)
 
 const period = {
   id: '10', periodStart: '2026-08-01', periodEnd: '2026-09-01', status: 'OPEN' as const, version: 0,
@@ -42,16 +48,17 @@ function renderPage(permissions: string[]) {
     login: vi.fn(), refreshMe: vi.fn(), logout: vi.fn(),
   } as ReturnType<typeof useAuth>)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       <PeriodClosePage />
     </QueryClientProvider>,
   )
+  return { queryClient, ...result }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockedPeriodCloseApi.listBillingPeriods.mockResolvedValue([period])
+  mockedBillingPeriodApi.list.mockResolvedValue([period])
   mockedPeriodCloseApi.getReadiness.mockResolvedValue(readiness)
   mockedPeriodCloseApi.listCloseRuns.mockResolvedValue({ items: [closeRun], page: 0, size: 20, totalElements: 21, totalPages: 2 })
 })
@@ -81,5 +88,24 @@ describe('PeriodClosePage', () => {
     renderPage(['PERIOD_READ', 'PERIOD_CLOSE'])
 
     expect(await screen.findByRole('button', { name: '关闭账期' })).toBeInTheDocument()
+  })
+
+  it('reads the billing-period list through the shared client and cache key', async () => {
+    const { queryClient } = renderPage(['PERIOD_READ'])
+
+    await waitFor(() => expect(mockedBillingPeriodApi.list).toHaveBeenCalledTimes(1))
+    expect(queryClient.getQueryData(billingPeriodKeys.list())).toEqual([period])
+  })
+
+  it('invalidates the shared billing-period key after a close succeeds', async () => {
+    mockedPeriodCloseApi.close.mockResolvedValue({ ...closeRun, periodStatus: 'CLOSED', runStatus: 'CLOSED' })
+    renderPage(['PERIOD_READ', 'PERIOD_CLOSE'])
+
+    fireEvent.click(await screen.findByRole('button', { name: '关闭账期' }))
+    fireEvent.click(await screen.findByRole('button', { name: '确认关闭' }))
+
+    await waitFor(() => expect(mockedPeriodCloseApi.close).toHaveBeenCalledTimes(1))
+    // The active shared list query is invalidated and refetched (initial + refetch).
+    await waitFor(() => expect(mockedBillingPeriodApi.list).toHaveBeenCalledTimes(2))
   })
 })

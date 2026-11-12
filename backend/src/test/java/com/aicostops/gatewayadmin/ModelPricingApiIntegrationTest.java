@@ -49,7 +49,8 @@ class ModelPricingApiIntegrationTest extends ControlPlaneApiTestSupport {
                 .andExpect(jsonPath("$.version").value(1))
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.rates[0].dimensionCode").value("INPUT_TOKEN"))
-                .andExpect(jsonPath("$.rates[0].unitPrice").value(30.0))
+                .andExpect(jsonPath("$.rates[0].unitPrice").isString())
+                .andExpect(jsonPath("$.rates[0].unitPrice").value("30.00000000"))
                 .andReturn();
 
         long versionId = readLong(create, "id");
@@ -66,6 +67,64 @@ class ModelPricingApiIntegrationTest extends ControlPlaneApiTestSupport {
                         .content(pricingJson(31.0, 62.0)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.version").value(2));
+    }
+
+    @Test
+    void duplicateDimensionsAreRejectedWithoutWritingPricingRows() throws Exception {
+        int versionsBefore = pricingVersionCount(providerModelId);
+        int ratesBefore = pricingRateCount();
+
+        mockMvc.perform(post("/api/v1/pricing-versions")
+                        .header("Authorization", managerBearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "providerAccountId":%d,
+                                  "providerModelId":%d,
+                                  "currency":"USD",
+                                  "effectiveFrom":"2026-09-08T00:00:00Z",
+                                  "rates":[
+                                    {"dimensionCode":"INPUT_TOKEN","unitQuantity":1000000,"unitPrice":1.0},
+                                    {"dimensionCode":"input_token","unitQuantity":1000000,"unitPrice":2.0}
+                                  ]
+                                }
+                                """.formatted(providerAccountId, providerModelId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.detail").value(
+                        org.hamcrest.Matchers.containsString("INPUT_TOKEN")));
+
+        Assertions.assertThat(pricingVersionCount(providerModelId)).isEqualTo(versionsBefore);
+        Assertions.assertThat(pricingRateCount()).isEqualTo(ratesBefore);
+    }
+
+    @Test
+    void cachedInputDimensionIsRejectedWithoutWritingPricingRows() throws Exception {
+        int versionsBefore = pricingVersionCount(providerModelId);
+        int ratesBefore = pricingRateCount();
+
+        mockMvc.perform(post("/api/v1/pricing-versions")
+                        .header("Authorization", managerBearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "providerAccountId":%d,
+                                  "providerModelId":%d,
+                                  "currency":"USD",
+                                  "effectiveFrom":"2026-09-08T00:00:00Z",
+                                  "rates":[
+                                    {"dimensionCode":"INPUT_TOKEN","unitQuantity":1000000,"unitPrice":1.0},
+                                    {"dimensionCode":"CACHED_INPUT_TOKEN","unitQuantity":1000000,"unitPrice":0.5}
+                                  ]
+                                }
+                                """.formatted(providerAccountId, providerModelId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.detail").value(
+                        org.hamcrest.Matchers.containsString("CACHED_INPUT_TOKEN")));
+
+        Assertions.assertThat(pricingVersionCount(providerModelId)).isEqualTo(versionsBefore);
+        Assertions.assertThat(pricingRateCount()).isEqualTo(ratesBefore);
     }
 
     @Test

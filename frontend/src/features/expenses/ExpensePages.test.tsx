@@ -275,7 +275,7 @@ describe('ExpensePages', () => {
 
     await waitFor(() => expect(screen.getByText('下载凭证')).toBeInTheDocument())
     const row = screen.getByText('提交时间').closest('tr')
-    expect(row?.textContent).toContain('2026-08-17 18:30')
+    expect(row?.textContent).toContain('2026-08-17 10:30 UTC')
     expect(row?.textContent).not.toContain('—')
   })
 
@@ -311,7 +311,7 @@ describe('ExpensePages', () => {
 
     await waitFor(() => expect(screen.getByText('下载凭证')).toBeInTheDocument())
     const row = screen.getByText('提交时间').closest('tr')
-    expect(row?.textContent).toContain('2026-08-17 22:20')
+    expect(row?.textContent).toContain('2026-08-17 14:20 UTC')
   })
 
   it('shows an em dash for 提交时间 when the expense was never submitted', async () => {
@@ -802,11 +802,15 @@ describe('Employee expense mutations', () => {
 })
 
 describe('ExpenseEvidenceSection', () => {
-  it('download triggers an authenticated blob download via expenseApi and revokes the object URL', async () => {
+  it('download keeps the anchor attached and defers object URL revocation past the click frame', async () => {
     const downloadEvidence = vi.fn().mockResolvedValue(new Blob(['receipt']))
     mockedExpenseApi.downloadEvidence = downloadEvidence
     const objectURLSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake')
     const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    let anchorAttachedAtClick = false
+    const clickSpy = vi.spyOn(HTMLElement.prototype, 'click').mockImplementation(function (this: HTMLElement) {
+      anchorAttachedAtClick = this instanceof HTMLAnchorElement && document.body.contains(this)
+    })
 
     render(
       <ExpenseEvidenceSection
@@ -819,14 +823,21 @@ describe('ExpenseEvidenceSection', () => {
       />,
     )
 
-    const downloadButton = await screen.findByText('下载凭证')
-    fireEvent.click(downloadButton)
+    fireEvent.click(await screen.findByText('下载凭证'))
 
-    await waitFor(() => expect(downloadEvidence).toHaveBeenCalledWith('exp-1'))
+    // Flush the async download handler without advancing macrotask timers.
+    await Promise.resolve()
+    expect(downloadEvidence).toHaveBeenCalledWith('exp-1')
     expect(objectURLSpy).toHaveBeenCalled()
-    expect(revokeSpy).toHaveBeenCalledWith('blob:fake')
+    expect(anchorAttachedAtClick).toBe(true)
+    expect(document.body.querySelector('a[download]')).toBeNull()
+    // The object URL must outlive the click frame so the download manager can take it.
+    expect(revokeSpy).not.toHaveBeenCalled()
+
+    await waitFor(() => expect(revokeSpy).toHaveBeenCalledWith('blob:fake'))
 
     objectURLSpy.mockRestore()
     revokeSpy.mockRestore()
+    clickSpy.mockRestore()
   })
 })

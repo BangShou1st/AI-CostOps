@@ -29,6 +29,7 @@ import {
 import { allFixtureBudgets, seed } from './seed.mjs'
 import { runLoad, runOneShot } from './load.mjs'
 import { Sampler } from './sampler.mjs'
+import { decideRedisRemoval, labelsForRedis } from './ownership.mjs'
 import {
   budgetSnapshot, channelIsolation, dispatchSnapshot, explainKeyStatements, settlementSnapshot,
   settlementViolations, sqlTimestamp, topSqlDigests, waitSettlementConverged,
@@ -223,6 +224,9 @@ function gatewayEnvironment(port, phase) {
     AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1: cfg.requestHmacKey,
     AICOSTOPS_PROVIDER_KEK_V1: cfg.providerKek,
     AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED: 'false',
+    // The harness Provider is a loopback mock; the public-only transport
+    // resolver stays on by default for every real deployment.
+    AICOSTOPS_GATEWAY_PROVIDER_ALLOW_PRIVATE_ENDPOINTS: 'true',
     AICOSTOPS_GATEWAY_RATE_LIMIT_ENABLED: 'true',
     AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY: high ? '500000' : '60',
     AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND: high ? '50000' : '1',
@@ -284,12 +288,58 @@ async function stopGateways() {
 const REDIS_CONTAINER = 'ai-costops-hc01-redis'
 const REDIS_PORT = 16379
 const REDIS_PASSWORD = `hc01-${RUN_NONCE}-redis`
+// Owner identity is unique per run: a concurrent HC-01 has a different owner,
+// so its Redis is refused instead of being deleted by this process.
+const REDIS_OWNER = `hc01-owner-${RUN_NONCE}-${Math.random().toString(36).slice(2, 10)}`
+const REDIS_LABELS = labelsForRedis(REDIS_OWNER, RUN_NONCE)
+
+/**
+ * Docker prints `null` when the container exists without labels. That is
+ * deliberately mapped to `{}`, not `null`, so an unlabeled container stays
+ * distinguishable from an absent one and the ownership decision can refuse it.
+ * Returns null only when the container does not exist.
+ */
+function inspectContainerLabels(name) {
+  const result = spawnSync('docker', ['inspect', '--format', '{{json .Config.Labels}}', name], {
+    encoding: 'utf8', windowsHide: true,
+  })
+  if (result.status !== 0) {
+    const stderr = String(result.stderr ?? '')
+    if (/No such object|No such container/i.test(stderr)) return null
+    const detail = stderr.trim() || result.error?.message || `exit status ${result.status}`
+    throw new Error(`docker inspect ${name} failed: ${detail}`)
+  }
+  let parsed
+  try {
+    parsed = JSON.parse(String(result.stdout ?? '').trim() || 'null')
+  } catch {
+    throw new Error(`docker inspect ${name} returned unparsable labels: ${result.stdout}`)
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  return parsed
+}
+
+function redisLabelArgs() {
+  return Object.entries(REDIS_LABELS).flatMap(([key, value]) => ['--label', `${key}=${value}`])
+}
 
 async function ensureRedis() {
   log(`preparing dedicated Redis container ${REDIS_CONTAINER} on 127.0.0.1:${REDIS_PORT}`)
-  spawnSync('docker', ['rm', '-f', REDIS_CONTAINER], { encoding: 'utf8', windowsHide: true })
+  const existingLabels = inspectContainerLabels(REDIS_CONTAINER)
+  if (existingLabels) {
+    const decision = decideRedisRemoval({
+      name: REDIS_CONTAINER, expectedOwner: REDIS_OWNER, labels: existingLabels,
+    })
+    if (decision.allow !== true) throw new Error(decision.message)
+    log(`removing leftover ${REDIS_CONTAINER} owned by this run`)
+    const removed = spawnSync('docker', ['rm', '-f', REDIS_CONTAINER], {
+      encoding: 'utf8', windowsHide: true,
+    })
+    if (removed.status !== 0) throw new Error(`移除遗留 Redis 容器失败: ${removed.stderr}`)
+  }
   const result = spawnSync('docker', [
     'run', '-d', '--name', REDIS_CONTAINER,
+    ...redisLabelArgs(),
     '-p', `127.0.0.1:${REDIS_PORT}:6379`,
     'redis:8.8.1-alpine',
     'redis-server', '--requirepass', REDIS_PASSWORD, '--appendonly', 'no', '--save', '',
@@ -316,7 +366,23 @@ async function ensureRedis() {
 }
 
 function removeRedis() {
-  spawnSync('docker', ['rm', '-f', REDIS_CONTAINER], { encoding: 'utf8', windowsHide: true })
+  const labels = inspectContainerLabels(REDIS_CONTAINER)
+  if (!labels) return
+  const decision = decideRedisRemoval({
+    name: REDIS_CONTAINER, expectedOwner: REDIS_OWNER, labels,
+  })
+  if (decision.allow !== true) {
+    const warning = `${decision.message} Leaving ${REDIS_CONTAINER} in place.`
+    console.warn(`[HC-01] ${warning}`)
+    state.notes.push(warning)
+    return
+  }
+  const result = spawnSync('docker', ['rm', '-f', REDIS_CONTAINER], { encoding: 'utf8', windowsHide: true })
+  if (result.status !== 0) {
+    const warning = `failed to remove ${REDIS_CONTAINER}: ${String(result.stderr ?? '').trim()}`
+    console.warn(`[HC-01] ${warning}`)
+    state.notes.push(warning)
+  }
 }
 
 function seedPreflight() {

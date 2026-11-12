@@ -629,7 +629,7 @@ components:
         postingReady: { type: boolean }
         version: { type: integer, minimum: 0 }
         createdAt: { type: string, format: date-time }
-    LedgerSourceType: { type: string, enum: [PROVIDER_CHARGE, EXPENSE_CLAIM, CORRECTION] }
+    LedgerSourceType: { type: string, enum: [PROVIDER_CHARGE, EXPENSE_CLAIM, CORRECTION, GATEWAY_SETTLEMENT, RECONCILIATION_ADJUSTMENT] }
     LedgerEntryType: { type: string, enum: [COST, CREDIT, ADJUSTMENT, REVERSAL] }
     CorrectionMode: { type: string, enum: [REVERSAL_ONLY, REPLACE] }
     CommitmentLinkRequest:
@@ -1364,6 +1364,190 @@ components:
       allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/ReconciliationCaseResponse' } } } }]
     PageResponseCloseRun:
       allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/CloseRunResponse' } } } }]
+    ServiceIdentityRequest:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 100 }
+        name: { type: string, minLength: 1, maxLength: 200 }
+    ServiceIdentityResponse:
+      type: object
+      required: [id, code, name, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        code: { type: string }
+        name: { type: string }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+    CredentialCreateRequest:
+      type: object
+      required: [principalType, projectId, financialScopeType, financialScopeId, budgetEnforcementMode, modelIds]
+      properties:
+        principalType: { type: string }
+        serviceIdentityId: { oneOf: [{ type: integer, format: int64, minimum: 1 }, { type: 'null' }] }
+        organizationMemberId: { oneOf: [{ type: integer, format: int64, minimum: 1 }, { type: 'null' }] }
+        projectId: { type: integer, format: int64, minimum: 1 }
+        financialScopeType: { type: string }
+        financialScopeId: { type: integer, format: int64, minimum: 1 }
+        budgetEnforcementMode: { type: string }
+        expiresAt: { oneOf: [{ type: string, format: date-time }, { type: 'null' }] }
+        modelIds: { type: array, minItems: 1, items: { type: integer, format: int64, minimum: 1 } }
+    CredentialCreateResponse:
+      type: object
+      required: [id, prefix, rawKey, principalType, projectId, financialScopeType, financialScopeId, budgetEnforcementMode, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        prefix: { type: string }
+        rawKey: { type: string, description: Returned exactly once at creation; never recoverable afterwards. }
+        principalType: { type: string }
+        projectId: { $ref: '#/components/schemas/Id' }
+        financialScopeType: { type: string }
+        financialScopeId: { $ref: '#/components/schemas/Id' }
+        budgetEnforcementMode: { type: string }
+        status: { type: string }
+        expiresAt: { oneOf: [{ type: string, format: date-time }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+    CredentialResponse:
+      type: object
+      required: [id, prefix, principalType, projectId, financialScopeType, financialScopeId, budgetEnforcementMode, status, createdAt]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        prefix: { type: string }
+        principalType: { type: string }
+        serviceIdentityId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        organizationMemberId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        projectId: { $ref: '#/components/schemas/Id' }
+        financialScopeType: { type: string }
+        financialScopeId: { $ref: '#/components/schemas/Id' }
+        budgetEnforcementMode: { type: string }
+        status: { type: string }
+        expiresAt: { oneOf: [{ type: string, format: date-time }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { oneOf: [{ type: string, format: date-time }, { type: 'null' }] }
+    PricingDimensionInputCode:
+      type: string
+      enum: [INPUT_TOKEN, OUTPUT_TOKEN, REQUEST]
+      description: CACHED_INPUT_TOKEN is rejected at creation because the Gateway data plane never emits cached-input usage.
+    PricingDimensionCode: { type: string, enum: [INPUT_TOKEN, OUTPUT_TOKEN, CACHED_INPUT_TOKEN, REQUEST] }
+    PricingRateInput:
+      type: object
+      required: [dimensionCode, unitQuantity, unitPrice]
+      properties:
+        dimensionCode: { $ref: '#/components/schemas/PricingDimensionInputCode' }
+        unitQuantity: { type: integer, format: int64, minimum: 1 }
+        unitPrice:
+          type: number
+          minimum: 0
+          description: Request input stays a JSON number (BigDecimal-compatible, at most 8 fraction digits); responses return the same rate as a decimal string.
+    PricingVersionCreateRequest:
+      type: object
+      required: [providerAccountId, providerModelId, currency, effectiveFrom, rates]
+      properties:
+        providerAccountId: { type: integer, format: int64, minimum: 1 }
+        providerModelId: { type: integer, format: int64, minimum: 1 }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        effectiveFrom: { type: string, format: date-time }
+        effectiveTo: { oneOf: [{ type: string, format: date-time }, { type: 'null' }] }
+        rates: { type: array, minItems: 1, items: { $ref: '#/components/schemas/PricingRateInput' } }
+    PricingRateResponse:
+      type: object
+      required: [id, dimensionCode, unitQuantity, unitPrice]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        dimensionCode: { $ref: '#/components/schemas/PricingDimensionCode' }
+        unitQuantity: { type: integer, format: int64 }
+        unitPrice: { type: string, pattern: '^-?[0-9]+\.[0-9]{8}$' }
+    PricingVersionResponse:
+      type: object
+      required: [id, providerAccountId, providerModelId, version, currency, status, effectiveFrom, createdAt, rates]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        providerAccountId: { $ref: '#/components/schemas/Id' }
+        providerModelId: { $ref: '#/components/schemas/Id' }
+        version: { type: integer, minimum: 1 }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        status: { type: string, enum: [DRAFT, ACTIVE, RETIRED] }
+        effectiveFrom: { type: string, format: date-time }
+        effectiveTo: { oneOf: [{ type: string, format: date-time }, { type: 'null' }] }
+        createdAt: { type: string, format: date-time }
+        activatedAt: { oneOf: [{ type: string, format: date-time }, { type: 'null' }] }
+        rates: { type: array, items: { $ref: '#/components/schemas/PricingRateResponse' } }
+    ModelCatalogResponse:
+      type: object
+      required: [id, modelKey, name, status]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        modelKey: { type: string }
+        name: { type: string }
+        status: { type: string }
+    ProviderModelResponse:
+      type: object
+      required: [id, providerCode, modelId, providerModelName, status, routingEligible]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        providerCode: { type: string }
+        modelId: { $ref: '#/components/schemas/Id' }
+        providerModelName: { type: string }
+        status: { type: string }
+        routingEligible: { type: boolean }
+    RoutingPolicyStatus: { type: string, enum: [DRAFT, ACTIVE, RETIRED] }
+    RoutingCandidateInput:
+      type: object
+      required: [providerAccountId, providerModelId, priority]
+      properties:
+        providerAccountId: { type: integer, format: int64, minimum: 1 }
+        providerModelId: { type: integer, format: int64, minimum: 1 }
+        priority: { type: integer, minimum: 0 }
+        status: { type: string }
+        privacyRegionCode: { type: string }
+    RoutingPolicyCreateRequest:
+      type: object
+      required: [modelId, candidates]
+      properties:
+        projectId: { oneOf: [{ type: integer, format: int64, minimum: 1 }, { type: 'null' }] }
+        modelId: { type: integer, format: int64, minimum: 1 }
+        candidates: { type: array, minItems: 1, items: { $ref: '#/components/schemas/RoutingCandidateInput' } }
+    RoutingPolicyUpdateRequest:
+      type: object
+      required: [candidates]
+      properties:
+        candidates: { type: array, minItems: 1, items: { $ref: '#/components/schemas/RoutingCandidateInput' } }
+    RoutingCandidateResponse:
+      type: object
+      required: [id, providerAccountId, providerModelId, priority, status]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        providerAccountId: { $ref: '#/components/schemas/Id' }
+        providerModelId: { $ref: '#/components/schemas/Id' }
+        priority: { type: integer }
+        status: { type: string }
+        privacyRegionCode: { oneOf: [{ type: string }, { type: 'null' }] }
+    RoutingPolicyResponse:
+      type: object
+      required: [id, organizationId, modelId, version, status, candidates]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        organizationId: { $ref: '#/components/schemas/Id' }
+        projectId: { oneOf: [{ $ref: '#/components/schemas/Id' }, { type: 'null' }] }
+        modelId: { $ref: '#/components/schemas/Id' }
+        version: { type: integer, minimum: 1 }
+        status: { $ref: '#/components/schemas/RoutingPolicyStatus' }
+        candidates: { type: array, items: { $ref: '#/components/schemas/RoutingCandidateResponse' } }
+    PageResponseRoutingPolicy:
+      allOf: [{ $ref: '#/components/schemas/PageResponse' }, { type: object, properties: { items: { type: array, items: { $ref: '#/components/schemas/RoutingPolicyResponse' } } } }]
+    RouteOptionResponse:
+      type: object
+      required: [providerAccountId, displayName, providerCode, providerModelId, providerModelName, routingEligible, credentialReady, pricingReady, currencies]
+      properties:
+        providerAccountId: { $ref: '#/components/schemas/Id' }
+        displayName: { type: string }
+        providerCode: { type: string }
+        providerModelId: { $ref: '#/components/schemas/Id' }
+        providerModelName: { type: string }
+        routingEligible: { type: boolean }
+        credentialReady: { type: boolean }
+        pricingReady: { type: boolean }
+        currencies: { type: array, items: { type: string, pattern: '^[A-Z]{3}$' } }
 
 paths:
   /auth/login:
@@ -1496,6 +1680,84 @@ paths:
     patch:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/UpdateProviderAccountRequest' } } } }
       responses: { '200': { description: Provider account updated, content: { application/json: { schema: { $ref: '#/components/schemas/ProviderAccount' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /model-catalog:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses: { '200': { description: Models available to the current organization, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ModelCatalogResponse' } } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /provider-models:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses: { '200': { description: Provider models available to the current organization, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ProviderModelResponse' } } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+  /pricing-versions:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses: { '200': { description: Pricing versions for the current organization, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/PricingVersionResponse' } } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+    post:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/PricingVersionCreateRequest' } } } }
+      responses: { '201': { description: DRAFT pricing version created, content: { application/json: { schema: { $ref: '#/components/schemas/PricingVersionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /pricing-versions/{id}/activate:
+    post:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses: { '200': { description: Draft activated; prior ACTIVE version of the same scope retired, content: { application/json: { schema: { $ref: '#/components/schemas/PricingVersionResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /routing-policies:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]
+      responses: { '200': { description: Paged routing policies, content: { application/json: { schema: { $ref: '#/components/schemas/PageResponseRoutingPolicy' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+    post:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RoutingPolicyCreateRequest' } } } }
+      responses: { '201': { description: DRAFT routing policy created, content: { application/json: { schema: { $ref: '#/components/schemas/RoutingPolicyResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /routing-policies/{id}:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses: { '200': { description: Routing policy, content: { application/json: { schema: { $ref: '#/components/schemas/RoutingPolicyResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+    put:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RoutingPolicyUpdateRequest' } } } }
+      responses: { '200': { description: DRAFT routing policy candidates replaced, content: { application/json: { schema: { $ref: '#/components/schemas/RoutingPolicyResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /routing-policies/{id}/revisions:
+    post:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses: { '201': { description: New DRAFT revision cloned from the source policy, content: { application/json: { schema: { $ref: '#/components/schemas/RoutingPolicyResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /routing-policies/{id}/activate:
+    post:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses: { '200': { description: DRAFT activated; prior ACTIVE version of the same scope retired, content: { application/json: { schema: { $ref: '#/components/schemas/RoutingPolicyResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /routing-options:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      parameters: [{ name: modelId, in: query, required: true, schema: { type: integer, format: int64, minimum: 1 } }]
+      responses: { '200': { description: Credential-ready and pricing-ready route candidates for the model, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/RouteOptionResponse' } } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /gateway-credentials:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses: { '200': { description: Safe gateway credential projections (metadata only, never the raw key), content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/CredentialResponse' } } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+    post:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CredentialCreateRequest' } } } }
+      responses: { '201': { description: Credential created; rawKey is returned exactly once, content: { application/json: { schema: { $ref: '#/components/schemas/CredentialCreateResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /gateway-credentials/{id}:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses: { '200': { description: Safe gateway credential projection, content: { application/json: { schema: { $ref: '#/components/schemas/CredentialResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
+  /gateway-credentials/{id}/revoke:
+    post:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      responses: { '200': { description: Credential revoked; revokedAt is set and the raw key is never returned, content: { application/json: { schema: { $ref: '#/components/schemas/CredentialResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /service-identities:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses: { '200': { description: Service identities in the current organization, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/ServiceIdentityResponse' } } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' } }
+    post:
+      x-permission: PROVIDER_ACCOUNT_MANAGE
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceIdentityRequest' } } } }
+      responses: { '201': { description: Service identity created, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceIdentityResponse' } } } }, '400': { $ref: '#/components/responses/Problem' }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '409': { $ref: '#/components/responses/Problem' } }
+  /service-identities/{id}:
+    get:
+      x-permission: PROVIDER_ACCOUNT_READ
+      responses: { '200': { description: Service identity, content: { application/json: { schema: { $ref: '#/components/schemas/ServiceIdentityResponse' } } } }, '401': { $ref: '#/components/responses/Problem' }, '403': { $ref: '#/components/responses/Problem' }, '404': { $ref: '#/components/responses/Problem' } }
   /evidence:
     get:
       parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/Size' }]

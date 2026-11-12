@@ -321,3 +321,86 @@ $ npm run verify:links
 P1-02 / P1-03 的远程证据由此补齐；branch protection 仍待仓库设置确认。
 
 **未处置**：本批仅处理上述 6 项；其余 20 项 P2 与 6 项 P3 保持原状，等待后续独立维护窗口。
+
+---
+
+## 10. 处置记录（第二批：批次 A 低风险清理，2026-11-12 追加）
+
+> 本节只追加处置结果，不改写上方原始发现、证据与结论。逐项 before/after、红/绿输出、`NOT_VERIFIED`
+> 与影响边界见 [2026-11-12 剩余 P2/P3 低风险清理（批次 A）](2026-11-12-remaining-p2-p3-cleanup.md)。
+
+| 发现 | 处置 | 证据摘要 |
+|---|---|---|
+| P2-03 dev overlay 暴露 MySQL/Redis/MinIO | **FIXED** | 四个端口补 `127.0.0.1:`；`docker compose config` 解析为 `127.0.0.1:3307/6379/9000/9001` |
+| P2-04 hc01 无归属删除固定名 Redis | **FIXED**（逻辑）/ `NOT_VERIFIED`（真实容器生命周期） | 复用 HC-03 决策并加 hc01 label；无 label / 他人 owner / 仅 HC-03 label 均拒绝；新增 6 个纯函数用例，脚本套件 54/54 |
+| P2-05 CodeQL 不分析 `scripts/` | **FIXED** | `paths` 追加 `scripts`；PR #184 的 `codeql (javascript-typescript)` success（2m8s），未产生新告警 |
+| P2-19 前端依赖声明不完整/冗余 | **FIXED** | 声明 `dayjs@1.11.21`、删除 `echarts`；干净 `npm ci` 296 包成功，`echarts`/`tslib` 不存在 |
+| P3-02 `percentOf` 正则笔误 | **FIXED** | `/^0+(?=\\d)/` → `/^0+(?=\d)/`；当前无可观测行为差异，无法提供黑盒红/绿 |
+| P3-05 分摊编辑器 render 期解析无兜底 | **FIXED** | 旧实现 `1 failed / 18 passed`（render 抛 `Not an exact scale-8 money string`），新实现 `19 passed`；非法金额显示“金额格式异常” |
+| P3-06 `AppPage` 死代码与 `WORKBENCH_SECTION` | **FIXED** | 删除 `AppPage`；`readPermission` 改可选、工作台走真实谓词；新增导航权限目录一致性测试（先红：`WORKBENCH_SECTION` 不在 Flyway 种子） |
+
+**报告更正**：本批未发现审查报告与代码的事实冲突，无需更正。补充两点行号/上下文说明：
+P3-06 的 `AuthPages.tsx:47-50` 在 P1-04 修复后位移到 48-52，属正常行漂移；`useAuth` 同时被
+`LoginPage` 使用，因此删除 `AppPage` 时保留该导入（审查报告未声称相反）。
+
+**未处置**：本批只做上述 7 项。P2-01/02/06/07/08/10/11/12/13/14/15/16/17/18/21/22 与
+P3-01/03/04 保持原状，留待批次 B/C。
+
+---
+
+## 11. 处置记录（第三批：批次 B 后端修复，2026-11-12 追加）
+
+> 本节只追加处置结果，不改写上方原始发现、证据与结论。逐项 before/after、红/绿输出、`NOT_VERIFIED`
+> 与影响边界见 [2026-11-12 剩余 P2/P3 后端修复（批次 B）](2026-11-12-remaining-p2-p3-backend.md)。
+
+| 发现 | 处置 | 证据摘要 |
+|---|---|---|
+| P2-10 仅测试的授权/派发路径 | **FIXED** | 抽出 `authorizePrelude`（身份/模型/账期/请求收敛）供两条路径共用；`authorizeAndFence` Javadoc 标注 test-only；3 个定向集成测试 5+3+12 全过。test-only 路径“无路由 + 无账期”同时出现时错误码由 403 变 503（生产路径不变） |
+| P2-11 成功终结 `DISPATCH_INTENT` 矛盾 | **FIXED** | 选择“放宽 SQL”：`markRequestTransportCompleted` 接受 `DISPATCH_INTENT` / `UPSTREAM_ACTIVE`，与 guard 及 attempt 侧一致；旧 SQL 下新用例 `2 errors`（`got 0`），修复后 9/9 |
+| P2-13 定价创建维度/版本/409 | **FIXED** | 重复维度任何写入前 400（旧实现 500 → 新 15/15）；organization 行锁后分配版本；`DuplicateKeyException` → 409；维度覆盖校验按审查要求只给建议（activate 时校验 INPUT/OUTPUT）。并发双击仍可能得到 409（可重试契约），未做并发压测 |
+| P2-14 路由策略列表 N+1 | **FIXED** | 新增 `findCandidatesByPolicyIds` 一次批量查询 + 内存分组；Mockito 断言批量查询 1 次、单条查询 0 次；真实 MySQL 列表集成测试 1/1 |
+| P2-15 僵尸 `RUNNING` 对账 run | **FIXED** | 选择“启动 + 定时收敛”：行锁 + 状态 CAS + `RECONCILIATION_RUN_ABANDONED` + 审计 + 指标；默认 30s 首扫 / 5m 间隔 / 30m 超时；测试默认关闭。新增集成测试先红（方法不存在）后绿 1/1 |
+| P3-03 `EXPENSE_RESUBMIT` 死代码 | **FIXED** | 删除常量与 `resubmitRequestHash`；全仓 0 引用 |
+| P3-04 `InitialCandidateResult.skipped()` | **FIXED** | 删除方法；`NextCandidateResult.skipped()` 保留 |
+
+**报告更正**：本批未发现审查报告与代码的事实冲突，无需更正。两项处置选择均在审查建议范围内：
+P2-10 采用“抽公共段 + 显式标注仅测试入口”；P2-11 采用“放宽 SQL 谓词”，理由为成功证据存在时
+`DISPATCH_INTENT` 应能收敛为 `TRANSPORT_COMPLETED`，与 attempt 侧谓词一致。
+
+**未处置**：批次 B 只做上述 7 项。P2-01/02/06/07/08/12/16/17/18/21/22 与 P3-01 留待批次 C
+（需要先拍板的方案项）。
+
+---
+
+## 12. 处置记录（第四批：批次 C 决策项落地，2026-11-12 追加）
+
+> 本节只追加处置结果，不改写上方原始发现、证据与结论。逐项 before/after、红/绿输出、`NOT_VERIFIED`
+> 与影响边界见 [2026-11-12 剩余 P2/P3 决策项落地（批次 C）](2026-11-12-remaining-p2-p3-decisions.md)。
+> 本批按用户确认的推荐方案执行，包含有意的契约/展示变化：费率响应 number→string、技术时间统一 UTC、
+> `CACHED_INPUT_TOKEN` 配置返回 400。
+
+| 发现 | 处置 | 证据摘要 |
+|---|---|---|
+| P2-01 调度线程耦合 | **FIXED** | 调度池 2 线程；Advisor 批量上限默认 10 + 可禁用开关；批量用例先红（claim 4 vs 2）后绿 13/13；Gateway 单元 214/0/1 |
+| P2-02 本地性判断/明文 endpoint | **FIXED** | URI + `InetAddress` 全地址解析；`0.0.0.0`/`127.1`/十进制 IP/IPv4-mapped IPv6 均拒绝；`localhost.example.com` 不误杀；内网明文需 `AICOSTOPS_STORAGE_ALLOW_PLAINTEXT_INTERNAL=true`；测试先红 10 failures 后绿 32/32 |
+| P2-06 登录计时侧信道 | **FIXED** | 未知邮箱执行固定 cost-10 dummy bcrypt；先红（0 次 matches）后绿 `LoginServiceIntegrationTest` 6/6 |
+| P2-07 未观察日进入异常基线 | **FIXED** | 被评估桶/baseline 只取 `observed=true`，不足 14 个返回空；`latestDelta` 复用 median 并过滤缺口；先红 6 failures 后绿 17/17 |
+| P2-08 Workbench 口径不同基 | **FIXED** | 项目汇总复用 `CHARGE_BASIS`；先红 project=30（应 10）后绿 `WorkbenchIntegrationTest` 8/8 |
+| P2-12 费率 number 契约 | **FIXED** | 响应 `unitPrice` 改 decimal string；前端按 scale-8 精确展示；先红 `Expected a string ... 30.0` 后绿 16/16。展示由 `$30.00` 变为 `30.00 USD` |
+| P2-16 两套时区 | **FIXED** | 单一 UTC formatter + 显式 `UTC` 标注；先红 `18:14` vs `10:14 UTC` 后绿；前端 560/560 |
+| P2-17 OpenAPI 漂移 | **FIXED** | 新增 14 path / 19 operation / 21 schema（含 `x-permission`）；`LedgerSourceType` 5 值；路由覆盖测试修复前缺 14 条、修复后 0；删除重复副本。覆盖断言使用 `openapi.yaml` + `m18-v3-openapi.yaml` 并集 |
+| P2-18 SSRF 仅 prod | **FIXED** | 默认所有 profile 安装公网 resolver + 内置主机白名单，显式 opt-out；resolver 测试先红 2 failures 后绿 19 个定向；Gateway 单元 214/0/1、SafeFailover 4/4 |
+| P2-21 账期双客户端 | **FIXED** | 统一 `billingPeriodApi` + `billingPeriodKeys.list()`；删除重复客户端/键/类型；关账后失效共享键；先红后绿，560 用例通过 |
+| P2-22 下载 revoke 时机 | **FIXED**（组件级）/ `NOT_VERIFIED`（真实浏览器） | anchor 挂 body + `setTimeout(revoke, 0)`；先红（未挂载/同帧 revoke）后绿；未在 Firefox/Safari 实机下载 |
+| P3-01 `CACHED_INPUT_TOKEN` | **FIXED** | 定价创建拒绝该维度（400）；单测先红 1 failure、集成先红 201，后绿单测 3/3、集成 16/16 |
+
+**报告更正**：本批未发现审查报告与代码的事实冲突，无需更正。三点执行说明：
+P2-02 的 `http://127.1:9000` 由 JDK `URI.getHost()==null` 走“必须带 host”拒绝路径，未走地址解析；
+P2-17 的覆盖断言是 `openapi.yaml` + `m18-v3-openapi.yaml` 的并集（避免复制冻结契约）；
+P2-18 的 `allow-private-endpoints=true` 同时放宽 resolver 与内置主机白名单，测试/mock/内网部署显式开启。
+
+**全部处置完成**：本报告列出的 4 项 P1、22 项 P2、6 项 P3 已分别在 P1 批次（6 项）、批次 A（7 项）、
+批次 B（7 项）、批次 C（12 项）完成处置；无剩余未处置发现。
+
+**历史记录不再修改**：本批删除重复契约副本 `docs/03-acceptance/m18-openapi.yaml` 后，上方原始发现中
+仍保留该路径作为当时证据；单一真相源现为 `docs/02-development/api/m18-v3-openapi.yaml`。

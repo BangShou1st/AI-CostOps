@@ -101,8 +101,11 @@ class MimoChatAdapterTest {
         lastPath = null;
         lastAuthHeader = null;
         lastBody = null;
-        adapter = new MimoChatAdapter(WebClient.builder(), new ObjectMapper(), properties(),
-                new MockEnvironment());
+        // The mock upstream is a loopback server; the public-only resolver is
+        // on by default everywhere else.
+        var env = new MockEnvironment();
+        env.setProperty("aicostops.gateway.provider.allow-private-endpoints", "true");
+        adapter = new MimoChatAdapter(WebClient.builder(), new ObjectMapper(), properties(), env);
     }
 
     @Test

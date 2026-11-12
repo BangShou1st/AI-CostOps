@@ -6,7 +6,7 @@ import { formatEventDateTime } from '../../lib/dateTime'
 import { formatMoney } from '../../lib/money'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../auth/permissions'
-import { periodCloseApi } from '../period-close/api/periodCloseApi'
+import { billingPeriodApi, billingPeriodKeys } from '../budgets/api/billingPeriodApi'
 import { ResolveCaseModal } from './components/ResolveCaseModal'
 import { CaseError } from './components/CaseError'
 import { CaseAdjustmentModal } from './components/CaseAdjustmentModal'
@@ -65,7 +65,7 @@ export function ReconciliationCaseDetailPage() {
     enabled: caseId.length > 0,
     retry: false,
   })
-  const periods = useQuery({ queryKey: ['period-close', 'periods'], queryFn: () => periodCloseApi.listBillingPeriods(), retry: false })
+  const periods = useQuery({ queryKey: billingPeriodKeys.list(), queryFn: billingPeriodApi.list, retry: false })
   // Hooks order rule: every hook runs before any early return; the run query
   // simply waits for the case identity instead of being called conditionally.
   const reconciliationRunId = detail.data?.reconciliationRunId ?? ''

@@ -80,6 +80,18 @@ public interface RoutingPolicyMapper {
     List<CandidateRow> findCandidates(@Param("policyId") long policyId,
             @Param("organizationId") long organizationId);
 
+    @Select("""
+            <script>
+            SELECT routing_policy_id,id,provider_account_id,provider_model_id,priority,status,privacy_region_code
+            FROM routing_policy_candidate
+            WHERE org_id=#{organizationId} AND routing_policy_id IN
+            <foreach collection="policyIds" item="policyId" open="(" separator="," close=")">#{policyId}</foreach>
+            ORDER BY routing_policy_id ASC,priority ASC,id ASC
+            </script>
+            """)
+    List<PolicyCandidateRow> findCandidatesByPolicyIds(@Param("organizationId") long organizationId,
+            @Param("policyIds") List<Long> policyIds);
+
     @Insert("""
             INSERT INTO routing_policy(org_id,project_id,model_id,version,status,created_at,activated_at)
             VALUES(#{organizationId},#{projectId},#{modelId},#{version},'DRAFT',#{now},NULL)
@@ -207,6 +219,10 @@ public interface RoutingPolicyMapper {
 
     record CandidateRow(long id, long providerAccountId, long providerModelId, int priority,
             String status, String privacyRegionCode) {
+    }
+
+    record PolicyCandidateRow(long routingPolicyId, long id, long providerAccountId, long providerModelId,
+            int priority, String status, String privacyRegionCode) {
     }
 
     record RouteOptionRow(long providerAccountId, String displayName, String providerCode,

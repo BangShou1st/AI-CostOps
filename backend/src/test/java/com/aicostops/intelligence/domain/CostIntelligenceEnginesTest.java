@@ -55,6 +55,63 @@ class CostIntelligenceEnginesTest {
         assertTrue(anomalies.isEmpty());
     }
 
+    /**
+     * 13 observed days plus 15 calendar gaps: under the old zero-fill baseline the gaps made the
+     * median 0 and MAD 5, which fired every gate on the final 30.00 day. Those gaps are missing
+     * evidence, not zero-cost days, and 13 observed buckets are below the minimum history.
+     */
+    @Test
+    void gapDaysInTheBaselineCannotFabricateAnAnomaly() {
+        var end = LocalDate.of(2026, 9, 29);
+        var buckets = new ArrayList<CostAnomalyEngine.DailyBucket>();
+        for (var i = 0; i < 28; i++) {
+            var observed = i >= 15;
+            buckets.add(new CostAnomalyEngine.DailyBucket(end.minusDays(28 - i),
+                    new BigDecimal(observed ? "10.00" : "0.00"), "USD", observed));
+        }
+        buckets.add(new CostAnomalyEngine.DailyBucket(end, new BigDecimal("30.00"), "USD"));
+
+        var anomalies = CostAnomalyEngine.detect(
+                "ORGANIZATION", "org:7", buckets, List.of(), new BigDecimal("5.00"));
+
+        assertTrue(anomalies.isEmpty());
+    }
+
+    /** An unobserved latest bucket is not a completed day: there is nothing to evaluate. */
+    @Test
+    void unobservedEvaluationBucketIsNeverAnomalous() {
+        var end = LocalDate.of(2026, 9, 29);
+        var buckets = constantSeries(28, "10.00", end.minusDays(1));
+        buckets.add(new CostAnomalyEngine.DailyBucket(end, new BigDecimal("30.00"), "USD", false));
+
+        var anomalies = CostAnomalyEngine.detect(
+                "ORGANIZATION", "org:7", buckets, List.of(), new BigDecimal("5.00"));
+
+        assertTrue(anomalies.isEmpty());
+    }
+
+    /**
+     * Filtering is by the observed flag, never by amount: a ledger day that really cost 0.00 is
+     * still evidence and must keep its place in the baseline.
+     */
+    @Test
+    void observedZeroCostDaysRemainBaselineEvidence() {
+        var end = LocalDate.of(2026, 9, 29);
+        var buckets = new ArrayList<CostAnomalyEngine.DailyBucket>();
+        for (var i = 0; i < 27; i++) {
+            var amount = i < 20 ? "0.00" : "10.00";
+            buckets.add(new CostAnomalyEngine.DailyBucket(
+                    end.minusDays(27 - i), new BigDecimal(amount), "USD"));
+        }
+        buckets.add(new CostAnomalyEngine.DailyBucket(end, new BigDecimal("30.00"), "USD"));
+
+        var anomalies = CostAnomalyEngine.detect(
+                "ORGANIZATION", "org:7", buckets, List.of(), new BigDecimal("5.00"));
+
+        assertEquals(1, anomalies.size());
+        assertEquals(new BigDecimal("30.00"), anomalies.get(0).deltaAmount());
+    }
+
     @Test
     void mixedCurrencyIsRejected() {
         var buckets = constantSeries(15, "10.00", LocalDate.of(2026, 9, 9));

@@ -10,7 +10,10 @@ import com.aicostops.reconciliation.infrastructure.HybridReconciliationMapper;
 import com.aicostops.reconciliation.infrastructure.ReconciliationMapper;
 import com.aicostops.shared.security.AuthenticatedUser;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -22,6 +25,11 @@ public final class ReconciliationRunService {
 
     private static final String PERMISSION_RUN = "RECONCILIATION_RUN";
     private static final String FAILURE_CODE = "RECONCILIATION_EVALUATION_FAILED";
+    private static final String ABANDONED_CODE = "RECONCILIATION_RUN_ABANDONED";
+    private static final String ABANDONED_SUMMARY =
+            "Reconciliation run exceeded the stale-run timeout and was marked FAILED by recovery.";
+
+    private static final Logger LOG = LoggerFactory.getLogger(ReconciliationRunService.class);
 
     private final AuthorizationContextService authorizationContexts;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
@@ -183,6 +191,57 @@ public final class ReconciliationRunService {
             failRun(context.organizationId(), context.userId(), billingPeriodId, started.runId());
             throw failure;
         }
+    }
+
+    /**
+     * Converges RUNNING reconciliation runs that outlived the stale-run timeout.
+     *
+     * <p>Each candidate is finalized in its own transaction with the same
+     * row-lock + CAS discipline as the normal failure path, so a concurrent
+     * completion or a second recovery instance cannot overwrite a finished run.
+     * A failure confined to one run is logged and skipped; the remaining
+     * candidates of the bounded batch still converge.
+     *
+     * @return the number of runs this call transitioned to FAILED
+     */
+    public int failStaleRunningRuns(Duration staleAfter, int limit) {
+        var cutoff = clock.instant().minus(staleAfter);
+        var candidates = mapper.selectStaleRunningRuns(cutoff, limit);
+        var recovered = 0;
+        for (var candidate : candidates) {
+            try {
+                var converged = transactions.execute(status -> {
+                    var locked = mapper.selectRunByIdForUpdate(candidate.orgId(), candidate.id());
+                    if (locked == null
+                            || locked.status() != com.aicostops.reconciliation.domain
+                                    .ReconciliationRunStatus.RUNNING
+                            || locked.startedAt() == null
+                            || !locked.startedAt().isBefore(cutoff)) {
+                        return false;
+                    }
+                    var failedAt = clock.instant();
+                    if (mapper.markRunFailed(candidate.orgId(), candidate.id(), ABANDONED_CODE,
+                            ABANDONED_SUMMARY, failedAt, failedAt) != 1) {
+                        return false;
+                    }
+                    // A member deleted between the scan and the lock leaves the run
+                    // without a valid audit actor; converging the run still wins.
+                    if (candidate.userId() != null) {
+                        audit.runFailed(candidate.orgId(), candidate.userId(), candidate.id(),
+                                candidate.billingPeriodId(), ABANDONED_CODE);
+                    }
+                    return true;
+                });
+                if (Boolean.TRUE.equals(converged)) {
+                    recovered++;
+                    metrics.reconciliationRun("FAILED");
+                }
+            } catch (RuntimeException failure) {
+                LOG.warn("Failed to converge stale reconciliation run {} for organization {}: {}",
+                        candidate.id(), candidate.orgId(), failure.getClass().getSimpleName());
+            }
+        }
+        return recovered;
     }
 
     private void failRun(long organizationId, long actorUserId, long billingPeriodId, long runId) {

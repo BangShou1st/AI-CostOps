@@ -249,12 +249,20 @@ public class CostIntelligenceAnalysisService {
         return contributions.size() <= 5 ? contributions : contributions.subList(0, 5);
     }
 
-    private BigDecimal latestDelta(List<DailyBucket> series) {
+    /**
+     * Latest observed delta for driver attribution, on the same basis as
+     * {@link CostAnomalyEngine#detect}: unobserved days never enter the baseline, the evaluated
+     * bucket must itself be observed, and the median is the shared even-sample median.
+     */
+    static BigDecimal latestDelta(List<DailyBucket> series) {
         if (series.size() < CostAnomalyEngine.MIN_HISTORY_BUCKETS + 1) return null;
+        var observed = series.getLast();
+        if (!observed.observed()) return null;
         var history = series.subList(0, series.size() - 1).stream()
+                .filter(DailyBucket::observed)
                 .map(DailyBucket::amount).sorted().toList();
-        var median = history.get(history.size() / 2);
-        return series.get(series.size() - 1).amount().subtract(median);
+        if (history.size() < CostAnomalyEngine.MIN_HISTORY_BUCKETS) return null;
+        return observed.amount().subtract(CostAnomalyEngine.median(history));
     }
 
     private void persistAnomalies(long organizationId, long runId,

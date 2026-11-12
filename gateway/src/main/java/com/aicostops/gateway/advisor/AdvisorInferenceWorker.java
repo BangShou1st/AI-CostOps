@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -42,6 +44,11 @@ import tools.jackson.databind.ObjectMapper;
  * a linked Gateway execution is converged, never blindly redispatched.
  */
 @Service
+@ConditionalOnProperty(
+        prefix = "aicostops.gateway",
+        name = "advisor-worker-enabled",
+        havingValue = "true",
+        matchIfMissing = true)
 public class AdvisorInferenceWorker {
 
     private static final Logger LOG = LoggerFactory.getLogger(AdvisorInferenceWorker.class);
@@ -62,6 +69,7 @@ public class AdvisorInferenceWorker {
     private final AdvisorSnapshotPromptBuilder prompts;
     private final AdvisorNarrativeValidator narratives;
     private final Clock clock;
+    private final int batchLimit;
     private final TransactionTemplate transactions;
     private final SecureRandom random = new SecureRandom();
 
@@ -76,6 +84,7 @@ public class AdvisorInferenceWorker {
             AdvisorSnapshotPromptBuilder prompts,
             AdvisorNarrativeValidator narratives,
             Clock clock,
+            @Value("${aicostops.gateway.advisor-worker-batch-limit:10}") int batchLimit,
             PlatformTransactionManager transactionManager) {
         this.jobs = jobs;
         this.orchestrator = orchestrator;
@@ -87,6 +96,7 @@ public class AdvisorInferenceWorker {
         this.prompts = prompts;
         this.narratives = narratives;
         this.clock = clock;
+        this.batchLimit = batchLimit;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -95,7 +105,13 @@ public class AdvisorInferenceWorker {
         try {
             jobs.reclaimOrphans(clock.instant());
             convergeStuckLinked();
-            for (var claimed = claimOne(); claimed != null; claimed = claimOne()) {
+            // A bounded batch per tick keeps one scheduler thread from being monopolized by a
+            // long Provider call chain; the fixedDelay trigger resumes the backlog next tick.
+            // No row is claimed without being executed, so the limit never leaves a stranded lease.
+            var limit = Math.max(1, batchLimit);
+            for (int processed = 0; processed < limit; processed++) {
+                var claimed = claimOne();
+                if (claimed == null) break;
                 execute(claimed);
             }
         } catch (RuntimeException ex) {

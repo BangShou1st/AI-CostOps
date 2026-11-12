@@ -100,8 +100,8 @@ class M18OpenApiContractTest {
     @SuppressWarnings("unchecked")
     private static Set<String> frozenPaths() throws Exception {
         var candidates = new Path[] {
-            Path.of("../docs/03-acceptance/m18-openapi.yaml"),
-            Path.of("docs/03-acceptance/m18-openapi.yaml") };
+            Path.of("../docs/02-development/api/m18-v3-openapi.yaml"),
+            Path.of("docs/02-development/api/m18-v3-openapi.yaml") };
         Path found = null;
         for (var candidate : candidates) {
             if (Files.exists(candidate)) {
