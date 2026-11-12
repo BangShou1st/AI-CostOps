@@ -8,7 +8,7 @@
 | 缺陷来源 | [2026-11-12 深度代码审查](2026-11-12-deep-code-review.md) P2-01 / P2-02 / P2-06 / P2-07 / P2-08 / P2-12 / P2-16 / P2-17 / P2-18 / P2-21 / P2-22 / P3-01 |
 | 代码基线 | `dev` = `34fea3f`（`main` = `39560cc`） |
 | 关联分支 | `fix/c-gateway-scheduling`、`fix/c-security-config`、`fix/c-analytics-login`、`fix/c-contract-pricing`、`fix/c-frontend-display` → 集成 `fix/remaining-c-decisions` |
-| 关联 PR | 本批 PR（创建后回填编号） |
+| 关联 PR | [#188](https://github.com/BangShou1st/AI-CostOps/pull/188) |
 | 变更性质 | 维护期决策项落地；含**有意的契约/展示/错误语义变化**：定价费率响应 number→string、技术时间统一 UTC、`CACHED_INPUT_TOKEN` 配置返回 400；无 Flyway、无财务语义变更 |
 | 总体判定 | **PASS（本地）**；远程 CI/Security 另行标注 |
 
