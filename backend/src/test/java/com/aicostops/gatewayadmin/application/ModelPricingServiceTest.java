@@ -73,6 +73,27 @@ class ModelPricingServiceTest {
     }
 
     @Test
+    void cachedInputDimensionIsRejectedBeforeAnyPricingWrite() {
+        stubScope();
+
+        var thrown = catchThrowableOfType(DomainException.class, () -> service()
+                .createPricingVersion(user(), request(List.of(
+                        rate("INPUT_TOKEN", "1.0"),
+                        rate("CACHED_INPUT_TOKEN", "0.5")))));
+
+        assertThat(thrown).isNotNull();
+        assertThat(thrown.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(thrown.code()).isEqualTo(ProblemCode.VALIDATION_FAILED);
+        assertThat(thrown.getMessage())
+                .contains("CACHED_INPUT_TOKEN")
+                .contains("not supported");
+        verify(mapper, never()).insertPricingVersion(anyLong(), anyLong(), anyLong(), anyInt(),
+                anyString(), any(), any());
+        verify(mapper, never()).insertPricingRate(anyLong(), anyLong(), anyString(), anyLong(), any());
+        verifyNoInteractions(audit);
+    }
+
+    @Test
     void concurrentVersionInsertIsReportedAsStateConflict() {
         stubScope();
         when(mapper.lockOrganization(ORG_ID)).thenReturn(ORG_ID);
