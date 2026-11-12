@@ -13,6 +13,9 @@ services:
       AICOSTOPS_REDIS_PORT: 6379
       AICOSTOPS_REDIS_PASSWORD: ${REDIS_PASSWORD}
       AICOSTOPS_STORAGE_ENDPOINT: http://minio:9000
+      # Internal MinIO over the compose network is plaintext by design; this is
+      # the explicit production opt-in, not a default.
+      AICOSTOPS_STORAGE_ALLOW_PLAINTEXT_INTERNAL: "true"
       AICOSTOPS_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER}
       AICOSTOPS_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       AICOSTOPS_STORAGE_BUCKET: ${MINIO_BUCKET}

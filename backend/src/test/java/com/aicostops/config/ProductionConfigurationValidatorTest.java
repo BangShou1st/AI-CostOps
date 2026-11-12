@@ -3,6 +3,9 @@ package com.aicostops.config;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
@@ -12,6 +15,9 @@ import org.springframework.mock.env.MockEnvironment;
  * becomes ready. Validation reads the resolved Spring properties (the same
  * names operators set through the environment), and every error message names
  * the environment variable without printing its value.
+ *
+ * <p>Host locality is decided by resolving the URI host, so the tests inject a
+ * deterministic resolver instead of depending on the runner's DNS.
  */
 class ProductionConfigurationValidatorTest {
 
@@ -23,7 +29,7 @@ class ProductionConfigurationValidatorTest {
         var env = prod();
         env.setProperty("aicostops.auth.jwt-signing-secret", "  ");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_JWT_SIGNING_KEY");
     }
@@ -33,7 +39,7 @@ class ProductionConfigurationValidatorTest {
         var env = prod();
         env.setProperty("aicostops.auth.jwt-signing-secret", "short-key");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_JWT_SIGNING_KEY");
     }
@@ -47,7 +53,7 @@ class ProductionConfigurationValidatorTest {
         env.setProperty("aicostops.auth.jwt-signing-secret",
                 "local-development-only-signing-key-change-before-production-2026");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_JWT_SIGNING_KEY")
                 .hasMessageNotContaining("local-development-only-signing-key");
@@ -59,7 +65,7 @@ class ProductionConfigurationValidatorTest {
         env.setProperty("aicostops.auth.jwt-signing-secret",
                 "local-development-only-signing-key-rotated-but-still-public-2027");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_JWT_SIGNING_KEY")
                 .hasMessageNotContaining("rotated-but-still-public");
@@ -70,7 +76,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.auth.dev-bootstrap-enabled", "true");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_DEV_BOOTSTRAP_ENABLED");
     }
@@ -80,7 +86,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.gateway.dev-bootstrap-enabled", "true");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED");
     }
@@ -90,7 +96,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.gateway.provider-kek-v1", "  ");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_PROVIDER_KEK_V1");
     }
@@ -100,7 +106,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.gateway.credential-hmac-key-v1", "not-base64!!");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1");
     }
@@ -110,7 +116,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.gateway.request-hmac-key-v1", "c2hvcnQ=");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1");
     }
@@ -120,7 +126,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.auth.allow-public-registration", "true");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_ALLOW_PUBLIC_REGISTRATION");
     }
@@ -130,7 +136,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.auth.refresh-cookie-secure", "false");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_REFRESH_COOKIE_SECURE");
     }
@@ -140,7 +146,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("AICOSTOPS_DEV_MAILBOX_PATH", "C:\\mailbox\\out");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_DEV_MAILBOX_PATH");
     }
@@ -150,7 +156,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("AICOSTOPS_IAM_DEV_INVITATION_MAILBOX_PATH", "C:\\mailbox\\invitations");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_IAM_DEV_INVITATION_MAILBOX_PATH");
     }
@@ -160,9 +166,105 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.storage.endpoint", "http://localhost:9000");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_STORAGE_ENDPOINT");
+    }
+
+    @Test
+    void wildcardAndNumericLoopbackStorageEndpointsRejectStartup() {
+        // Each of these reaches the loopback interface with a plain HTTP
+        // client, yet none contains the literal "localhost" or "127.0.0.1".
+        // The internal-plaintext opt-in is on, so only locality can reject.
+        for (var endpoint : List.of(
+                "http://0.0.0.0:9000",
+                "http://127.1:9000",
+                "http://2130706433:9000",
+                "http://[::ffff:127.0.0.1]:9000")) {
+            var env = safeProd();
+            env.setProperty("aicostops.storage.endpoint", endpoint);
+            env.setProperty("aicostops.storage.allow-plaintext-internal", "true");
+
+            assertThatThrownBy(() -> validator(env).validate())
+                    .as("storage endpoint %s must be rejected", endpoint)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("AICOSTOPS_STORAGE_ENDPOINT")
+                    .hasMessageNotContaining(endpoint);
+        }
+    }
+
+    @Test
+    void unmatchedStorageEndpointSchemeRejectsStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.storage.endpoint", "minio:9000");
+
+        assertThatThrownBy(() -> validator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_STORAGE_ENDPOINT");
+    }
+
+    @Test
+    void unresolvableStorageEndpointRejectsStartupWithoutEchoingTheHost() {
+        // Locality cannot be decided when the host does not resolve, so the
+        // production guard must fail closed and name only the variable.
+        var env = safeProd();
+        env.setProperty("aicostops.storage.endpoint", "https://storage.invalid:9000");
+
+        assertThatThrownBy(() -> validator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_STORAGE_ENDPOINT")
+                .hasMessageNotContaining("storage.invalid");
+    }
+
+    @Test
+    void mixedPublicAndLoopbackResolutionRejectsStartup() {
+        // One loopback answer is enough: the client could land on it.
+        var env = safeProd();
+        env.setProperty("aicostops.storage.endpoint", "https://mixed.example.com:9000");
+
+        assertThatThrownBy(() -> validator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_STORAGE_ENDPOINT")
+                .hasMessageNotContaining("mixed.example.com");
+    }
+
+    @Test
+    void publicPlaintextStorageEndpointRejectsStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.storage.endpoint", "http://storage.example.com:9000");
+
+        assertThatThrownBy(() -> validator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_STORAGE_ENDPOINT");
+    }
+
+    @Test
+    void internalPlaintextStorageEndpointRejectsStartupWithoutExplicitOptIn() {
+        var env = safeProd();
+        env.setProperty("aicostops.storage.endpoint", "http://minio:9000");
+
+        assertThatThrownBy(() -> validator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_STORAGE_ALLOW_PLAINTEXT_INTERNAL")
+                .hasMessageNotContaining("minio")
+                .hasMessageNotContaining("10.0.0.5");
+    }
+
+    @Test
+    void internalPlaintextStorageEndpointPassesWithExplicitOptIn() {
+        var env = safeProd();
+        env.setProperty("aicostops.storage.endpoint", "http://minio:9000");
+        env.setProperty("aicostops.storage.allow-plaintext-internal", "true");
+
+        assertThatCode(() -> validator(env).validate()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void publicHttpsStorageEndpointPasses() {
+        var env = safeProd();
+        env.setProperty("aicostops.storage.endpoint", "https://storage.example.com:9000");
+
+        assertThatCode(() -> validator(env).validate()).doesNotThrowAnyException();
     }
 
     @Test
@@ -171,7 +273,7 @@ class ProductionConfigurationValidatorTest {
         env.setProperty("aicostops.storage.endpoint", "https://s3.example.internal");
         env.setProperty("aicostops.storage.secret-key", "  ");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_STORAGE_SECRET_KEY");
     }
@@ -181,17 +283,17 @@ class ProductionConfigurationValidatorTest {
         // The same two values are the documented defaults in application.yml
         // and .env.example; both credential properties must reject both of
         // them symmetrically, and no message may echo the resolved value.
-        var properties = java.util.List.of(
+        var properties = List.of(
                 "aicostops.storage.access-key", "aicostops.storage.secret-key");
-        var values = java.util.List.of("aicostops", "change-me-local-only");
-        var expectedVariables = java.util.List.of(
+        var values = List.of("aicostops", "change-me-local-only");
+        var expectedVariables = List.of(
                 "AICOSTOPS_STORAGE_ACCESS_KEY", "AICOSTOPS_STORAGE_SECRET_KEY");
         for (int propertyIndex = 0; propertyIndex < properties.size(); propertyIndex++) {
             for (var value : values) {
                 var env = safeProd();
                 env.setProperty(properties.get(propertyIndex), value);
 
-                assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+                assertThatThrownBy(() -> validator(env).validate())
                         .as("%s must reject the local default value",
                                 properties.get(propertyIndex))
                         .isInstanceOf(IllegalStateException.class)
@@ -206,7 +308,7 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("spring.datasource.password", "change-me-local-only");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("SPRING_DATASOURCE_PASSWORD");
     }
@@ -216,14 +318,72 @@ class ProductionConfigurationValidatorTest {
         var env = safeProd();
         env.setProperty("aicostops.auth.allowed-origins", "http://localhost:8080");
 
-        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+        assertThatThrownBy(() -> validator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_ALLOWED_ORIGINS");
+    }
+
+    @Test
+    void wildcardAndNumericLoopbackAllowedOriginsRejectStartup() {
+        for (var origin : List.of(
+                "http://0.0.0.0:8080",
+                "http://127.1:8080",
+                "http://2130706433:8080",
+                "http://[::ffff:127.0.0.1]:8080")) {
+            var env = safeProd();
+            env.setProperty("aicostops.auth.allowed-origins", origin);
+
+            assertThatThrownBy(() -> validator(env).validate())
+                    .as("allowed origin %s must be rejected", origin)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("AICOSTOPS_ALLOWED_ORIGINS")
+                    .hasMessageNotContaining(origin);
+        }
+    }
+
+    @Test
+    void localhostLikeHostnameIsNotTreatedAsLoopbackOrigin() {
+        // A public DNS name that merely contains "localhost" is not a loopback
+        // host and must not be rejected by substring matching.
+        var env = safeProd();
+        env.setProperty("aicostops.auth.allowed-origins", "https://localhost.example.com");
+
+        assertThatCode(() -> validator(env).validate()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void multipleAllowedOriginsAreEachValidated() {
+        var env = safeProd();
+        env.setProperty("aicostops.auth.allowed-origins",
+                "https://costops.example.com, https://admin.example.com");
+
+        assertThatCode(() -> validator(env).validate()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void emptyAllowedOriginEntryRejectsStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.auth.allowed-origins",
+                "https://costops.example.com,,https://admin.example.com");
+
+        assertThatThrownBy(() -> validator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_ALLOWED_ORIGINS");
+    }
+
+    @Test
+    void nonHttpAllowedOriginRejectsStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.auth.allowed-origins", "ftp://costops.example.com");
+
+        assertThatThrownBy(() -> validator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_ALLOWED_ORIGINS");
     }
 
     @Test
     void explicitSafeProductionValuesPass() {
-        assertThatCode(() -> new ProductionConfigurationValidator(safeProd()).validate())
+        assertThatCode(() -> validator(safeProd()).validate())
                 .doesNotThrowAnyException();
     }
 
@@ -250,5 +410,31 @@ class ProductionConfigurationValidatorTest {
         env.setProperty("aicostops.gateway.request-hmac-key-v1", M11_KEY);
         env.setProperty("aicostops.gateway.provider-kek-v1", M11_KEY);
         return env;
+    }
+
+    private static ProductionConfigurationValidator validator(MockEnvironment environment) {
+        return new ProductionConfigurationValidator(environment,
+                ProductionConfigurationValidatorTest::resolve);
+    }
+
+    /**
+     * Deterministic stand-in for the JVM resolver so assertions never depend on
+     * the runner's DNS. Literal addresses still go through the JDK parser so
+     * numeric loopback forms are exercised for real.
+     */
+    private static InetAddress[] resolve(String host) throws UnknownHostException {
+        var bare = host.startsWith("[") && host.endsWith("]")
+                ? host.substring(1, host.length() - 1) : host;
+        return switch (bare) {
+            case "minio" -> new InetAddress[] {InetAddress.getByName("10.0.0.5")};
+            case "s3.example.internal" -> new InetAddress[] {InetAddress.getByName("192.0.2.10")};
+            case "storage.example.com" -> new InetAddress[] {InetAddress.getByName("8.8.8.8")};
+            case "costops.example.com", "admin.example.com", "localhost.example.com" ->
+                    new InetAddress[] {InetAddress.getByName("203.0.113.7")};
+            case "mixed.example.com" -> new InetAddress[] {
+                    InetAddress.getByName("8.8.8.8"), InetAddress.getByName("127.0.0.1")};
+            case "storage.invalid" -> throw new UnknownHostException(bare);
+            default -> InetAddress.getAllByName(bare);
+        };
     }
 }
