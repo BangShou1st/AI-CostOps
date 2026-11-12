@@ -32,8 +32,9 @@ export function isValidDecimalRate(value: string): boolean {
 
 /**
  * Wire-contract builder for pricing version creation: provider account and
- * model are JSON numbers (backend long); rates travel as decimal strings that
- * stay BigDecimal-compatible end to end.
+ * model are JSON numbers (backend long); rates travel as plain decimal strings
+ * so scale-8 values stay exact end to end. The API also accepts JSON numbers,
+ * but strings avoid JavaScript precision and scientific-notation issues.
  */
 export function buildPricingCreateInput(
   accountId: string,

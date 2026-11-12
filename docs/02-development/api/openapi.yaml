@@ -1436,9 +1436,17 @@ components:
         dimensionCode: { $ref: '#/components/schemas/PricingDimensionInputCode' }
         unitQuantity: { type: integer, format: int64, minimum: 1 }
         unitPrice:
-          type: number
-          minimum: 0
-          description: Request input stays a JSON number (BigDecimal-compatible, at most 8 fraction digits); responses return the same rate as a decimal string.
+          description: >-
+            Unit price in the pricing version currency. Accepts either a JSON
+            number or a non-negative plain decimal string with at most 8
+            fraction digits (for example "0.00000001"). Clients that need exact
+            scale-8 precision should send the decimal string; responses always
+            return the rate as a scale-8 decimal string.
+          oneOf:
+            - type: number
+              minimum: 0
+            - type: string
+              pattern: '^[0-9]+(\.[0-9]{1,8})?$'
     PricingVersionCreateRequest:
       type: object
       required: [providerAccountId, providerModelId, currency, effectiveFrom, rates]
