@@ -9,7 +9,7 @@
 | 代码基线 | `dev` = `main` = `75f02ea`；修复分支均从该提交拉出，本地合并回 `dev` |
 | 关联分支 | `fix/p1-01-prod-secret-guard`、`fix/p1-02-ci-integration-selection`、`fix/p1-03-merge-gate-hardening`、`fix/p1-04-logout-session-hygiene`、`fix/gateway-metrics-and-list-sort`、`docs/2026-11-12-p1-hardening-fixes` |
 | 变更性质 | 既有缺陷最小修复；无新功能、无 Flyway、无 API 契约、无依赖变更、无财务语义变更 |
-| 总体判定 | **PASS（仓库内部分）**；branch protection / ruleset / GitHub 远程运行结果 `NOT_VERIFIED` |
+| 总体判定 | **PASS（仓库内 + 远程 CI/Security）**；branch protection / ruleset 仍 `NOT_VERIFIED` |
 
 本次只处理审查报告列出的 6 项（4 个 P1 + P2-09 + P2-20），未触碰其他 P2/P3 发现。
 `dev` 上的修复提交未推送到 `origin`，也没有创建 PR；远程 CI 结果不在本记录的证明范围内。
@@ -150,7 +150,6 @@
 | 10 | `npm run verify:links` | `246 Markdown files / 387 links / 0 broken` |
 
 负载相关的既有测试抖动（非本次改动引入，均已单独复跑通过）：
-
 - 第一次跑完整前端套件时与 backend Maven 测试并发，`ReconciliationPages.test.tsx` 两个用例
   5s 超时；该文件单独运行 `27 passed`，随后无并发重跑整套 `553 passed`。
 - 第一次跑 gateway 单测时与 backend ArchUnit（约 100s）并发，`GatewayApplicationTest.
@@ -168,6 +167,18 @@
 - **ci-status 真值表**：9 个场景全部符合 §1 P1-03 表格（docs-only/backend/frontend/scripts PASS；
   `.github`-only、filtered-but-skipped、main-forced-skip、job-failure、docs+deploy FAIL）。
 - **P1-04 定向**：`AuthSessionProvider.test.tsx` + `AuthenticatedLayout.test.tsx` → `47 passed / 0 failed`。
+
+### 2.1 远程验证（`dev` 推送 `c4cf3bf` 触发，2026-11-12）
+
+| 工作流 | run | 结果 |
+|---|---|---|
+| CI | [43137592677](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592677) | 14/14 success；`backend-integration` 日志 `Selected 100 integration tests for shard 0` / `Selected 99 integration tests for shard 1`；`ci-status` 日志 `All required checks passed (docs_only=false)` |
+| Security | [43137592638](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592638) | `trivy` + `codeql (java-kotlin)` + `codeql (javascript-typescript)` 3/3 success |
+
+本次推送是 `75f02ea..c4cf3bf` 的 fast-forward（含 5 个代码修复），`detect-changes` 正确判定为非 docs-only，
+因此完整执行了 backend/gateway 集成、`docker-build` 与 `browser-e2e`；这同时补上了此前
+“修改后的 `ci.yml` 在 GitHub Actions 上的真实运行结果”这条 `NOT_VERIFIED`。
+`docs_only` 分支（纯文档推送）仍只有本地真值表证据，未在远程单独触发。
 
 ---
 
@@ -189,10 +200,10 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | Branch protection / ruleset 的 required checks、bypass 规则、“Require review from Code Owners” | `NOT_VERIFIED` | 仓库外设置，未调用 GitHub API，也没有仓库管理员凭据；CODEOWNERS 本身不强制 review |
-| 修改后的 `ci.yml` 在 GitHub Actions 上的真实运行结果（含 `docs_only` 表达式求值） | `NOT_VERIFIED` | 本地只能执行抽取出的 bash 块和选择器；YAML/表达式由 GitHub 侧解析 |
+| 修改后的 `ci.yml` 在 GitHub Actions 上的真实运行结果 | **VERIFIED**（2026-11-12） | [CI 43137592677](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592677) 14/14、[Security 43137592638](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592638) 3/3；shard 100/99 与 `ci-status (docs_only=false)` 均来自运行日志。`docs_only=true` 分支仍只有本地真值表证据 |
+| 全量 backend/gateway 集成测试（Testcontainers） | **VERIFIED（远程）**（2026-11-12） | 同一次 CI 运行中 `backend-integration` 两片、`gateway-integration`、`browser-e2e` 全部 success；本地仍只做定向回归 |
 | CODEOWNERS owner 账号有效性 | `NOT_VERIFIED` | 按仓库 URL 使用 `@BangShou1st`；账号变更时需替换 |
 | 生产部署是否仍在使用示例密钥 | `NOT_VERIFIED` | 校验器现在会 fail-fast；实际环境需重新注入并轮换后重启验证 |
-| 全量 backend/gateway 集成测试（Testcontainers） | `NOT_RUN` | 只对受 P2-09 影响的 Gateway 流式用例做了定向集成回归 |
 | 其他 P2 / P3 审查发现 | `NOT_IN_SCOPE` | 本批只做 6 项，未处理 P2-01/02/03/… 与 P3-01~06 |
 
 已知取舍：

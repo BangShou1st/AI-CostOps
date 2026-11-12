@@ -315,4 +315,9 @@ $ npm run verify:links
 （基线文件共 579 行），无须更正。P1-04 的 `AuthPages.tsx:49` 确属 P3-06 的死代码调用点，现场景已由
 `AuthenticatedLayout` 的三处调用覆盖。
 
+**远程复核（2026-11-12 推送 `dev`）**：[CI 43137592677](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592677)
+14/14 success，日志显示 shard 0 = 100、shard 1 = 99，`ci-status` 输出 `All required checks passed (docs_only=false)`；
+[Security 43137592638](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592638) trivy + CodeQL 3/3。
+P1-02 / P1-03 的远程证据由此补齐；branch protection 仍待仓库设置确认。
+
 **未处置**：本批仅处理上述 6 项；其余 20 项 P2 与 6 项 P3 保持原状，等待后续独立维护窗口。
