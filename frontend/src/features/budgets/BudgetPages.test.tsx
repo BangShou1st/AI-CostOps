@@ -353,7 +353,7 @@ describe('BudgetDetailPage', () => {
     await waitFor(() => expect(screen.getAllByText('待审批').length).toBeGreaterThanOrEqual(1))
     expect(screen.getByText('9')).toBeInTheDocument()
     expect(screen.getByText('50.00 CNY')).toBeInTheDocument()
-    expect(screen.getByText('2026-01-03 08:00')).toBeInTheDocument()
+    expect(screen.getByText('2026-01-03 00:00 UTC')).toBeInTheDocument()
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
     // Commitment table headers are localized ('状态' also labels the identity card).
     expect(screen.getAllByText('状态').length).toBeGreaterThanOrEqual(1)

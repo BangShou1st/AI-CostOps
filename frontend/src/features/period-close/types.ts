@@ -1,6 +1,12 @@
 import type { PageResponse } from '../../api/pagination'
+import type { BillingPeriodStatus } from '../budgets/api/billingPeriodApi'
 
-export type BillingPeriodStatus = 'OPEN' | 'CLOSING' | 'CLOSED'
+/**
+ * Billing periods are owned by the budgets API client. Re-export its wire types
+ * instead of maintaining a second, drifting copy in the period-close feature.
+ */
+export type { BillingPeriodResponse, BillingPeriodStatus } from '../budgets/api/billingPeriodApi'
+
 export type CloseBlockerCode =
   | 'OPEN_IMPORTS'
   | 'UNRESOLVED_DUPLICATES'
@@ -11,14 +17,6 @@ export type CloseBlockerCode =
   | 'LEDGER_INTEGRITY'
 export type CloseCheckResult = 'PASS' | 'FAIL' | 'ERROR'
 export type CloseRunStatus = 'CHECKING' | 'BLOCKED' | 'CLOSED' | 'FAILED'
-
-export interface BillingPeriodResponse {
-  id: string
-  periodStart: string
-  periodEnd: string
-  status: BillingPeriodStatus
-  version: number
-}
 
 export interface CloseCheckResponse {
   blockerCode: CloseBlockerCode

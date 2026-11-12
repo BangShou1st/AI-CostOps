@@ -43,11 +43,21 @@ export function EvidenceDetailPage({ evidenceId: propEvidenceId }: { evidenceId?
         responseType: 'blob',
       })
       const url = URL.createObjectURL(response.data as Blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = detail.data?.originalFilename ?? 'evidence.bin'
-      anchor.click()
-      URL.revokeObjectURL(url)
+      try {
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = detail.data?.originalFilename ?? 'evidence.bin'
+        document.body.appendChild(anchor)
+        try {
+          anchor.click()
+        } finally {
+          document.body.removeChild(anchor)
+        }
+      } finally {
+        // The browser download manager reads the object URL after the click
+        // frame; revoking synchronously can cancel the download.
+        setTimeout(() => URL.revokeObjectURL(url), 0)
+      }
     } catch {
       message.error('下载失败，请稍后重试。')
     }

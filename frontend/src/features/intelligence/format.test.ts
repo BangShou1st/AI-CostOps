@@ -17,10 +17,14 @@ describe('intelligence format', () => {
     expect(formatPercent('-5')).toBe('-5.0%')
     expect(formatPercent(null)).toBe('—')
   })
-  it('formats timestamps without ambiguous numeric dates', () => {
-    const text = formatDateTime('2026-09-11T02:00:00Z')
-    expect(text).toContain('2026')
-    expect(text).not.toMatch(/^\d{2}\/\d{2}\/\d{2}$/)
-    expect(formatDay('2026-09-10')).toContain('Sep')
+  it('formats timestamps in UTC with an explicit zone label', () => {
+    expect(formatDateTime('2026-09-11T02:00:00Z')).toBe('2026-09-11 02:00 UTC')
+    expect(formatDateTime('2026-09-11T23:59:00Z')).toBe('2026-09-11 23:59 UTC')
+    expect(formatDateTime(null)).toBe('—')
+    expect(formatDateTime('not-a-date')).toBe('—')
+    // ICU renders the en-GB September abbreviation as "Sept"; the day must stay
+    // on the UTC calendar day rather than a viewer-local day.
+    expect(formatDay('2026-09-10')).toMatch(/^10 Sep/)
+    expect(formatDay('2026-09-10T23:30:00Z')).toMatch(/^10 Sep/)
   })
 })

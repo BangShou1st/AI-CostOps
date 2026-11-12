@@ -53,13 +53,21 @@ export function ExpenseEvidenceSection({
     try {
       const blob = await expenseApi.downloadEvidence(expenseId)
       const url = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = `evidence-${expenseId}`
-      document.body.appendChild(anchor)
-      anchor.click()
-      document.body.removeChild(anchor)
-      URL.revokeObjectURL(url)
+      try {
+        const anchor = document.createElement('a')
+        anchor.href = url
+        anchor.download = `evidence-${expenseId}`
+        document.body.appendChild(anchor)
+        try {
+          anchor.click()
+        } finally {
+          document.body.removeChild(anchor)
+        }
+      } finally {
+        // The browser download manager reads the object URL after the click
+        // frame; revoking synchronously can cancel the download.
+        setTimeout(() => URL.revokeObjectURL(url), 0)
+      }
     } catch (error) {
       const detail = toProblemDetail(error)
       setProblem(`${problemTitle(detail)}：${presentProblemDetail(detail) ?? detail.code}`)

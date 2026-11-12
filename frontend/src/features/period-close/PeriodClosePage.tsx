@@ -8,6 +8,7 @@ import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../auth/permissions'
 import { periodCloseApi } from './api/periodCloseApi'
 import { periodCloseKeys } from './api/periodCloseKeys'
+import { billingPeriodApi, billingPeriodKeys } from '../budgets/api/billingPeriodApi'
 import { CLOSE_BLOCKER_ORDER, closeResultTagColor, closeRunTagColor, createIdempotencyKey, formatBillingPeriodStatus, formatCheckSummary, formatCloseBlocker, formatCloseCheckResult, formatCloseRunStatus, periodStatusTagColor } from './presentation'
 import type { BillingPeriodResponse, CloseCheckResponse, CloseRunResponse } from './types'
 
@@ -77,7 +78,7 @@ export function PeriodClosePage() {
   const [closeRunPage, setCloseRunPage] = useState(0)
   const closeRunParams = useMemo(() => ({ page: closeRunPage, size: PAGE_SIZE }), [closeRunPage])
 
-  const periods = useQuery({ queryKey: periodCloseKeys.periods(), queryFn: periodCloseApi.listBillingPeriods })
+  const periods = useQuery({ queryKey: billingPeriodKeys.list(), queryFn: billingPeriodApi.list })
   const period = periods.data?.find((item) => item.id === periodId)
   const readiness = useQuery({
     queryKey: periodCloseKeys.readiness(periodId),
@@ -90,7 +91,7 @@ export function PeriodClosePage() {
     enabled: periodId.length > 0,
   })
   const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: periodCloseKeys.periods() })
+    void queryClient.invalidateQueries({ queryKey: billingPeriodKeys.list() })
     void queryClient.invalidateQueries({ queryKey: periodCloseKeys.readiness(periodId) })
     void queryClient.invalidateQueries({ queryKey: ['period-close', 'runs', periodId] })
   }

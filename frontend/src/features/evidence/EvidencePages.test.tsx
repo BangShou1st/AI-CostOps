@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../auth/AuthSessionProvider'
+import { apiClient } from '../auth/authApi'
 import type { PageResponse } from '../../api/pagination'
 import { evidenceApi } from './api/evidenceApi'
 import { importsApi } from '../imports/api/importsApi'
@@ -11,6 +12,10 @@ import { EvidenceListPage } from './EvidenceListPage'
 import type { ImportSummary } from '../imports/api/importTypes'
 
 vi.mock('../auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
+vi.mock('../auth/authApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../auth/authApi')>()
+  return { ...actual, apiClient: { ...actual.apiClient, get: vi.fn() } }
+})
 vi.mock('./api/evidenceApi', () => ({
   evidenceApi: { listEvidence: vi.fn(), getEvidence: vi.fn() },
 }))
@@ -45,6 +50,7 @@ vi.mock('../imports/upload/ProviderImportUploadModal', () => ({
 
 const navigateMock = vi.fn()
 const mockedUseAuth = vi.mocked(useAuth)
+const mockedApiClient = vi.mocked(apiClient)
 const mockedEvidenceApi = vi.mocked(evidenceApi)
 const mockedImportsApi = vi.mocked(importsApi)
 const mockedSettingsApi = vi.mocked(settingsApi)
@@ -102,6 +108,7 @@ function renderPage(permissions: string[], page: 'list' | 'detail' = 'list') {
 beforeEach(() => {
   vi.clearAllMocks()
   navigateMock.mockReset()
+  mockedApiClient.get.mockReset()
   mockedEvidenceApi.listEvidence.mockResolvedValue(pageOf([evidence]))
   mockedEvidenceApi.getEvidence.mockResolvedValue(evidence)
   mockedImportsApi.listEvidenceImports.mockResolvedValue(pageOf([importSummary]))
@@ -168,6 +175,39 @@ describe('EvidenceDetailPage', () => {
 
     renderPage(['EVIDENCE_READ', 'EVIDENCE_DOWNLOAD'], 'detail')
     expect(await screen.findByRole('button', { name: /下\s*载/ })).toBeInTheDocument()
+  })
+
+  it('downloads through the authenticated client and defers object URL revocation', async () => {
+    const objectURLSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:evidence')
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    let anchorAttachedAtClick = false
+    const clickSpy = vi.spyOn(HTMLElement.prototype, 'click').mockImplementation(function (this: HTMLElement) {
+      anchorAttachedAtClick = this instanceof HTMLAnchorElement && document.body.contains(this)
+    })
+    let resolveDownload!: (payload: Blob) => void
+    mockedApiClient.get.mockReturnValue(new Promise((resolve) => { resolveDownload = resolve }) as never)
+
+    renderPage(['EVIDENCE_READ', 'EVIDENCE_DOWNLOAD'], 'detail')
+    fireEvent.click(await screen.findByRole('button', { name: /下\s*载/ }))
+    expect(mockedApiClient.get).toHaveBeenCalledWith(
+      '/evidence/9007199254740993/download',
+      { responseType: 'blob' },
+    )
+
+    resolveDownload(new Blob(['evidence']))
+    // Flush the async download handler without advancing macrotask timers.
+    await Promise.resolve()
+    expect(objectURLSpy).toHaveBeenCalled()
+    expect(anchorAttachedAtClick).toBe(true)
+    expect(document.body.querySelector('a[download="invoice.csv"]')).toBeNull()
+    // The object URL must outlive the click frame so the download manager can take it.
+    expect(revokeSpy).not.toHaveBeenCalled()
+
+    await waitFor(() => expect(revokeSpy).toHaveBeenCalledWith('blob:evidence'))
+
+    objectURLSpy.mockRestore()
+    revokeSpy.mockRestore()
+    clickSpy.mockRestore()
   })
 
   it('starts associated imports query only with import read permission', async () => {
