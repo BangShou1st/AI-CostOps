@@ -1,7 +1,6 @@
 import type { PageResponse } from '../../../api/pagination'
 import { apiClient } from '../../auth/authApi'
 import type {
-  BillingPeriodResponse,
   CloseReadinessResponse,
   CloseRunListParams,
   CloseRunPage,
@@ -13,10 +12,6 @@ export { periodCloseKeys } from './periodCloseKeys'
 
 /** Period-close API values align with the backend implementation contract; V3 extensions see m18-v3-openapi.yaml and DTO docs. */
 export const periodCloseApi = {
-  async listBillingPeriods(): Promise<BillingPeriodResponse[]> {
-    return (await apiClient.get<BillingPeriodResponse[]>('/billing-periods')).data
-  },
-
   async getReadiness(periodId: string): Promise<CloseReadinessResponse> {
     return (await apiClient.get<CloseReadinessResponse>(
       `/billing-periods/${encodeURIComponent(periodId)}/close-readiness`,

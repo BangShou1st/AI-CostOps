@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, cleanup, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../auth/AuthSessionProvider'
-import { periodCloseApi } from '../period-close/api/periodCloseApi'
+import { billingPeriodApi, billingPeriodKeys } from '../budgets/api/billingPeriodApi'
 import { reconciliationApi } from './api/reconciliationApi'
 import { ReconciliationPage } from './ReconciliationPage'
 import { ReconciliationRunDetailPage } from './ReconciliationRunDetailPage'
@@ -10,9 +10,10 @@ import { ReconciliationCaseDetailPage } from './ReconciliationCaseDetailPage'
 import { allocationApi } from '../allocation/api/allocationApi'
 
 vi.mock('../auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
-vi.mock('../period-close/api/periodCloseApi', () => ({
-  periodCloseApi: { listBillingPeriods: vi.fn() },
-}))
+vi.mock('../budgets/api/billingPeriodApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../budgets/api/billingPeriodApi')>()
+  return { ...actual, billingPeriodApi: { list: vi.fn() } }
+})
 vi.mock('./api/reconciliationApi', () => ({
   reconciliationApi: {
     listRuns: vi.fn(),
@@ -45,7 +46,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
 })
 
 const mockedUseAuth = vi.mocked(useAuth)
-const mockedPeriodCloseApi = vi.mocked(periodCloseApi)
+const mockedBillingPeriodApi = vi.mocked(billingPeriodApi)
 const mockedReconciliationApi = vi.mocked(reconciliationApi)
 const mockedAllocationApi = vi.mocked(allocationApi)
 
@@ -139,16 +140,17 @@ function renderPage(page: 'list' | 'detail', permissions: string[] = ['RECONCILI
     login: vi.fn(), refreshMe: vi.fn(), logout: vi.fn(),
   } as ReturnType<typeof useAuth>)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  const result = render(
     <QueryClientProvider client={queryClient}>
       {page === 'list' ? <ReconciliationPage /> : <ReconciliationRunDetailPage />}
     </QueryClientProvider>,
   )
+  return { queryClient, ...result }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockedPeriodCloseApi.listBillingPeriods.mockResolvedValue([period])
+  mockedBillingPeriodApi.list.mockResolvedValue([period])
   // Reconciliation-owned period context (RECONCILIATION_READ only): OPEN by
   // default; individual tests override CLOSED/CLOSING/UNKNOWN branches.
   mockedReconciliationApi.getFinancialResolutionContext.mockResolvedValue({
@@ -204,6 +206,13 @@ describe('ReconciliationPage', () => {
     expect(screen.getAllByText('1').length).toBeGreaterThan(0)
     expect(screen.queryByLabelText('供应商账号')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '运行对账' })).not.toBeInTheDocument()
+  })
+
+  it('loads billing periods through the shared budgets client and cache key', async () => {
+    const { queryClient } = renderPage('list')
+
+    await waitFor(() => expect(mockedBillingPeriodApi.list).toHaveBeenCalledTimes(1))
+    expect(queryClient.getQueryData(billingPeriodKeys.list())).toEqual([period])
   })
 })
 
