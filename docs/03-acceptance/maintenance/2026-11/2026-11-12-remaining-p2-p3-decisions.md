@@ -159,6 +159,22 @@ $ npm run verify:links
 | P2-22 下载 revoke | anchor 未挂载 / revoke 同帧 | 两处下载测试通过 |
 | P3-01 CACHED 维度 | 单测 1 failure、集成 201 | 单测 3/3、集成 16/16 |
 
+### 2.3 CI 首轮失败与修复（frontend-test）
+
+PR #188 首轮 CI 的 `frontend-test` 在 73 个文件 / 560 个用例全部通过后仍判失败：Vitest 捕获到
+`GatewayCredentialsPage.test.tsx` 结束后的一条未处理错误
+`ReferenceError: window is not defined`（React 19 scheduler 的 `setImmediate` 任务在 jsdom teardown 后执行）。
+
+- **根因**：吊销用例只 `await` 了 API 调用，没有 `await` mutation 失效后的列表重取与重新渲染；
+  React 更新任务在测试结束后仍在飞。
+- **修复**：
+  - 测试把第二次 `listGatewayCredentials` 返回设置为 `REVOKED` 行，并 `await screen.findByText('已吊销')`，
+    确保重取与渲染都完成；
+  - 全局 `src/test/setup.ts` 在原 20ms 收敛窗口后再 flush 一次 `setImmediate`（带类型安全的环境检测），
+    防止 React scheduler 任务越界。
+- **证据**：目标文件连续 5 次 `3 passed`；全量 `73 files / 560 tests passed`，无 unhandled error；
+  `npm run lint` 与 `npm run build` 通过。
+
 ---
 
 ## 3. `NOT_VERIFIED` 与已知边界
@@ -221,6 +237,7 @@ frontend/src/features/evidence/EvidenceDetailPage.tsx
 frontend/src/features/evidence/EvidencePages.test.tsx
 frontend/src/features/expenses/ExpensePages.test.tsx
 frontend/src/features/expenses/components/ExpenseEvidenceSection.tsx
+frontend/src/features/gateway/GatewayCredentialsPage.test.tsx
 frontend/src/features/gateway/ModelPricingGovernance.test.tsx
 frontend/src/features/gateway/ModelPricingPage.tsx
 frontend/src/features/gateway/api/gatewayTypes.ts
@@ -237,6 +254,7 @@ frontend/src/features/reconciliation/ReconciliationPage.tsx
 frontend/src/features/reconciliation/ReconciliationPages.test.tsx
 frontend/src/lib/dateTime.test.ts
 frontend/src/lib/dateTime.ts
+frontend/src/test/setup.ts
 gateway/src/main/java/com/aicostops/gateway/advisor/AdvisorInferenceWorker.java
 gateway/src/main/java/com/aicostops/gateway/provider/mimo/MimoChatAdapter.java
 gateway/src/main/java/com/aicostops/gateway/provider/openai/OpenAiChatAdapter.java
