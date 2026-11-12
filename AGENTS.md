@@ -28,7 +28,7 @@ AI-CostOps/
 ├── backend/      Java 21 · Spring Boot 4.1 · Spring MVC · 控制面（Financial Truth Owner）
 │   └── src/main/java/com/aicostops/    22 个业务模块 + shared
 ├── gateway/      Java 21 · Spring Boot 4.1 · Spring WebFlux · 数据面（请求事实写入方）
-├── frontend/     React 19 · TypeScript 6 · Vite 8 · Ant Design 6 · TanStack Query 5 · ECharts 6
+├── frontend/     React 19 · TypeScript 6 · Vite 8 · Ant Design 6 · TanStack Query 5
 ├── scripts/      Node ESM 任务编排器（零依赖、跨平台）→ 根 package.json 的唯一入口
 ├── deploy/       生产 / 可观测性编排
 └── docs/         01-blueprint · 02-development · 03-acceptance · 04-operations
