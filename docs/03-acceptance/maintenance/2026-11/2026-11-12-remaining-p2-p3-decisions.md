@@ -296,3 +296,16 @@ CHANGELOG.md
 ## 6. 结论
 
 批次 C 的 12 项决策项全部落地。安全边界（生产存储 endpoint、Provider 传输层 SSRF、登录计时侧信道）按推荐方案收紧；分析/报表口径（未观察日、Workbench 同基）与业务决策一致；定价费率改为 decimal string、技术时间统一 UTC、账期客户端合并、证据下载 revoke 延迟、`CACHED_INPUT_TOKEN` 拦截均按已确认方案执行。本地后端/网关单元与架构、定向集成、前端全量测试/构建、脚本测试与文档链接全部通过；PR #188 的远程 CI 18/18 与 Security 3/3 进一步确认全量集成、浏览器 E2E 与安全扫描通过。仅 §3 列出的真实环境/外部消费方项保持 `NOT_VERIFIED`。
+
+---
+
+## 7. 发布同步（2026-11-12）
+
+- `dev → main` 发布 PR [#190](https://github.com/BangShou1st/AI-CostOps/pull/190)，head 使用临时分支
+  `release/2026-11-12`（不从 `dev` 直接发 PR，避免自动删除常驻维护线）。
+- 发布 PR 检查：[CI 43175618596](https://github.com/BangShou1st/AI-CostOps/actions/runs/43175618596)
+  18/18 success、[Security 43175618730](https://github.com/BangShou1st/AI-CostOps/actions/runs/43175618730)
+  3/3 success；squash 为 `bef5877`。
+- `main` 已回合并到 `dev`（merge commit `ccc3649`），`main` 是 `dev` 的祖先，无分叉；
+  `main` 与 `dev` 的树内容一致（仅多一个回合并提交与本节记录）。
+- `release/2026-11-12` 已由仓库自动删除；本地与远程最终只保留 `dev`、`main`。
