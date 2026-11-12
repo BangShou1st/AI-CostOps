@@ -343,7 +343,6 @@ sequenceDiagram
 | **构建工具** | Vite | `8.0` | 毫秒级热模块替换（HMR）、Rollup 生产打包优化 |
 | **UI 组件库** | Ant Design | `6.0` | 现代化企业级财务中后台交互组件库 |
 | **服务端状态管理** | TanStack Query | `5.x` | 服务端数据缓存、乐观更新、后台静默轮询与状态自愈 |
-| **数据可视化** | Apache ECharts | `6.0` | 高性能多维算力消费趋势图、异常离群散点图、预测带状图 |
 | **集成测试框架** | Testcontainers | `1.20+` | 测试拉起真实 MySQL 8.4 + Redis 7 容器，杜绝 H2 内存方言伪环境 |
 | **架构守卫** | ArchUnit | `1.3+` | 自动化守护后端 22 个业务模块的依赖方向，禁止跨层越界调用 |
 | **端到端测试** | Playwright | `1.48+` | 跨浏览器无头自动化测试，覆盖双组织浏览器隔离与结算流程 |
@@ -502,7 +501,7 @@ AI-CostOps/
 │   │   ├── api/                     # 严格类型化的 REST 客户端与统一拦截器
 │   │   ├── app/                     # 根组件、全局布局与上下文注入
 │   │   ├── features/                # 18 个高内聚业务模块（Ledger, Budgets, Gateway, Intelligence 等）
-│   │   └── lib/                     # 财务计算工具库、ECharts 封装、日期格式化
+│   │   └── lib/                     # 财务计算工具库、日期格式化
 │   └── src/test/                    # Vitest 单元与组件交互测试套件
 │
 ├── scripts/                         # 原生 Node ESM 跨平台任务编排器（零依赖）
