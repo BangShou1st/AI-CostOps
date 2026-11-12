@@ -73,6 +73,11 @@ aicostops:
     provider-kek-v1: ${AICOSTOPS_PROVIDER_KEK_V1:}
     dev-bootstrap-enabled: ${AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED:false}
     dev-raw-key: ${AICOSTOPS_GATEWAY_DEV_RAW_KEY:}
+    provider:
+      # Provider dispatch resolves every target to a public unicast address by
+      # default. Only local mocks or an internal Provider may opt out; a public
+      # deployment must keep this false.
+      allow-private-endpoints: ${AICOSTOPS_GATEWAY_PROVIDER_ALLOW_PRIVATE_ENDPOINTS:false}
     rate-limit-enabled: ${AICOSTOPS_GATEWAY_RATE_LIMIT_ENABLED:true}
     rate-limit-capacity: ${AICOSTOPS_GATEWAY_RATE_LIMIT_CAPACITY:60}
     rate-limit-refill-per-second: ${AICOSTOPS_GATEWAY_RATE_LIMIT_REFILL_PER_SECOND:1}

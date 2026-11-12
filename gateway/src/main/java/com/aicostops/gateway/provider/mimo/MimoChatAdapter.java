@@ -41,21 +41,25 @@ import tools.jackson.databind.ObjectMapper;
  * aggregating the full completion, using configured connect/header/idle/hard
  * timeouts and no automatic retry.
  *
- * <p>M21 post-release security fix (M18 DNS-rebinding contract): production
- * dispatch now uses {@link PublicOnlyAddressResolverGroup} to enforce
- * transport-level public-only DNS resolution. Non-production profiles
- * (dev/test) use the default JVM resolver to allow local mock validation.
+ * <p>M18 DNS-rebinding contract: dispatch uses
+ * {@link PublicOnlyAddressResolverGroup} by default to enforce transport-level
+ * public-only DNS resolution. Only an explicit
+ * {@code aicostops.gateway.provider.allow-private-endpoints=true} opt-in
+ * (local mocks or an internal Provider) uses the default JVM resolver.
  */
 @Component
 public class MimoChatAdapter implements ProviderChatAdapter {
 
     private static final String CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
     private static final String DONE_MARKER = "[DONE]";
+    private static final String ALLOW_PRIVATE_ENDPOINTS_PROPERTY =
+            "aicostops.gateway.provider.allow-private-endpoints";
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final GatewayProperties properties;
     private final boolean enforceProductionEndpoint;
+    private final boolean enforcePublicOnlyResolution;
     private final HttpClient httpClient;
 
     public MimoChatAdapter(
@@ -66,6 +70,8 @@ public class MimoChatAdapter implements ProviderChatAdapter {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.enforceProductionEndpoint = environment.acceptsProfiles(Profiles.of("prod"));
+        this.enforcePublicOnlyResolution = !Boolean.parseBoolean(
+                environment.getProperty(ALLOW_PRIVATE_ENDPOINTS_PROPERTY));
         this.httpClient = buildHttpClient();
         this.webClient = builder
                 .clientConnector(new ReactorClientHttpConnector(this.httpClient))
@@ -75,14 +81,15 @@ public class MimoChatAdapter implements ProviderChatAdapter {
     }
 
     /**
-     * Builds the HttpClient with production-appropriate resolver.
+     * Builds the HttpClient with the public-only resolver unless private
+     * Provider endpoints were explicitly allowed.
      * This is the single source of truth for resolver wiring.
      */
     private HttpClient buildHttpClient() {
         var httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
-        if (enforceProductionEndpoint) {
+        if (enforcePublicOnlyResolution) {
             httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
         }
         return httpClient;

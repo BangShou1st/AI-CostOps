@@ -16,6 +16,14 @@ import reactor.netty.http.client.HttpClient;
 import reactor.netty.http.server.HttpServer;
 import tools.jackson.databind.ObjectMapper;
 
+/**
+ * M18 DNS-rebinding regression test for the OpenAI adapter.
+ *
+ * <p>The public-only transport resolver is installed by default, with no
+ * profile required; only the explicit
+ * {@code aicostops.gateway.provider.allow-private-endpoints=true} opt-in
+ * switches it off for local mocks or an internal Provider.
+ */
 class OpenAiChatAdapterResolverTest {
 
     private DisposableServer server;
@@ -44,8 +52,8 @@ class OpenAiChatAdapterResolverTest {
     }
 
     @Test
-    void openAiNonProdCanConnectToLocalhost() {
-        var adapter = createAdapter(false);
+    void openAiConnectsToLocalhostOnlyWhenPrivateEndpointsAreExplicitlyAllowed() {
+        var adapter = createAdapter(true, false);
 
         HttpClient httpClient = adapter.httpClientForTest();
         Integer status = httpClient.get()
@@ -54,43 +62,58 @@ class OpenAiChatAdapterResolverTest {
                         Mono.just(response.status().code()))
                 .block(Duration.ofSeconds(5));
 
-        assertEquals(200, status, "Non-prod OpenAI should connect to localhost");
-        assertEquals(1, serverHits.get(), "Non-prod request should reach server");
+        assertEquals(200, status, "An explicit opt-in allows loopback targets");
+        assertEquals(1, serverHits.get(), "Opted-in request should reach server");
     }
 
     @Test
-    void openAiProdCannotConnectToLocalhost() {
-        var adapter = createAdapter(true);
+    void openAiRejectsLoopbackByDefaultWithoutAnyProfile() {
+        var adapter = createAdapter(false, false);
 
         HttpClient httpClient = adapter.httpClientForTest();
+        assertLoopbackRejected(httpClient);
+    }
+
+    @Test
+    void openAiRejectsLoopbackByDefaultInProdProfile() {
+        var adapter = createAdapter(false, true);
+
+        HttpClient httpClient = adapter.httpClientForTest();
+        assertLoopbackRejected(httpClient);
+    }
+
+    @Test
+    void openAiAdapterReportsCorrectCode() {
+        var adapter = createAdapter(false, true);
+        assertEquals("OPENAI", adapter.adapterCode());
+    }
+
+    private void assertLoopbackRejected(HttpClient httpClient) {
         try {
             httpClient.get()
                     .uri("http://localhost:" + serverPort + "/health")
                     .responseSingle((response, body) ->
                             Mono.just(response.status().code()))
                     .block(Duration.ofSeconds(5));
-            fail("Production OpenAI MUST NOT connect to loopback/private address");
+            fail("Provider dispatch MUST NOT connect to loopback/private address");
         } catch (Exception ex) {
             // Expected: PublicOnlyAddressResolverGroup rejects loopback/private resolution
         }
 
         assertEquals(0, serverHits.get(),
-                "Production request MUST NOT reach loopback server (M18 DNS-rebinding contract)");
+                "Request MUST NOT reach loopback server (M18 DNS-rebinding contract)");
     }
 
-    @Test
-    void openAiAdapterReportsCorrectCode() {
-        var adapter = createAdapter(true);
-        assertEquals("OPENAI", adapter.adapterCode());
-    }
-
-    private OpenAiChatAdapter createAdapter(boolean prodProfile) {
+    private OpenAiChatAdapter createAdapter(boolean allowPrivateEndpoints, boolean prodProfile) {
         var properties = new GatewayProperties();
         properties.setConnectTimeoutMs(3000);
         properties.setHeaderTimeoutMs(3000);
         properties.setMaxInMemoryBytes(16777216);
 
         MockEnvironment env = new MockEnvironment();
+        if (allowPrivateEndpoints) {
+            env.setProperty("aicostops.gateway.provider.allow-private-endpoints", "true");
+        }
         if (prodProfile) {
             env.addActiveProfile("prod");
         }
