@@ -8,6 +8,12 @@
 spring:
   application:
     name: ai-costops-gateway
+  task:
+    scheduling:
+      pool:
+        # Advisor ticks can block on a Provider call for up to the header timeout;
+        # a second thread keeps reservation recovery from waiting behind them.
+        size: 2
   profiles:
     group:
       # Activating `local` (host-run daily development) must also activate the
