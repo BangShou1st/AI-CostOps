@@ -1,12 +1,13 @@
 export interface AppNavEntry {
   path: string
   label: string
-  readPermission: string
+  /** Absent when visibility is decided by a dedicated predicate (e.g. workbench). */
+  readPermission?: string
 }
 
 /** Permission-aware business navigation entries. */
 export const BUSINESS_NAV: readonly AppNavEntry[] = [
-  { path: '/workbench', label: '工作台', readPermission: 'WORKBENCH_SECTION' },
+  { path: '/workbench', label: '工作台' },
   { path: '/evidence', label: '证据', readPermission: 'EVIDENCE_READ' },
   { path: '/imports', label: '导入', readPermission: 'IMPORT_READ' },
   { path: '/costs', label: '成本', readPermission: 'COST_READ' },
@@ -40,9 +41,10 @@ export function hasWorkbenchAccess(permissions: readonly string[] | undefined): 
 }
 
 export function visibleBusinessNav(permissions: readonly string[] | undefined): readonly AppNavEntry[] {
-  return BUSINESS_NAV.filter((entry) => entry.path === '/workbench'
-    ? hasWorkbenchAccess(permissions)
-    : permissions?.includes(entry.readPermission) ?? false)
+  return BUSINESS_NAV.filter((entry) => {
+    if (entry.path === '/workbench') return hasWorkbenchAccess(permissions)
+    return entry.readPermission !== undefined && (permissions?.includes(entry.readPermission) ?? false)
+  })
 }
 
 /** M19 V3 Cost Intelligence + AI Advisor navigation (frozen IA). */
@@ -55,5 +57,6 @@ export const INTELLIGENCE_NAV: readonly AppNavEntry[] = [
 ]
 
 export function visibleIntelligenceNav(permissions: readonly string[] | undefined): readonly AppNavEntry[] {
-  return INTELLIGENCE_NAV.filter((entry) => permissions?.includes(entry.readPermission) ?? false)
+  return INTELLIGENCE_NAV.filter((entry) => entry.readPermission !== undefined
+    && (permissions?.includes(entry.readPermission) ?? false))
 }

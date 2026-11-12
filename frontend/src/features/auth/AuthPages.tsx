@@ -1,6 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { message } from 'antd'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 import { authApi } from './authApi'
 import { useAuth } from './AuthSessionProvider'
@@ -44,9 +43,4 @@ export function InvitationPage() {
   const { token = '' } = useParams(); const navigate = useNavigate(); const [displayName, setDisplayName] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState<unknown>(); const [submitting, setSubmitting] = useState(false)
   async function submit(event: FormEvent) { event.preventDefault(); setSubmitting(true); setError(undefined); try { await authApi.acceptInvitation(token, displayName, password); navigate('/login', { replace: true }) } catch (caught) { setError(caught) } finally { setSubmitting(false) } }
   return <AuthLayout title="接受邀请"><form onSubmit={submit}><label>姓名<input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label><label>密码<input required minLength={8} type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label><ErrorMessage error={error} /><button disabled={submitting}>{submitting ? '正在接受…' : '接受邀请'}</button></form></AuthLayout>
-}
-export function AppPage() {
-  const auth = useAuth(); if (!auth.user) return <Navigate to="/login" replace />
-  const signOut = () => { void auth.logout().catch(() => { message.info('已本地登出；服务端会话将在下次刷新时失效。') }) }
-  return <main className="app-shell"><p className="eyebrow">工作区</p><h1>AI CostOps</h1><p>已登录：{auth.user.displayName}</p><button onClick={signOut}>退出登录</button></main>
 }
