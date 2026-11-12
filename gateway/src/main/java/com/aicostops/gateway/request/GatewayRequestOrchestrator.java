@@ -229,13 +229,6 @@ public class GatewayRequestOrchestrator {
             return new InitialCandidateResult(null, budgetRejected, dependencyRejected, true,
                     Set.copyOf(attempted));
         }
-
-        private static InitialCandidateResult skipped(
-                Set<ResolvedRoutingPolicy.RouteIdentity> attempted,
-                boolean budgetRejected, boolean dependencyRejected, boolean safeAttemptProduced) {
-            return new InitialCandidateResult(null, budgetRejected, dependencyRejected,
-                    safeAttemptProduced, Set.copyOf(attempted));
-        }
     }
 
     public Mono<PreparedDispatch> prepareNextSafe(PreparedDispatch previous,
