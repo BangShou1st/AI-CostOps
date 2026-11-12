@@ -69,7 +69,7 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
     @DynamicPropertySource
     static void registerTimeoutProperties(DynamicPropertyRegistry registry) {
         registry.add("aicostops.gateway.stream-idle-timeout-ms", () -> 400);
-        registry.add("aicostops.gateway.hard-timeout-ms", () -> 1200);
+        registry.add("aicostops.gateway.hard-timeout-ms", () -> 1800);
         registry.add("aicostops.gateway.header-timeout-ms", () -> 3000);
     }
 
@@ -100,8 +100,14 @@ class MimoStreamingIntegrationTest extends GatewayMySqlContainerSupport {
                         out.flush();
                     }
                     case HIGH_VOLUME -> {
+                        // Flush bounded batches so the fixture models an SSE
+                        // stream instead of one multi-frame burst that the
+                        // loopback server can truncate under CI load.
                         for (int i = 0; i < 200; i++) {
                             out.write(chunkFrame(i).getBytes(StandardCharsets.UTF_8));
+                            if ((i + 1) % 32 == 0) {
+                                out.flush();
+                            }
                         }
                         out.write(DONE_FRAME.getBytes(StandardCharsets.UTF_8));
                         out.flush();

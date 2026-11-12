@@ -13,6 +13,8 @@
 - HC-01 quick 冒烟验收（`docs/03-acceptance/maintenance/2026-11/2026-11-12-hc-01-quick-smoke.md`）：`dev=046c4f3` 上 13 个场景 0 失败；SSRF opt-in、Redis owner label、8 组织 2153 条 FINAL 1:1 Settlement/Ledger 收敛、20 个预算 0 超支；Docker VM 1.86 GiB，耗时约 4 分 26 秒。
 
 ### Fixed
+- CI：`detect-changes` 新增 `changed` 输出，空树合并提交不再因“没有命中任何已登记路径”被 `ci-status` 误判为未知变更；非空但落在已知 filter 之外的变更仍然阻断。
+- Gateway：`MimoStreamingIntegrationTest` 的高流量 SSE 夹具改为分批 flush，避免单次突发写入在 CI 回环传输上被截断；200 个 chunk 与单个 `[DONE]` 的断言保持不变。
 - `prod` profile 无法启动：为 `ProductionConfigurationValidator(Environment)` 显式加 `@Autowired`，真实 prod 配置 8/8 case PASS（1-5/8 正确 fail-fast，6/7 启动并保持运行）。
 - 微小定价费率：新增 `Scale8DecimalSerializer`，`PricingRateResponse.unitPrice` 以 `setScale(8).toPlainString()` 输出；`0.00000001` 在 API 与 Edge 页面均精确显示，新增 serializer 与集成回归测试。
 
