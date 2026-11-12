@@ -175,6 +175,11 @@ PR #188 首轮 CI 的 `frontend-test` 在 73 个文件 / 560 个用例全部通�
 - **证据**：目标文件连续 5 次 `3 passed`；全量 `73 files / 560 tests passed`，无 unhandled error；
   `npm run lint` 与 `npm run build` 通过。
 
+同一轮 CI 的 `gateway-integration` 还出现一次 `GatewaySafeFailoverIntegrationTest.safeDnsFailure...`
+超时：P2-18 默认启用的公网 resolver 会在连接前做真实 DNS 解析，`.invalid` 在 CI DNS 下超过
+WebTestClient 默认 5s。仅该用例的客户端响应预算放宽到 20s（failover/预算/用量断言不变），
+本地复跑 4/4 通过。
+
 ---
 
 ## 3. `NOT_VERIFIED` 与已知边界
