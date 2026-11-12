@@ -28,7 +28,7 @@ describe('ModelPricingPage governance', () => {
     mockedGateway.listPricingVersions.mockResolvedValue([{
       id: '9', providerAccountId: '5', providerModelId: '77', version: 2, currency: 'USD', status: 'ACTIVE',
       effectiveFrom: '2026-09-01T00:00:00Z', effectiveTo: null, createdAt: '2026-09-01T00:00:00Z', activatedAt: '2026-09-02T00:00:00Z',
-      rates: [{ id: '1', dimensionCode: 'INPUT_TOKEN', unitQuantity: 1000000, unitPrice: '30.00' as unknown as number }],
+      rates: [{ id: '1', dimensionCode: 'INPUT_TOKEN', unitQuantity: 1000000, unitPrice: '30.00000000' }],
     }])
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
@@ -38,7 +38,30 @@ describe('ModelPricingPage governance', () => {
     )
     expect(await screen.findByText('价格以已启用的定价版本为准。')).toBeInTheDocument()
     expect(await screen.findByText('已启用')).toBeInTheDocument()
-    expect(screen.getByText(/输入 \$30\.00\/1000000/)).toBeInTheDocument()
+    expect(screen.getByText(/输入 30\.00 USD\/1000000/)).toBeInTheDocument()
     expect(screen.getByText(/长期/)).toBeInTheDocument()
+  })
+
+  it('shows sub-cent unit prices exactly instead of rounding to zero', async () => {
+    mockedUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: { id: '1', email: 'a@e.com', displayName: 'A', organizationId: '1', organizationMemberId: '3', permissions: ['PROVIDER_ACCOUNT_READ'] },
+      login: vi.fn(), refreshMe: vi.fn(), logout: vi.fn(),
+    } as ReturnType<typeof useAuth>)
+    mockedGateway.listModels.mockResolvedValue([])
+    mockedGateway.listProviderModels.mockResolvedValue([])
+    mockedGateway.listPricingVersions.mockResolvedValue([{
+      id: '9', providerAccountId: '5', providerModelId: '77', version: 2, currency: 'USD', status: 'ACTIVE',
+      effectiveFrom: '2026-09-01T00:00:00Z', effectiveTo: null, createdAt: '2026-09-01T00:00:00Z', activatedAt: '2026-09-02T00:00:00Z',
+      rates: [{ id: '2', dimensionCode: 'INPUT_TOKEN', unitQuantity: 1, unitPrice: '0.00000001' }],
+    }])
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter><ModelPricingPage /></MemoryRouter>
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText(/输入 0\.00000001 USD\/1/)).toBeInTheDocument()
+    expect(screen.queryByText(/输入 \$0\.00\/1/)).not.toBeInTheDocument()
   })
 })

@@ -7,8 +7,7 @@ import { formatBusinessDateRange, formatEventDateTime } from '../../lib/dateTime
 import { formatMoney } from '../../lib/money'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../auth/permissions'
-import { periodCloseApi } from '../period-close/api/periodCloseApi'
-import { periodCloseKeys } from '../period-close/api/periodCloseKeys'
+import { billingPeriodApi, billingPeriodKeys } from '../budgets/api/billingPeriodApi'
 import { formatBillingPeriodStatus } from '../period-close/presentation'
 import { reconciliationApi } from './api/reconciliationApi'
 import { reconciliationKeys } from './api/reconciliationKeys'
@@ -39,8 +38,8 @@ export function ReconciliationPage() {
   const [page, setPage] = useState(0)
 
   const periods = useQuery({
-    queryKey: periodCloseKeys.periods(),
-    queryFn: periodCloseApi.listBillingPeriods,
+    queryKey: billingPeriodKeys.list(),
+    queryFn: billingPeriodApi.list,
   })
 
   useEffect(() => {

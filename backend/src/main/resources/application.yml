@@ -75,6 +75,9 @@ aicostops:
       poll-interval: ${AICOSTOPS_GATEWAY_SETTLEMENT_POLL_INTERVAL:5s}
   storage:
     endpoint: ${AICOSTOPS_STORAGE_ENDPOINT:http://localhost:9000}
+    # Production only: a plaintext http endpoint is accepted only on a private
+    # network and only behind this explicit opt-in; public http always fails.
+    allow-plaintext-internal: ${AICOSTOPS_STORAGE_ALLOW_PLAINTEXT_INTERNAL:false}
     access-key: ${AICOSTOPS_STORAGE_ACCESS_KEY:aicostops}
     secret-key: ${AICOSTOPS_STORAGE_SECRET_KEY:change-me-local-only}
     bucket: ${AICOSTOPS_STORAGE_BUCKET:aicostops-evidence}

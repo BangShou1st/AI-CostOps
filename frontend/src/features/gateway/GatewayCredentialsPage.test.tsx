@@ -71,7 +71,13 @@ describe('GatewayCredentialsPage', () => {
   })
 
   it('revoke flows through the governed confirmation and updates the list', async () => {
-    mockedApi.revokeGatewayCredential.mockResolvedValue({ ...credential, status: 'REVOKED', revokedAt: '2026-09-08T01:00:00Z' })
+    const revoked = { ...credential, status: 'REVOKED' as const, revokedAt: '2026-09-08T01:00:00Z' }
+    mockedApi.revokeGatewayCredential.mockResolvedValue(revoked)
+    // The mutation invalidates the list query; settle that refetch with the
+    // revoked row so the test also awaits the resulting React update.
+    mockedApi.listGatewayCredentials
+      .mockResolvedValueOnce([credential])
+      .mockResolvedValueOnce([revoked])
     renderPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
     // antd inserts a space between two Chinese characters ("吊销" → "吊 销").
     const revokeMatcher = /吊\s*销/
@@ -80,5 +86,6 @@ describe('GatewayCredentialsPage', () => {
     expect(dialog).toHaveTextContent('吊销后该凭证将无法发起新的网关请求')
     fireEvent.click(within(dialog).getByRole('button', { name: revokeMatcher }))
     await waitFor(() => expect(mockedApi.revokeGatewayCredential).toHaveBeenCalledWith('20'))
+    expect(await screen.findByText('已吊销')).toBeInTheDocument()
   })
 })

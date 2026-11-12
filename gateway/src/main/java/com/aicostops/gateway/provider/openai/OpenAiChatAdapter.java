@@ -17,7 +17,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
@@ -33,26 +32,36 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * OpenAI Chat Completions adapter with non-stream and include-usage SSE support.
  *
- * <p>M21 post-release security fix (M18 DNS-rebinding contract): production
- * dispatch now uses {@link PublicOnlyAddressResolverGroup}.
+ * <p>M18 DNS-rebinding contract: dispatch uses
+ * {@link PublicOnlyAddressResolverGroup} by default, so a hostname that
+ * resolves to a private or loopback address never reaches the socket even if
+ * activation-time validation saw a public address. Only an explicit
+ * {@code aicostops.gateway.provider.allow-private-endpoints=true} opt-in (local
+ * mocks or an internal Provider) disables the transport check.
  */
 @Component
 public class OpenAiChatAdapter implements ProviderChatAdapter {
 
     private static final String CHAT_COMPLETIONS_SUFFIX = "/chat/completions";
     private static final String DONE_MARKER = "[DONE]";
+    private static final String ALLOW_PRIVATE_ENDPOINTS_PROPERTY =
+            "aicostops.gateway.provider.allow-private-endpoints";
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final GatewayProperties properties;
     private final boolean enforceProductionEndpoint;
+    private final boolean enforcePublicOnlyResolution;
     private final HttpClient httpClient;
 
     public OpenAiChatAdapter(WebClient.Builder builder, ObjectMapper objectMapper,
             GatewayProperties properties, Environment environment) {
         this.objectMapper = objectMapper;
         this.properties = properties;
-        this.enforceProductionEndpoint = environment.acceptsProfiles(Profiles.of("prod"));
+        var allowPrivateEndpoints = Boolean.parseBoolean(
+                environment.getProperty(ALLOW_PRIVATE_ENDPOINTS_PROPERTY));
+        this.enforceProductionEndpoint = !allowPrivateEndpoints;
+        this.enforcePublicOnlyResolution = !allowPrivateEndpoints;
         this.httpClient = buildHttpClient();
         this.webClient = builder.clientConnector(new ReactorClientHttpConnector(this.httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()
@@ -61,14 +70,15 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
     }
 
     /**
-     * Builds the HttpClient with production-appropriate resolver.
+     * Builds the HttpClient with the public-only resolver unless private
+     * Provider endpoints were explicitly allowed.
      * This is the single source of truth for resolver wiring.
      */
     private HttpClient buildHttpClient() {
         var httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()));
-        if (enforceProductionEndpoint) {
+        if (enforcePublicOnlyResolution) {
             httpClient = httpClient.resolver(new PublicOnlyAddressResolverGroup());
         }
         return httpClient;

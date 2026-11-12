@@ -30,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ModelPricingService {
 
     private static final Set<String> DIMENSIONS =
-            Set.of("INPUT_TOKEN", "OUTPUT_TOKEN", "CACHED_INPUT_TOKEN", "REQUEST");
+            Set.of("INPUT_TOKEN", "OUTPUT_TOKEN", "REQUEST");
 
     private final AuthorizationContextService authorizationContexts;
     private final ControlPlaneMapper mapper;
@@ -113,7 +113,9 @@ public class ModelPricingService {
         if (!DIMENSIONS.containsAll(normalizedDimensions)) {
             throw new DomainException(HttpStatus.BAD_REQUEST, ProblemCode.VALIDATION_FAILED,
                     "Pricing dimension is invalid",
-                    "Supported dimensions: INPUT_TOKEN, OUTPUT_TOKEN, CACHED_INPUT_TOKEN, REQUEST.");
+                    "Supported dimensions: INPUT_TOKEN, OUTPUT_TOKEN, REQUEST. "
+                            + "CACHED_INPUT_TOKEN is not supported because the Gateway data plane "
+                            + "does not emit cached-input usage, so such pricing could never settle.");
         }
 
         // Serialize version allocation per organization: lock order is

@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.aicostops.allocation.AllocationApiTestSupport;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import org.awaitility.Awaitility;
@@ -17,6 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Workbench API contract at the HTTP boundary: permission-trimmed sections,
@@ -32,6 +34,8 @@ class WorkbenchIntegrationTest extends AllocationApiTestSupport {
     private MockMvc mockMvc;
     @Autowired
     private StringRedisTemplate redis;
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @AfterEach
     void dropWorkbenchRoles() {
@@ -224,6 +228,77 @@ class WorkbenchIntegrationTest extends AllocationApiTestSupport {
         mockMvc.perform(get("/api/v1/workbench").header("Authorization", bearer()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.costByProvider[0].totalAmount").value("10.00000000"));
+    }
+
+    /**
+     * A charge allocated while CLEAN and later marked EXCLUDED_DUPLICATE leaves the provider
+     * basis. The project rollup must use that same basis, otherwise a confirmed allocation for
+     * the excluded charge would keep it in the project total while provider totals and
+     * unallocated charges had already dropped it, and the workbench identity would break.
+     */
+    @Test
+    void excludedDuplicateChargeLeavesTheProjectRollupWithTheProviderBasis() throws Exception {
+        grant("WORKBENCH_FINANCE", List.of("PERIOD_READ", "COST_READ", "ALLOCATION_READ"));
+        insertOpenJanuaryPeriod();
+        var keptChargeId = insertCharge("10.00000000");
+        insertCharge("5.00000000");
+        var excludedChargeId = insertCharge("20.00000000");
+        confirmChargeAllocation(keptChargeId, "10.00000000");
+        confirmChargeAllocation(excludedChargeId, "20.00000000");
+        jdbc.update("""
+                UPDATE charge_fact SET review_status='EXCLUDED_DUPLICATE', duplicate_of_charge_id=?
+                WHERE org_id=? AND id=?
+                """, keptChargeId, orgId, excludedChargeId);
+
+        var response = mockMvc.perform(get("/api/v1/workbench").header("Authorization", bearer()))
+                .andExpect(status().isOk())
+                // Provider basis: only the two CLEAN charges (10.00 + 5.00); the excluded charge
+                // is excluded cost, not unallocated clean cost.
+                .andExpect(jsonPath("$.costByProvider.length()").value(1))
+                .andExpect(jsonPath("$.costByProvider[0].totalAmount").value("15.00000000"))
+                .andExpect(jsonPath("$.costByProvider[0].chargeCount").value(2))
+                // Project rollup shares the basis: only the CLEAN confirmed allocation counts.
+                .andExpect(jsonPath("$.costByProject.length()").value(1))
+                .andExpect(jsonPath("$.costByProject[0].projectName").value("Target"))
+                .andExpect(jsonPath("$.costByProject[0].totalAmount").value("10.00000000"))
+                .andExpect(jsonPath("$.unallocatedCharges.length()").value(1))
+                .andExpect(jsonPath("$.unallocatedCharges[0].amount").value("5.00000000"))
+                .andExpect(jsonPath("$.unallocatedCharges[0].chargeCount").value(1))
+                .andReturn();
+
+        // Workbench identity on the shared basis: provider total = project total + unallocated.
+        var body = objectMapper.readTree(response.getResponse().getContentAsString());
+        var providerTotal = new BigDecimal(
+                body.get("costByProvider").get(0).get("totalAmount").asText());
+        var projectTotal = new BigDecimal(
+                body.get("costByProject").get(0).get("totalAmount").asText());
+        var unallocatedTotal = new BigDecimal(
+                body.get("unallocatedCharges").get(0).get("amount").asText());
+        assertThat(providerTotal).isEqualByComparingTo(projectTotal.add(unallocatedTotal));
+        assertThat(projectTotal).isEqualByComparingTo(new BigDecimal("10.00000000"));
+        assertThat(unallocatedTotal).isEqualByComparingTo(new BigDecimal("5.00000000"));
+    }
+
+    private void confirmChargeAllocation(long chargeId, String amount) {
+        jdbc.update("""
+                INSERT INTO allocation_decision(
+                    org_id,subject_type,charge_fact_id,expense_claim_id,decision_source,
+                    allocation_rule_id,status,created_by_member_id,created_at)
+                VALUES (?,'CHARGE_FACT',?,NULL,'MANUAL',NULL,'CONFIRMED',NULL,UTC_TIMESTAMP(6))
+                """, orgId, chargeId);
+        var decisionId = jdbc.queryForObject(
+                "SELECT id FROM allocation_decision WHERE org_id=? AND charge_fact_id=?",
+                Long.class, orgId, chargeId);
+        jdbc.update("""
+                INSERT INTO allocation_line(
+                    org_id,decision_id,line_index,allocated_amount,currency,
+                    project_id,cost_center_id,team_id,created_at)
+                VALUES (?,?,0,?,'CNY',?,NULL,NULL,UTC_TIMESTAMP(6))
+                """, orgId, decisionId, amount, projectId);
+        jdbc.update("""
+                UPDATE charge_fact SET current_allocation_decision_id=?
+                WHERE org_id=? AND id=?
+                """, decisionId, orgId, chargeId);
     }
 
     private void awaitRedisRecovery() {
