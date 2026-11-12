@@ -198,6 +198,9 @@ public interface ControlPlaneMapper {
     ProviderAccountRow selectProviderAccount(@Param("orgId") long orgId,
             @Param("providerAccountId") long providerAccountId);
 
+    @Select("SELECT id FROM organization WHERE id=#{orgId} FOR UPDATE")
+    Long lockOrganization(@Param("orgId") long orgId);
+
     @Select("""
             SELECT COALESCE(MAX(version),0) FROM pricing_version
             WHERE org_id=#{orgId} AND provider_account_id=#{providerAccountId}

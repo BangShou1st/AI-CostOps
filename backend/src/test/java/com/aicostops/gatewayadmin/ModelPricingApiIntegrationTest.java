@@ -69,6 +69,35 @@ class ModelPricingApiIntegrationTest extends ControlPlaneApiTestSupport {
     }
 
     @Test
+    void duplicateDimensionsAreRejectedWithoutWritingPricingRows() throws Exception {
+        int versionsBefore = pricingVersionCount(providerModelId);
+        int ratesBefore = pricingRateCount();
+
+        mockMvc.perform(post("/api/v1/pricing-versions")
+                        .header("Authorization", managerBearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "providerAccountId":%d,
+                                  "providerModelId":%d,
+                                  "currency":"USD",
+                                  "effectiveFrom":"2026-09-08T00:00:00Z",
+                                  "rates":[
+                                    {"dimensionCode":"INPUT_TOKEN","unitQuantity":1000000,"unitPrice":1.0},
+                                    {"dimensionCode":"input_token","unitQuantity":1000000,"unitPrice":2.0}
+                                  ]
+                                }
+                                """.formatted(providerAccountId, providerModelId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.detail").value(
+                        org.hamcrest.Matchers.containsString("INPUT_TOKEN")));
+
+        Assertions.assertThat(pricingVersionCount(providerModelId)).isEqualTo(versionsBefore);
+        Assertions.assertThat(pricingRateCount()).isEqualTo(ratesBefore);
+    }
+
+    @Test
     void incompatibleProviderModelIsRejectedAndForeignAccountIsInvisible() throws Exception {
         seedProviderCatalog("OTHERPC");
         long incompatibleProviderModelId = insertProviderModel(
