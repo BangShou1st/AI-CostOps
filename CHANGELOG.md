@@ -11,6 +11,8 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- 剩余 P2/P3 低风险清理记录（批次 A，`docs/03-acceptance/maintenance/2026-11/2026-11-12-remaining-p2-p3-cleanup.md`）：P2-03 dev Compose 回环绑定、P2-04 HC-01 Redis 容器归属校验、P2-05 CodeQL 覆盖 `scripts/`、P2-19 前端依赖声明、P3-02 `percentOf` 正则、P3-05 分摊编辑器金额兜底、P3-06 死代码与幽灵权限码；含逐项 before/after、红/绿证据、`NOT_VERIFIED` 与影响边界
+- 导航权限目录一致性测试：`scripts/tests/nav-permission-catalog.test.mjs`，从全部 Flyway 迁移解析 `permission` 种子，断言前端导航的每个 `readPermission` 都存在于 `/permissions` 的数据来源；HC-01 Redis 所有权测试 `scripts/tests/hc01-ownership.test.mjs`
 - 维护期 P1 加固与 P2 口径修复记录（`docs/03-acceptance/maintenance/2026-11/2026-11-12-p1-hardening-fixes.md`）：P1-01 生产默认密钥拒绝、P1-02 集成测试选择 fail-closed、P1-03 `ci-status` skip 语义与 CODEOWNERS、P1-04 登出失败本地清理、P2-09 Gateway 指标口径、P2-20 数值 id 排序；含逐项 before/after、本地验证输出、`NOT_VERIFIED` 与影响边界
 - `.github/CODEOWNERS`：默认仓库 owner，并对 `.github/**`、`.trivyignore`、`compose*.yaml`、`docker-compose*.yml`、`deploy/`、`.env.example` 显式指定 owner；是否强制 review 取决于仓库 ruleset（`NOT_VERIFIED`）
 - CI 集成测试选择器：`scripts/ci/select-integration-tests.mjs`（纯函数枚举 + 分片，空枚举/空分片/非法参数非 0 退出）与 `scripts/tests/ci-select-integration-tests.test.mjs`（6 个用例）
@@ -80,6 +82,12 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- dev 基础设施端口暴露（审查 P2-03）：`compose.dev.yaml` 的 MySQL / Redis / MinIO 端口补 `127.0.0.1:` 前缀，与生产 / M16 overlay 对齐，同网段主机不再能直连财务库 / Redis / MinIO 控制台
+- HC-01 Redis 容器归属（审查 P2-04）：`scripts/perf/hc01/runner.mjs` 不再无条件 `docker rm -f ai-costops-hc01-redis`；创建时打 `aicostops.hc01.owner/run/resource` label（owner 每次 run 唯一），删除前 `docker inspect` 校验，无 label / 他人 owner / 仅 HC-03 label 一律拒绝并给出人工命令；HC-03 所有权决策仅做向后兼容的 `labelKey`/`harness` 参数扩展
+- 前端依赖声明（审查 P2-19）：显式声明 `dayjs@1.11.21`（此前仅靠 antd 传递依赖 hoist），删除零引用 `echarts@6.1.0` 及只被它使用的 `zrender` / `tslib`；同步 `AGENTS.md` / `README.md` 技术栈描述
+- 分摊编辑器金额兜底（审查 P3-05）：来源金额渲染期改用 `safeParse`，非 scale-8 金额显示“金额格式异常”且不触发 `RouteErrorBoundary`，确认按钮保持 disabled；不再在 render 期抛错
+- 前端死代码与幽灵权限码（审查 P3-06）：删除零引用 `AppPage` 及其专属导入；`AppNavEntry.readPermission` 改为可选，工作台条目移除不存在的 `WORKBENCH_SECTION`，可见性仍由 `hasWorkbenchAccess` 决定
+- `percentOf` 正则笔误（审查 P3-02）：`/^0+(?=\\d)/` 改为 `/^0+(?=\d)/`；当前无可观测行为差异（`padStart(scale + 1)` 保证宽度）
 - CI 变更检测（2026-11-12）：`dorny/paths-filter` 增加 `base: ${{ github.ref }}`，`dev` push 改为与同一分支上一提交比较，不再把“相对 `main` 的全部历史提交”计入；纯文档 push 重新走 `docs_only` 短路，`pull_request` 行为不变
 - 前端测试 teardown（2026-11-12）：Vitest 全局 `afterEach` 增加 20ms 收敛窗口（fake timers 先切回真实计时器），避免 antd `useDelayState` 的 0/10ms 定时器在 jsdom 销毁后触发、以 unhandled `window is not defined` 判整文件失败（CI 43140181777 的 `frontend-test`）
 - 生产配置校验（审查 P1-01）：`prod` 校验器此前只要求 JWT ≥ 32 字符、storage 非空，`.env.example` 的 64 字符公开签名密钥与 `aicostops`/`change-me-local-only` 存储凭据可通过启动；现拒绝 `local-development-only-signing-key` 前缀与两个存储默认值（对称、空值仍拒绝），错误信息只报环境变量名；新增 3 个“解析结果等于示例值”用例（先红后绿）
@@ -115,6 +123,7 @@
 - 安全依赖：`follow-redirects` 升级 1.16.0 → 1.16.1，关闭 CVE-2026-111755 / CVE-2026-111756；随后 pin 到 1.16.2，关闭 CVE-2026-116689（均为 Trivy HIGH 阻断）
 
 ### Security
+- CodeQL 覆盖 `scripts/`（审查 P2-05）：`.github/codeql/codeql-config.yml` 的 `paths` 追加 `scripts`，本机高权限执行的 Node 脚本（`child_process`、递归删除、Docker 控制）进入 SAST；未新增 `paths-ignore`、未改 workflow 权限
 - 生产默认凭据拒绝（审查 P1-01）：JWT 签名密钥与对象存储 access/secret 不再接受仓库内公开的
   `.env.example` / `application-local.yml` 示例值，避免“有仓库读权限即可离线签发 HS256 token 或访问 Evidence 桶”；
   校验器仍只在 `prod` profile 生效，错误信息不回声任何密钥值

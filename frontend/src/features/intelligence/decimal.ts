@@ -124,6 +124,6 @@ export function percentOf(value: string | null | undefined, percent: number): st
   const digits = BigInt(parsed.int + parsed.frac.padEnd(scale, '0')) * BigInt(percent);
   const q = digits / 100n;
   const s = q.toString().padStart(scale + 1, '0');
-  const intPart = s.slice(0, -scale).replace(/^0+(?=\\d)/, '') || '0';
+  const intPart = s.slice(0, -scale).replace(/^0+(?=\d)/, '') || '0';
   return `${parsed.negative ? '-' : ''}${intPart}.${s.slice(-scale)}`;
 }

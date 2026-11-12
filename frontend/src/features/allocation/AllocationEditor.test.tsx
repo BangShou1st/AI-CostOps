@@ -109,6 +109,13 @@ describe('AllocationEditor', () => {
     })
   })
 
+  it('reports an invalid subject amount as a field error instead of crashing', async () => {
+    expect(() => renderEditor({ draft: DRAFT, subjectAmount: 'not-money' })).not.toThrow()
+
+    expect(await screen.findByText('金额格式异常')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认分摊' })).toBeDisabled()
+  })
+
   it('exact confirm calls the real confirm contract and refreshes', async () => {
     mockedAllocationApi.confirm.mockResolvedValue({ ...DRAFT, status: 'CONFIRMED' })
     const { onChanged } = renderEditor({ draft: DRAFT })

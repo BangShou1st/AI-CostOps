@@ -9,10 +9,11 @@ import {
 import {
   AllocationLinesEditor,
   initialLines,
+  safeParse,
   toLineInputs,
   type AllocationEditorLine,
 } from './shared/AllocationLinesEditor'
-import { parseDecimal8, sumDecimal8, compareDecimal8 } from '../../lib/money'
+import { sumDecimal8, compareDecimal8 } from '../../lib/money'
 
 interface AllocationEditorProps {
   /** For charge subjects: the charge id; for expense subjects: pass '' */
@@ -77,10 +78,13 @@ export function AllocationEditor({
   const ruleDraft = draft !== null && draft.status === 'DRAFT' && draft.source === 'RULE'
   const editable = canEdit && !ruleDraft && !hasConfirmed
   const suspectedDuplicate = reviewStatus === 'SUSPECTED_DUPLICATE'
-  // Exact-sum check: sum of parsed lines must equal the source amount.
-  const parsedAmounts = lines.map((l) => { try { return parseDecimal8(l.allocatedAmount) } catch { return null } })
-  const exactSum = parsedAmounts.every((v) => v !== null) &&
-    compareDecimal8(sumDecimal8(parsedAmounts.filter((v): v is bigint => v !== null)), parseDecimal8(subjectAmount)) === 0
+  // Exact-sum check: sum of parsed lines must equal the source amount. An
+  // unparseable subject amount is a field error, never a render-time crash.
+  const parsedAmounts = lines.map((l) => safeParse(l.allocatedAmount))
+  const parsedSubjectAmount = safeParse(subjectAmount)
+  const exactSum = parsedSubjectAmount !== null
+    && parsedAmounts.every((v) => v !== null)
+    && compareDecimal8(sumDecimal8(parsedAmounts.filter((v): v is bigint => v !== null)), parsedSubjectAmount) === 0
   const confirmEnabled = canConfirm
     && lines.length > 0
     && lines.every((l) => l.targetId !== null)

@@ -40,9 +40,9 @@ export function labelsFor(owner, runId, resource) {
   }
 }
 
-export function ownerOf(labels) {
+export function ownerOf(labels, labelKey = OWNER_LABEL) {
   if (!labels || typeof labels !== 'object') return null
-  const value = labels[OWNER_LABEL]
+  const value = labels[labelKey]
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
@@ -56,11 +56,15 @@ function manualRemove(name) {
  * @param {string} input.name
  * @param {string} input.expectedOwner
  * @param {null|{labels?: object}} input.existing
+ * @param {string} [input.labelKey] owner label key (other harnesses reuse this decision)
+ * @param {string} [input.harness] name used in refusal messages
  * @returns {{allow: boolean, reason?: string, message?: string, manualCommand?: string}}
  */
-export function decideContainer({ mode, name, expectedOwner, existing }) {
+export function decideContainer({
+  mode, name, expectedOwner, existing, labelKey = OWNER_LABEL, harness = 'HC-03',
+}) {
   const present = Boolean(existing)
-  const owner = present ? ownerOf(existing.labels) : null
+  const owner = present ? ownerOf(existing.labels, labelKey) : null
 
   if (mode === 'create') {
     if (!present) return { allow: true }
@@ -68,7 +72,7 @@ export function decideContainer({ mode, name, expectedOwner, existing }) {
       return {
         allow: false,
         reason: 'OWNED_LEFTOVER',
-        message: `HC-03 container ${name} is left over from owner ${owner}. `
+        message: `${harness} container ${name} is left over from owner ${owner}. `
           + 'Run `node scripts/perf/hc03/runner.mjs --cleanup` to remove it; the harness '
           + 'will not delete it implicitly.',
       }
@@ -76,7 +80,7 @@ export function decideContainer({ mode, name, expectedOwner, existing }) {
     return {
       allow: false,
       reason: 'FOREIGN_RESOURCE',
-      message: `HC-03 refuses to replace container ${name}: it has no HC-03 owner label `
+      message: `${harness} refuses to replace container ${name}: it has no ${harness} owner label `
         + 'or belongs to a different owner. Confirm it is yours, then remove it manually: '
         + `\`${manualRemove(name)}\`.`,
       manualCommand: manualRemove(name),
@@ -88,7 +92,7 @@ export function decideContainer({ mode, name, expectedOwner, existing }) {
       return {
         allow: false,
         reason: 'MISSING_RESOURCE',
-        message: `--attach expected HC-03 container ${name}, but it does not exist.`,
+        message: `--attach expected ${harness} container ${name}, but it does not exist.`,
       }
     }
     if (!owner || owner !== expectedOwner) {
@@ -127,7 +131,7 @@ export function decideContainer({ mode, name, expectedOwner, existing }) {
     return {
       allow: false,
       reason: owner ? 'OWNER_MISMATCH' : 'UNLABELED_RESOURCE',
-      message: `Refusing to delete container ${name}: expected owner ${expectedOwner}, `
+      message: `Refusing to delete ${harness} container ${name}: expected owner ${expectedOwner}, `
         + `found ${owner ?? 'no owner label'}. Inspect it with \`docker inspect ${name}\`; `
         + `if it is safe to remove, run \`${manualRemove(name)}\` explicitly.`,
       manualCommand: manualRemove(name),
