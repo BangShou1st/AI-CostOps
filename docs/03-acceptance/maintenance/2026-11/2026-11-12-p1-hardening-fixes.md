@@ -198,7 +198,11 @@
 已知取舍：
 
 1. `.github`-only / `deploy`-only / `.trivyignore`-only PR 现在会被 `ci-status` 显式判红，直到后续补专用
-   校验 job；这是 P1-03 的预期 fail-closed 行为，不是回归。
+   校验 job；这是 P1-03 的预期 fail-closed 行为，不是回归。**复核补充**：同一规则也覆盖
+   `compose*.yaml`、`docker-compose*.yml`、`Dockerfile*`、`.dockerignore`、`.env.example`，以及任何
+   未被现有过滤器覆盖的根文件（例如 `LICENSE`、`.gitignore`、`.editorconfig`、`.gitattributes`）。
+   这些变更本身不需要跑测试，但现在必须与业务代码同 PR 或由 owner 处理；建议后续增加 `meta` 过滤器
+   与一个轻量校验 job，把 fail-closed 从“一律拒绝”收敛为“有针对性校验”。
 2. P1-01 只拒绝“仓库内已公开的示例值”，不判断密钥熵；运维仍必须通过密钥管理系统生成随机值。
 3. P1-04 的服务端注销是 best-effort：失败时本地已登出，但服务端 refresh cookie 可能仍存活到下一次
    refresh 或过期；这是“公共终端优先本地清理”的明确取舍。
@@ -249,10 +253,16 @@ gateway/src/test/java/com/aicostops/gateway/request/GatewaySafeFailoverIntegrati
 
 ---
 
-## 7. 审查报告需更正
+## 7. 审查报告需更正（2026-11-12 复核后修订）
 
-- 报告 P1-02 / `CHANGELOG` 历史描述中的“198 个集成测试类”与当前代码不符：按
-  `*IntegrationTest.java` 实际枚举为 **199** 个（shard 0 = 100，shard 1 = 99）。分片规则本身未变。
-- 报告 §3.1 P1-03 引用 `ci.yml:565-577` 为 `ci-status`；基线实际为 571–599 行（小版本漂移，结论不变）。
-- 报告 P1-04 提到的 `AuthPages.tsx:49` 调用点属于审查 P3-06 已标注的 `AppPage` 死代码；本次仍按
-  “所有调用点”要求补了 catch，未删除该页面（死代码清理不在本批范围）。
+> 本节最初由修复会话写入；随后的独立复核发现其中两条“更正”本身不准确，已在此修订。
+> 保留修订痕迹是为了让后来者知道哪一版结论被推翻，而不是静默改写。
+
+- `CHANGELOG` 中“198 个集成测试类”是 `57696e2`（该条目引入时）的**准确计数**；`75f02ea` 起为
+  **199** 个（shard 0 = 100、shard 1 = 99）。这是测试随维护增长，不是历史记录错误；
+  审查报告本身也从未引用 198。
+- 审查报告 §3.1 P1-03 引用的 `ci.yml:565-577` 覆盖基线 `if: always()`（565）到旧循环的 `fi`（577），
+  已包含被测逻辑；基线 `ci.yml` 共 579 行，`ci-status` 作业从 551 行开始、`run` 块为 571–579 行。
+  原引用无须更正（此前“571–599 行”的说法越过了文件末尾）。
+- 审查报告 P1-04 提到的 `AuthPages.tsx:49` 调用点属于审查 P3-06 已标注的 `AppPage` 死代码；本次仍按
+  “所有调用点”要求补了 catch，未删除该页面（死代码清理不在本批范围）。这一条成立。
