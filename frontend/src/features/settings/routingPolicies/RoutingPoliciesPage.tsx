@@ -10,6 +10,7 @@ import { hasPermission } from '../../auth/permissions'
 import { useAuthorizationMutation } from '../useAuthorizationMutation'
 import { RoutingPolicyEditor } from './RoutingPolicyEditor'
 import type { RoutingCandidateInput, RoutingPolicy, RoutingPolicyInput } from './types'
+import { sortByNumericIdDesc } from '../../../lib/numericIdOrder'
 
 const statusLabel: Record<RoutingPolicy['status'], string> = { DRAFT: '草稿', ACTIVE: '已启用', RETIRED: '已退役' }
 
@@ -53,7 +54,7 @@ export function RoutingPoliciesPage() {
   })
 
   const policies = policiesQuery.data?.items ?? []
-  const sortedPolicies = useMemo(() => [...policies].sort((left, right) => right.id.localeCompare(left.id)), [policies])
+  const sortedPolicies = useMemo(() => sortByNumericIdDesc(policies), [policies])
 
   function errorText(value: ProblemDetail | null) {
     return value ? problemDetail(value) || problemTitle(value) : null

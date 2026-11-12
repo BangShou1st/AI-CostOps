@@ -368,6 +368,11 @@ public class ChatCompletionController {
                                     .data(" " + GatewaySseEncoder.DONE_PAYLOAD)
                                     .build()));
                 }))
+                // The stream is COMPLETED only after the terminal [DONE] event
+                // is delivered. This intentionally sits on the success path
+                // (not at finalizeSuccess) so a client cancel between DB
+                // finalization and [DONE] is still reported as CANCELED.
+                .doOnComplete(() -> metrics.recordRequestOutcome("COMPLETED"))
                 .onErrorResume(ex -> handleStreamFailure(
                         exchange, principal, current, emitted, canceled, currentLock, command, request, prepared,
                         latestMetering.get(), ex, cancellationFinalizedAttempts));

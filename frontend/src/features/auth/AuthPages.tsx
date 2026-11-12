@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { message } from 'antd'
 import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail } from '../../api/problem'
 import { authApi } from './authApi'
 import { useAuth } from './AuthSessionProvider'
@@ -46,5 +47,6 @@ export function InvitationPage() {
 }
 export function AppPage() {
   const auth = useAuth(); if (!auth.user) return <Navigate to="/login" replace />
-  return <main className="app-shell"><p className="eyebrow">工作区</p><h1>AI CostOps</h1><p>已登录：{auth.user.displayName}</p><button onClick={() => void auth.logout()}>退出登录</button></main>
+  const signOut = () => { void auth.logout().catch(() => { message.info('已本地登出；服务端会话将在下次刷新时失效。') }) }
+  return <main className="app-shell"><p className="eyebrow">工作区</p><h1>AI CostOps</h1><p>已登录：{auth.user.displayName}</p><button onClick={signOut}>退出登录</button></main>
 }

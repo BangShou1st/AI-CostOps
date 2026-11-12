@@ -7,6 +7,15 @@ import { resetMediaMatches, setMediaMatches } from '../../test/setup'
 import { AuthenticatedLayout } from './AuthenticatedLayout'
 
 vi.mock('../../features/auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
+vi.mock('antd', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('antd')>()
+  return {
+    ...actual,
+    message: { ...actual.message, info: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() },
+  }
+})
+
+import { message } from 'antd'
 
 const mockedUseAuth = vi.mocked(useAuth)
 
@@ -14,13 +23,17 @@ const ALL_PERMISSIONS = ['USER_READ', 'ROLE_READ', 'PROJECT_READ', 'TEAM_READ', 
 const NAV_LABELS = ['用户管理', '角色与权限', '项目管理', '团队管理', '成本中心', '云账号', '服务商总览', '连接配置', '模型目录', '路由策略', '服务身份', '网关凭证', '模型与定价']
 const BUSINESS_LABELS = ['证据', '导入']
 
-function renderLayout(permissions: string[], usersPage: ReactNode = <h1>Users page</h1>) {
+function renderLayout(
+  permissions: string[],
+  usersPage: ReactNode = <h1>Users page</h1>,
+  logout: ReturnType<typeof useAuth>['logout'] = vi.fn(async () => undefined),
+) {
   mockedUseAuth.mockReturnValue({
     status: 'authenticated',
     user: { id: '1', email: 'admin@example.com', displayName: 'Admin', organizationId: '2', organizationMemberId: '3', permissions },
     login: vi.fn(),
     refreshMe: vi.fn(),
-    logout: vi.fn(),
+    logout,
   } as ReturnType<typeof useAuth>)
   return render(
     <MemoryRouter initialEntries={['/settings/users']}>
@@ -95,6 +108,18 @@ describe('AuthenticatedLayout desktop sidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
     expect(mockedUseAuth.mock.results[0].value.logout).toHaveBeenCalledTimes(1)
+  })
+
+  it('logout failure announces the local sign-out instead of rejecting unhandled', async () => {
+    const failedLogout = vi.fn().mockRejectedValue(new Error('server unavailable'))
+    renderLayout([], <h1>Users page</h1>, failedLogout)
+
+    fireEvent.click(screen.getByRole('button', { name: '退出登录' }))
+
+    await waitFor(() => expect(message.info).toHaveBeenCalledWith(
+      '已本地登出；服务端会话将在下次刷新时失效。',
+    ))
+    expect(failedLogout).toHaveBeenCalledTimes(1)
   })
 
   it('sidebarExpandedRendersLabels', () => {

@@ -39,6 +39,33 @@ class ProductionConfigurationValidatorTest {
     }
 
     @Test
+    void documentedExampleJwtSigningKeyRejectsStartup() {
+        // The value shipped in .env.example is 64 characters, so the length
+        // check alone accepts it. A resolved deployment value equal to the
+        // documented example must fail without echoing the key.
+        var env = safeProd();
+        env.setProperty("aicostops.auth.jwt-signing-secret",
+                "local-development-only-signing-key-change-before-production-2026");
+
+        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_JWT_SIGNING_KEY")
+                .hasMessageNotContaining("local-development-only-signing-key");
+    }
+
+    @Test
+    void localDevelopmentJwtSigningKeyPrefixRejectsStartup() {
+        var env = safeProd();
+        env.setProperty("aicostops.auth.jwt-signing-secret",
+                "local-development-only-signing-key-rotated-but-still-public-2027");
+
+        assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("AICOSTOPS_JWT_SIGNING_KEY")
+                .hasMessageNotContaining("rotated-but-still-public");
+    }
+
+    @Test
     void devBootstrapEnabledRejectsStartup() {
         var env = safeProd();
         env.setProperty("aicostops.auth.dev-bootstrap-enabled", "true");
@@ -147,6 +174,31 @@ class ProductionConfigurationValidatorTest {
         assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("AICOSTOPS_STORAGE_SECRET_KEY");
+    }
+
+    @Test
+    void localDefaultObjectStorageCredentialsRejectStartup() {
+        // The same two values are the documented defaults in application.yml
+        // and .env.example; both credential properties must reject both of
+        // them symmetrically, and no message may echo the resolved value.
+        var properties = java.util.List.of(
+                "aicostops.storage.access-key", "aicostops.storage.secret-key");
+        var values = java.util.List.of("aicostops", "change-me-local-only");
+        var expectedVariables = java.util.List.of(
+                "AICOSTOPS_STORAGE_ACCESS_KEY", "AICOSTOPS_STORAGE_SECRET_KEY");
+        for (int propertyIndex = 0; propertyIndex < properties.size(); propertyIndex++) {
+            for (var value : values) {
+                var env = safeProd();
+                env.setProperty(properties.get(propertyIndex), value);
+
+                assertThatThrownBy(() -> new ProductionConfigurationValidator(env).validate())
+                        .as("%s must reject the local default value",
+                                properties.get(propertyIndex))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining(expectedVariables.get(propertyIndex))
+                        .hasMessageNotContaining(value);
+            }
+        }
     }
 
     @Test

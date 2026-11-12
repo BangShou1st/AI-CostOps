@@ -10,6 +10,7 @@ import { useAuthorizationMutation } from '../settings/useAuthorizationMutation'
 import { gatewayApi } from './api/gatewayApi'
 import { gatewayKeys } from './api/gatewayKeys'
 import type { PricingRate } from './api/gatewayTypes'
+import { sortByNumericIdDesc } from '../../lib/numericIdOrder'
 
 const DECIMAL_PATTERN = /^\d+(\.\d{1,8})?$/
 
@@ -75,7 +76,7 @@ export function ModelPricingPage() {
     onSuccess: () => { setProblem(null); invalidate() },
     onError: (error) => setProblem(toProblemDetail(error)),
   })
-  const versions = useMemo(() => [...(pricingQuery.data ?? [])].sort((a, b) => b.id.localeCompare(a.id)), [pricingQuery.data])
+  const versions = useMemo(() => sortByNumericIdDesc(pricingQuery.data ?? []), [pricingQuery.data])
 
   return (
     <main className="settings-page">

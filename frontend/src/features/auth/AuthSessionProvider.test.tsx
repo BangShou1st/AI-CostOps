@@ -89,6 +89,16 @@ function SessionActionsProbe() {
   )
 }
 
+function LogoutResultProbe({ onRejected }: { onRejected: (error: unknown) => void }) {
+  const auth = useAuth()
+  return (
+    <>
+      <div role="status">{auth.status}</div>
+      <button onClick={() => { void auth.logout().catch(onRejected) }}>Logout</button>
+    </>
+  )
+}
+
 function LoginResultProbe({ onRejected }: { onRejected: (error: unknown) => void }) {
   const auth = useAuth()
   return (
@@ -372,21 +382,53 @@ describe('AuthSessionProvider session expiry', () => {
     expect(coordinator.publish).toHaveBeenCalledWith('SESSION_CLEARED')
   })
 
-  it('logoutTransportFailureDoesNotPublishSessionCleared', async () => {
+  it('logoutTransportFailureClearsLocalSessionWithoutPublishingSessionCleared', async () => {
     const coordinator = createTestCoordinator()
     const queryClient = renderProvider(<SessionActionsProbe />, coordinator)
     await screen.findByText('authenticated')
     queryClient.setQueryData(['settings', 'users'], { stillValid: true })
-    const tokenBefore = accessTokenStore.get()
-    mockedAuthApi.logout.mockRejectedValue(new Error('redis unavailable'))
+    mockedAuthApi.logout.mockRejectedValue(authError('AUTH_INTERNAL_ERROR', 500))
 
     fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
 
-    await waitFor(() => expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1))
-    expect(screen.getByRole('status')).toHaveTextContent('authenticated')
-    expect(accessTokenStore.get()).toBe(tokenBefore)
-    expect(queryClient.getQueryData(['settings', 'users'])).toEqual({ stillValid: true })
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('anonymous'))
     expect(mockedAuthApi.logout).toHaveBeenCalledTimes(1)
+    expect(accessTokenStore.get()).toBeNull()
+    expect(queryClient.getQueryData(['settings', 'users'])).toBeUndefined()
+    // A failed server logout must not tell siblings the cookie is gone; this
+    // path clears only the local projection.
+    expect(coordinator.publish).not.toHaveBeenCalled()
+  })
+
+  it('logoutFailureStillRejectsTheCallerSoTheUiCanExplainTheLocalSignOut', async () => {
+    const coordinator = createTestCoordinator()
+    const onRejected = vi.fn()
+    renderProvider(<LogoutResultProbe onRejected={onRejected} />, coordinator)
+    await screen.findByText('authenticated')
+    const serverFailure = authError('AUTH_INTERNAL_ERROR', 500)
+    mockedAuthApi.logout.mockRejectedValue(serverFailure)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+
+    await waitFor(() => expect(onRejected).toHaveBeenCalledWith(serverFailure))
+    expect(screen.getByRole('status')).toHaveTextContent('anonymous')
+    expect(accessTokenStore.get()).toBeNull()
+    expect(coordinator.publish).not.toHaveBeenCalled()
+  })
+
+  it('logoutRefreshFailureClearsTheLocalSession', async () => {
+    const coordinator = createTestCoordinator()
+    renderProvider(<SessionActionsProbe />, coordinator)
+    await screen.findByText('authenticated')
+    mockedAuthApi.refresh.mockClear()
+    mockedAuthApi.logout.mockRejectedValue(authError('AUTH_ACCESS_EXPIRED'))
+    mockedAuthApi.refresh.mockRejectedValue(authError('AUTH_INTERNAL_ERROR', 500))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Logout' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('anonymous'))
+    expect(mockedAuthApi.refresh).toHaveBeenCalledTimes(1)
+    expect(accessTokenStore.get()).toBeNull()
     expect(coordinator.publish).not.toHaveBeenCalled()
   })
 

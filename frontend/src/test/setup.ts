@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest'
+import { afterEach, vi } from 'vitest'
 
 // Configurable matchMedia: desktop (true) by default so layout tests exercise
 // the permanent sidebar; mobile tests call setMediaMatches to flip queries.
@@ -44,3 +45,18 @@ if (typeof window !== 'undefined') {
     configurable: true,
   })
 }
+
+// antd Form/Button schedule short `useDelayState` timers (0–10 ms) when form
+// values or errors change. A test that ends right after such a change leaves
+// the timer pending; it then fires after jsdom teardown and Vitest fails the
+// whole file with an unhandled "window is not defined" error (observed on CI in
+// ProviderImportUploadModal.test.tsx). Yield one short macrotask after every
+// test so those timers run while the DOM still exists. Fake-timer tests are
+// switched back to real timers first, otherwise this wait would itself be
+// faked and never resolve.
+afterEach(async () => {
+  if (vi.isFakeTimers()) {
+    vi.useRealTimers()
+  }
+  await new Promise((resolve) => setTimeout(resolve, 20))
+})

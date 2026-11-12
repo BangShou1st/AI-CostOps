@@ -26,7 +26,7 @@ import {
   UserOutlined,
   WalletOutlined,
 } from '@ant-design/icons'
-import { Button, Drawer, Layout, Menu, Tooltip } from 'antd'
+import { Button, Drawer, Layout, Menu, Tooltip, message } from 'antd'
 import { useState, type ReactNode } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../features/auth/AuthSessionProvider'
@@ -92,6 +92,14 @@ export function AuthenticatedLayout() {
   const [collapsed, setCollapsed] = useState(readCollapsedPreference)
   const [drawerOpen, setDrawerOpen] = useState(false)
   if (!auth.user) return null
+
+  // The provider drops the local session even when server-side logout fails;
+  // explain that degradation instead of leaving a rejected promise unhandled.
+  const signOut = () => {
+    void auth.logout().catch(() => {
+      message.info('已本地登出；服务端会话将在下次刷新时失效。')
+    })
+  }
 
   const businessEntries = visibleBusinessNav(auth.user.permissions)
   const intelligenceEntries = visibleIntelligenceNav(auth.user.permissions)
@@ -178,7 +186,7 @@ export function AuthenticatedLayout() {
           />
           <div className="settings-identity">
             <span className="settings-identity-user">{auth.user.displayName}</span>
-            <button onClick={() => void auth.logout()}>{SETTINGS_COPY.signOut}</button>
+            <button onClick={signOut}>{SETTINGS_COPY.signOut}</button>
           </div>
         </div>
       </Drawer>
@@ -215,7 +223,7 @@ export function AuthenticatedLayout() {
           <>
             <span className="settings-avatar" aria-hidden="true">{initials}</span>
             <Tooltip title={SETTINGS_COPY.signOut} placement="right">
-              <button type="button" className="settings-logout-icon" aria-label={SETTINGS_COPY.signOut} onClick={() => void auth.logout()}>
+              <button type="button" className="settings-logout-icon" aria-label={SETTINGS_COPY.signOut} onClick={signOut}>
                 <LogoutOutlined />
               </button>
             </Tooltip>
@@ -225,7 +233,7 @@ export function AuthenticatedLayout() {
             <Tooltip title={auth.user.displayName} placement="top">
               <span className="settings-identity-user">{auth.user.displayName}</span>
             </Tooltip>
-            <button type="button" onClick={() => void auth.logout()}>{SETTINGS_COPY.signOut}</button>
+            <button type="button" onClick={signOut}>{SETTINGS_COPY.signOut}</button>
           </>
         )}
       </div>
