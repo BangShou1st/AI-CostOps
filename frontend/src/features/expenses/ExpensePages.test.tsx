@@ -275,7 +275,7 @@ describe('ExpensePages', () => {
 
     await waitFor(() => expect(screen.getByText('下载凭证')).toBeInTheDocument())
     const row = screen.getByText('提交时间').closest('tr')
-    expect(row?.textContent).toContain('2026-08-17 18:30')
+    expect(row?.textContent).toContain('2026-08-17 10:30 UTC')
     expect(row?.textContent).not.toContain('—')
   })
 
@@ -311,7 +311,7 @@ describe('ExpensePages', () => {
 
     await waitFor(() => expect(screen.getByText('下载凭证')).toBeInTheDocument())
     const row = screen.getByText('提交时间').closest('tr')
-    expect(row?.textContent).toContain('2026-08-17 22:20')
+    expect(row?.textContent).toContain('2026-08-17 14:20 UTC')
   })
 
   it('shows an em dash for 提交时间 when the expense was never submitted', async () => {

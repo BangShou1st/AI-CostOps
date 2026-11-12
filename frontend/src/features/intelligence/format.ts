@@ -1,3 +1,4 @@
+import { formatUtcDateTime, formatUtcDay } from '../../lib/dateTime'
 import { compareDecimal, formatDecimal, formatMoneyExact, parseDecimal } from './decimal'
 
 export const EM_DASH = '—'
@@ -41,19 +42,18 @@ export function formatPercent(value: string | number | null | undefined): string
   return `${sign}${body}%`
 }
 
+/**
+ * Technical instants render through the single UTC formatter in lib/dateTime.
+ * The optional `timeZone` is kept only for source compatibility and ignored:
+ * a page-specific zone would restore the two-clock display this module used to
+ * create.
+ */
 export function formatDateTime(value: string | null | undefined, timeZone?: string): string {
-  if (!value) return EM_DASH
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return EM_DASH
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
-    timeZone: timeZone ?? 'UTC', timeZoneName: 'short',
-  }).format(date)
+  void timeZone
+  return formatUtcDateTime(value)
 }
 
+/** Date-only calendar-day label (UTC); business dates never carry a zone. */
 export function formatDay(value: string | null | undefined): string {
-  if (!value) return EM_DASH
-  const date = new Date(value.length <= 10 ? `${value}T00:00:00Z` : value)
-  if (Number.isNaN(date.getTime())) return EM_DASH
-  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(date)
+  return formatUtcDay(value)
 }

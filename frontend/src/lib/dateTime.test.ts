@@ -8,8 +8,10 @@ describe('date/time presentation', () => {
       .toBe('2026-08-01 ～ 2026-09-01')
   })
 
-  it('formats event instants as a consistent Chinese-readable date/time', () => {
-    expect(formatEventDateTime('2026-08-19T10:14:00Z')).toBe('2026-08-19 18:14')
+  it('formats event instants in UTC with an explicit zone label', () => {
+    expect(formatEventDateTime('2026-08-19T10:14:00Z')).toBe('2026-08-19 10:14 UTC')
+    // A UTC instant late in the day must not roll over to the next Shanghai day.
+    expect(formatEventDateTime('2026-08-19T22:30:00Z')).toBe('2026-08-19 22:30 UTC')
   })
 
   it('formats BillingPeriod as a date-only range with a localized status', () => {
