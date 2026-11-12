@@ -290,7 +290,7 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
     private Request insertRequest(String suffix, String requestState, String attemptStatus) {
         env = GatewayTestFixture.seed(jdbc, "m13-final-" + suffix + System.nanoTime(), HMAC_KEY,
                 rawKey());
-        jdbc.update("""
+        var requestId = GatewayTestFixture.insertAndReturnId(jdbc, """
                 INSERT INTO gateway_request(
                   org_id,public_request_id,credential_id,principal_type,organization_member_id,
                   service_identity_id,project_id,financial_scope_type,financial_scope_id,logical_model_id,
@@ -302,8 +302,7 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
                 """, env.orgId(), "gwr_m13_" + suffix + System.nanoTime(), env.credentialId(),
                 env.serviceIdentityId(), env.projectId(), env.projectId(), env.modelId(),
                 digest(1), digest(2), requestState, env.periodId());
-        var requestId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        jdbc.update("""
+        var attemptId = GatewayTestFixture.insertAndReturnId(jdbc, """
                 INSERT INTO gateway_route_attempt(
                   org_id,request_id,attempt_no,route_decision_id,provider_account_id,provider_model_id,
                   pricing_version_id,status,created_at,dispatch_intent_at)
@@ -311,7 +310,6 @@ class GatewayUsageFinalizationIntegrationTest extends GatewayMySqlContainerSuppo
                 """, env.orgId(), requestId, "grd_m13_" + suffix + System.nanoTime(),
                 env.providerAccountId(), env.providerModelId(), env.pricingVersionId(),
                 attemptStatus);
-        var attemptId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         jdbc.update("UPDATE gateway_request SET current_route_attempt_id=? WHERE id=?",
                 attemptId, requestId);
         return new Request(requestId, attemptId);
