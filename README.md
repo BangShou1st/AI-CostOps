@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/MySQL-8.4-4479A1.svg?logo=mysql" alt="MySQL 8.4" />
   <img src="https://img.shields.io/badge/Redis-7-red.svg?logo=redis" alt="Redis 7" />
   <img src="https://img.shields.io/badge/MinIO-RELEASE-C72C48.svg?logo=minio" alt="MinIO" />
-  <img src="https://img.shields.io/badge/Release-v3.0.0-blue.svg" alt="Release v3.0.0" />
+  <img src="https://img.shields.io/badge/Release-v3.1.1-blue.svg" alt="Release v3.1.1" />
   <img src="https://img.shields.io/badge/Status-MAINTENANCE__ONLY-orange.svg" alt="Status MAINTENANCE_ONLY" />
   <img src="https://img.shields.io/badge/License-Proprietary-lightgrey.svg" alt="License" />
 </p>
@@ -647,7 +647,7 @@ AI CostOps 拥有从顶层蓝图到运维 Runbook 的完整分层文档体系：
 
 ```text
 FINAL_PRODUCT_VERSION = V3
-STABLE_RELEASE       = v3.0.0
+STABLE_RELEASE       = v3.1.1
 Feature development  = CLOSED
 Operational mode     = MAINTENANCE_ONLY
 V4                   = NOT_PLANNED
@@ -665,11 +665,13 @@ Known release-blocking defects = NONE
 | **`v1.1.0`** | `102f287` | 混合对账引擎、账期关闭与重开审计、多级审批状态机 |
 | **`v2.0.0`** | `93e3596` | AI Gateway 实时数据面交付、毫秒级预算预占、实时流式计量与动态路由 |
 | **`v3.0.0`** | `9c55125` | 确定性成本智能（MAD z-score / 阻尼 Holt）、受控 AI 顾问、Provider Hub 与双组织浏览器隔离 |
+| **`v3.1.0`** | `1fb5e74` | 维护基线冻结：文档分类重组、资产治理规范与 CI 同步 |
+| **`v3.1.1`** | `bef5877` | 2026-11-12 维护加固：32 项深度审查发现（安全、CI、Gateway/后端、前端契约与展示、OpenAPI 补齐） |
 
 ### 分支与协作规范
 
 * **分支策略**：
-  * **`main`**：生产环境受保护分支，与当前稳定版本（`v3.0.0`）严格对齐。**严禁直接 Push 到 `main`**。
+  * **`main`**：生产环境受保护分支，与当前稳定版本（`v3.1.1`）严格对齐。**严禁直接 Push 到 `main`**。
   * **`dev`**：日常维护与缺陷修复的唯一集成分支。
   * **维护分支**：从 `dev` 检出短生命周期分支（前缀如 `fix/*`、`chore/*`、`docs/*`、`test/*`），验证完成后发起 Pull Request。
 * **合并准则**：
