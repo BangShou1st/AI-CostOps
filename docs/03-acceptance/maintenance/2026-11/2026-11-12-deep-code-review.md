@@ -333,7 +333,7 @@ P1-02 / P1-03 的远程证据由此补齐；branch protection 仍待仓库设置
 |---|---|---|
 | P2-03 dev overlay 暴露 MySQL/Redis/MinIO | **FIXED** | 四个端口补 `127.0.0.1:`；`docker compose config` 解析为 `127.0.0.1:3307/6379/9000/9001` |
 | P2-04 hc01 无归属删除固定名 Redis | **FIXED**（逻辑）/ `NOT_VERIFIED`（真实容器生命周期） | 复用 HC-03 决策并加 hc01 label；无 label / 他人 owner / 仅 HC-03 label 均拒绝；新增 6 个纯函数用例，脚本套件 54/54 |
-| P2-05 CodeQL 不分析 `scripts/` | **FIXED**（配置）/ `NOT_VERIFIED`（远程扫描） | `paths` 追加 `scripts`；实际分析待 PR Security workflow |
+| P2-05 CodeQL 不分析 `scripts/` | **FIXED** | `paths` 追加 `scripts`；PR #184 的 `codeql (javascript-typescript)` success（2m8s），未产生新告警 |
 | P2-19 前端依赖声明不完整/冗余 | **FIXED** | 声明 `dayjs@1.11.21`、删除 `echarts`；干净 `npm ci` 296 包成功，`echarts`/`tslib` 不存在 |
 | P3-02 `percentOf` 正则笔误 | **FIXED** | `/^0+(?=\\d)/` → `/^0+(?=\d)/`；当前无可观测行为差异，无法提供黑盒红/绿 |
 | P3-05 分摊编辑器 render 期解析无兜底 | **FIXED** | 旧实现 `1 failed / 18 passed`（render 抛 `Not an exact scale-8 money string`），新实现 `19 passed`；非法金额显示“金额格式异常” |

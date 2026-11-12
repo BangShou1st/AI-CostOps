@@ -10,7 +10,7 @@
 | 关联分支 | `fix/a-infra-deps`、`fix/a-hc01-ownership`、`fix/a-frontend-cleanup` → 集成 `fix/remaining-a-cleanup` |
 | 关联 PR | [#184](https://github.com/BangShou1st/AI-CostOps/pull/184) |
 | 变更性质 | 维护期既有缺陷最小修复；无新功能、无 Flyway、无 API 契约、无财务语义变更、无新增运行时依赖 |
-| 总体判定 | **PASS（本地）**；CodeQL `scripts` 路径的远程分析结果与 PR 远程 CI 另行标注 |
+| 总体判定 | **PASS（本地 + 远程 CI / Security）**；仅 P2-04 的真实 Docker 容器生命周期为 `NOT_VERIFIED` |
 
 本批只处理审查报告 §3.2 / §3.3 中列出的 7 项低风险发现，未触碰 §9 已 `FIXED` 的 6 项，也未开始批次 B/C。
 
@@ -121,6 +121,16 @@ $ npm run verify:links
 [verify-doc-links] SUCCESS: 0 broken links found! All local document links are valid.
 ```
 
+### 2.3 远程验证（PR #184，2026-11-12）
+
+| 工作流 | run | 结果 |
+|---|---|---|
+| CI | [43153454075](https://github.com/BangShou1st/AI-CostOps/actions/runs/43153454075) | 18/18 success：`detect-changes`、`backend-unit`、`backend-integration` 两片（4m13s / 4m59s）、`gateway-unit`、`gateway-integration`、`frontend-quality`、`frontend-test`（3m11s）、`scripts-unit` 两平台、`scripts-lifecycle`、`docker-build`、`browser-e2e`、`ci-status` |
+| Security | [43153454086](https://github.com/BangShou1st/AI-CostOps/actions/runs/43153454086) | `trivy` + `codeql (java-kotlin)` + `codeql (javascript-typescript)` 3/3 success；JS/TS CodeQL 在写入 `scripts` 路径后正常完成（2m8s），未产生需要处置的新告警 |
+| 合并 | PR [#184](https://github.com/BangShou1st/AI-CostOps/pull/184) | squash 为 `dcb0895`；仓库自动删除 head 分支 `fix/remaining-a-cleanup` |
+
+合并后本地清理：三个子分支（`fix/a-infra-deps`、`fix/a-hc01-ownership`、`fix/a-frontend-cleanup`）、集成分支与三个临时 worktree 全部移除；本地与远程最终只保留 `dev`、`main`。
+
 ---
 
 ## 3. `NOT_VERIFIED` 与已知边界
@@ -128,10 +138,10 @@ $ npm run verify:links
 | 项 | 状态 | 说明 |
 |---|---|---|
 | P2-04 真实 Docker 容器生命周期 | `NOT_VERIFIED` | 只验证了纯函数决策与 runner 语法；未启动 / 删除真实 `ai-costops-hc01-redis` 容器（会创建并销毁本机容器，且需要完整 HC-01 环境） |
-| P2-05 CodeQL 对 `scripts/` 的实际分析结果 | `NOT_VERIFIED`（本地） | 配置已加 `scripts`；实际扫描需 PR 的 Security workflow 运行后确认 |
-| 本批 PR 的远程 CI / Security | `NOT_VERIFIED`（本地阶段） | 以 PR 页面实际结果为准 |
+| P2-05 CodeQL 对 `scripts/` 的实际分析结果 | **VERIFIED（远程）** | PR #184 的 `codeql (javascript-typescript)` 在 `paths` 包含 `scripts` 后 success（2m8s），未产生新告警 |
+| 本批 PR 的远程 CI / Security | **VERIFIED（远程）** | CI 18/18、Security 3/3，见 §2.3 |
 | P3-02 修复的行为差异 | 无 | 该笔误当前无可观测影响，无法提供黑盒红/绿证据 |
-| 分支清理 | 待 PR 合并 | 集成分支与三个子分支、三个临时 worktree 在 squash 合并后删除；最终仅保留 `dev` 与 `main` |
+| 分支清理 | **VERIFIED** | head 分支由仓库自动删除；三个子分支、集成分支与三个临时 worktree 已本地移除；最终仅保留 `dev` 与 `main` |
 
 ---
 
@@ -178,4 +188,4 @@ CHANGELOG.md
 
 ## 6. 结论
 
-批次 A 的 7 项低风险发现全部按“测试先行、最小修复”完成，未发现审查报告与本批代码存在事实冲突，无需更正审查报告。本地脚本 / 前端 / 后端 / 网关单元测试与前端构建全部通过，依赖锁可干净安装，dev Compose 端口已收敛到回环地址。CodeQL `scripts` 覆盖与真实 Docker 容器生命周期分别留待远程 CI 与后续 HC-01 实跑确认。
+批次 A 的 7 项低风险发现全部按“测试先行、最小修复”完成，未发现审查报告与本批代码存在事实冲突，无需更正审查报告。本地脚本 / 前端 / 后端 / 网关单元测试与前端构建全部通过，依赖锁可干净安装，dev Compose 端口已收敛到回环地址；PR #184 的远程 CI 18/18 与 Security 3/3 进一步确认 CodeQL `scripts` 覆盖生效。唯一保留的 `NOT_VERIFIED` 是 P2-04 的真实 Docker 容器生命周期，留待后续 HC-01 实跑确认。
