@@ -17,7 +17,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.MediaType;
@@ -59,9 +58,10 @@ public class OpenAiChatAdapter implements ProviderChatAdapter {
             GatewayProperties properties, Environment environment) {
         this.objectMapper = objectMapper;
         this.properties = properties;
-        this.enforceProductionEndpoint = environment.acceptsProfiles(Profiles.of("prod"));
-        this.enforcePublicOnlyResolution = !Boolean.parseBoolean(
+        var allowPrivateEndpoints = Boolean.parseBoolean(
                 environment.getProperty(ALLOW_PRIVATE_ENDPOINTS_PROPERTY));
+        this.enforceProductionEndpoint = !allowPrivateEndpoints;
+        this.enforcePublicOnlyResolution = !allowPrivateEndpoints;
         this.httpClient = buildHttpClient();
         this.webClient = builder.clientConnector(new ReactorClientHttpConnector(this.httpClient))
                 .codecs(configurer -> configurer.defaultCodecs()
