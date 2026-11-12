@@ -369,3 +369,38 @@ P2-10 采用“抽公共段 + 显式标注仅测试入口”；P2-11 采用“�
 
 **未处置**：批次 B 只做上述 7 项。P2-01/02/06/07/08/12/16/17/18/21/22 与 P3-01 留待批次 C
 （需要先拍板的方案项）。
+
+---
+
+## 12. 处置记录（第四批：批次 C 决策项落地，2026-11-12 追加）
+
+> 本节只追加处置结果，不改写上方原始发现、证据与结论。逐项 before/after、红/绿输出、`NOT_VERIFIED`
+> 与影响边界见 [2026-11-12 剩余 P2/P3 决策项落地（批次 C）](2026-11-12-remaining-p2-p3-decisions.md)。
+> 本批按用户确认的推荐方案执行，包含有意的契约/展示变化：费率响应 number→string、技术时间统一 UTC、
+> `CACHED_INPUT_TOKEN` 配置返回 400。
+
+| 发现 | 处置 | 证据摘要 |
+|---|---|---|
+| P2-01 调度线程耦合 | **FIXED** | 调度池 2 线程；Advisor 批量上限默认 10 + 可禁用开关；批量用例先红（claim 4 vs 2）后绿 13/13；Gateway 单元 214/0/1 |
+| P2-02 本地性判断/明文 endpoint | **FIXED** | URI + `InetAddress` 全地址解析；`0.0.0.0`/`127.1`/十进制 IP/IPv4-mapped IPv6 均拒绝；`localhost.example.com` 不误杀；内网明文需 `AICOSTOPS_STORAGE_ALLOW_PLAINTEXT_INTERNAL=true`；测试先红 10 failures 后绿 32/32 |
+| P2-06 登录计时侧信道 | **FIXED** | 未知邮箱执行固定 cost-10 dummy bcrypt；先红（0 次 matches）后绿 `LoginServiceIntegrationTest` 6/6 |
+| P2-07 未观察日进入异常基线 | **FIXED** | 被评估桶/baseline 只取 `observed=true`，不足 14 个返回空；`latestDelta` 复用 median 并过滤缺口；先红 6 failures 后绿 17/17 |
+| P2-08 Workbench 口径不同基 | **FIXED** | 项目汇总复用 `CHARGE_BASIS`；先红 project=30（应 10）后绿 `WorkbenchIntegrationTest` 8/8 |
+| P2-12 费率 number 契约 | **FIXED** | 响应 `unitPrice` 改 decimal string；前端按 scale-8 精确展示；先红 `Expected a string ... 30.0` 后绿 16/16。展示由 `$30.00` 变为 `30.00 USD` |
+| P2-16 两套时区 | **FIXED** | 单一 UTC formatter + 显式 `UTC` 标注；先红 `18:14` vs `10:14 UTC` 后绿；前端 560/560 |
+| P2-17 OpenAPI 漂移 | **FIXED** | 新增 14 path / 19 operation / 21 schema（含 `x-permission`）；`LedgerSourceType` 5 值；路由覆盖测试修复前缺 14 条、修复后 0；删除重复副本。覆盖断言使用 `openapi.yaml` + `m18-v3-openapi.yaml` 并集 |
+| P2-18 SSRF 仅 prod | **FIXED** | 默认所有 profile 安装公网 resolver + 内置主机白名单，显式 opt-out；resolver 测试先红 2 failures 后绿 19 个定向；Gateway 单元 214/0/1、SafeFailover 4/4 |
+| P2-21 账期双客户端 | **FIXED** | 统一 `billingPeriodApi` + `billingPeriodKeys.list()`；删除重复客户端/键/类型；关账后失效共享键；先红后绿，560 用例通过 |
+| P2-22 下载 revoke 时机 | **FIXED**（组件级）/ `NOT_VERIFIED`（真实浏览器） | anchor 挂 body + `setTimeout(revoke, 0)`；先红（未挂载/同帧 revoke）后绿；未在 Firefox/Safari 实机下载 |
+| P3-01 `CACHED_INPUT_TOKEN` | **FIXED** | 定价创建拒绝该维度（400）；单测先红 1 failure、集成先红 201，后绿单测 3/3、集成 16/16 |
+
+**报告更正**：本批未发现审查报告与代码的事实冲突，无需更正。三点执行说明：
+P2-02 的 `http://127.1:9000` 由 JDK `URI.getHost()==null` 走“必须带 host”拒绝路径，未走地址解析；
+P2-17 的覆盖断言是 `openapi.yaml` + `m18-v3-openapi.yaml` 的并集（避免复制冻结契约）；
+P2-18 的 `allow-private-endpoints=true` 同时放宽 resolver 与内置主机白名单，测试/mock/内网部署显式开启。
+
+**全部处置完成**：本报告列出的 4 项 P1、22 项 P2、6 项 P3 已分别在 P1 批次（6 项）、批次 A（7 项）、
+批次 B（7 项）、批次 C（12 项）完成处置；无剩余未处置发现。
+
+**历史记录不再修改**：本批删除重复契约副本 `docs/03-acceptance/m18-openapi.yaml` 后，上方原始发现中
+仍保留该路径作为当时证据；单一真相源现为 `docs/02-development/api/m18-v3-openapi.yaml`。

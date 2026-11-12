@@ -11,6 +11,8 @@
 `main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
 
 ### Added
+- 剩余 P2/P3 决策项落地记录（批次 C，`docs/03-acceptance/maintenance/2026-11/2026-11-12-remaining-p2-p3-decisions.md`）：P2-01 调度隔离、P2-02 本地性解析与明文 endpoint、P2-06 dummy bcrypt、P2-07 observed 基线、P2-08 Workbench 同基、P2-12 费率字符串、P2-16 UTC 显示、P2-17 OpenAPI 补齐、P2-18 SSRF 默认开启、P2-21 账期客户端合并、P2-22 下载 revoke、P3-01 CACHED 拦截；含逐项 before/after、红/绿证据、`NOT_VERIFIED` 与影响边界
+- `ControlPlaneOpenApiRouteCoverageTest`：反射扫描生产 `@RestController`，断言每条 `/api/v1` 路由存在于 `openapi.yaml` + `m18-v3-openapi.yaml` 契约并集；修复前缺失 14 条，修复后 0
 - 剩余 P2/P3 后端修复记录（批次 B，`docs/03-acceptance/maintenance/2026-11/2026-11-12-remaining-p2-p3-backend.md`）：P2-10 授权前置段抽公共、P2-11 成功终结谓词放宽、P2-13 定价维度去重/版本串行化/409、P2-14 路由候选批量查询、P2-15 僵尸对账 run 收敛、P3-03/P3-04 死代码删除；含逐项 before/after、红/绿证据、`NOT_VERIFIED` 与影响边界
 - 对账僵尸 run 回收：`ReconciliationRunRecoveryScheduler`（默认启动后 30s 首扫、5m 间隔、30m 超时、100 条/批，可经 `AICOSTOPS_RECONCILIATION_*` 覆盖）与 `ReconciliationRunService.failStaleRunningRuns`；测试默认关闭 sweep
 - 剩余 P2/P3 低风险清理记录（批次 A，`docs/03-acceptance/maintenance/2026-11/2026-11-12-remaining-p2-p3-cleanup.md`）：P2-03 dev Compose 回环绑定、P2-04 HC-01 Redis 容器归属校验、P2-05 CodeQL 覆盖 `scripts/`、P2-19 前端依赖声明、P3-02 `percentOf` 正则、P3-05 分摊编辑器金额兜底、P3-06 死代码与幽灵权限码；含逐项 before/after、红/绿证据、`NOT_VERIFIED` 与影响边界
@@ -84,6 +86,18 @@
 - `PROJECT_CONTEXT.md` 精简为当前状态索引，历史里程碑细节移交 `docs/` 与 `CHANGELOG.md`
 
 ### Fixed
+- Gateway 调度隔离（审查 P2-01）：`spring.task.scheduling.pool.size: 2`，Advisor 单 tick 批量上限默认 10（`AICOSTOPS_GATEWAY_ADVISOR_WORKER_BATCH_LIMIT`）并可禁用（`AICOSTOPS_GATEWAY_ADVISOR_WORKER_ENABLED`），预占回收扫描不再排在长 Provider 调用之后
+- 生产配置本地性（审查 P2-02）：`isLocalhost` 改为 URI + `InetAddress` 全地址解析，覆盖 `0.0.0.0`、`127.1`、十进制 IP、IPv4-mapped IPv6 与 DNS 多 A 记录；`allowed-origins` 逐项解析且不误杀 `localhost.example.com`；存储 endpoint 公网强制 HTTPS、内网明文需 `AICOSTOPS_STORAGE_ALLOW_PLAINTEXT_INTERNAL=true`
+- 登录计时侧信道（审查 P2-06）：未知邮箱也执行一次固定 cost-10 dummy BCrypt 比对，再返回同一 `AUTH_INVALID_CREDENTIALS`；审计/限流不变
+- 成本异常基线（审查 P2-07）：被评估桶与 baseline 只使用 `observed=true` 的桶，观测不足返回空；`latestDelta` 复用 `median` 并过滤缺口日，避免虚假异常
+- Workbench 口径（审查 P2-08）：按项目汇总复用 `CHARGE_BASIS`，与 provider / 未分摊同基；已确认分摊后被判 `EXCLUDED_DUPLICATE/NONCOST` 的 charge 不再计入项目合计
+- 定价费率契约（审查 P2-12）：`PricingRateResponse.unitPrice` 改为 decimal string（`ToStringSerializer`），前端按 scale-8 精确展示；OpenAPI 响应 schema 同步
+- 技术时间显示（审查 P2-16）：全站统一 `UTC` + 显式 `UTC` 标注，`intelligence/format.ts` 复用 `lib/dateTime.ts`，删除重复 formatter
+- OpenAPI 契约（审查 P2-17）：新增 14 条 path / 19 个 operation / 21 个 schema（含 `x-permission`），`LedgerSourceType` 补齐 5 值，新增路由覆盖测试，删除重复的 `docs/03-acceptance/m18-openapi.yaml`
+- Provider SSRF（审查 P2-18）：OpenAI / MiMo 适配器默认在所有 profile 安装 `PublicOnlyAddressResolverGroup` 并启用内置主机白名单；本地 mock / 内网 Provider 需显式 `AICOSTOPS_GATEWAY_PROVIDER_ALLOW_PRIVATE_ENDPOINTS=true`
+- 账期前端客户端（审查 P2-21）：`/billing-periods` 统一使用 `billingPeriodApi` + `billingPeriodKeys.list()`，删除 period-close 的重复客户端/键/类型，关账后失效共享键
+- 证据下载（审查 P2-22）：anchor 挂载 body 后 click，`setTimeout(revoke, 0)` 延迟释放 object URL；异常路径也清理 anchor
+- 定价维度准入（审查 P3-01）：创建价目表拒绝 `CACHED_INPUT_TOKEN`（400），因为数据面不产出 cached-input、配置后永不结算
 - Gateway 成功终结（审查 P2-11）：`markRequestTransportCompleted` 的谓词从只允许 `UPSTREAM_ACTIVE` 放宽为 `DISPATCH_INTENT` / `UPSTREAM_ACTIVE`，与成功终结 guard 及 attempt 侧 `markAttemptCompleted` 一致；避免 `beginUpstream` 未持久化但上游已返回时 0 行更新导致整个成功终结事务（含用量事实）回滚。定向 `GatewayUsageFinalizationIntegrationTest` 9/9
 - 仅测试派发入口（审查 P2-10）：`GatewayRequestService` 抽出生产/测试共用的 `authorizePrelude`（身份、模型白名单、打开账期、VALIDATED 请求收敛），`authorizeAndFence` 显式标注 test-only legacy single-candidate path，生产统一走 `GatewayRequestOrchestrator.prepareInitial`
 - 定价创建（审查 P2-13）：重复 `dimensionCode` 在任何写入前返回 400；事务内先锁 organization 行再分配 `MAX(version)+1`；`DuplicateKeyException` 映射为 409 `STATE_CONFLICT` 可重试，不再 500；未实现维度覆盖校验（建议在 activate 时补）
