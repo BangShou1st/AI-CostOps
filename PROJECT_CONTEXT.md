@@ -19,7 +19,7 @@ V2 目标：
 
 ```text
 FINAL_PRODUCT_VERSION = V3
-STABLE_RELEASE = v3.0.0
+STABLE_RELEASE = v3.1.1
 Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
 V4 = NOT_PLANNED
@@ -27,11 +27,11 @@ M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
 M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
 M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
-DEEP_CODE_REVIEW = COMPLETE (2026-11-12, dev@75f02ea, 4 P1 hardening gaps documented, no new release-blocking defect)
+DEEP_CODE_REVIEW = COMPLETE (2026-11-12, 4 P1 + 22 P2 + 6 P3, all disposed by v3.1.1)
 Known release-blocking defects = NONE
 ```
 
-V3 是最终功能版本：功能研发已关闭，项目进入长期维护模式；V4 不在路线图内，不再规划或实现 V4，不新增 Provider 或业务功能，维护任务按真实故障与必要性触发。`STABLE_RELEASE = v3.0.0` 是 `main` 上的当前稳定标签，`dev` 包含尚未合并或发布的维护提交。
+V3 是最终功能版本：功能研发已关闭，项目进入长期维护模式；V4 不在路线图内，不再规划或实现 V4，不新增 Provider 或业务功能，维护任务按真实故障与必要性触发。`STABLE_RELEASE = v3.1.1` 是 `main` 上的当前稳定标签，`main` 与 `dev` 保持同一发布内容，`dev` 仅额外包含发布同步记录。
 
 M22 原始记录中的两个 `DEFERRED / NON-BLOCKING` gate 需分开解释：independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](docs/03-acceptance/maintenance/2026-10/2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [m22-v3-production-certification.md](docs/03-acceptance/milestones/m22-v3-production-certification.md) 保留其原时间点结论，未改写。
 
@@ -53,6 +53,8 @@ v1.0.1 → b96be614e2d843c101add49fe6daffb9d2343a56
 v1.1.0 → 102f287da9bfc922ffaabb1b7244a973a0f813eb
 v2.0.0 → 93e359687c2d0e81b096d7a73cc8e04e16a7ecbe
 v3.0.0 → 9c55125c1b857e3ccf301875d8886131a9d1d9b0
+v3.1.0 → 1fb5e74cff4b84081ff90a8717f8912b058aa793
+v3.1.1 → bef587775551e344aaffa26e80df533987c3cec3
 ```
 
 ## 已交付能力范围
