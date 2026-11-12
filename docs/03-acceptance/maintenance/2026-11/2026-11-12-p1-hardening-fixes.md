@@ -178,7 +178,14 @@
 本次推送是 `75f02ea..c4cf3bf` 的 fast-forward（含 5 个代码修复），`detect-changes` 正确判定为非 docs-only，
 因此完整执行了 backend/gateway 集成、`docker-build` 与 `browser-e2e`；这同时补上了此前
 “修改后的 `ci.yml` 在 GitHub Actions 上的真实运行结果”这条 `NOT_VERIFIED`。
-`docs_only` 分支（纯文档推送）仍只有本地真值表证据，未在远程单独触发。
+
+第二次推送 `7744c17` 只改 3 个文档文件，但 `detect-changes` 仍检测到 **26** 个文件：`dorny/paths-filter`
+未配置 `base` 时默认以仓库默认分支（`main`）为基准，`dev` 领先 `main` 的全部提交都会计入；因此
+[CI 43138867306](https://github.com/BangShou1st/AI-CostOps/actions/runs/43138867306) 仍跑完整套件
+（14/14 success），[Security 43138867994](https://github.com/BangShou1st/AI-CostOps/actions/runs/43138867994) 3/3。
+结论：`docs_only=true` 的短路只在 PR（base..head）和 `main` push（同分支上一提交）上生效，`dev` push 不会短路。
+这是实现细节造成的成本浪费，**不是门禁漏洞**；后续可在 `detect-changes` 显式设置
+`base: ${{ github.ref }}`（PR 事件会忽略该参数）让 dev push 按“上一提交”比较。
 
 ---
 
@@ -200,7 +207,7 @@
 | 项 | 状态 | 说明 |
 |---|---|---|
 | Branch protection / ruleset 的 required checks、bypass 规则、“Require review from Code Owners” | `NOT_VERIFIED` | 仓库外设置，未调用 GitHub API，也没有仓库管理员凭据；CODEOWNERS 本身不强制 review |
-| 修改后的 `ci.yml` 在 GitHub Actions 上的真实运行结果 | **VERIFIED**（2026-11-12） | [CI 43137592677](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592677) 14/14、[Security 43137592638](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592638) 3/3；shard 100/99 与 `ci-status (docs_only=false)` 均来自运行日志。`docs_only=true` 分支仍只有本地真值表证据 |
+| 修改后的 `ci.yml` 在 GitHub Actions 上的真实运行结果 | **VERIFIED**（2026-11-12） | [CI 43137592677](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592677) 14/14、[Security 43137592638](https://github.com/BangShou1st/AI-CostOps/actions/runs/43137592638) 3/3；shard 100/99 与 `ci-status (docs_only=false)` 均来自运行日志。`docs_only=true` 在远程 `dev` push 不生效（`base` 默认 `main`，见 §2.1），PR 路径待真实 PR 验证 |
 | 全量 backend/gateway 集成测试（Testcontainers） | **VERIFIED（远程）**（2026-11-12） | 同一次 CI 运行中 `backend-integration` 两片、`gateway-integration`、`browser-e2e` 全部 success；本地仍只做定向回归 |
 | CODEOWNERS owner 账号有效性 | `NOT_VERIFIED` | 按仓库 URL 使用 `@BangShou1st`；账号变更时需替换 |
 | 生产部署是否仍在使用示例密钥 | `NOT_VERIFIED` | 校验器现在会 fail-fast；实际环境需重新注入并轮换后重启验证 |
