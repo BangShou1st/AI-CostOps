@@ -15,6 +15,7 @@
 ### Fixed
 - CI：`detect-changes` 新增 `changed` 输出，空树合并提交不再因“没有命中任何已登记路径”被 `ci-status` 误判为未知变更；非空但落在已知 filter 之外的变更仍然阻断。
 - Gateway：`MimoStreamingIntegrationTest` 的高流量 SSE 夹具改为分批 flush，避免单次突发写入在 CI 回环传输上被截断；200 个 chunk 与单个 `[DONE]` 的断言保持不变。
+- Frontend：Vitest 全局 teardown 在等待异步 UI 定时器前显式 `cleanup()`，并多冲刷一轮 React scheduler 的 `setImmediate`，避免 `GatewayCredentialsPage.test` 的更新在 jsdom 销毁后触发 `window is not defined`。
 - `prod` profile 无法启动：为 `ProductionConfigurationValidator(Environment)` 显式加 `@Autowired`，真实 prod 配置 8/8 case PASS（1-5/8 正确 fail-fast，6/7 启动并保持运行）。
 - 微小定价费率：新增 `Scale8DecimalSerializer`，`PricingRateResponse.unitPrice` 以 `setScale(8).toPlainString()` 输出；`0.00000001` 在 API 与 Edge 页面均精确显示，新增 serializer 与集成回归测试。
 
