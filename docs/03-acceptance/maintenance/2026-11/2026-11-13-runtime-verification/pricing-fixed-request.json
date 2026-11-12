@@ -1,0 +1,1 @@
+{"currency":"USD","effectiveTo":null,"providerModelId":1,"providerAccountId":32,"rates":[{"unitQuantity":1000000,"unitPrice":1E-08,"dimensionCode":"INPUT_TOKEN"},{"unitQuantity":1000000,"unitPrice":2E-08,"dimensionCode":"OUTPUT_TOKEN"}],"effectiveFrom":"2026-11-12T10:10:03.3819273Z"}

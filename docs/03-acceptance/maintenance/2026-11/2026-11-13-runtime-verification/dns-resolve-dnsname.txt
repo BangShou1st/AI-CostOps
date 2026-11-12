@@ -1,0 +1,31 @@
+
+Name                                           Type   TTL   Section    IPAddress
+----                                           ----   ---   -------    ---------
+host.docker.internal                           A      41679 Answer     10.61.104.23
+                                                      3
+
+
+--- example.com ---
+
+Name                                           Type   TTL   Section    IPAddress
+----                                           ----   ---   -------    ---------
+example.com                                    AAAA   156   Answer     2606:4700:10::ac42:93f3
+example.com                                    AAAA   156   Answer     2606:4700:10::6814:179a
+example.com                                    A      112   Answer     172.66.147.243
+example.com                                    A      112   Answer     104.20.23.154
+
+
+--- console.example.com ---
+
+--- console.example.com (Resolve-DnsName -ErrorAction Stop) ---
+console.example.com : DNS 名称不存在。
+RESULT=NXDOMAIN
+
+--- JDK 21.0.10 InetAddress summary ---
+0.0.0.0 => 0.0.0.0 (anyLocal=true)
+127.1 => URI.getHost()=null (NO_HOST)
+2130706433 => 127.0.0.1 (loopback=true)
+[::ffff:127.0.0.1] => 127.0.0.1 (loopback=true, Inet4Address)
+host.docker.internal => 10.61.104.23 (siteLocal=true)
+example.com => 104.20.23.154, 172.66.147.243 (public)
+console.example.com => UnknownHostException

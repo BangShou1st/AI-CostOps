@@ -1,0 +1,4 @@
+AI-CostOps synthetic reimbursement evidence for expense 38.
+Date: 2026-10-14
+Amount: 19.99 CNY
+Purpose: browser acceptance of the reimbursement -> approval -> posting chain (synthetic data only).

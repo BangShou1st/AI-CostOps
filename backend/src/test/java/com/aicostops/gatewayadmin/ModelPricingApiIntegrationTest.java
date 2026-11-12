@@ -70,6 +70,17 @@ class ModelPricingApiIntegrationTest extends ControlPlaneApiTestSupport {
     }
 
     @Test
+    void tinyUnitPriceIsSerializedAsPlainScale8String() throws Exception {
+        mockMvc.perform(post("/api/v1/pricing-versions")
+                        .header("Authorization", managerBearer())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(pricingJson(0.00000001, 0.00000002)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.rates[0].unitPrice").value("0.00000001"))
+                .andExpect(jsonPath("$.rates[1].unitPrice").value("0.00000002"));
+    }
+
+    @Test
     void duplicateDimensionsAreRejectedWithoutWritingPricingRows() throws Exception {
         int versionsBefore = pricingVersionCount(providerModelId);
         int ratesBefore = pricingRateCount();
