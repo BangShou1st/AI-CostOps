@@ -69,7 +69,8 @@ export function toLineInputs(lines: AllocationEditorLine[], currency: string): A
   }))
 }
 
-function safeParse(value: string): bigint | null {
+/** Parses an API scale-8 amount, returning null instead of throwing in render paths. */
+export function safeParse(value: string): bigint | null {
   try { return parseDecimal8(value) } catch { return null }
 }
 
@@ -99,14 +100,16 @@ export function AllocationLinesEditor({ sourceAmount, currency, lines, setLines,
   })
   const targetGroups = useMemo(() => groupTargets(targets.data ?? []), [targets.data])
 
-  const source = useMemo(() => parseDecimal8(sourceAmount), [sourceAmount])
+  const source = useMemo(() => safeParse(sourceAmount), [sourceAmount])
   const parsedAmounts = useMemo(() => lines.map((line) => safeParse(line.allocatedAmount)), [lines])
   const allocated = useMemo(() => sumDecimal8(parsedAmounts.filter((v): v is bigint => v !== null)), [parsedAmounts])
-  const remaining = subtractDecimal8(source, allocated)
+  const remaining = source === null ? null : subtractDecimal8(source, allocated)
 
-  const remainingLabel = compareDecimal8(remaining, 0n) === 0
-    ? '精确分配'
-    : remaining > 0n ? `未分配金额：${formatMoney(formatDecimal8(remaining), currency)}` : `超额分配：${formatMoney(formatDecimal8(-remaining), currency)}`
+  const remainingLabel = remaining === null
+    ? null
+    : compareDecimal8(remaining, 0n) === 0
+      ? '精确分配'
+      : remaining > 0n ? `未分配金额：${formatMoney(formatDecimal8(remaining), currency)}` : `超额分配：${formatMoney(formatDecimal8(-remaining), currency)}`
 
   const updateLine = useCallback((key: number, patch: Partial<AllocationEditorLine>) => {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)))
@@ -119,6 +122,7 @@ export function AllocationLinesEditor({ sourceAmount, currency, lines, setLines,
         {'　'}已分配：{formatMoney(formatDecimal8(allocated), currency)}
         {'　'}{remainingLabel}
       </Typography.Text>
+      {source === null && <Typography.Text type="danger">金额格式异常</Typography.Text>}
       <Table<AllocationEditorLine>
         rowKey="key" size="small" dataSource={lines} pagination={false}
         locale={{ emptyText: '尚无分摊行' }}
