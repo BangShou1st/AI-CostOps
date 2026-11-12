@@ -14,8 +14,11 @@ import com.aicostops.shared.web.PageResponse;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,10 +44,14 @@ public class RoutingPolicyService {
     public PageResponse<RoutingPolicyDtos.PolicyResponse> list(AuthenticatedUser user, PageRequest page) {
         var context = authorizationContexts.current(user);
         authorization.requireOrg(context, "PROVIDER_ACCOUNT_READ");
-        var rows = mapper.findPage(context.organizationId(),
+        long organizationId = context.organizationId();
+        var rows = mapper.findPage(organizationId,
                 Math.multiplyExact((long) page.page(), page.size()), page.size());
-        return PageResponse.of(rows.stream().map(row -> load(context.organizationId(), row)).map(RoutingPolicyDtos.PolicyResponse::from).toList(),
-                page, mapper.count(context.organizationId()));
+        var candidatesByPolicy = candidatesByPolicy(organizationId, rows);
+        return PageResponse.of(rows.stream()
+                .map(row -> RoutingPolicyDtos.PolicyResponse.from(
+                        policy(row, candidatesByPolicy.getOrDefault(row.id(), List.of()))))
+                .toList(), page, mapper.count(organizationId));
     }
 
     public RoutingPolicyDtos.PolicyResponse get(AuthenticatedUser user, long policyId) {
@@ -211,6 +218,26 @@ public class RoutingPolicyService {
     private RoutingPolicy load(long organizationId, RoutingPolicyMapper.PolicyRow row) {
         return new RoutingPolicy(row.id(), row.organizationId(), row.projectId(), row.modelId(), row.version(),
                 RoutingPolicyStatus.valueOf(row.status()), mapper.findCandidates(row.id(), organizationId).stream()
+                        .map(c -> new RoutingPolicyCandidate(c.id(), c.providerAccountId(), c.providerModelId(),
+                                c.priority(), c.status(), c.privacyRegionCode())).toList());
+    }
+
+    private Map<Long, List<RoutingPolicyMapper.PolicyCandidateRow>> candidatesByPolicy(
+            long organizationId, List<RoutingPolicyMapper.PolicyRow> rows) {
+        if (rows.isEmpty()) {
+            return Map.of();
+        }
+        var policyIds = rows.stream().map(RoutingPolicyMapper.PolicyRow::id).toList();
+        return mapper.findCandidatesByPolicyIds(organizationId, policyIds).stream()
+                .collect(Collectors.groupingBy(
+                        RoutingPolicyMapper.PolicyCandidateRow::routingPolicyId,
+                        LinkedHashMap::new, Collectors.toList()));
+    }
+
+    private RoutingPolicy policy(RoutingPolicyMapper.PolicyRow row,
+            List<RoutingPolicyMapper.PolicyCandidateRow> candidates) {
+        return new RoutingPolicy(row.id(), row.organizationId(), row.projectId(), row.modelId(), row.version(),
+                RoutingPolicyStatus.valueOf(row.status()), candidates.stream()
                         .map(c -> new RoutingPolicyCandidate(c.id(), c.providerAccountId(), c.providerModelId(),
                                 c.priority(), c.status(), c.privacyRegionCode())).toList());
     }
