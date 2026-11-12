@@ -10,10 +10,14 @@
 
 ### Added
 - 运行期专项验收报告（`docs/03-acceptance/maintenance/2026-11/2026-11-13-runtime-verification.md`）：HC-01 Redis 归属生命周期、Edge UTC 展示与证据下载、对账僵尸 `RUNNING` 回收 PASS；保留修复前 `prod` 构造器装配失败与微小费率 `1E-8` / `—` 的 FAIL 证据，并记录修复后复核。
+- HC-01 quick 冒烟验收（`docs/03-acceptance/maintenance/2026-11/2026-11-12-hc-01-quick-smoke.md`）：`dev=046c4f3` 上 13 个场景 0 失败；SSRF opt-in、Redis owner label、8 组织 2153 条 FINAL 1:1 Settlement/Ledger 收敛、20 个预算 0 超支；Docker VM 1.86 GiB，耗时约 4 分 26 秒。
 
 ### Fixed
 - `prod` profile 无法启动：为 `ProductionConfigurationValidator(Environment)` 显式加 `@Autowired`，真实 prod 配置 8/8 case PASS（1-5/8 正确 fail-fast，6/7 启动并保持运行）。
 - 微小定价费率：新增 `Scale8DecimalSerializer`，`PricingRateResponse.unitPrice` 以 `setScale(8).toPlainString()` 输出；`0.00000001` 在 API 与 Edge 页面均精确显示，新增 serializer 与集成回归测试。
+
+### Changed
+- 定价输入契约：`PricingRateInput.unitPrice` 的 OpenAPI schema 改为 `oneOf`（JSON number / 最多 8 位小数的非负 decimal string），响应仍固定为 scale-8 string；前端 `PricingRateInput` 类型与注释同步，继续以 decimal string 发送；新增 OpenAPI 契约测试与 string 输入集成用例。
 
 ## [3.1.1] - 2026-11-12
 
