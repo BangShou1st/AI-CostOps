@@ -1,6 +1,6 @@
 # AI CostOps 文档导航
 
-当前稳定版本：`v3.0.0`，开发已完成，进入维护阶段。V1/V2 的设计、计划和验收记录保留为历史证据；不能把其中的阶段状态解释为当前待办。当前状态以根 [README](../README.md) 和 [PROJECT_CONTEXT](../PROJECT_CONTEXT.md) 为入口。
+当前稳定版本：`v3.1.1`，开发已完成，进入维护阶段。V1/V2 的设计、计划和验收记录保留为历史证据；不能把其中的阶段状态解释为当前待办。当前状态以根 [README](../README.md) 和 [PROJECT_CONTEXT](../PROJECT_CONTEXT.md) 为入口。
 
 第一次阅读建议先看 [项目阅读指南](project-reading-guide.md)，沿一个具体业务找到页面、接口、服务、SQL 和测试。
 

@@ -8,7 +8,13 @@
 
 ## [Unreleased]
 
-`main` 上的稳定版本仍为 `v3.0.0`；以下条目为 `main...dev` 上尚未合并或发布的维护变更摘要。
+暂无未发布变更。
+
+## [3.1.1] - 2026-11-12
+
+`main` 稳定标签为 `v3.1.1`；本版本汇总 2026-11-12 深度审查后的全部 32 项维护修复（4 P1 + 22 P2 + 6 P3），
+包含安全加固、CI 门禁、Gateway/后端修复、前端契约与展示、OpenAPI 补齐。定价费率响应 number→string、
+技术时间统一 UTC、`CACHED_INPUT_TOKEN` 定价创建 400 等契约/展示变化见下方 `Fixed` 条目。
 
 ### Added
 - 剩余 P2/P3 决策项落地记录（批次 C，`docs/03-acceptance/maintenance/2026-11/2026-11-12-remaining-p2-p3-decisions.md`）：P2-01 调度隔离、P2-02 本地性解析与明文 endpoint、P2-06 dummy bcrypt、P2-07 observed 基线、P2-08 Workbench 同基、P2-12 费率字符串、P2-16 UTC 显示、P2-17 OpenAPI 补齐、P2-18 SSRF 默认开启、P2-21 账期客户端合并、P2-22 下载 revoke、P3-01 CACHED 拦截；含逐项 before/after、红/绿证据、`NOT_VERIFIED` 与影响边界
