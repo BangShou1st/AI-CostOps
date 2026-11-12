@@ -321,3 +321,27 @@ $ npm run verify:links
 P1-02 / P1-03 的远程证据由此补齐；branch protection 仍待仓库设置确认。
 
 **未处置**：本批仅处理上述 6 项；其余 20 项 P2 与 6 项 P3 保持原状，等待后续独立维护窗口。
+
+---
+
+## 10. 处置记录（第二批：批次 A 低风险清理，2026-11-12 追加）
+
+> 本节只追加处置结果，不改写上方原始发现、证据与结论。逐项 before/after、红/绿输出、`NOT_VERIFIED`
+> 与影响边界见 [2026-11-12 剩余 P2/P3 低风险清理（批次 A）](2026-11-12-remaining-p2-p3-cleanup.md)。
+
+| 发现 | 处置 | 证据摘要 |
+|---|---|---|
+| P2-03 dev overlay 暴露 MySQL/Redis/MinIO | **FIXED** | 四个端口补 `127.0.0.1:`；`docker compose config` 解析为 `127.0.0.1:3307/6379/9000/9001` |
+| P2-04 hc01 无归属删除固定名 Redis | **FIXED**（逻辑）/ `NOT_VERIFIED`（真实容器生命周期） | 复用 HC-03 决策并加 hc01 label；无 label / 他人 owner / 仅 HC-03 label 均拒绝；新增 6 个纯函数用例，脚本套件 54/54 |
+| P2-05 CodeQL 不分析 `scripts/` | **FIXED**（配置）/ `NOT_VERIFIED`（远程扫描） | `paths` 追加 `scripts`；实际分析待 PR Security workflow |
+| P2-19 前端依赖声明不完整/冗余 | **FIXED** | 声明 `dayjs@1.11.21`、删除 `echarts`；干净 `npm ci` 296 包成功，`echarts`/`tslib` 不存在 |
+| P3-02 `percentOf` 正则笔误 | **FIXED** | `/^0+(?=\\d)/` → `/^0+(?=\d)/`；当前无可观测行为差异，无法提供黑盒红/绿 |
+| P3-05 分摊编辑器 render 期解析无兜底 | **FIXED** | 旧实现 `1 failed / 18 passed`（render 抛 `Not an exact scale-8 money string`），新实现 `19 passed`；非法金额显示“金额格式异常” |
+| P3-06 `AppPage` 死代码与 `WORKBENCH_SECTION` | **FIXED** | 删除 `AppPage`；`readPermission` 改可选、工作台走真实谓词；新增导航权限目录一致性测试（先红：`WORKBENCH_SECTION` 不在 Flyway 种子） |
+
+**报告更正**：本批未发现审查报告与代码的事实冲突，无需更正。补充两点行号/上下文说明：
+P3-06 的 `AuthPages.tsx:47-50` 在 P1-04 修复后位移到 48-52，属正常行漂移；`useAuth` 同时被
+`LoginPage` 使用，因此删除 `AppPage` 时保留该导入（审查报告未声称相反）。
+
+**未处置**：本批只做上述 7 项。P2-01/02/06/07/08/10/11/12/13/14/15/16/17/18/21/22 与
+P3-01/03/04 保持原状，留待批次 B/C。
