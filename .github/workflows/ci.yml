@@ -36,6 +36,12 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # On push, the default base is the repository default branch (main), so
+          # every dev push would compare against main and run the full suite even
+          # for a docs-only commit. Pinning the base to the pushed ref makes a
+          # long-lived branch compare against its previous commit; pull_request
+          # events ignore this input and use the PR base/head diff instead.
+          base: ${{ github.ref }}
           filters: |
             backend:
               - 'backend/**'
