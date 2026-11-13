@@ -1,6 +1,6 @@
 # M11 Gateway Edge — Local Development Runbook
 
-> 本文记录经过实际运行的 M11 Gateway 本地开发/验收步骤。M10 frozen design 是行为权威,本 runbook 只提供命令与流程;`docs/02-development/v2-detailed-design/` 与 `docs/02-development/api/gateway-openapi.yaml` 优先。
+> 本文记录经过实际运行的 M11 Gateway 本地开发/验收步骤。M10 frozen design 是行为权威,本 runbook 只提供命令与流程;`docs/02-development/designs/v2/` 与 `docs/02-development/api/gateway-openapi.yaml` 优先。
 
 ## 1. 前置条件
 

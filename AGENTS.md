@@ -10,7 +10,7 @@ AI CostOps 是面向研发团队的 **AI 成本治理（FinOps for AI）** 平�
 
 - **仓库**：`E:\project\AI-CostOps`
 - **远程**：`https://github.com/BangShou1st/AI-CostOps.git`
-- **当前阶段**：`FINAL_PRODUCT_VERSION = V3` / `STABLE_RELEASE = v3.0.0` / `Feature development = CLOSED` / `Operational mode = MAINTENANCE_ONLY` / `V4 = NOT_PLANNED`
+- **当前阶段**：`FINAL_PRODUCT_VERSION = V3` / `STABLE_RELEASE = v3.1.2` / `Feature development = CLOSED` / `Operational mode = MAINTENANCE_ONLY` / `V4 = NOT_PLANNED`
 - **许可**：专有，内部使用
 
 ### 当前阶段最重要的一条约束
@@ -26,7 +26,7 @@ AI CostOps 是面向研发团队的 **AI 成本治理（FinOps for AI）** 平�
 ```text
 AI-CostOps/
 ├── backend/      Java 21 · Spring Boot 4.1 · Spring MVC · 控制面（Financial Truth Owner）
-│   └── src/main/java/com/aicostops/    22 个业务模块 + shared
+│   └── src/main/java/com/aicostops/    22 个顶层包（20 个业务模块 + config / shared）
 ├── gateway/      Java 21 · Spring Boot 4.1 · Spring WebFlux · 数据面（请求事实写入方）
 ├── frontend/     React 19 · TypeScript 6 · Vite 8 · Ant Design 6 · TanStack Query 5
 ├── scripts/      Node ESM 任务编排器（零依赖、跨平台）→ 根 package.json 的唯一入口
@@ -260,7 +260,7 @@ chore(ci): add backend workflow
 |---|---|---|
 | `docs/01-blueprint/` | **顶层蓝图**：长期不变的领域模型、业务规则、全局架构、ADR（当前保持高标准，不随意增删） | `architecture/`（含 `adr/`）、`domain/`、`product/`、`research/` |
 | `docs/02-development/` | **开发与设计**：指导实际代码编写、接口对接、源码研读 | - `api/`：统一收录所有 OpenAPI 契约（`openapi.yaml`, `gateway-openapi.yaml`, `m18-v3-openapi.yaml`）与 DTO 约定<br/>- `designs/`：详细设计（`designs/v1/`, `designs/v2/`, `designs/maintenance/`）<br/>- `guides/`：模块源码精读与 Walkthrough（如报销样板、Advisor 模块）<br/>- `implementation/`：实施路线与本地开发手册 |
-| `docs/03-acceptance/` | **验收与测试证据**：证明“做完且正确”的权威凭据 | - `checklists/`：PR 验收清单、Milestone 证据矩阵<br/>- `milestones/`：M0~M22 正式里程碑封存证据、AIC-073/083 验收报告<br/>- `maintenance/`：维护期缺陷修复、安全加固与专项审查报告（按 `maintenance/YYYY-MM/` 分组）<br/>- `quality/`：质量度量与测试策略 |
+| `docs/03-acceptance/` | **验收与测试证据**：证明“做完且正确”的权威凭据 | - `checklists/`：PR 验收清单、Milestone 证据矩阵<br/>- `milestones/`：M0~M22 正式里程碑封存证据、AIC-073/083 验收报告<br/>- `maintenance/`：维护期缺陷修复、安全加固与专项审查报告（按 `maintenance/YYYY-MM/` 分组）<br/>- `quality/`：质量度量与测试策略<br/>- `implementation/`：V1 实现阶段证据与风险登记 |
 | `docs/04-operations/` | **生产与运维**：运行配置、监控告警、故障演练与 Runbook | - `runbooks/`：生产与自包含验证 Runbook（`v3-operational-runbook.md`）<br/>- `configs/`：生产配置与环境变量规格<br/>- `observability/`：Prometheus 指标、Grafana 仪表盘与告警<br/>- `disaster-recovery/`：备份恢复与 Provider 离线认证 |
 | `docs/superpowers/` | **历史规划归档**：M0~M18 历史 AI 工具生成的 plans 与 specs | 仅供演进溯源，日常维护请勿在此新增文件 |
 
@@ -290,7 +290,7 @@ chore(ci): add backend workflow
 ### 10.4 索引维护与死链检测铁律
 
 - **同步注册**：凡是在任一文档子目录新增文档，**必须**同步在其父目录的 `README.md` 索引列表中追加该文档的链接与简要说明。
-- **本地死链检测**：在提交代码或文档前，**必须执行 `npm run verify:links`**，确保全库 Markdown 相对路径引用 100% 有效（0 Broken Links）。
+- **本地死链检测**：在提交代码或文档前，**必须执行 `npm run verify:links`**，确保全仓 Markdown 相对路径与本地图片引用 100% 有效（0 Broken Links）。
 - **历史证据不可篡改**：已封存的历史里程碑结论（如 M0~M22 验收证据）属于审计资产，不得为迎合“当前状态最新”而擅自改写历史记录。
 - **变更记录登记**：功能修复与重大文档结构变更必须同步写入 `CHANGELOG.md` 的 `[Unreleased]` 小节。
 

@@ -1,6 +1,6 @@
 # AIC-087 — Budget Reservation, Commitment Binding & Redis Atomicity
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > Depends on AIC-084 ownership, AIC-085 Pricing/Credential context and AIC-086 request/idempotency state.
 
 ## 1. Core decision

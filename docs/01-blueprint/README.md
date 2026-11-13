@@ -57,3 +57,7 @@ POSTED Ledger Immutable
 Correction Append-only
 V1 不做 Gateway / MQ / Microservices
 ```
+
+> 上述“V1 不做 Gateway”是 V1 的历史边界；V2 起 Gateway 已作为独立数据面交付，
+> 现行运行边界见 [`PROJECT_CONTEXT.md`](../../PROJECT_CONTEXT.md) 与
+> [`docs/02-development/designs/v2/`](../02-development/designs/v2/)。

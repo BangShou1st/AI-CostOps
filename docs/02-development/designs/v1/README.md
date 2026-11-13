@@ -3,7 +3,7 @@
 > 版本：**1.1**
 > 日期：**2026-08-12**
 > 范围：**V1**
-> 状态：**一次性审查候选版**
+> 状态：**FROZEN / V1 DELIVERED（历史设计基线）**
 
 这组文档位于：
 
@@ -64,36 +64,28 @@ Approval DSL
 FOCUS Compliance
 ```
 
-## 阅读顺序
+## 文档索引与阅读顺序
 
-```text
-01 模块边界
-02 数据模型
-03 状态机
-04 事务 / 幂等 / 并发
-05 API 契约已独立升级到 `../api/`；开发接口时以 `../api/openapi.yaml` 为机器可读基线。
-06 权限矩阵
-07 Redis
-08 Provider Import
-09 React 信息架构
-10 Error / Observability
-11 Git Governance
-12 Implementation Readiness
-13 Repository Layout
-14 Repository Hygiene
-15 Configuration / Environment
-```
+| # | 文档 | 主题 |
+|---|---|---|
+| 01 | [模块边界](01-module-boundaries.md) | 模块职责与依赖方向 |
+| 02 | [数据模型](02-data-model.md) | 核心表与关系 |
+| 03 | [状态机](03-state-machines.md) | 业务状态与转换 |
+| 04 | [事务 / 幂等 / 并发](04-transactions-idempotency-concurrency.md) | 锁顺序、幂等键与并发边界 |
+| 05 | API 契约 | 已独立升级到 [`../../api/`](../../api/)；机器契约以 [`../../api/openapi.yaml`](../../api/openapi.yaml) 为准 |
+| 06 | [权限矩阵](06-permission-matrix.md) | 角色、权限与数据范围 |
+| 07 | [Redis 设计](07-redis-design.md) | Key、TTL、失败策略 |
+| 08 | [Provider Import](08-provider-import-design.md) | 导入契约与证据分类 |
+| 09 | [React 信息架构](09-frontend-information-architecture.md) | 页面与导航 |
+| 10 | [Error / Observability](10-error-model-observability.md) | 错误模型与可观测性 |
+| 11 | [Git Governance](11-git-collaboration-governance.md) | 分支与协作治理 |
+| 12 | [Implementation Readiness](12-implementation-readiness.md) | 开发启动门禁 |
+| 13 | [Repository Layout](13-repository-source-layout.md) | 仓库目录 |
+| 14 | [Repository Hygiene](14-repository-hygiene-gitignore.md) | .gitignore 与资产卫生 |
+| 15 | [Configuration / Environment](15-configuration-environments.md) | 配置与环境变量 |
 
-## 审查通过后
-
-```text
-Freeze Detailed Design 1.1
-→ 执行 Implementation Plan 1.0
-→ 创建 GitHub Issues
-→ 开发
-```
-
-除非实现发现真实矛盾，否则不再新增一轮“Detailed Design 2.0”。
+V1 已按此基线交付并冻结。本文档保留为历史设计基线：其中“审查通过后”的动作已经完成，
+不再作为当前待办；维护期变更以 `PROJECT_CONTEXT.md`、`AGENTS.md` 与维护记录为准。
 
 
 ## API 开发入口

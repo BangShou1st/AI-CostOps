@@ -1,5 +1,10 @@
 # 15. Git 双人协作架构
 
+> **历史说明（2026-11）**：本文件记录 V1 双人开发期的 Branch Model。
+> 维护期现行模型为 `main`（稳定发布）+ `dev`（维护集成）：修复先落 `dev`，
+> CI 与 Security 全绿后再同步 `main`。当前规则以 [`AGENTS.md`](../../../AGENTS.md)
+> §9 与 [`CONTRIBUTING.md`](../../../CONTRIBUTING.md) 为准。
+
 ## 1. 仓库模型
 
 AI CostOps 只使用**一个公共 GitHub 仓库**，两个人都是实际 Contributor。

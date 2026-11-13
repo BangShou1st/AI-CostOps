@@ -12,7 +12,7 @@
 | `lib/` | **日常（活跃）** | 任务运行器的进程管理、本地配置与隔离构建辅助函数 |
 | `ci/` | **日常（活跃）** | CI 专用纯函数选择器；目前为 `select-integration-tests.mjs`（Failsafe 集成测试枚举与分片），空枚举/空分片以非 0 退出 |
 | `tests/` | **日常（活跃）** | Node 内置测试，检查命令范围、失败传播、进程树清理及配置边界 |
-| `ops/` | 运维（活跃） | 备份/恢复演练。变更须同步 `docs/04-operations/v3-operational-runbook.md` |
+| `ops/` | 运维（活跃） | 备份/恢复演练。变更须同步 `docs/04-operations/runbooks/v3-operational-runbook.md` |
 | `perf/` | 性能（活跃） | 可重复执行的容量与并发正确性 harness。详见 [`perf/README.md`](perf/README.md)；不改变产品语义，结果必须绑定 SHA 与资源 |
 | `m16/`, `m21/` | **里程碑（冻结）** | 历史验收脚本，与 `docs/03-acceptance/` 证据矩阵一一对应，**只读保留，不得改名或移动**（文档引用路径已冻结） |
 | 根级 `*-smoke*.ps1`、`m16-*.ps1` | **里程碑（冻结）** | 同上；不再新增此类命名 |
@@ -43,7 +43,7 @@ Windows 子进程使用隐藏窗口并保持非 detached 启动，避免为任�
 
 `setup/dev/build/test/verify/infra:*` 支持 `--dry-run`：例如 `npm run dev -- --dry-run`。它只输出命令计划，不启动进程、不创建 POM 或 `.env`。`doctor/status` 是实际只读检查。
 
-OpenCode Zen `v1.4.2` 和 Kilo Gateway 均通过公开 JitPack 坐标解析，本地、CI 和默认 Docker Compose 构建无需 PAT 或 Maven settings。
+OpenCode Zen `v1.5.4` 和 Kilo Gateway 均通过公开 JitPack 坐标解析，本地、CI 和默认 Docker Compose 构建无需 PAT 或 Maven settings。
 
 ### 本地配置与运行方式
 
@@ -76,7 +76,7 @@ OpenCode Zen `v1.4.2` 和 Kilo Gateway 均通过公开 JitPack 坐标解析，�
 
 生命周期作业设置 `AICOSTOPS_TASK_TEST_ARTIFACT_DIR`，在该目录保留 `dev-lifecycle.log` 和 `infra-lifecycle.log`。日志只来自受控 HTTP/Redis 测试夹具，不采集真实应用配置。普通测试失败也会执行清理并写日志；强制中断或 runner 故障可能来不及生成完整报告。正常本地运行未设置该变量时不写日志。
 
-本轮本地跨平台证据见 `docs/03-acceptance/2026-10-11-script-ci-review.md`；GitHub 上的实际作业结果仍需在后续 PR 中确认。
+本轮本地跨平台证据见 `docs/03-acceptance/maintenance/2026-10/2026-10-11-script-ci-review.md`；GitHub 上的实际作业结果仍需在后续 PR 中确认。
 
 ## 新脚本约定
 

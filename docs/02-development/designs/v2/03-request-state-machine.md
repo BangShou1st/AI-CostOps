@@ -1,6 +1,6 @@
 # AIC-086 — Request Identity, Financial Scope, Idempotency & State Machine
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > Depends on AIC-084 runtime ownership and AIC-085 credential/catalog/pricing contracts.
 
 ## 1. Purpose

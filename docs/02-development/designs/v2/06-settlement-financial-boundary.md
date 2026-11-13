@@ -1,6 +1,6 @@
 # AIC-089 — Settlement, Ledger Integration & Period-Close Boundary
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > Depends on AIC-087 reservation and AIC-088 FINAL usage facts.
 
 ## 1. Purpose

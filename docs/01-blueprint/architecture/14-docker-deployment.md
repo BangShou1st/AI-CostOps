@@ -1,5 +1,8 @@
 # 14. Docker / Compose 部署设计
 
+> **历史说明**：本文件描述 V1 的 Compose 部署基线。V2 起新增 Gateway 数据面；
+> 当前 V3 自包含运维编排见 [`docs/04-operations/runbooks/v3-operational-runbook.md`](../../04-operations/runbooks/v3-operational-runbook.md)。
+
 ## 1. 目标
 
 完整 V1：

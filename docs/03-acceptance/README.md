@@ -8,20 +8,22 @@
 
 ```text
 FINAL_PRODUCT_VERSION = V3
-STABLE_RELEASE = v3.0.0
+STABLE_RELEASE = v3.1.2
 Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
 V4 = NOT_PLANNED
 M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
-M22 = M22_CLOSED_WITH_DEFERRED_NON_BLOCKING_GATES
+M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
 M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
+DEEP_CODE_REVIEW = COMPLETE (2026-11-12, 32 findings disposed by v3.1.1)
+RUNTIME_VERIFICATION = COMPLETE (2026-11-13, 2 defects fixed by v3.1.2)
 Known release-blocking defects = NONE
 ```
 
 M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`。其中 independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](maintenance/2026-10/2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [M22 v3 production certification](milestones/m22-v3-production-certification.md) 保留其原时间点结论，未改写。其他里程碑见 [M20](milestones/m20-v3-production-acceptance.md) 与 [M21](milestones/m21-v3-post-release-operational-readiness.md)。下方 V1 / V1.1 条目是历史验收证据。
 
-## 最新 dev 维护验收（2026-10-18 / 2026-10-19）
+## 2026-10 维护验收
 
 以下记录基于 `dev @ c5142089bb764a0c878e8761af01854b08045068` 及其近期维护提交，均为已在 `dev` 存在的维护与验收成果：
 
@@ -36,6 +38,7 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 
 ## 2026-11 维护验收
 
+- **全仓库文档维护（2026-11-13）**：版本/发布日期口径、Redis 8.8 技术事实、目录与历史路径、文档索引、发布基线与链接校验器一次性对齐；`verify:links` 扩展为全仓 Markdown + 本地图片检查；无代码、Schema 或财务语义变更：[文档维护记录](maintenance/2026-11/2026-11-13-documentation-maintenance.md)
 - **核心业务真实性与产品一致性总报告**：链路 A/B 验收汇总、产品一致性审查（占位实现 / 前后端状态 / README 证据核查）、前端文案改造与截图验收、死代码清理与提交清单，总体 PASS：[核心业务真实性与产品一致性验收](maintenance/2026-11/2026-11-10-core-business-consistency-acceptance.md)
 - 业务链路 B（外部账单归集与财务对账）端到端真实性验收：file_hash / 记录指纹 / posting_key 三层幂等、Worker 租约与崩溃恢复、POSTED Ledger 不可变与 Correction 语义、8 项 CloseBlocker 与 CLOSED 账期写栅栏、对账溯源与前端契约层一致性，8/8 检查点 PASS：[账单归集与财务对账链路端到端验收](maintenance/2026-11/2026-11-10-billing-chain-e2e-acceptance.md)
 - 业务链路 A（AI Gateway 实时成本治理）8 检查点端到端真实性验收：预算预占 / 并发 / 中断恢复 / 未知用量 / 幂等 / 故障注入 / Redis 降级 / 工作台追溯，156 个定向复跑用例全绿（真实 MySQL 8.4 + Redis Testcontainers，模拟上游）：[Gateway 链路 E2E 验收](maintenance/2026-11/2026-11-10-gateway-chain-e2e-acceptance.md)
@@ -48,7 +51,7 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 - **HC-03 Gateway 双实例故障接管、依赖中断与财务恢复（Issue #180）**：独占 MySQL 8.4 / Redis 容器 + 两个独立 Gateway JVM + Backend 结算 Worker；真实注入 Redis 停服/黑洞、MySQL 停机、Gateway `taskkill /F`（确定未派发窗口 / TX2 后窗口）、A 崩溃 B 接管、结算事务中断与数据库暂断、真实 HTTP Close 并发。逐次记录注入/发现/恢复/健康时间与请求结果，验证预算不超扣、同键不双派发、UNKNOWN/INCOMPLETE 不伪造 FINAL、PENDING_HOLD 不误释放、FINAL→Settlement→Ledger 1:1、Close blocker 看见已提交派发事实。详见 [HC-03 验收](maintenance/2026-11/2026-11-11-hc-03-failure-recovery/summary.md)、[运行说明](maintenance/2026-11/2026-11-11-hc-03-failure-recovery/runbook.md) 与 [故障矩阵](maintenance/2026-11/2026-11-11-hc-03-failure-recovery/fault-matrix.md)；PR #181 审查后的 Trivy/CI 恢复与 harness 资源所有权加固见 [review follow-up](maintenance/2026-11/2026-11-11-hc-03-failure-recovery/review-followup.md)。
 - **HC-02 账期热点锁竞争最小优化（Issue #178）**：先只读审计 TX1/TX2/Close/Settlement 锁图，证明账期 X 锁同时承担“RR 读视图串行化”的隐性正确性职责；随后 TX1/TX2 改共享账期锁 + `READ COMMITTED` 当前读，usage finalization 的 `lockLineage` 收敛为 `FOR UPDATE OF gr, ra`（不锁共享 `pricing_version` 行），预算行 X/Close X/财务语义/全部表与索引不变。A/B 8 个场景 3 轮：RPS +14%～+206%、P95 −22%～−70%，账期锁等待 254.8 ms→1.96 ms，财务不变量 0 违例、结算完全收敛。详见 [HC-02 验收](maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/2026-11-11-hc-02-billing-period-lock.md)、[锁审计](maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/lock-boundary-audit.md) 与 [A/B 对比](maintenance/2026-11/2026-11-11-hc-02-billing-period-lock/comparison.md)。
 - **深度代码审查（`75f02ea`，2026-11-12）**：只读精读约 70 个文件 / 约 1.1 万行（Gateway 请求/预占/派发/计量/结算/恢复、Backend 结算/账本/预算/关账/配置校验、前端金额与认证层、CI 与 compose）；复核 F-01~F-09 全部成立，本地 1516 个单测/架构/前端用例全绿、文档 0 死链；记录 4 项 P1（生产默认密钥校验、CI 集成测试可空、CI 门禁可被 skipped 绕过、登出失败不清会话）+ 22 项 P2 + 6 项 P3，本次**未改任何代码**：[深度代码审查记录](maintenance/2026-11/2026-11-12-deep-code-review.md)。
-- **P1 外围防线加固与 P2 口径修复（2026-11-12）**：生产配置校验器拒绝仓库公开的默认 JWT / 对象存储凭据；CI 集成测试选择抽出脚本并对空枚举/空分片非 0 退出（当前 199 个 `*IntegrationTest.java`，分片 100/99）；`ci-status` 对无理由 skipped 判红并新增 `CODEOWNERS`（branch protection / ruleset 仍 `NOT_VERIFIED`）；登出失败也清理本地会话；Gateway 流式成功补记 `COMPLETED`、`SAFE_RELEASED_TERMINAL` 不再落 `UNKNOWN`；三处列表改按数值 id 倒序。逐项 before/after、验证输出与 `NOT_VERIFIED` 见 [P1 加固修复记录](maintenance/2026-11/2026-11-12-p1-hardening-fixes.md)。
+- **P1 外围防线加固与 P2 口径修复（2026-11-12）**：生产配置校验器拒绝仓库公开的默认 JWT / 对象存储凭据；CI 集成测试选择抽出脚本并对空枚举/空分片非 0 退出（当时 199 个 `*IntegrationTest.java`，现为 201 个，分片 101/100）；`ci-status` 对无理由 skipped 判红并新增 `CODEOWNERS`（branch protection / ruleset 仍 `NOT_VERIFIED`）；登出失败也清理本地会话；Gateway 流式成功补记 `COMPLETED`、`SAFE_RELEASED_TERMINAL` 不再落 `UNKNOWN`；三处列表改按数值 id 倒序。逐项 before/after、验证输出与 `NOT_VERIFIED` 见 [P1 加固修复记录](maintenance/2026-11/2026-11-12-p1-hardening-fixes.md)。
 - **CI push 比较基准与前端测试定时器清理（2026-11-12）**：`dorny/paths-filter` 显式 `base: ${{ github.ref }}`，dev push 不再相对 main 全量运行；Vitest 全局 `afterEach` 增加 20ms 收敛窗口，修复 antd `useDelayState` 定时器在 jsdom teardown 后触发导致的 `frontend-test` 未处理错误：[CI 比较基准与测试 teardown](maintenance/2026-11/2026-11-12-ci-push-base-and-frontend-timer-teardown.md)。
 - **剩余 P2/P3 低风险清理（批次 A，2026-11-12）**：dev Compose 的 MySQL/Redis/MinIO 端口收敛到 `127.0.0.1`；HC-01 Redis 容器删除前校验 owner label（无 label / 他人 owner 拒绝并给出人工命令）；CodeQL 覆盖 `scripts/`；前端显式声明 `dayjs` 并移除零引用 `echarts`；修复 `percentOf` 正则笔误；分摊编辑器非法金额降级为字段级“金额格式异常”；删除 `AppPage` 死代码与 `WORKBENCH_SECTION` 幽灵权限码，并新增导航权限目录一致性测试：[剩余 P2/P3 低风险清理](maintenance/2026-11/2026-11-12-remaining-p2-p3-cleanup.md)。
 - **剩余 P2/P3 后端修复（批次 B，2026-11-12）**：Gateway 抽公共授权前置段并把 `authorizeAndFence` 显式标注为仅测试入口；成功终结的 `TRANSPORT_COMPLETED` 谓词接受 `DISPATCH_INTENT`，消除 0 行更新回滚；定价创建重复维度返回 400、organization 行锁串行化版本分配、唯一键冲突返回 409；路由策略列表用一次批量查询消除 N+1；对账僵尸 `RUNNING` run 由启动 + 定时扫描收敛为 `FAILED` 并写审计；删除 `EXPENSE_RESUBMIT` 与 `InitialCandidateResult.skipped()` 死代码：[剩余 P2/P3 后端修复](maintenance/2026-11/2026-11-12-remaining-p2-p3-backend.md)。
@@ -65,7 +68,7 @@ M9 总入口：[`milestones/m9-acceptance-matrix.md`](milestones/m9-acceptance-m
 | 子目录 | 内容与职责 |
 |---|---|
 | [`checklists/`](checklists/) | 验收基准清单：[01-PR验收清单](checklists/01-PR验收清单.md)、[02-Milestone验收证据矩阵](checklists/02-Milestone验收证据矩阵.md) |
-| [`milestones/`](milestones/) | 历史正式里程碑与版本封存证据：M9 ~ M22 验收矩阵、AIC-073/083、V1 RC 报告等 |
+| [`milestones/`](milestones/README.md) | 历史正式里程碑与版本封存证据：M9 ~ M22 验收矩阵、AIC-073/083、V1 RC 报告等；完整索引见 [`milestones/README.md`](milestones/README.md) |
 | [`maintenance/`](maintenance/) | 维护期 Defect 修复、安全加固与专项审查报告（按 `YYYY-MM/` 归档） |
 | [`quality/`](quality/) | 质量控制与测试验证策略（`12-test-and-validation.md`） |
 | [`implementation/`](implementation/) | 历史实现阶段证据与风险登记表 |

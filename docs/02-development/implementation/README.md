@@ -2,14 +2,15 @@
 
 > 版本：**1.0**
 > 日期：**2026-08-12**
-> 状态：**一次性审查候选版**
+> 状态：**V1 历史实施计划（已完成，保留为实施基线）**
 > 前置：V1 Detailed Design 1.1
 
 这组文档把已经确认的架构设计转成**两个人可以直接开发的工程任务**。
 
-它是正式编码前最后一层计划。
+它是 V1 正式编码前的最后一层计划。V1 已发布，以下内容不再作为当前待办；
+维护期入口见 [`AGENTS.md`](../../../AGENTS.md) 与 [`PROJECT_CONTEXT.md`](../../../PROJECT_CONTEXT.md)。
 
-审查通过后：
+历史执行顺序（已完成）：
 
 ```text
 冻结设计
@@ -20,14 +21,20 @@
 
 ## 文档组成
 
-1. [开发启动门禁](00-development-start-gate.md)
-2. [Milestone 与依赖关系](01-milestones-dependency-graph.md)
-3. [完整 Issue Backlog](02-issue-backlog.md)
-4. [双人任务分配](03-two-person-work-allocation.md)
-5. [PR / CI / Release 流程](04-pr-ci-release-process.md)
-6. [本地开发与 Bootstrap Runbook](05-bootstrap-local-development-runbook.md)
-7. [V1 发布验收](../../03-acceptance/implementation/06-v1-release-acceptance.md)
-8. [风险清单与技术检查点](../../03-acceptance/implementation/07-risk-register.md)
+| 文档 | 用途 |
+|---|---|
+| [开发启动门禁](00-development-start-gate.md) | 开工前的设计、环境与范围检查 |
+| [Milestone 与依赖关系](01-milestones-dependency-graph.md) | M0 ~ M9 的实施顺序 |
+| [完整 Issue Backlog](02-issue-backlog.md) | AIC-001 ~ AIC-073 历史任务清单 |
+| [M9 Issue Backlog](03-m9-issue-backlog.md) | M9 生产基础收尾任务 |
+| [双人任务分配](03-two-person-work-allocation.md) | V1 双人协作分工 |
+| [PR / CI / Release 流程](04-pr-ci-release-process.md) | 历史发布流程；现行流程以 `CONTRIBUTING.md` 为准 |
+| [本地开发与 Bootstrap Runbook](05-bootstrap-local-development-runbook.md) | 本地环境与启动步骤 |
+| [Authentication 本地开发](06-authentication-local-development.md) | 登录、会话与本地邮箱 |
+| [M11 Gateway 本地 Runbook](06-m11-gateway-local-runbook.md) | Gateway 本地开发与验收 |
+| [M9 实施记录入口](README-M9.md) | M9 阶段文档导航 |
+| [V1 发布验收](../../03-acceptance/implementation/06-v1-release-acceptance.md) | V1 发布验收证据 |
+| [风险清单与技术检查点](../../03-acceptance/implementation/07-risk-register.md) | V1 风险登记 |
 
 ## AIC 编号
 

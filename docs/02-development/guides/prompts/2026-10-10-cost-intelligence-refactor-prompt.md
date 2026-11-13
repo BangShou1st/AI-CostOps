@@ -6,10 +6,10 @@
 
 请在 `E:\project\AI-CostOps` 实施成本分析模块的职责整理。默认中文沟通。先读适用 AGENTS.md、PROJECT_CONTEXT.md、当前源码，以及：
 
-- `docs/02-development/2026-10-10-cost-intelligence-refactor-design.md`
-- `docs/02-development/2026-10-10-directory-structure-review.md`
-- `docs/03-acceptance/m18-backend-contract-freeze.md`
-- `docs/03-acceptance/m18-openapi.yaml`
+- `docs/02-development/designs/maintenance/2026-10-10-cost-intelligence-refactor-design.md`
+- `docs/02-development/designs/maintenance/2026-10-10-directory-structure-review.md`
+- `docs/03-acceptance/milestones/m18-backend-contract-freeze.md`
+- `docs/02-development/api/m18-v3-openapi.yaml`
 
 按以下要求完成代码、验证和文档，然后停止。这是已有项目的行为保持重构，不是新项目搭建。
 
