@@ -56,7 +56,7 @@ v2.0.0 → 93e359687c2d0e81b096d7a73cc8e04e16a7ecbe
 v3.0.0 → 9c55125c1b857e3ccf301875d8886131a9d1d9b0
 v3.1.0 → 1fb5e74cff4b84081ff90a8717f8912b058aa793
 v3.1.1 → bef587775551e344aaffa26e80df533987c3cec3
-v3.1.2 → tag 指向合入本文件的 main 提交（精确 SHA 以 `git rev-parse v3.1.2` 为准）
+v3.1.2 → 5b01906d8dceea8363eb01f62d119441632b707d
 ```
 
 ## 已交付能力范围
