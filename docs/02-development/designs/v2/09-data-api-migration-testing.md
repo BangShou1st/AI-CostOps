@@ -1,6 +1,6 @@
 # AIC-092 — Data Model, Gateway API, Migration & Test Contract
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > Consolidates AIC-084 ~ AIC-091 into implementation-ready contracts.  
 > Baseline reviewed against `main@a144210c7110aa2b924b5ef5393686ba329537bd` and current V1 migrations through V17.
 

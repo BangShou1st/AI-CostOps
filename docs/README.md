@@ -1,6 +1,6 @@
 # AI CostOps 文档导航
 
-当前稳定版本：`v3.1.1`，开发已完成，进入维护阶段。V1/V2 的设计、计划和验收记录保留为历史证据；不能把其中的阶段状态解释为当前待办。当前状态以根 [README](../README.md) 和 [PROJECT_CONTEXT](../PROJECT_CONTEXT.md) 为入口。
+当前稳定版本：`v3.1.2`，开发已完成，进入维护阶段。V1/V2 的设计、计划和验收记录保留为历史证据；不能把其中的阶段状态解释为当前待办。当前状态以根 [README](../README.md) 和 [PROJECT_CONTEXT](../PROJECT_CONTEXT.md) 为入口。
 
 第一次阅读建议先看 [项目阅读指南](project-reading-guide.md)，沿一个具体业务找到页面、接口、服务、SQL 和测试。
 
@@ -32,6 +32,18 @@ docs/
 ├── 04-operations/
 └── superpowers/          # 历史设计规格与实施计划
 ```
+
+### 历史路径映射
+
+历史验收与归档文档保留其当时路径，不再逐份改写；阅读时按下表映射到现行位置：
+
+| 历史路径 | 现行位置 |
+|---|---|
+| `docs/02-development/v2-detailed-design/` | [`02-development/designs/v2/`](02-development/designs/v2/) |
+| `docs/02-development/operations/` | [`04-operations/configs/`](04-operations/configs/)、[`04-operations/observability/`](04-operations/observability/)、[`04-operations/disaster-recovery/`](04-operations/disaster-recovery/) |
+| `docs/03-acceptance/m10-design-freeze-matrix.md` | [`03-acceptance/milestones/m10-design-freeze-matrix.md`](03-acceptance/milestones/m10-design-freeze-matrix.md) |
+| `docs/03-acceptance/m18-openapi.yaml` | 已删除重复副本；现行契约见 [`02-development/api/m18-v3-openapi.yaml`](02-development/api/m18-v3-openapi.yaml) |
+| `docs/04-operations/v3-operational-runbook.md` | [`04-operations/runbooks/v3-operational-runbook.md`](04-operations/runbooks/v3-operational-runbook.md) |
 
 ## 什么时候看哪一类
 

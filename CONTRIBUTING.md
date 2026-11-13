@@ -4,12 +4,13 @@
 
 ```text
 GitHub Issue
-→ Branch
+→ Branch（维护期从 dev 检出）
 → Code + Tests
 → Pull Request
 → CI
 → Optional Review / Discussion
-→ Squash Merge
+→ Squash Merge → dev
+→ Release Sync Pull Request → main
 ```
 
 禁止直接在 `main` 开发。
@@ -17,10 +18,12 @@ GitHub Issue
 ## 2. 开始一个 Issue
 
 ```bash
-git switch main
-git pull --ff-only origin main
+git switch dev
+git pull --ff-only origin dev
 git switch -c <branch-name>
 ```
+
+维护期修复先落 `dev`；只有发布同步时，才由负责人将 `dev` 合入 `main`。
 
 Branch：
 
@@ -218,6 +221,12 @@ Review / 验收：
 
 ```text
 docs/03-acceptance/
+```
+
+文档与链接：
+
+```bash
+npm run verify:links
 ```
 
 AI 编码代理的项目上下文：

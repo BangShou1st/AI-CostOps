@@ -1,6 +1,6 @@
 # AIC-084 — V2 Scope & Runtime Boundary
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > This document freezes the runtime, durable-state and database-ownership boundary used by AIC-085 through AIC-092. It does not authorize production Gateway code before AIC-093.
 
 ## 1. Product boundary

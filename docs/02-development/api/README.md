@@ -26,10 +26,10 @@ Gateway Data Plane HTTP
 
 ```text
 V1 Control Plane
-→ detailed-design/
+→ ../designs/v1/
 
 V2 Gateway
-→ ../v2-detailed-design/
+→ ../designs/v2/
 ```
 
 如果 Markdown 示例与对应 OpenAPI 在字段、类型、Path、Method 上冲突：
@@ -52,7 +52,7 @@ V2 Gateway
 
 V3 引入的**成本智能、AI Advisor** 等能力面以 `m18-v3-openapi.yaml` 及对应模块 DTO 为权威契约；
 定价版本、路由策略、路由候选、服务身份与网关凭证已回填 `openapi.yaml`。
-在回填完成前，不要把它们当作 `openapi.yaml` 的缺失，也不要凭截图或猜测发明字段。
+后续新增端点仍按同一规则同步；不要凭截图或猜测发明字段。
 
 ---
 
@@ -65,8 +65,9 @@ api/openapi.yaml
 api/01-全局API约定.md
 api/02-接口矩阵.md
 api/03-DTO与Schema约定.md
+api/03-m2-evidence-import-api.md
 api/04-错误码幂等并发.md
-detailed-design/06-permission-matrix.md
+designs/v1/06-permission-matrix.md
 对应 V1/V1.1 模块 Detailed Design
 ```
 
@@ -96,10 +97,10 @@ Gateway endpoint / DTO / error / SSE 开发前必须同时阅读：
 
 ```text
 api/gateway-openapi.yaml
-../v2-detailed-design/README.md
-../v2-detailed-design/03-request-state-machine.md
-../v2-detailed-design/05-provider-streaming-metering.md
-../v2-detailed-design/09-data-api-migration-testing.md
+../designs/v2/README.md
+../designs/v2/03-request-state-machine.md
+../designs/v2/05-provider-streaming-metering.md
+../designs/v2/09-data-api-migration-testing.md
 ```
 
 Gateway 机器契约的范围是**明确的 OpenAI-compatible subset**，不是 Full OpenAI API conformance。
@@ -177,6 +178,7 @@ Control Plane：
 - `01-全局API约定.md`：ID、Money、时间、分页、认证、版本等。
 - `02-接口矩阵.md`：V1 Endpoint 的 Method / Permission / 幂等策略。
 - `03-DTO与Schema约定.md`：V1 核心 DTO 的字段与 JSON 约定。
+- `03-m2-evidence-import-api.md`：M2 Evidence / Import 接口与幂等约定。
 - `04-错误码幂等并发.md`：ProblemDetail、409、Idempotency、Version。
 - `05-前后端API协作规则.md`：前后端如何避免接口漂移。
 - `openapi.yaml`：Control Plane 机器可读接口基线（V1/V2 冻结面 + M11 定价/路由/服务身份/网关凭证）。
@@ -185,4 +187,4 @@ Control Plane：
 Gateway Data Plane：
 
 - `gateway-openapi.yaml`：Gateway 机器可读接口基线。
-- `../v2-detailed-design/`：Gateway 业务、财务、状态机、Streaming、Redis/MySQL、Migration 与 Test Source of Truth。
+- `../designs/v2/`：Gateway 业务、财务、状态机、Streaming、Redis/MySQL、Migration 与 Test Source of Truth。

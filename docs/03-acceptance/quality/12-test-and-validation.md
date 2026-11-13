@@ -1,5 +1,18 @@
 # 12. 测试与验证计划 — V0.2
 
+> **现行说明（2026-11）**：本文是 V0.2 时代的测试设计基线，场景与分层仍具参考价值；
+> 实际执行入口、CI 作业名与覆盖率以当前仓库为准：
+>
+> ```bash
+> npm run test:scripts
+> cd backend && ./mvnw -B -DexcludedGroups=architecture,integration test
+> cd backend && ./mvnw -B -Dgroups=architecture test
+> cd frontend && npm run lint && npm test -- --run && npm run build
+> npm run verify:links
+> ```
+>
+> 集成测试与 E2E 的完整矩阵见 [`AGENTS.md`](../../../AGENTS.md) §4 与 `.github/workflows/ci.yml`。
+
 ## 1. 目标
 
 项目是否“不是 Demo”由可复现证据决定：

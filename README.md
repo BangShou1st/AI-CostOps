@@ -14,9 +14,9 @@
   <img src="https://img.shields.io/badge/TypeScript-6-blue.svg?logo=typescript" alt="TypeScript 6" />
   <img src="https://img.shields.io/badge/Ant%20Design-6-0170FE.svg?logo=antdesign" alt="Ant Design 6" />
   <img src="https://img.shields.io/badge/MySQL-8.4-4479A1.svg?logo=mysql" alt="MySQL 8.4" />
-  <img src="https://img.shields.io/badge/Redis-7-red.svg?logo=redis" alt="Redis 7" />
+  <img src="https://img.shields.io/badge/Redis-8.8-red.svg?logo=redis" alt="Redis 8.8" />
   <img src="https://img.shields.io/badge/MinIO-RELEASE-C72C48.svg?logo=minio" alt="MinIO" />
-  <img src="https://img.shields.io/badge/Release-v3.1.1-blue.svg" alt="Release v3.1.1" />
+  <img src="https://img.shields.io/badge/Release-v3.1.2-blue.svg" alt="Release v3.1.2" />
   <img src="https://img.shields.io/badge/Status-MAINTENANCE__ONLY-orange.svg" alt="Status MAINTENANCE_ONLY" />
   <img src="https://img.shields.io/badge/License-Proprietary-lightgrey.svg" alt="License" />
 </p>
@@ -216,7 +216,7 @@ AI CostOps 采用 **模块化单体（Modular Monolith）** 结合 **双可部�
 │                                   Core Infrastructure & Storage                                  │
 │                                                                                                  │
 │       ┌────────────────────────┐   ┌────────────────────────┐   ┌────────────────────────┐       │
-│       │       MySQL 8.4        │   │        Redis 7         │   │         MinIO          │       │
+│       │       MySQL 8.4        │   │       Redis 8.8        │   │         MinIO          │       │
 │       │   (权威唯一财务真相)   │   │     (瞬态支撑与协调)   │   │     (非结构化证据链)   │       │
 │       │ 预算预占 · 账本 · 凭证 │   │ 限流 · 窗口配额 · 缓存 │   │ 原始账单 · 审计快照CSV │       │
 │       │ 结算事实 · 归属分摊规则│   │ 熔断状态 · 临时分布式锁│   │ 凭据证明 · 报销原始凭证│       │
@@ -276,7 +276,7 @@ sequenceDiagram
     autonumber
     actor Client as 客户端 / 研发应用 (Client)
     participant GW as AI Gateway (Data Plane)
-    participant Redis as Redis 7 (瞬态配额/限流)
+    participant Redis as Redis 8.8 (瞬态配额/限流)
     participant MySQL as MySQL 8.4 (权威财务真相)
     participant Provider as 外部 AI 供应商 (Provider)
     participant Worker as 结算引擎 (Settlement Worker)
@@ -331,21 +331,21 @@ sequenceDiagram
 | **后端运行环境** | OpenJDK | `21 (LTS)` | 虚拟线程支持、强封装、新语法特性与垃圾回收优化 |
 | **控制面框架** | Spring Boot | `4.1.0` | 控制面微内核、Spring MVC、Spring Security OAuth2 Resource Server |
 | **持久层** | Plain MyBatis | `3.5.x` | 拒绝黑盒 ORM，实现对 SQL 执行计划的 100% 绝对掌控，确保复杂财务核算与报表性能 |
-| **数据库版本迁移** | Flyway | `10.x` | 连续递增数据库迁移脚本（**V1–V32**，严禁篡改已发布的历史迁移） |
+| **数据库版本迁移** | Flyway | `12.x` | 连续递增数据库迁移脚本（**V1–V32**，严禁篡改已发布的历史迁移） |
 | **网关数据面框架** | Spring WebFlux | `4.1.0` | 基于 Reactor Netty 的响应式、非阻塞高并发流式代理架构 |
 | **网关弹性防护** | Resilience4j | `2.x` | 细粒度断路器、并发隔离、重试与动态降级保护 |
 | **主数据库** | MySQL | `8.4 (LTS)` | 存储关系型业务模型、权威不可变账本、结算批次与凭证 |
-| **缓存/协调中间件** | Redis | `7-alpine` | 网关 Token 桶滑动窗口限流、会话 TTL、熔断器易失状态维护 |
+| **缓存/协调中间件** | Redis | `8.8.1-alpine` | 网关 Token 桶滑动窗口限流、会话 TTL、熔断器易失状态维护 |
 | **对象存储** | MinIO | `RELEASE` | S3 兼容对象存储，承载原始账单 CSV/JSON 留存与财务凭证快照 |
 | **前端运行环境** | Node.js | `≥ 24.14.0` | 根任务编排器运行基座与现代化构建支撑 |
-| **前端框架** | React | `19.0.0` | Concurrent 渲染特性、现代化 Hooks 响应式开发 |
+| **前端框架** | React | `19.2` | Concurrent 渲染特性、现代化 Hooks 响应式开发 |
 | **类型系统** | TypeScript | `6.0` | 全栈严格类型安全，严禁隐式 `any`，契约与后端 DTO 强对齐 |
-| **构建工具** | Vite | `8.0` | 毫秒级热模块替换（HMR）、Rollup 生产打包优化 |
-| **UI 组件库** | Ant Design | `6.0` | 现代化企业级财务中后台交互组件库 |
-| **服务端状态管理** | TanStack Query | `5.x` | 服务端数据缓存、乐观更新、后台静默轮询与状态自愈 |
-| **集成测试框架** | Testcontainers | `1.20+` | 测试拉起真实 MySQL 8.4 + Redis 7 容器，杜绝 H2 内存方言伪环境 |
-| **架构守卫** | ArchUnit | `1.3+` | 自动化守护后端 22 个业务模块的依赖方向，禁止跨层越界调用 |
-| **端到端测试** | Playwright | `1.48+` | 跨浏览器无头自动化测试，覆盖双组织浏览器隔离与结算流程 |
+| **构建工具** | Vite | `8.2` | 毫秒级热模块替换（HMR）、Rollup 生产打包优化 |
+| **UI 组件库** | Ant Design | `6.6` | 现代化企业级财务中后台交互组件库 |
+| **服务端状态管理** | TanStack Query | `5.101` | 服务端数据缓存、乐观更新、后台静默轮询与状态自愈 |
+| **集成测试框架** | Testcontainers | `2.0` | 测试拉起真实 MySQL 8.4 + Redis 8.8 容器，杜绝 H2 内存方言伪环境 |
+| **架构守卫** | ArchUnit | `1.4.2` | 自动化守护后端 22 个顶层包的依赖方向，禁止跨层越界调用 |
+| **端到端测试** | Playwright | `1.62` | 跨浏览器无头自动化测试，覆盖双组织浏览器隔离与结算流程 |
 | **任务编排器** | Node ESM (`scripts/tasks.mjs`) | 原生 | **零外部依赖、跨平台**的任务编排器，提供一致的开发者日常体验 |
 
 ---
@@ -356,7 +356,7 @@ sequenceDiagram
 
 * **Node.js**: `≥ 24.14.0`
 * **JDK**: `≥ 21` (推荐 Eclipse Temurin 或 Microsoft OpenJDK 21)
-* **Docker Desktop / Docker Engine**: 运行本地 MySQL 8.4、Redis 7 与 MinIO 容器
+* **Docker Desktop / Docker Engine**: 运行本地 MySQL 8.4、Redis 8.8 与 MinIO 容器
 
 ---
 
@@ -385,7 +385,7 @@ AI CostOps 坚守 **“日常循环只容器化基础设施，三端本机原生
 # 1. 检查开发环境健康状态 (Node, Java, Docker, 端口占用)
 npm run doctor
 
-# 2. 一键启动基础设施容器 (MySQL 8.4, Redis 7, MinIO)
+# 2. 一键启动基础设施容器 (MySQL 8.4, Redis 8.8, MinIO)
 npm run infra:up
 
 # 3. 本机并发启动三端进程 (Backend + Gateway + Frontend)
@@ -404,7 +404,7 @@ npm run dev
 | **控制面 API (Backend)** | [http://localhost:8080](http://localhost:8080) | Spring MVC RESTful API 根路径 |
 | **数据面 API (Gateway)** | [http://localhost:8081](http://localhost:8081) | OpenAI-Compatible 代理入口 |
 | **主数据库 (MySQL 8.4)** | `localhost:3307` | 用户名/密码见 `.env` (`SPRING_DATASOURCE_URL`) |
-| **缓存服务 (Redis 7)** | `localhost:6379` | 端口与会话缓存 |
+| **缓存服务 (Redis 8.8)** | `localhost:6379` | 端口与会话缓存 |
 | **MinIO 对象存储 API** | `localhost:9000` | S3 API 接口端点 |
 | **MinIO 控制台** | [http://localhost:9001](http://localhost:9001) | 控制台登录见 `.env` 中 `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
 | **开发环境管理员账号** | - | 用户名：`admin@example.test`，密码：`change-me-local-only` |
@@ -513,11 +513,11 @@ AI-CostOps/
 
 | 模块 / 维度 | 主源文件数 | 代码规模 (LOC) | 测试文件数 | 测试代码 (LOC) | 质量保障方式 |
 |---|---|---|---|---|---|
-| **Backend 控制面** | `637` 个 Java | `47,945` 行 | `308` 个类 | `61,525` 行 | JUnit 5 + ArchUnit + Testcontainers |
-| **Gateway 数据面** | `97` 个 Java | `9,227` 行 | `61` 个类 | `9,229` 行 | WebFlux WebTestClient + Testcontainers |
-| **Frontend 前端** | `246` 个 TS/TSX | `24,082` 行 | `72` 个套件 | - | Vitest + React Testing Library + Playwright |
+| **Backend 控制面** | `640` 个 Java | `48,754` 行 | `319` 个类 | `63,320` 行 | JUnit 5 + ArchUnit + Testcontainers |
+| **Gateway 数据面** | `98` 个 Java | `9,761` 行 | `67` 个类 | `10,672` 行 | WebFlux WebTestClient + Testcontainers |
+| **Frontend 前端** | `177` 个 TS/TSX | `14,574` 行 | `73` 个套件 | `9,970` 行 | Vitest + React Testing Library + Playwright |
 | **Flyway 数据库迁移** | `32` 个 SQL | - | - | - | V1–V32 连续递增，严禁修改历史迁移 |
-| **全库自动化测试总计** | - | - | **`441` 个测试文件** | **`70,000+` 行** | 覆盖单测、架构守卫、集成测试与 E2E |
+| **全库自动化测试总计** | - | - | **`459` 个测试文件** | **`83,962` 行** | Backend + Gateway + Frontend；E2E / 脚本测试另计 |
 
 ---
 
@@ -531,11 +531,11 @@ AI-CostOps/
                     └───────────▲────────────┘
                                 │
                     ┌───────────┴────────────┐
-                    │  Testcontainers 集成测试 │  真实 MySQL 8.4 + Redis 7 容器环境
+                    │  Testcontainers 集成测试 │  真实 MySQL 8.4 + Redis 8.8 容器环境
                     └───────────▲────────────┘
                                 │
                     ┌───────────┴────────────┐
-                    │   ArchUnit 架构守卫测试 │  强制后端 22 模块依赖方向防跨界
+                    │   ArchUnit 架构守卫测试 │  强制后端 22 个顶层包依赖方向防跨界
                     └───────────▲────────────┘
                                 │
                     ┌───────────┴────────────┐
@@ -548,9 +548,9 @@ AI-CostOps/
 ```
 
 1. **单元测试 (Unit Tests)**：覆盖金额计算（`CanonicalDecimal` 绝对精度）、状态机扭转、MAD z-score 与阻尼 Holt 算法验证，脱离外部中间件，毫秒级执行。
-2. **架构约束测试 (ArchUnit)**：通过 `ModuleDependencyArchitectureTest` 守护后端 22 个模块的物理边界，跨模块必须通过 application 层接口调用，**严禁直接访问其他模块的 Repository 或 MyBatis Mapper**。
+2. **架构约束测试 (ArchUnit)**：通过 `ModuleDependencyArchitectureTest` 守护后端 22 个顶层包的物理边界，跨模块必须通过 application 层接口调用，**严禁直接访问其他模块的 Repository 或 MyBatis Mapper**。
 3. **真实环境集成测试 (Testcontainers)**：
-   * 所有集成测试统一在真实的 MySQL 8.4 与 Redis 7 容器中运行，**严禁使用 H2 或内存替代品**，杜绝方言差异与事务语义偏差。
+   * 所有集成测试统一在真实的 MySQL 8.4 与 Redis 8.8 容器中运行，**严禁使用 H2 或内存替代品**，杜绝方言差异与事务语义偏差。
    * **数据库清理铁律**：所有测试统一复用 `M2DatabaseCleaner.clean(jdbc)`，执行安全的子表先于父表（Child-before-Parent）清理。**严禁手写局部的 `DELETE FROM app_user`**，必须完整级联清理关联的 5 大外键子表：
      ```text
      user_credential        (fk_user_credential_user)
@@ -559,7 +559,7 @@ AI-CostOps/
      audit_event            (fk_audit_event_actor)
      cost_history_coverage  (fk_cost_coverage_actor)
      ```
-4. **前端交互与状态测试**：基于 Vitest 运行 70+ 个测试套件，全面覆盖凭据管理、预算设置、账单导入与报表展示交互。
+4. **前端交互与状态测试**：基于 Vitest 运行 73 个测试套件，全面覆盖凭据管理、预算设置、账单导入与报表展示交互。
 5. **跨浏览器端到端测试 (Playwright E2E)**：验证多组织边界下的浏览器会话隔离、模型目录可见性隔离与完整对账关账流程。
 6. **任务脚本自检**：运行 `npm run test:scripts`，对跨平台任务编排器 `scripts/tasks.mjs` 进行 100% 覆盖率的自动化回归。
 
@@ -569,24 +569,21 @@ AI-CostOps/
 
 每次向 `main` 或 `dev` 分支提交代码及创建 Pull Request 时，GitHub Actions 会并行触发两条严密的流水线：
 
-### 1. CI 流水线 (14 个并行作业)
+### 1. CI 流水线（按路径变更选择性执行）
 
 ```text
-CI Pipeline ─┬─ 1. scripts-unit-test            (Node 原生单元测试)
-             ├─ 2. scripts-integration-test     (Node 原生集成测试)
-             ├─ 3. backend-unit-architecture    (后端单测与 ArchUnit 架构守卫)
-             ├─ 4. backend-integration-verify   (Testcontainers 真实 MySQL/Redis 集成)
-             ├─ 5. gateway-unit-architecture    (网关单测与架构守卫)
-             ├─ 6. gateway-integration-verify   (网关流式代理集成测试)
-             ├─ 7. frontend-lint                (ESLint 代码静态分析)
-             ├─ 8. frontend-test                (Vitest 前端单元测试)
-             ├─ 9. frontend-build               (生产包构建优化验证)
-             ├─ 10. docker-build-backend        (后端 Docker 镜像构建)
-             ├─ 11. docker-build-gateway        (网关 Docker 镜像构建)
-             ├─ 12. docker-build-frontend       (前端 Nginx 镜像构建)
-             ├─ 13. playwright-e2e              (真实无头浏览器端到端验收)
-             └─ 14. ci-gate-summary             (全流程原子合并判定门禁)
+CI Pipeline ─┬─ detect-changes              (路径过滤与 docs-only 短路)
+             ├─ scripts-unit / scripts-lifecycle
+             ├─ backend-unit / backend-integration (shard 0/1)
+             ├─ gateway-unit / gateway-integration
+             ├─ frontend-quality (lint & build) / frontend-test
+             ├─ docker-build (Backend / Gateway / Frontend)
+             ├─ browser-e2e                (Playwright 真实浏览器验收)
+             └─ ci-status                  (必需检查汇总门禁)
 ```
+
+矩阵会按变更路径展开为多个 check；作业数量以 `.github/workflows/ci.yml` 为准，
+不再在文档中固化“14 个作业”这类会随矩阵变化的数字。
 
 ### 2. Security 流水线 (全面安全防护)
 
@@ -597,7 +594,7 @@ CI Pipeline ─┬─ 1. scripts-unit-test            (Node 原生单元测试)
   * 依赖漏洞达到 `HIGH` / `CRITICAL` 级别**直接阻断流水线**，不做无原则的忽略（Blanket Ignore）。
   * `.trivyignore` 严格维持白名单清空状态（`Accepted risks: NONE`）。
   * 仅 CodeQL 拥有 `security-events: write` 权限，工作流默认收紧至 `contents: read` 最小权限。
-  * 生产环境下，配置校验器（`CostOpsConfigValidator`）会自动拦截默认密钥、`localhost` 跨域来源以及任何开发引导开关。
+  * 生产环境下，配置校验器（`ProductionConfigurationValidator`）会自动拦截默认密钥、`localhost` 跨域来源以及任何开发引导开关。
 
 ---
 
@@ -647,7 +644,7 @@ AI CostOps 拥有从顶层蓝图到运维 Runbook 的完整分层文档体系：
 
 ```text
 FINAL_PRODUCT_VERSION = V3
-STABLE_RELEASE       = v3.1.1
+STABLE_RELEASE       = v3.1.2
 Feature development  = CLOSED
 Operational mode     = MAINTENANCE_ONLY
 V4                   = NOT_PLANNED
@@ -660,22 +657,23 @@ Known release-blocking defects = NONE
 
 | 版本 | 稳定发布 Commit | 里程碑关键交付物 |
 |---|---|---|
-| **`v1.0.0`** | `982d06a` | 多源账单归集、三层成本事实、不可变账本底座、多租户组织体系与基础报表 |
-| **`v1.0.1`** | `b96be61` | 生产稳定性加固、导入批次幂等优化、证据链哈希校验增强 |
-| **`v1.1.0`** | `102f287` | 混合对账引擎、账期关闭与重开审计、多级审批状态机 |
-| **`v2.0.0`** | `93e3596` | AI Gateway 实时数据面交付、毫秒级预算预占、实时流式计量与动态路由 |
-| **`v3.0.0`** | `9c55125` | 确定性成本智能（MAD z-score / 阻尼 Holt）、受控 AI 顾问、Provider Hub 与双组织浏览器隔离 |
-| **`v3.1.0`** | `1fb5e74` | 维护基线冻结：文档分类重组、资产治理规范与 CI 同步 |
+| **`v1.0.0`** | `982d06a` | V1 首个稳定版：IAM/组织、证据导入、标准成本事实、归属分摊、报销审批、预算/承诺、不可变账本、对账、关账与工作台 |
+| **`v1.0.1`** | `b96be61` | Import lease recovery 在 MySQL deadlock race 下的 bounded retry；不改变 API、Schema 或 V1 产品范围 |
+| **`v1.1.0`** | `102f287` | M9 生产基础收尾：备份恢复、可观测性、安全 CI、规模证据、MiMo Provider 认证与浏览器 E2E |
+| **`v2.0.0`** | `93e3596` | V2 Gateway 实时计量与路由：预算预占、流式计量、结算、多 Provider 路由与混合对账 |
+| **`v3.0.0`** | `9c55125` | V3 Provider Hub 与成本智能：MAD z-score、阻尼 Holt、受控 AI 顾问、Provider Hub 与 M22 关闭 |
+| **`v3.1.0`** | `1fb5e74` | 维护基线冻结：文档分类重组、资产治理规范、README 界面证据与 CI 同步 |
 | **`v3.1.1`** | `bef5877` | 2026-11-12 维护加固：32 项深度审查发现（安全、CI、Gateway/后端、前端契约与展示、OpenAPI 补齐） |
+| **`v3.1.2`** | `tag v3.1.2` | 2026-11-13 运行期修复（prod 启动、微小费率）与全仓库文档维护 |
 
 ### 分支与协作规范
 
 * **分支策略**：
-  * **`main`**：生产环境受保护分支，与当前稳定版本（`v3.1.1`）严格对齐。**严禁直接 Push 到 `main`**。
+  * **`main`**：生产环境受保护分支，与当前稳定版本（`v3.1.2`）严格对齐。**严禁直接 Push 到 `main`**。
   * **`dev`**：日常维护与缺陷修复的唯一集成分支。
   * **维护分支**：从 `dev` 检出短生命周期分支（前缀如 `fix/*`、`chore/*`、`docs/*`、`test/*`），验证完成后发起 Pull Request。
 * **合并准则**：
-  * PR 合入 `dev` 必须通过 GitHub Actions 全量 CI 矩阵（14 个作业全绿）及 Security 检查，经代码评审后通过 Squash Merge 合入。
+  * PR 合入 `dev` 必须通过 GitHub Actions 的全部必需检查及 Security 检查，经代码评审后通过 Squash Merge 合入。
   * 仅在授权发布新稳定版本时，由负责人将 `dev` 同步至 `main`。
 * **提交信息格式**：严格遵守 [Conventional Commits](https://www.conventionalcommits.org/) 规范（例如：`fix(budget): recover expired reservation lock`、`docs(api): update gateway spec`）。禁止使用含义模糊的提交描述。
 * 完整协作与贡献指南参见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

@@ -1,6 +1,6 @@
 # AIC-085 — Credential, Principal, Provider/Model Catalog & Pricing
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > Depends on AIC-084 runtime/table ownership.
 
 ## 1. Goals

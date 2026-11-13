@@ -60,7 +60,7 @@ Internet/client
 
 ```powershell
 # 单元测试（不依赖容器）
-Set-Location "E:\AI-CostOps\backend"
+Set-Location "E:\project\AI-CostOps\backend"
 .\mvnw.cmd -B "-Dtest=ProductionConfigurationValidatorTest" test
 
 # 正常本地开发启动不受影响：validator 仅在 prod profile 注册
@@ -83,8 +83,9 @@ AICOSTOPS_ALLOWED_ORIGINS=https://costops.example.com java -jar backend.jar
 ## 6. 证据
 
 - 测试 `backend/src/test/java/com/aicostops/config/ProductionConfigurationValidatorTest.java`
-  （32 用例）：blank/short/示例前缀 JWT、dev bootstrap、public registration、insecure cookie、
+  （33 用例）：blank/short/示例前缀 JWT、dev bootstrap、public registration、insecure cookie、
   file mailbox、loopback/any-local/十进制 IP/IPv4-mapped IPv6 存储 endpoint、公网 HTTP、
   内网明文 opt-in、示例存储凭据、weak DB password、逐项 allowed-origins（含
   `localhost.example.com` 不误杀）、显式安全值通过。
+- v3.1.2 运行期复核：真实 `prod` 配置 8/8 case PASS（1-5/8 正确 fail-fast，6/7 启动并保持运行）。
 - 完整后端回归在 AIC-083 最终验收重新执行。

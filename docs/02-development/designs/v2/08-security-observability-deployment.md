@@ -1,6 +1,6 @@
 # AIC-091 — Security, Privacy, Audit, Observability & Deployment
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > Extends the V1.1/M9 production-hardening baseline to the new Gateway Data Plane.
 
 ## 1. Security posture
