@@ -4,7 +4,7 @@
 
 ```text
 FINAL_PRODUCT_VERSION = V3
-STABLE_RELEASE = v3.0.0
+STABLE_RELEASE = v3.1.2
 Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
 V4 = NOT_PLANNED
@@ -29,8 +29,8 @@ docs/superpowers/specs/2026-08-27-v1-to-v2-production-gateway-design.md
 M10 冻结详细设计与验收：
 
 ```text
-docs/02-development/v2-detailed-design/README.md
-docs/03-acceptance/m10-design-freeze-matrix.md
+docs/02-development/designs/v2/README.md
+docs/03-acceptance/milestones/m10-design-freeze-matrix.md
 docs/02-development/api/gateway-openapi.yaml
 ```
 

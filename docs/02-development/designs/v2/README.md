@@ -1,8 +1,8 @@
 # V2 Detailed Design — M10 Source of Truth
 
 > Milestone: **M10 — V2 Detailed Design**  
-> Status: **DESIGN IN PROGRESS — AIC-093 FINAL FREEZE NOT YET LANDED ON MAIN**  
-> Runtime feature coding remains blocked until the M10 design PR is accepted/merged.
+> Status: **FROZEN / IMPLEMENTED（M10–M16；保留为 V2 设计基线）**
+> M10 设计冻结与后续 V2 实现均已完成；本文件不再是进行中的设计任务。
 
 ## 1. Authority order
 
@@ -130,16 +130,16 @@ The current repository runtime baseline stays Java 21 + Spring Boot 4.1.0 unless
 
 | Stable ID | Document | Status |
 |---|---|---|
-| AIC-084 | `01-scope-runtime-boundary.md` | FROZEN CANDIDATE |
-| AIC-085 | `02-credentials-catalog-pricing.md` | FROZEN CANDIDATE, subject to AIC-092/README supersessions above |
-| AIC-086 | `03-request-state-machine.md` | FROZEN CANDIDATE, subject to AIC-092/README supersessions above |
-| AIC-087 | `04-budget-redis-atomicity.md` | FROZEN CANDIDATE, subject to AIC-092/README supersessions above |
-| AIC-088 | `05-provider-streaming-metering.md` | FROZEN CANDIDATE, subject to AIC-092/README supersessions above |
-| AIC-089 | `06-settlement-financial-boundary.md` | FROZEN CANDIDATE, exact lock/schema/close rule in AIC-092/README |
-| AIC-090 | `07-routing-resilience.md` | FROZEN CANDIDATE, exact relation direction in AIC-092/README |
-| AIC-091 | `08-security-observability-deployment.md` | FROZEN CANDIDATE |
-| AIC-092 | `09-data-api-migration-testing.md` | FROZEN CANDIDATE — final consolidation |
-| AIC-093 | `../../03-acceptance/m10-design-freeze-matrix.md` | DESIGN FREEZE PASS ON BRANCH; merge gate still applies |
+| AIC-084 | `01-scope-runtime-boundary.md` | FROZEN |
+| AIC-085 | `02-credentials-catalog-pricing.md` | FROZEN, subject to AIC-092/README supersessions above |
+| AIC-086 | `03-request-state-machine.md` | FROZEN, subject to AIC-092/README supersessions above |
+| AIC-087 | `04-budget-redis-atomicity.md` | FROZEN, subject to AIC-092/README supersessions above |
+| AIC-088 | `05-provider-streaming-metering.md` | FROZEN, subject to AIC-092/README supersessions above |
+| AIC-089 | `06-settlement-financial-boundary.md` | FROZEN, exact lock/schema/close rule in AIC-092/README |
+| AIC-090 | `07-routing-resilience.md` | FROZEN, exact relation direction in AIC-092/README |
+| AIC-091 | `08-security-observability-deployment.md` | FROZEN |
+| AIC-092 | `09-data-api-migration-testing.md` | FROZEN — final consolidation |
+| AIC-093 | [`../../../03-acceptance/milestones/m10-design-freeze-matrix.md`](../../../03-acceptance/milestones/m10-design-freeze-matrix.md) | DESIGN FREEZE PASSED / V2 RELEASED |
 
 ---
 

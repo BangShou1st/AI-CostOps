@@ -5,7 +5,7 @@ info:
   description: |
     Machine-readable contract for the AI-CostOps V2 Data Plane.
     This is a deliberately bounded OpenAI Chat Completions compatibility subset.
-    Business/financial semantics are governed by docs/02-development/v2-detailed-design/.
+    Business/financial semantics are governed by docs/02-development/designs/v2/.
 servers:
   - url: /v1
     description: Gateway Data Plane base path

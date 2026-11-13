@@ -8,9 +8,18 @@
 
 ## [Unreleased]
 
+（暂无）
+
+## [3.1.2] - 2026-11-13
+
+`main` 稳定标签为 `v3.1.2`。本版本收口 2026-11-13 运行期专项验收发现的
+`prod` 启动与微小定价费率两项真实缺陷，并完成一次全仓库文档维护。
+
 ### Added
 - 运行期专项验收报告（`docs/03-acceptance/maintenance/2026-11/2026-11-13-runtime-verification.md`）：HC-01 Redis 归属生命周期、Edge UTC 展示与证据下载、对账僵尸 `RUNNING` 回收 PASS；保留修复前 `prod` 构造器装配失败与微小费率 `1E-8` / `—` 的 FAIL 证据，并记录修复后复核。
 - HC-01 quick 冒烟验收（`docs/03-acceptance/maintenance/2026-11/2026-11-12-hc-01-quick-smoke.md`）：`dev=046c4f3` 上 13 个场景 0 失败；SSRF opt-in、Redis owner label、8 组织 2153 条 FINAL 1:1 Settlement/Ledger 收敛、20 个预算 0 超支；Docker VM 1.86 GiB，耗时约 4 分 26 秒。
+- 全仓库文档维护记录（`docs/03-acceptance/maintenance/2026-11/2026-11-13-documentation-maintenance.md`）：版本/发布口径、Redis 8.8 技术事实、目录与历史路径、代码规模、CI 说明、文档索引与发布基线一次性对齐。
+- 文档索引：新增 `docs/02-development/designs/README.md` 与 `docs/03-acceptance/milestones/README.md`；补齐 API、V1 详细设计、implementation 目录的缺失条目。
 
 ### Fixed
 - CI：`detect-changes` 新增 `changed` 输出，空树合并提交不再因“没有命中任何已登记路径”被 `ci-status` 误判为未知变更；非空但落在已知 filter 之外的变更仍然阻断。
@@ -22,6 +31,8 @@
 
 ### Changed
 - 定价输入契约：`PricingRateInput.unitPrice` 的 OpenAPI schema 改为 `oneOf`（JSON number / 最多 8 位小数的非负 decimal string），响应仍固定为 scale-8 string；前端 `PricingRateInput` 类型与注释同步，继续以 decimal string 发送；新增 OpenAPI 契约测试与 string 输入集成用例。
+- 文档维护：`AGENTS.md`、`PROJECT_CONTEXT.md`、`README.md`、`CONTRIBUTING.md`、`docs/README.md` 与各层 README 统一到 `v3.1.2`；现行 README / 设计文档中的 `Redis 7` 更正为 `Redis 8.8`，历史验收记录保留原文；旧路径由 `docs/README.md` 的映射表解释。
+- 文档校验：`npm run verify:links` 从“根级 5 个文件 + docs/”扩展为全仓 Markdown，并检查本地图片的 `src` / `href` 引用；当前 0 broken links。
 
 ## [3.1.1] - 2026-11-12
 
@@ -170,9 +181,20 @@
   校验器仍只在 `prod` profile 生效，错误信息不回声任何密钥值
 - M22 双组织浏览器隔离与模型可见性边界修复（跨租户私有模型元数据泄露与未授权定价关联写入）
 
+## [3.1.0] - 2026-10-22
+
+V3 维护基线冻结版本。
+
+- 文档分类重组：`docs/01-blueprint` / `02-development` / `03-acceptance` / `04-operations` 四层结构与
+  `docs/superpowers/` 历史归档边界正式落地（#172）
+- `AGENTS.md` 文档与资产治理规范强化：目录落位、测试/日志资产矩阵、维护期命名模板与
+  `npm run verify:links` 零死链门禁
+- README 增补真实界面截图与发布入口，统一 V3 维护模式状态（#171）
+- M21 发布后运维就绪与 M22 关闭证据归档；CI / Security 与 `dev` 分支验证同步（#164、#168 ~ #170）
+
 ## [3.0.0] - 2026-09-13
 
-V3「Model Provider Hub & Cost Intelligence」稳定版，当前 Stable。项目进入 MAINTENANCE_ONLY。
+V3「Model Provider Hub & Cost Intelligence」稳定版；后续由 3.1.x 维护。项目进入 MAINTENANCE_ONLY。
 
 - M17 V3 设计冻结（#154）
 - M18 后端完成并冻结 API 契约（`docs/03-acceptance/m18-openapi.yaml`）
@@ -206,7 +228,10 @@ V1 首个稳定版：多 Provider AI 成本统一为可信、可归属、可审�
 - 范围：IAM/组织、证据、导入、标准成本事实、重复审查、归属/分摊、报销/审批、账期/预算/承诺、不可变账本/更正、对账、关账/重开、审计、工作台/报表
 - AIC-001 ~ AIC-073 全部完成；AIC-073 最终人工验收 / 发布签署：ACCEPTED
 
-[Unreleased]: https://github.com/BangShou1st/AI-CostOps/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/BangShou1st/AI-CostOps/compare/v3.1.2...HEAD
+[3.1.2]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v3.1.2
+[3.1.1]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v3.1.1
+[3.1.0]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v3.1.0
 [3.0.0]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v3.0.0
 [2.0.0]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v2.0.0
 [1.1.0]: https://github.com/BangShou1st/AI-CostOps/releases/tag/v1.1.0

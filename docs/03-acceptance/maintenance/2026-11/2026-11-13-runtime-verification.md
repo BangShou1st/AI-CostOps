@@ -511,3 +511,12 @@ npm run verify:links: 0 broken links
 - 未改 OpenAPI 响应 schema；修复使实现重新符合既有 `unitPrice` scale-8 正则。
 - 前端 `PricingRateInput.unitPrice` 仍以 decimal string 发送，而 OpenAPI 输入声明为 number；服务端同时接受两者。该输入契约差异不影响本次缺陷，建议后续单独做契约清理。
 - 修复变更未提交；当前为 `dev` 工作区改动。
+
+## 10. 后续状态补记（2026-11-13）
+
+本记录保留验收当时的“未提交工作区”状态，不改写原始证据。后续处置：
+
+- 修复已由 PR #192 合入 `dev`、再由 PR #193 同步到 `main`（commit `d824c7f`），并随 `v3.1.2` 发布；
+- `v3.1.1` 标签不变，仍不包含该修复；生产部署应使用 `v3.1.2` 或更新版本；
+- P2-02 / P2-12 的历史 `NOT_VERIFIED` 由本记录 §9 的复核结果关闭；
+  Firefox / Safari 与可选 HC-01 quick 仍保持 `NOT_VERIFIED`。

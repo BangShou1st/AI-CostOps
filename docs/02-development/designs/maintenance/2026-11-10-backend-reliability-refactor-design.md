@@ -39,7 +39,7 @@ Backend（Java 21 / Spring Boot 4.1）
   └─ Provider / Gateway 管理
         │
         ├── MySQL 8.4（唯一正式财务真相）
-        ├── Redis 7（会话、缓存、网关运行态）
+        ├── Redis 8.8（会话、缓存、网关运行态）
         └── MinIO / S3（原始证据）
 
 Gateway（独立 Java 部署服务）

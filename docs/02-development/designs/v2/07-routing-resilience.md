@@ -1,6 +1,6 @@
 # AIC-090 — Routing, Retry, Failover & Resilience Semantics
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > M14 implements multi-Provider routing; M10 freezes the semantics now so M11-M13 persist compatible evidence.
 
 ## 1. Priority

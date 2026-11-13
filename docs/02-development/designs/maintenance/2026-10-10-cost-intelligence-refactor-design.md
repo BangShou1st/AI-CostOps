@@ -27,7 +27,7 @@
 | `.../intelligence/infrastructure/IntelligenceMapper.java` | 分析任务及派生结果持久化，包含状态条件更新；本轮保持职责与 SQL |
 | `.../advisor/application/AdvisorService.java` | 仅预算风险快照分支调用 assessScopeBudget；改成依赖较小的预算风险查询服务 |
 | `docs/03-acceptance/m18-backend-contract-freeze.md` | V3 权限、接口和财务边界依据 |
-| `docs/03-acceptance/m18-openapi.yaml` | V3 接口描述；结合实际 Controller、响应 records 和前端类型核对 |
+| `docs/02-development/api/m18-v3-openapi.yaml` | V3 接口描述；结合实际 Controller、响应 records 和前端类型核对（`03-acceptance` 下的重复副本已于 v3.1.1 删除） |
 | `frontend/src/features/intelligence/api/intelligenceTypes.ts` | 前端消费的响应形状，必须保持兼容 |
 
 此前结构审查位于 [目录结构审查](2026-10-10-directory-structure-review.md)。本设计针对其中第 5 项；不表示其余事项已完成。

@@ -1,6 +1,6 @@
 # AIC-088 — Provider Adapter, Streaming & Realtime Metering
 
-> Status: **FROZEN CANDIDATE**  
+> Status: **FROZEN**
 > Depends on AIC-085 catalog/pricing, AIC-086 request lifecycle and AIC-087 reservation semantics.
 
 ## 1. Purpose
