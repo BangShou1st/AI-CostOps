@@ -7,6 +7,7 @@
 | 关联模块 | 根级状态文档、01-blueprint、02-development、03-acceptance、04-operations、scripts、deploy |
 | 缺陷 / PR 编号 | 无对应缺陷；PR 编号以 GitHub 合并记录为准 |
 | 代码基线 | `dev = fca2d97`，`main = dcefc62`，`v3.1.1 -> bef5877` |
+| 发布结果 | `v3.1.2 -> 5b01906d8dceea8363eb01f62d119441632b707d`（2026-11-13） |
 | 变更性质 | 纯文档与文档校验工具维护；无 Java / TypeScript / SQL / 配置 / 财务语义变更 |
 | 总体判定 | **PASS**：版本、技术事实、索引、路径与链接全部对齐；`verify:links` 0 broken links |
 
