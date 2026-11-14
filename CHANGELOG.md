@@ -15,6 +15,7 @@
 
 ### Changed
 - Provider 路由收敛为通用 OpenAI 兼容适配器 + 受控传输；前端 Provider Gallery、环境模板、E2E 夹具和当前 API/运维文档同步移除已退役模板。
+- `DevGatewayBootstrap` 改为种子一个中性的自定义 OpenAI 兼容开发路由，保留本地路由策略与 M22 E2E 的可验证性，不再绑定 MiMo。
 - MiMo 账单工作簿导入与 canonical cost 归一化保留，避免破坏既有财务历史；仅下线 MiMo 模型路由。
 
 ### Documentation
