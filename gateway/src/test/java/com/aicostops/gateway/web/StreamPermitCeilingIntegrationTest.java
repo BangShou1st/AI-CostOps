@@ -112,6 +112,7 @@ class StreamPermitCeilingIntegrationTest extends GatewayMySqlContainerSupport {
             }
             // Headers first so the Gateway commits the SSE stream, then hold
             // the body open until the test releases the barrier.
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
             exchange.sendResponseHeaders(200, 0);
             var out = exchange.getResponseBody();
             try {
