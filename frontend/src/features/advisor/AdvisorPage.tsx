@@ -77,7 +77,7 @@ export function AdvisorPage(props: { preview?: AdvisorPreview }) {
     onError: (error) => setProblem(toProblemDetail(error)),
   })
   const saveProfile = useAuthorizationMutation({
-    mutationFn: advisorApi.updateProfile,
+    mutationFn: (input: Parameters<typeof advisorApi.updateProfile>[0]) => advisorApi.updateProfile(input),
     onSuccess: () => { setProblem(null); setEditingProfile(false); void queryClient.invalidateQueries({ queryKey: advisorKeys.profile() }) },
     onError: (error) => setProblem(toProblemDetail(error)),
   })
@@ -103,11 +103,13 @@ export function AdvisorPage(props: { preview?: AdvisorPreview }) {
             <div><dt>财务范围</dt><dd>{profile.financialScopeType} #{profile.financialScopeId} · 预算模式 {profile.budgetEnforcementMode}</dd></div>
           </dl>
         )}
-        {!preview && !profile && !profileQuery.isLoading && <Empty description="暂无执行配置，请联系管理员。" />}
+        {!preview && !profile && !profileQuery.isLoading && !editingProfile && (
+          <Empty description={canManage ? '暂无执行配置，请创建首个配置。' : '暂无执行配置，请联系管理员。'} />
+        )}
         {!preview && canManage && !editingProfile && (
           <div className="v3-actions"><button type="button" className="v3-link-button" onClick={() => setEditingProfile(true)}>更新执行配置</button></div>
         )}
-        {!preview && canManage && editingProfile && profile && (
+        {!preview && canManage && editingProfile && (
           <ProfileForm profile={profile} pending={saveProfile.isPending} onSubmit={(input) => saveProfile.mutate(input)} onCancel={() => setEditingProfile(false)} />
         )}
         {!preview && !canManage && <div className="v3-note" role="status">暂无操作权限，请联系管理员。</div>}
@@ -142,13 +144,18 @@ function problemText(problem: ProblemDetail): string {
   return (problem as { detail?: string }).detail ?? (problem as { title?: string }).title ?? '请稍后重试。'
 }
 
-function ProfileForm(props: { profile: AdvisorProfile; pending: boolean; onSubmit: (input: Parameters<typeof advisorApi.updateProfile>[0]) => void; onCancel: () => void }) {
+function ProfileForm(props: {
+  profile: AdvisorProfile | null
+  pending: boolean
+  onSubmit: (input: Parameters<typeof advisorApi.updateProfile>[0]) => void
+  onCancel: () => void
+}) {
   const { profile } = props
-  const [providerModelId, setProviderModelId] = useState<number | null>(profile.providerModelId)
-  const [projectId, setProjectId] = useState<number | null>(profile.projectId)
-  const [scopeType, setScopeType] = useState(profile.financialScopeType)
-  const [scopeId, setScopeId] = useState<number | null>(profile.financialScopeId)
-  const [mode, setMode] = useState(profile.budgetEnforcementMode)
+  const [providerModelId, setProviderModelId] = useState<number | null>(profile?.providerModelId ?? null)
+  const [projectId, setProjectId] = useState<number | null>(profile?.projectId ?? null)
+  const [scopeType, setScopeType] = useState(profile?.financialScopeType ?? 'PROJECT')
+  const [scopeId, setScopeId] = useState<number | null>(profile?.financialScopeId ?? null)
+  const [mode, setMode] = useState(profile?.budgetEnforcementMode ?? 'REQUIRED')
   const valid = providerModelId !== null && projectId !== null && scopeId !== null
   return (
     <div className="v3-filters" style={{ marginTop: 12 }}>

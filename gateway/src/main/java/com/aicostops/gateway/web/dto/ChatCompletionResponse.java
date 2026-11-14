@@ -41,9 +41,14 @@ public record ChatCompletionResponse(
                 .map(choice -> {
                     var choiceMap = new LinkedHashMap<String, Object>();
                     choiceMap.put("index", choice.index());
-                    choiceMap.put("message", Map.of(
-                            "role", choice.message().role(),
-                            "content", choice.message().content()));
+                    // A reasoning-only OpenAI-compatible response may
+                    // legitimately have content=null. LinkedHashMap keeps the
+                    // field present as JSON null, unlike Map.of which rejects
+                    // null values.
+                    var message = new LinkedHashMap<String, Object>();
+                    message.put("role", choice.message().role());
+                    message.put("content", choice.message().content());
+                    choiceMap.put("message", message);
                     choiceMap.put("finish_reason", choice.finishReason());
                     return choiceMap;
                 })
