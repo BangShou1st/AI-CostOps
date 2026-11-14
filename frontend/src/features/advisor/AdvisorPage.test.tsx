@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { AdvisorPage } from './AdvisorPage'
+import { advisorApi } from './api/advisorApi'
 import { advisorCompletedFixture, advisorProfileFixture, advisorRunningFixture } from './benchmark/advisorFixture'
 
 vi.mock('../auth/AuthSessionProvider', () => ({ useAuth: vi.fn() }))
@@ -13,6 +14,7 @@ vi.mock('./api/advisorApi', () => ({
 }))
 
 const mockedUseAuth = vi.mocked(useAuth)
+const mockedAdvisorApi = vi.mocked(advisorApi)
 
 function authAs(permissions: string[]) {
   mockedUseAuth.mockReturnValue({
@@ -52,5 +54,32 @@ describe('AdvisorPage', () => {
     expect(screen.getByLabelText('执行状态')).toBeInTheDocument()
     expect(screen.getByText(/任务RUNNING中/)).toBeInTheDocument()
     expect(screen.queryByText(/typing|正在输入/)).not.toBeInTheDocument()
+  })
+  it('allows a manager to create the first profile when none exists', async () => {
+    authAs(['AI_ADVISOR_MANAGE'])
+    mockedAdvisorApi.profile.mockRejectedValue({ response: { status: 404 } })
+    mockedAdvisorApi.updateProfile.mockResolvedValue(advisorProfileFixture)
+
+    renderPage()
+
+    expect(await screen.findByText('暂无执行配置，请创建首个配置。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '更新执行配置' }))
+
+    expect(screen.getByLabelText('执行模型 ID')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('执行模型 ID'), { target: { value: '77' } })
+    fireEvent.change(screen.getByLabelText('项目 ID'), { target: { value: '7' } })
+    fireEvent.change(screen.getByLabelText('财务范围 ID'), { target: { value: '7' } })
+
+    const save = screen.getByRole('button', { name: '保存新版本' })
+    await waitFor(() => expect(save).toBeEnabled())
+    fireEvent.click(save)
+
+    await waitFor(() => expect(mockedAdvisorApi.updateProfile).toHaveBeenCalledWith({
+      providerModelId: 77,
+      projectId: 7,
+      financialScopeType: 'PROJECT',
+      financialScopeId: 7,
+      budgetEnforcementMode: 'REQUIRED',
+    }))
   })
 })

@@ -1,7 +1,14 @@
 # Optional observability overlay for AI-CostOps (AIC-077).
 #
-# Always used together with the base file:
+# For the complete V3 topology (Backend + Gateway), layer this file on top of
+# the operational overlay:
+#   docker compose -f compose.yaml -f compose.v3-operational.yaml \
+#     -f compose.observability.yaml up -d
+#
+# The backend-only subset is also valid:
 #   docker compose -f compose.yaml -f compose.observability.yaml up -d
+# It deliberately does not start Gateway, so Prometheus will report the
+# `aicostops-gateway` target as DOWN until the Gateway is running.
 #
 # Core services (backend/frontend/mysql/redis/minio) are unchanged. Prometheus
 # and Grafana are ADDITIONAL services attached to the same `aicostops` network;
