@@ -38,7 +38,6 @@ This creates `.env.m21.local` (gitignored) with:
 - `AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1` (32-byte CSPRNG, Base64)
 - `AICOSTOPS_PROVIDER_KEK_V1` (32-byte CSPRNG, Base64)
 - `AICOSTOPS_GATEWAY_DEV_RAW_KEY` (valid `aic_<12>_<43>` shape)
-- `AICOSTOPS_MIMO_API_KEY` (synthetic, local-only)
 - `MYSQL_GATEWAY_USER` / `MYSQL_GATEWAY_PASSWORD` (Gateway DB identity)
 
 **Never commit `.env.m21.local`. Secrets are never printed to console.**
@@ -132,10 +131,10 @@ Runs the real `AdvisorInferenceWorker` through the `gw_m21` DB account against t
 
 ### Production Code Fix (M21 Post-Release)
 
-The MiMo and OpenAI adapters were found to lack transport-level DNS rebinding defense in production profile. Fixed in M21:
+The OpenAI and custom OpenAI-compatible adapters use transport-level DNS rebinding defense in the production profile:
 
-- `MimoChatAdapter`: now uses `PublicOnlyAddressResolverGroup` when `prod` profile is active
 - `OpenAiChatAdapter`: now uses `PublicOnlyAddressResolverGroup` when `prod` profile is active
+- `GenericOpenAiCompatibleChatAdapter`: uses the public-only resolver and dispatch endpoint guard
 
 Non-production profiles (dev/test) use the default JVM resolver to allow local mock validation.
 
@@ -144,7 +143,7 @@ This preserves the frozen M18 `DIRECT_PUBLIC_ONLY` SSRF contract.
 ### Secret Safety
 
 - Gateway raw key is never printed to console or logs
-- Synthetic MiMo key is local-only, never a real Provider credential
+- Synthetic Provider credentials are local-only, never real Provider credentials
 - DB passwords are passed via container-side environment, never in command lines
 - No secrets are committed to Git
 
@@ -213,14 +212,14 @@ The following are **conditionally triggered** checks. Perform them only if you a
 
 - Reconcile the target database's Flyway history against this repository's migration head before upgrading.
 - Confirm the backup and evidence-storage (MinIO / S3) restore capability for the target environment.
-- Review migrations `V28`–`V32`, and specifically the `V30` / `V31` OpenCode Zen ACTIVE profile endpoint changes, which performed a versioned in-place change to existing ACTIVE `provider_connection_profile` rows and carry a historical-endpoint traceability risk.
+- Review migrations `V28`–`V33`. `V30` / `V31` contain historical OpenCode Zen endpoint changes; `V33` retires the `OPENCODE_ZEN`, `KILO_GATEWAY` and `MIMO` catalog rows without deleting accounts, profiles, charges or usage facts.
 - Verify the production security configuration and least privilege; do not reuse the development bootstrap, `mock-provider`, or locally generated synthetic secrets / passwords.
 - Perform the upgrade and restore drill in an isolated environment before touching any real environment.
 - Only after human review may a decision be made to update `main` / the stable release.
 
 Current boundary notes:
 
-- `dev` is ahead of the stable `main` by a large number of maintenance commits, including Flyway migrations `V28`–`V32`.
+- `dev` is ahead of the stable `main` by a large number of maintenance commits, including Flyway migrations `V28`–`V33`.
 - The existing M21 Compose configuration is NOT a directly production-deployable configuration.
 - The older M9 backup/restore drill does not substitute for an up-to-date persistent-database upgrade/restore acceptance on the current version.
 

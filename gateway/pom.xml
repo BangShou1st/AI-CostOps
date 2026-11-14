@@ -21,7 +21,6 @@
     <java.version>21</java.version>
     <!-- Align patched Spring and both Jackson BOM families without changing Boot 4.1.0. -->
     <spring-framework.version>7.0.9</spring-framework.version>
-    <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
     <jackson-bom.version>3.1.7</jackson-bom.version>
     <mybatis-spring-boot.version>4.1.0</mybatis-spring-boot.version>
     <testcontainers.version>2.0.5</testcontainers.version>
@@ -30,10 +29,6 @@
          patched in 4.2.17.Final. Pin the aligned patch release for the
          data plane; Spring Boot major/minor stays 4.1.0. -->
     <netty.version>4.2.17.Final</netty.version>
-    <!-- Public OpenCode Zen starter, consumed anonymously from JitPack. -->
-    <opencode-zen.version>v1.5.4</opencode-zen.version>
-    <!-- Public Kilo Gateway starter, consumed anonymously from JitPack (no credentials). -->
-    <kilo-gateway.version>v0.2.1</kilo-gateway.version>
   </properties>
 
   <dependencyManagement>
@@ -55,36 +50,7 @@
     </dependencies>
   </dependencyManagement>
 
-  <repositories>
-    <repository>
-      <!-- Public OpenCode Zen and Kilo Gateway libraries use tagged JitPack artifacts. -->
-      <id>jitpack</id>
-      <url>https://jitpack.io</url>
-    </repository>
-  </repositories>
-
   <dependencies>
-    <dependency>
-      <!-- The OpenCode Zen shared library still uses the Jackson 2 API; Boot 4 manages this line separately from Jackson 3. -->
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
-      <version>${jackson-2-bom.version}</version>
-    </dependency>
-    <dependency>
-      <!-- Auto-configures the shared OpenCodeZenRequestFactory bean. -->
-      <groupId>com.github.BangShou1st.opencode-zen</groupId>
-      <artifactId>opencode-zen-spring-boot-starter</artifactId>
-      <version>${opencode-zen.version}</version>
-    </dependency>
-    <dependency>
-      <!-- Kilo Gateway shared library. The Gateway does not call the blocking KiloGatewayClient
-           (the data plane owns its own bounded reactive transport); it reuses the shared
-           server-owned free-model policy so the Backend and Gateway cannot drift. Its
-           auto-configuration is disabled in application.yml. -->
-      <groupId>com.github.BangShou1st.kilo-gateway</groupId>
-      <artifactId>kilo-gateway-spring-boot-starter</artifactId>
-      <version>${kilo-gateway.version}</version>
-    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-webflux</artifactId>

@@ -7,10 +7,7 @@
 
 /** 连接模板代码 → 中文标签。 */
 export const CONNECTION_TEMPLATE_LABELS: Record<string, string> = {
-  OPENCODE_ZEN: 'OpenCode Zen',
-  KILO_GATEWAY: 'Kilo Gateway',
   CUSTOM_OPENAI_COMPATIBLE: '自定义 OpenAI 兼容',
-  MIMO_CHAT_COMPLETIONS: 'Mimo 聊天兼容',
 }
 
 export function connectionTemplateLabel(code: string): string {
@@ -20,7 +17,6 @@ export function connectionTemplateLabel(code: string): string {
 /** 协议代码 → 中文标签。 */
 export const PROTOCOL_LABELS: Record<string, string> = {
   OPENAI_CHAT_COMPLETIONS: 'OpenAI 聊天兼容',
-  MIMO_CHAT_COMPLETIONS: 'Mimo 聊天兼容',
   CHAT_COMPLETIONS: '聊天兼容',
   UNSUPPORTED: '不支持',
   UNKNOWN: '未知',

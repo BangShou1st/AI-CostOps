@@ -34,15 +34,12 @@ function shell(children: React.ReactNode) {
 beforeEach(() => vi.clearAllMocks())
 
 describe('Provider Hub', () => {
-  it('gallery separates built-in from custom and never implies routing readiness', () => {
+  it('gallery shows the custom endpoint template and never implies routing readiness', () => {
     authAs(['PROVIDER_ACCOUNT_READ'])
     shell(<ProviderGalleryPage preview={{ templates: templateFixture, connections: connectionFixture }} />)
     expect(screen.getByRole('heading', { name: 'Provider Gallery', level: 1 })).toBeInTheDocument()
-    // Two built-in templates now exist (OpenCode Zen, Kilo Gateway) plus the custom one.
-    expect(screen.getAllByText('内置').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('自定义')).toBeInTheDocument()
-    expect(screen.getByText('Kilo Gateway')).toBeInTheDocument()
-    expect(screen.getByText(/ai-gateway\.kilo\.ai\/api\/v1/)).toBeInTheDocument()
+    expect(screen.getByText('Custom OpenAI-compatible')).toBeInTheDocument()
     expect(screen.getByText(/连接可用不代表可正常路由/)).toBeInTheDocument()
     expect(screen.queryByText(/sk-/)).not.toBeInTheDocument()
   })
@@ -57,7 +54,7 @@ describe('Provider Hub', () => {
     shell(<ProviderModelsPage preview={{ connections: connectionFixture, rows: discoveryFixture, capabilities: {}, promotion: null }} />)
     expect(screen.getByRole('heading', { name: '模型目录', level: 1 })).toBeInTheDocument()
     expect(screen.getByText(/可用性、协议兼容与定价状态相互独立/)).toBeInTheDocument()
-    expect(screen.getByText('mimo-v2.5-flash')).toBeInTheDocument()
+    expect(screen.getByText('provider-model-a')).toBeInTheDocument()
     expect(screen.getAllByText('可用', { exact: true }).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('不可用')).toBeInTheDocument()
     expect(screen.getByText('聊天兼容')).toBeInTheDocument()

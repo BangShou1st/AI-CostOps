@@ -88,7 +88,6 @@ if ($gatewayRawKey -notmatch '^aic_[0-9a-hjkmnp-tv-z]{12}_[A-Za-z0-9_-]{43}$') {
     exit 1
 }
 
-$mimoKey = "sk-m21-local-" + (New-Base64Url 24)
 $gwUser = "gw_m21"
 $gwPassword = New-Base64Url 24
 
@@ -119,7 +118,6 @@ $output = $output -replace '(?m)^#\s*AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1=.*
 $output = $output -replace '(?m)^#\s*AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1=.*$', "AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1=$requestHmac"
 $output = $output -replace '(?m)^#\s*AICOSTOPS_PROVIDER_KEK_V1=.*$', "AICOSTOPS_PROVIDER_KEK_V1=$kek"
 $output = $output -replace '(?m)^#\s*AICOSTOPS_GATEWAY_DEV_RAW_KEY=.*$', "AICOSTOPS_GATEWAY_DEV_RAW_KEY=$gatewayRawKey"
-$output = $output -replace '(?m)^#\s*AICOSTOPS_MIMO_API_KEY=.*$', "AICOSTOPS_MIMO_API_KEY=$mimoKey"
 
 # Ensure Gateway dev bootstrap enabled
 $output = $output -replace '(?m)^AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED=.*$', "AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED=true"
@@ -149,7 +147,7 @@ $requiredVars = @(
     'REDIS_PASSWORD', 'MINIO_ROOT_USER', 'MINIO_ROOT_PASSWORD', 'MINIO_BUCKET',
     'AICOSTOPS_JWT_SIGNING_KEY', 'MYSQL_GATEWAY_USER', 'MYSQL_GATEWAY_PASSWORD',
     'AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1', 'AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1',
-    'AICOSTOPS_PROVIDER_KEK_V1', 'AICOSTOPS_GATEWAY_DEV_RAW_KEY', 'AICOSTOPS_MIMO_API_KEY'
+    'AICOSTOPS_PROVIDER_KEK_V1', 'AICOSTOPS_GATEWAY_DEV_RAW_KEY'
 )
 
 $missing = @()

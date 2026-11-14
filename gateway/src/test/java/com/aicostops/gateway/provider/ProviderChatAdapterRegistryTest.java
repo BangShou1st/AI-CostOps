@@ -12,8 +12,8 @@ class ProviderChatAdapterRegistryTest {
     void duplicateAdapterCodesFailFast() {
         var first = mock(ProviderChatAdapter.class);
         var second = mock(ProviderChatAdapter.class);
-        when(first.adapterCode()).thenReturn("MIMO");
-        when(second.adapterCode()).thenReturn("mimo");
+        when(first.adapterCode()).thenReturn("OPENAI");
+        when(second.adapterCode()).thenReturn("openai");
         assertThatThrownBy(() -> new ProviderChatAdapterRegistry(java.util.List.of(first, second)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Duplicate");
@@ -21,10 +21,10 @@ class ProviderChatAdapterRegistryTest {
 
     @Test
     void contextStringDoesNotExposeCredential() {
-        var context = new ProviderCallContext("MIMO", 1, 2, "model", 3, "USD",
+        var context = new ProviderCallContext("OPENAI", 1, 2, "model", 3, "USD",
                 "https://example.test", "API_KEY", "super-secret".getBytes(), "route-1");
         org.assertj.core.api.Assertions.assertThat(context.toString())
                 .doesNotContain("super-secret")
-                .contains("MIMO");
+                .contains("OPENAI");
     }
 }

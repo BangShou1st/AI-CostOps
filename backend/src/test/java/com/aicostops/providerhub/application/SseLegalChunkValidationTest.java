@@ -3,7 +3,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 class SseLegalChunkValidationTest {
-    private final ModelProbeService probes = new ModelProbeService(null, null, null, null, null, null, null, new ObjectMapper(), null, null, null);
+    private final ModelProbeService probes = new ModelProbeService(
+            null, null, null, null, null, null, null, new ObjectMapper(), null, null);
     @Test void legalChunkIsAccepted() {
         assertTrue(probes.isLegalStreamingChunk("{\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"m\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},\"finish_reason\":null}]}"));
     }

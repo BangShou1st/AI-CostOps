@@ -2,7 +2,6 @@ package com.aicostops.providerhub.application;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.sharedlibs.opencodezen.OpenCodeZenProtocolPolicy;
 import java.net.URI;
 import org.junit.jupiter.api.Test;
 
@@ -10,39 +9,13 @@ import org.junit.jupiter.api.Test;
 class M18TransportRegressionTest {
 
     @Test
-    void openCodeUserAgentIsKnownWorkingSiblingPolicy() {
-        assertEquals(OpenCodeZenProtocolPolicy.USER_AGENT, ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT);
-        assertEquals(ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT,
-                ProviderTransportSupport.DEFAULT_PROBE_USER_AGENT);
-    }
-
-    @Test
-    void customProviderNeverMasqueradesAsOpenCode() {
-        assertEquals(OpenCodeZenProtocolPolicy.USER_AGENT,
-                ProviderTransportSupport.serverUserAgent(null, "OPENCODE_ZEN"));
+    void providerUsesNeutralServerOwnedUaUnlessExplicitlySet() {
         assertEquals(ProviderTransportSupport.NEUTRAL_PROVIDER_USER_AGENT,
-                ProviderTransportSupport.serverUserAgent(null, "CUSTOM_OPENAI_COMPATIBLE"));
+                ProviderTransportSupport.serverUserAgent(null));
         assertEquals(ProviderTransportSupport.NEUTRAL_PROVIDER_USER_AGENT,
-                ProviderTransportSupport.serverUserAgent("  ", "CUSTOM_OPENAI_COMPATIBLE"));
+                ProviderTransportSupport.serverUserAgent("  "));
         assertEquals("Custom-Agent/9.9",
-                ProviderTransportSupport.serverUserAgent("Custom-Agent/9.9", "CUSTOM_OPENAI_COMPATIBLE"));
-    }
-
-    /**
-     * Cross-module UA contract: the Gateway adapter must carry the identical server-owned
-     * OpenCode UA. The single source of truth is now the shared library's CLI identity policy; the
-     * source-level check below fails loudly if the gateway reintroduces a divergent literal.
-     */
-    @Test
-    void gatewayAdapterSharesServerOwnedOpenCodeUa() throws Exception {
-        var adapter = java.nio.file.Path.of("../gateway/src/main/java/com/aicostops/gateway"
-                + "/provider/opencode/OpenCodeZenChatAdapter.java");
-        assertTrue(java.nio.file.Files.exists(adapter),
-                () -> "Gateway adapter source moved; update the UA contract: " + adapter.toAbsolutePath());
-        var source = java.nio.file.Files.readString(adapter);
-        assertTrue(source.contains("OpenCodeZenProtocolPolicy.USER_AGENT"),
-                () -> "Gateway OpenCode UA drifted from the shared identity policy");
-        assertEquals(OpenCodeZenProtocolPolicy.USER_AGENT, ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT);
+                ProviderTransportSupport.serverUserAgent("Custom-Agent/9.9"));
     }
 
     @Test

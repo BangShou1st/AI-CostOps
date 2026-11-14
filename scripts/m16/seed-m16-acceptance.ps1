@@ -94,7 +94,7 @@ if (-not $modelId) {
 $providerCode = "M16MOCK"
 $hasCatalog = (Invoke-Root ("SELECT provider_code FROM provider_catalog WHERE provider_code='" + $providerCode + "';")).Trim()
 if (-not $hasCatalog) {
-    Invoke-Root ("INSERT INTO provider_catalog(provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at) VALUES ('" + $providerCode + "','M16 Mock','MIMO','" + $MockBaseUrl + "','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));") | Out-Null
+    Invoke-Root ("INSERT INTO provider_catalog(provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at) VALUES ('" + $providerCode + "','M16 Mock','CUSTOM_OPENAI_COMPATIBLE','" + $MockBaseUrl + "','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));") | Out-Null
 } else {
     # Global catalog row is shared across seeds: always point it at this run's
     # mock upstream so a stale base_url from an earlier seed cannot poison routing.

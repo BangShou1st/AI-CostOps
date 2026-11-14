@@ -14,14 +14,14 @@ class GatewayMetricsTest {
         var metrics = new GatewayMetrics(registry);
 
         metrics.recordUsageStatus(GatewayUsageStatus.FINAL);
-        metrics.recordMeteringIncomplete("MIMO", "MISSING_DIMENSION");
+        metrics.recordMeteringIncomplete("CUSTOM_OPENAI_COMPATIBLE", "MISSING_DIMENSION");
         metrics.recordMeteringUnknown("provider-with-request-id", "user supplied reason");
         metrics.recordProviderUsageParseError("provider-with-request-id");
 
         assertThat(registry.get("gateway_usage_total").tag("status", "FINAL").counter().count())
                 .isEqualTo(1);
         assertThat(registry.get("gateway_metering_incomplete_total")
-                .tag("provider_code", "MIMO").tag("reason_code", "MISSING_DIMENSION")
+                .tag("provider_code", "CUSTOM_OPENAI_COMPATIBLE").tag("reason_code", "MISSING_DIMENSION")
                 .counter().count()).isEqualTo(1);
         assertThat(registry.get("gateway_metering_unknown_total")
                 .tag("provider_code", "UNKNOWN").tag("reason_code", "UNKNOWN")

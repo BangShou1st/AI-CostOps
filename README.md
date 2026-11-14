@@ -38,7 +38,7 @@
 随着生成式 AI 与大语言模型（LLM）在企业研发链路（代码辅助、自动化测试、文档问答、数据分析与自主 Agent）中的深度落地，算力支出迅速从早期的“实验性零星费用”演变为企业每月数十万乃至上百万元的战略核心支出。然而，传统云原生 FinOps 工具与朴素的网关代理面对 AI 算力消费时，暴露出了致命的财务断层：
 
 * **1. 多厂商账单格式与计费口径严重割裂 (Format & Pricing Fragmentation)**  
-  企业内部通常并发混用 OpenAI、DeepSeek、MiMo、Moonshot Kimi、智谱 GLM、OpenCode Zen、Kilo Gateway 及自建兼容网关。各 Provider 的账单结构截然不同，Token 计费维度（Input / Output / Cache Read / Cache Write）、时区与币种各异，导出周期从实时到按月跨度极大。财务人员只能手工下拉 CSV 表格机械对齐，陷入无法消除的“账单孤岛”。
+  企业内部通常并发混用 OpenAI、DeepSeek、MiMo、Moonshot Kimi、智谱 GLM 及自建兼容网关。各 Provider 的账单结构截然不同，Token 计费维度（Input / Output / Cache Read / Cache Write）、时区与币种各异，导出周期从实时到按月跨度极大。财务人员只能手工下拉 CSV 表格机械对齐，陷入无法消除的“账单孤岛”。
 
 * **2. 缺乏请求发生前的实时预算预占 (No Request-Time Budget Reservation)**  
   传统云成本管理纯属“事后诸葛亮”，仅在账单落地后提供滞后报表。当研发人员遭遇死循环调用、测试脚本并发失控或 Prompt 爆炸时，系统无法在 API 请求发生的毫秒级瞬间核定当前组织/团队/项目的剩余可用预算，极易导致预算击穿（Budget Overrun）惨剧，等到发现时已造成重大财务损失。
@@ -134,9 +134,8 @@ mindmap
       全链路不可变审计事件追加
     供应商治理 Model Provider Hub
       版本化连接档案与 AES-256 加密
-      OpenCode Zen 与 Kilo Gateway 规范接入
+      自定义 OpenAI 兼容端点规范接入
       模型实时目录与探针健康度校验
-      严格受控免费层准入策略
       SSRF 防御与公网地址白名单
 ```
 
@@ -205,8 +204,7 @@ AI CostOps 采用 **模块化单体（Modular Monolith）** 结合 **双可部�
 │  ├───────────────┼──────────────┼─────────────┤  │  │  └───────────────┴──────────────────────┘  │
 │  │ Provider Hub  │ Reconcile    │ Evidence    │  │  │                                            │
 │  │ (连接/目录/探针│ (混合多维对账│ (MinIO证据链│  │  │  [Provider Adapters]                        │
-│  └───────────────┴──────────────┴─────────────┘  │  │  OpenAI · DeepSeek · MiMo · OpenCode Zen   │
-│                                                  │  │  Kilo Gateway · Custom Endpoints           │
+│  └───────────────┴──────────────┴─────────────┘  │  │  OpenAI · Custom OpenAI-Compatible        │
 └─────────────────────────┬────────────────────────┘  └─────────────────────┬──────────────────────┘
                           │                                                 │
                           │  authoritative write / read                     │  authoritative reservation /
@@ -226,7 +224,7 @@ AI CostOps 采用 **模块化单体（Modular Monolith）** 结合 **双可部�
                                                    ▼
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                 Upstream AI Providers & Engines                                  │
-│          OpenAI · DeepSeek · Moonshot Kimi · Zhipu GLM · MiMo · OpenCode Zen · Kilo Gateway      │
+│                    OpenAI · Custom OpenAI-Compatible Endpoints                                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -428,22 +426,19 @@ npm run dev
        管理面下发与探针同步       安全网络边界过滤 (SSRF 防御)
                 ▼                        ▼
 ┌────────────────────────┐      ┌────────────────────────┐
-│  OpenCode Zen 网关     │      │   Kilo Gateway 网关    │
-│  (版本化推理档案管理)   │      │   (聚合多模型统一目录) │
+│  自定义 OpenAI 兼容端点 │      │  自定义 OpenAI 兼容端点 │
+│  (版本化连接档案管理)   │      │  (模型目录与探针校验)  │
 └────────────────────────┘      └────────────────────────┘
                 │                        │
                 └───────────┬────────────┘
                             ▼
 ┌────────────────────────────────────────────────────────┐
-│       主流上游厂商: OpenAI · DeepSeek · MiMo · GLM     │
+│       上游: OpenAI · 企业自建/聚合兼容网关            │
 └────────────────────────────────────────────────────────┘
 ```
 
 * **安全凭证加密**：供应商 API Key 在数据库中由 `MODEL_CONFIG_MASTER_KEY` 进行 AES-256-GCM 加密，API 接口**只写不读**，日志脱敏过滤。
 * **探针与可用性探测（Probing）**：支持定时向 Provider 端点发起探针（Ping 与 Chat Probe），实时记录往返时延（RTT）、TLS 握手延迟与 HTTP 状态码，为动态路由提供健康度事实。
-* **严格受控免费层准入（Governed Free Tier Policy）**：
-  * 外部宣称的免费模型（Free Tier）必须在代码级清单中具备官方定价证明证据。
-  * 严禁无凭据将未知模型引入系统，杜绝由于 Provider 政策变更产生的意外穿透扣费。
 * **严密网络边界与 SSRF 防护网**：
   * 内置 `DispatchEndpointGuard` 校验自定义接入 URL。
   * 结合 Netty `FilteringAddressResolverGroup` 与 `PublicOnlyAddressResolverGroup`，在底层 DNS 解析阶段校验 IP 地址，**强力阻断内网回环（127.0.0.1、localhost）、私有网段（10.0.0.0/8、172.16.0.0/12、192.168.0.0/16）及云厂商元数据端点（169.254.169.254）**。
@@ -480,7 +475,7 @@ AI-CostOps/
 │   │   ├── audit/                   # 全链路不可变审计日志、安全审计事件追加
 │   │   ├── config/                  # 全局系统配置、生产环境硬校验器
 │   │   └── shared/                  # 跨模块通用契约、金额 Decimal 工具、统一响应体
-│   ├── src/main/resources/db/migration/ # Flyway 递增迁移脚本（V1–V32 连续版本）
+│   ├── src/main/resources/db/migration/ # Flyway 递增迁移脚本（V1–V33 连续版本）
 │   └── src/test/                    # 后端单元测试、ArchUnit 架构守卫、Testcontainers 集成测试
 │
 ├── gateway/                         # Spring WebFlux 数据面（97 源文件 / 约 0.92 万行）
@@ -492,7 +487,7 @@ AI-CostOps/
 │   │   ├── ratelimit/               # 基于 Redis 的高吞吐接口防刷限流
 │   │   ├── routing/                 # 动态多 Provider 负载与熔断路由
 │   │   ├── resilience/              # 故障恢复、重试与降级处理器
-│   │   ├── provider/                # 供应商适配器（OpenAI, DeepSeek, MiMo, OpenCode, Kilo）
+│   │   ├── provider/                # 供应商适配器（OpenAI、自定义 OpenAI 兼容端点）
 │   │   └── persistence/             # DISPATCH_INTENT、请求事实、路由事实与用量事实落库
 │   └── src/test/                    # 网关单元测试与流式代理集成测试套件
 │

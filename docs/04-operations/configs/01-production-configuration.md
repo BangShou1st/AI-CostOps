@@ -33,7 +33,7 @@
 
 | 环境变量 | 默认 | 说明 |
 |---|---|---|
-| `AICOSTOPS_GATEWAY_PROVIDER_ALLOW_PRIVATE_ENDPOINTS` | `false` | Gateway 默认对 Provider 目标做公网单播解析并启用内置 OpenAI/MiMo 主机白名单；仅本地 mock / 内网 Provider 显式 `true` |
+| `AICOSTOPS_GATEWAY_PROVIDER_ALLOW_PRIVATE_ENDPOINTS` | `false` | Gateway 默认对 Provider 目标做公网单播解析；仅本地 mock / 内网 Provider 显式 `true` |
 | `AICOSTOPS_GATEWAY_ADVISOR_WORKER_ENABLED` | `true` | Advisor 推理 worker 开关；关闭后不再 claim 任务 |
 | `AICOSTOPS_GATEWAY_ADVISOR_WORKER_BATCH_LIMIT` | `10` | 单次调度 tick 最多处理的 Advisor 任务数 |
 | `AICOSTOPS_RECONCILIATION_STALE_RUN_RECOVERY_ENABLED` | `true` | 对账僵尸 `RUNNING` run 回收开关 |
