@@ -26,6 +26,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
             "aicostops.gateway.dev-raw-key=" + DevGatewayBootstrapIntegrationTest.RAW_KEY,
             "aicostops.gateway.credential-hmac-key-v1=" + DevGatewayBootstrapIntegrationTest.HMAC_KEY,
             "aicostops.gateway.request-hmac-key-v1=" + DevGatewayBootstrapIntegrationTest.HMAC_KEY,
+            "aicostops.gateway.provider-kek-v1=" + DevGatewayBootstrapIntegrationTest.KEK,
+            "AICOSTOPS_DEV_PROVIDER_API_KEY=dev-only-provider-token",
         })
 @Tag("integration")
 class DevGatewayBootstrapIntegrationTest extends MySqlContainerSupport {
@@ -33,6 +35,7 @@ class DevGatewayBootstrapIntegrationTest extends MySqlContainerSupport {
     static final String RAW_KEY = "aic_0123456789ab_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     static final String HMAC_KEY =
             "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
+    static final String KEK = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -62,8 +65,9 @@ class DevGatewayBootstrapIntegrationTest extends MySqlContainerSupport {
         assertThat(count("SELECT COUNT(*) FROM gateway_credential_model", null)).isEqualTo(1);
         assertThat(count("SELECT COUNT(*) FROM model_catalog WHERE model_key='default-chat'", null))
                 .isEqualTo(1);
-        assertThat(count("SELECT COUNT(*) FROM provider_account WHERE org_id=?", orgId)).isZero();
-        assertThat(count("SELECT COUNT(*) FROM provider_connection_profile WHERE org_id=?", orgId)).isZero();
+        assertThat(count("SELECT COUNT(*) FROM provider_account WHERE org_id=?", orgId)).isOne();
+        assertThat(count("SELECT COUNT(*) FROM provider_connection_profile WHERE org_id=?", orgId)).isOne();
+        assertThat(count("SELECT COUNT(*) FROM provider_credential WHERE org_id=?", orgId)).isOne();
         assertThat(bootstrapEnabledCredential(orgId)).isTrue();
     }
 
@@ -118,7 +122,8 @@ class DevGatewayBootstrapIntegrationTest extends MySqlContainerSupport {
                 "credModel", count("SELECT COUNT(*) FROM gateway_credential_model", null),
                 "modelCatalog", count("SELECT COUNT(*) FROM model_catalog WHERE model_key='default-chat'", null),
                 "providerAccount", count("SELECT COUNT(*) FROM provider_account", null),
-                "providerProfile", count("SELECT COUNT(*) FROM provider_connection_profile", null));
+                "providerProfile", count("SELECT COUNT(*) FROM provider_connection_profile", null),
+                "providerCredential", count("SELECT COUNT(*) FROM provider_credential", null));
     }
 
     /** Minimal lowercase hex codec matching MySQL HEX(). */
