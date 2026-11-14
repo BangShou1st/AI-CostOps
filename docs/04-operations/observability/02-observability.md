@@ -42,15 +42,25 @@ and the Problem body; Gateway returns it on the response).
 
 ## Starting the overlay
 
+The complete V3 topology includes the Gateway data plane, so layer the
+operational overlay before enabling observability:
+
 ```powershell
 # from the repository root, with .env present
-docker compose -f compose.yaml -f compose.observability.yaml up -d
+docker compose -f compose.yaml -f compose.v3-operational.yaml `
+  -f compose.observability.yaml up -d
 ```
 
 Then open:
 
 - Prometheus: http://localhost:9090
 - Grafana: http://localhost:3000 (admin / admin — local only)
+
+The backend-only subset (`compose.yaml` + `compose.observability.yaml`) is
+still usable for UI/API observation, but it does not start Gateway. In that
+case Prometheus intentionally reports the `aicostops-gateway` target as DOWN;
+do not treat that as a Gateway health failure. Use the complete command above
+when Gateway metrics are required.
 
 ## Prometheus exposure boundary
 

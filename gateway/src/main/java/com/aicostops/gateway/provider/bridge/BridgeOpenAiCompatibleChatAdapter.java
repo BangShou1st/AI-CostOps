@@ -297,7 +297,7 @@ public class BridgeOpenAiCompatibleChatAdapter implements ProviderChatAdapter {
     private static ProviderChatCompletion toCompletion(ChatResponse response) {
         var choices = List.of(new ProviderChatCompletion.CompletionChoice(
                 0,
-                response.content(),
+                emptyContentAsNull(response.content()),
                 finishReason(response.finishReason())));
         var usage = response.usage();
         return new ProviderChatCompletion(
@@ -331,6 +331,13 @@ public class BridgeOpenAiCompatibleChatAdapter implements ProviderChatAdapter {
 
     private static String finishReason(FinishReason reason) {
         return reason == null ? null : reason.name().toLowerCase(Locale.ROOT);
+    }
+
+    private static String emptyContentAsNull(String content) {
+        // The bridge normalizes a null/absent content field to an empty string.
+        // Keep the public OpenAI-compatible shape explicit: no generated text is
+        // content=null, not an invented empty assistant message.
+        return content == null || content.isEmpty() ? null : content;
     }
 
     private void validateCredentials(ProviderCallContext context) {

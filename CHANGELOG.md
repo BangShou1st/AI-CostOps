@@ -21,7 +21,14 @@
 - Gateway `CUSTOM_OPENAI_COMPATIBLE` wire 层改由 `ai-model-bridge-core v0.2.0` 承担；仅依赖 core，不引入 bridge starter/server，不新增 deployable。Bridge 同步读调用落在 virtual-thread executor，使用 `StreamHandle` 取消、`EndpointConfig` 路径覆盖、`failOnLength=false`、256 事件有界流队列与 idle/hard timeout，保留 failover 安全分类。
 - Gateway 重新引入受管理的 Jackson 2（`2.21.7`）与 JitPack 仓库，仅服务 bridge core 的 Jackson 2 API；API、DB schema、预算、路由、结算与账本语义不变。
 
+### Fixed
+- 部署：Full Compose 的 Nginx 前端将上传上限从默认 1 MiB 对齐到后端 525 MiB 请求合同，并配置慢上传与长响应超时，避免供应商账单和证据上传在边缘被 413 截断。
+- 安全：前端 `vite` 升级至 `8.3.8`，并以 `undici@7.30.2` override 修复 `jsdom` 传递依赖；完整依赖树 HIGH/CRITICAL 清零，生产依赖 audit 保持 0。
+- Advisor：无执行配置的组织可在 UI 打开首次配置表单并通过 `PUT /api/v1/ai-advisor/profile` 创建 profile，不再因空 profile 隐藏入口。
+- Gateway：OpenAI-compatible reasoning-only/`content=null` 非流式响应不再误判为 `MALFORMED_PROVIDER_RESPONSE` 并返回 502；保留 Provider usage，缺失 usage 仍不补零。
+
 ### Documentation
+- 新增 [2026-11-15 维护修复验收](docs/03-acceptance/maintenance/2026-11/2026-11-15-maintenance-fixes.md)，记录上传边界、依赖安全、Advisor 首次配置、reasoning-only 响应及完整观测拓扑的本地验证。
 - 新增 [共享库 Provider 退役记录](docs/03-acceptance/maintenance/2026-11/2026-11-14-shared-library-provider-retirement.md) 并更新验收索引、README、PROJECT_CONTEXT、运行手册与产品文档。
 - 新增 [Gateway ai-model-bridge 接入验收](docs/03-acceptance/maintenance/2026-11/2026-11-14-gateway-ai-model-bridge.md)，登记功能回归、已知边界与后续 transport SPI 事项。
 

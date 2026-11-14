@@ -43,6 +43,8 @@ class BridgeOpenAiCompatibleChatAdapterTest {
     private static volatile boolean stall;
     private static volatile boolean omitUsage;
     private static volatile boolean omitFinishReason;
+    private static volatile boolean emptyContent;
+    private static volatile boolean missingChoices;
     private static volatile boolean manyChunks;
     private static volatile int status;
     private static volatile String auth;
@@ -98,9 +100,15 @@ class BridgeOpenAiCompatibleChatAdapterTest {
                 }
                 return;
             }
+            var message = emptyContent
+                    ? "{\"content\":null,\"reasoning_content\":\"thinking\"}"
+                    : "{\"content\":\"hello\"}";
+            var choices = missingChoices
+                    ? "[]"
+                    : "[{\"index\":0,\"message\":" + message
+                            + ",\"finish_reason\":\"stop\"}]";
             var response = "{\"id\":\"c1\",\"created\":1,\"model\":\"gpt-test\","
-                    + "\"choices\":[{\"index\":0,\"message\":{\"content\":\"hello\"},"
-                    + "\"finish_reason\":\"stop\"}]"
+                    + "\"choices\":" + choices
                     + (omitUsage ? "" : ",\"usage\":{\"prompt_tokens\":1,"
                             + "\"completion_tokens\":2,\"total_tokens\":3}")
                     + "}";
@@ -128,6 +136,8 @@ class BridgeOpenAiCompatibleChatAdapterTest {
         stall = false;
         omitUsage = false;
         omitFinishReason = false;
+        emptyContent = false;
+        missingChoices = false;
         manyChunks = false;
         status = 200;
         auth = null;
@@ -235,6 +245,33 @@ class BridgeOpenAiCompatibleChatAdapterTest {
                 context("BEARER_TOKEN", null, "bearer-secret"), command(false)).block();
 
         assertThat(completion.usage()).isNull();
+    }
+
+    @Test
+    void reasoningOnlyCompletionReturnsNullContentAndPreservesUsage() {
+        emptyContent = true;
+
+        var completion = adapter.complete(
+                context("BEARER_TOKEN", null, "bearer-secret"), command(false)).block();
+
+        assertThat(completion.choices()).singleElement()
+                .satisfies(choice -> assertThat(choice.content()).isNull());
+        assertThat(completion.usage()).isNotNull();
+        assertThat(completion.usage().totalTokens()).isEqualTo(3);
+    }
+
+    @Test
+    void missingChoicesStillMapsToMalformedProviderResponse() {
+        missingChoices = true;
+
+        assertThatThrownBy(() -> adapter.complete(
+                context("BEARER_TOKEN", null, "bearer-secret"), command(false)).block())
+                .isInstanceOfSatisfying(ProviderExecutionException.class, failure -> {
+                    assertThat(failure.safetyOutcome())
+                            .isEqualTo(ProviderSafetyOutcome.BILLABLE_POSSIBLE);
+                    assertThat(failure.safetyReason())
+                            .isEqualTo(ProviderSafetyReason.MALFORMED_PROVIDER_RESPONSE);
+                });
     }
 
     @Test
