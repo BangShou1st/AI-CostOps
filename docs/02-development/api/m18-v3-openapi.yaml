@@ -350,7 +350,7 @@ components:
         providerAccountId: {type: integer, format: int64}
         version: {type: integer}
         connectionKind: {type: string, enum: [BUILTIN, CUSTOM]}
-        templateCode: {type: string, nullable: true, enum: [OPENCODE_ZEN, CUSTOM_OPENAI_COMPATIBLE]}
+        templateCode: {type: string, nullable: true, enum: [CUSTOM_OPENAI_COMPATIBLE]}
         protocolCode: {type: string, enum: [OPENAI_CHAT_COMPLETIONS, MIMO_CHAT_COMPLETIONS]}
         baseUrl: {type: string}
         completionPath: {type: string}

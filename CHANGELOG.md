@@ -8,7 +8,17 @@
 
 ## [Unreleased]
 
-（暂无）
+### Removed
+- 移除 OpenCode Zen `opencode-zen-spring-boot-starter` 与 Kilo Gateway `kilo-gateway-spring-boot-starter` 两个 JitPack 共享库依赖及 `jitpack` 仓库。
+- 移除 Backend / Gateway 的 OpenCode Zen、Kilo Gateway 与 MiMo 模型路由适配、免费层准入、Relay 与内置 UA 分支；Provider Hub 仅保留 `CUSTOM_OPENAI_COMPATIBLE` 模板。
+- 新增 Flyway `V33`：将 `OPENCODE_ZEN`、`KILO_GATEWAY`、`MIMO` catalog 行置为 `DISABLED`，不删除账户、连接档案、定价、费用、用量或账本历史。
+
+### Changed
+- Provider 路由收敛为通用 OpenAI 兼容适配器 + 受控传输；前端 Provider Gallery、环境模板、E2E 夹具和当前 API/运维文档同步移除已退役模板。
+- MiMo 账单工作簿导入与 canonical cost 归一化保留，避免破坏既有财务历史；仅下线 MiMo 模型路由。
+
+### Documentation
+- 新增 [共享库 Provider 退役记录](docs/03-acceptance/maintenance/2026-11/2026-11-14-shared-library-provider-retirement.md) 并更新验收索引、README、PROJECT_CONTEXT、运行手册与产品文档。
 
 ## [3.1.2] - 2026-11-13
 

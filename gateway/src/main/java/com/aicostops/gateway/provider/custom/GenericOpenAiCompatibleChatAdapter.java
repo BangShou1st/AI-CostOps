@@ -8,6 +8,7 @@ import com.aicostops.gateway.provider.ProviderHealthSignal;
 import com.aicostops.gateway.provider.ProviderSafetyOutcome;
 import com.aicostops.gateway.provider.ProviderSafetyReason;
 import com.aicostops.gateway.provider.shared.AbstractOpenAiCompatibleAdapter;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import tools.jackson.databind.ObjectMapper;
@@ -28,8 +29,13 @@ public class GenericOpenAiCompatibleChatAdapter extends AbstractOpenAiCompatible
             WebClient.Builder builder,
             ObjectMapper objectMapper,
             GatewayProperties properties,
-            DispatchEndpointGuard endpointGuard) {
-        super(builder, objectMapper, properties, endpointGuard, true);
+            DispatchEndpointGuard endpointGuard,
+            Environment environment) {
+        super(builder, objectMapper, properties, endpointGuard, true,
+                Boolean.parseBoolean(environment.getProperty(
+                        "aicostops.gateway.provider.allow-private-endpoints"))
+                        ? null
+                        : new com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup());
     }
 
     @Override

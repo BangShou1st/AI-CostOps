@@ -46,15 +46,15 @@ function Invoke-Mysql([string]$Sql) {
     return $filtered.Trim()
 }
 
-# Step 1: Find the dev organization's MIMO provider_account (created by
-# DevGatewayBootstrap). Scope by organization slug so another organization's
-# MIMO account can never be selected.
-$acctId = Invoke-Mysql "SELECT pa.id FROM provider_account pa JOIN organization o ON o.id=pa.org_id WHERE pa.provider_code='MIMO' AND o.slug='$OrganizationSlug' ORDER BY pa.id LIMIT 1;"
+# Step 1: Find an active Provider Hub account for the dev organization. Provider
+# connections are explicitly configured through the Provider Hub; no vendor-
+# specific development default is seeded by the application.
+$acctId = Invoke-Mysql "SELECT pa.id FROM provider_account pa JOIN organization o ON o.id=pa.org_id WHERE o.slug='$OrganizationSlug' AND pa.status='ACTIVE' AND EXISTS(SELECT 1 FROM provider_credential pc WHERE pc.org_id=pa.org_id AND pc.provider_account_id=pa.id AND pc.status='ACTIVE') ORDER BY pa.id LIMIT 1;"
 if ([string]::IsNullOrEmpty($acctId)) {
-    Write-Error "[M21-SEED] No MIMO provider_account found. Ensure DevGatewayBootstrap ran with AICOSTOPS_MIMO_API_KEY."
+    Write-Error "[M21-SEED] No active provider_account with a credential found. Configure a Provider Hub connection first."
     exit 1
 }
-Write-Output "[M21-SEED] Provider Account: $acctId (MIMO)"
+Write-Output "[M21-SEED] Provider Account: $acctId"
 
 # Step 2: Find org_id from provider_account
 $orgId = Invoke-Mysql "SELECT org_id FROM provider_account WHERE id=$acctId;"
@@ -65,14 +65,14 @@ Write-Output "[M21-SEED] Organization: $orgId"
 # organization or account can never be selected.
 $providerModelId = Invoke-Mysql "SELECT provider_model_id FROM routing_policy_candidate WHERE org_id=$orgId AND provider_account_id=$acctId AND status='ACTIVE' ORDER BY priority, id LIMIT 1;"
 if ([string]::IsNullOrEmpty($providerModelId)) {
-    Write-Error "[M21-SEED] No eligible provider_model found for MIMO account."
+    Write-Error "[M21-SEED] No eligible provider_model found for the active Provider account."
     exit 1
 }
 
 # Step 4: Find pricing_version_id
 $pricingVersionId = Invoke-Mysql "SELECT id FROM pricing_version WHERE org_id=$orgId AND provider_account_id=$acctId AND status='ACTIVE' LIMIT 1;"
 if ([string]::IsNullOrEmpty($pricingVersionId)) {
-    Write-Error "[M21-SEED] No ACTIVE pricing_version found for MIMO account."
+    Write-Error "[M21-SEED] No ACTIVE pricing_version found for the active Provider account."
     exit 1
 }
 
@@ -109,7 +109,7 @@ SELECT LAST_INSERT_ID();
 # Step 6: Ensure provider_credential exists
 $credCount = Invoke-Mysql "SELECT COUNT(*) FROM provider_credential WHERE org_id=$orgId AND provider_account_id=$acctId AND status='ACTIVE';"
 if ($credCount -eq "0") {
-    Write-Error "[M21-SEED] No ACTIVE provider_credential found. DevGatewayBootstrap should have created one with AICOSTOPS_MIMO_API_KEY. Gateway dispatch will fail without a decryptable credential."
+    Write-Error "[M21-SEED] No ACTIVE provider_credential found. Gateway dispatch will fail without a decryptable credential."
     exit 1
 }
 Write-Output "[M21-SEED] Provider Credential: $credCount ACTIVE credential(s) found"

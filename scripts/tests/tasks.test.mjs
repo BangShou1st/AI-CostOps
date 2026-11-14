@@ -34,18 +34,6 @@ test('verify runs scripts, both Maven verify lifecycles, frontend tests/lint/pro
   assert.doesNotMatch(output, /excludedGroups|skipTests/)
 })
 
-test('verify no longer runs an in-repo shared OpenCode Zen Gradle step', async t => {
-  // The shared OpenCode Zen library is consumed as a published JitPack artifact; its Gradle
-  // suite runs in the library's own repository, so the root verify plan must not shell out to a
-  // source snapshot, even when one is present in the working tree.
-  const root = fixture(t)
-  const shared = join(root, 'shared-libs', 'opencode-zen')
-  mkdirSync(shared, { recursive: true })
-  writeFileSync(join(shared, isWindows ? 'gradlew.bat' : 'gradlew'),
-    isWindows ? '@echo off\r\nexit /b 0\r\n' : '#!/bin/sh\nexit 0\n', { mode: 0o755 })
-  assert.doesNotMatch(await invoke(root, 'verify', ['--dry-run']), /shared-lib tests/)
-})
-
 test('maven:settings writes a container-safe copy of the Maven settings', async t => {
   const root = fixture(t)
   const source = join(root, 'host-settings.xml')

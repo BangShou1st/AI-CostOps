@@ -47,13 +47,13 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
     private static final String HMAC_KEY = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
     private static final String MOCK_RESPONSE = """
             {"id":"chatcmpl_mockct","object":"chat.completion","created":1788000100,
-             "model":"mimo-v2.5-pro","choices":[{"index":0,"message":{"role":"assistant",
-             "content":"Hello from MiMo"},"finish_reason":"stop"}],
+             "model":"test-chat-model","choices":[{"index":0,"message":{"role":"assistant",
+             "content":"Hello from Provider"},"finish_reason":"stop"}],
              "usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}
             """;
     private static final String MOCK_RESPONSE_WITHOUT_USAGE = """
             {"id":"chatcmpl_mockct_no_usage","object":"chat.completion","created":1788000101,
-             "model":"mimo-v2.5-pro","choices":[{"index":0,"message":{"role":"assistant",
+             "model":"test-chat-model","choices":[{"index":0,"message":{"role":"assistant",
              "content":"Hello without usage"},"finish_reason":"stop"}]}
             """;
 
@@ -81,7 +81,7 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
         mockUpstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         mockUpstream.createContext("/", exchange -> {
             UPSTREAM_CALLS.incrementAndGet();
-            upstreamAuthHeader = exchange.getRequestHeaders().getFirst("api-key");
+            upstreamAuthHeader = exchange.getRequestHeaders().getFirst("X-API-Key");
             // Drain the request body before responding: leaving a 1 MiB body
             // unread while closing races the client's upload with a TCP RST.
             try (var in = exchange.getRequestBody()) {
@@ -132,7 +132,7 @@ class ChatCompletionControllerTest extends GatewayMySqlContainerSupport {
                 .expectHeader().exists("X-Trace-Id")
                 .expectBody()
                 .jsonPath("$.object").isEqualTo("chat.completion")
-                .jsonPath("$.choices[0].message.content").isEqualTo("Hello from MiMo")
+                .jsonPath("$.choices[0].message.content").isEqualTo("Hello from Provider")
                 .jsonPath("$.choices[0].message.role").isEqualTo("assistant")
                 .jsonPath("$.usage.total_tokens").isEqualTo(8);
 

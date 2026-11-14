@@ -71,7 +71,7 @@ class GatewayRedactionTest extends GatewayMySqlContainerSupport {
                 return;
             }
             var bytes = ("{\"id\":\"chatcmpl_redact\",\"object\":\"chat.completion\","
-                    + "\"created\":1788000500,\"model\":\"mimo-v2.5-pro\","
+                    + "\"created\":1788000500,\"model\":\"test-chat-model\","
                     + "\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\","
                     + "\"content\":\"ok\"},\"finish_reason\":\"stop\"}],"
                     + "\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}")

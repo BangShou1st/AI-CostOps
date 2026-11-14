@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * M12 conservative reservation upper bounds (AIC-087 section 9 + frozen M12
- * design section 7). Input quantity is the fixed MiMo context ceiling
+ * design section 7). Input quantity is the fixed context ceiling
  * (1_048_576); output quantity is the exact effective max_completion_tokens
  * the Gateway already validated and sends upstream. Positive money always
  * rounds UP to scale 8, never down.
@@ -21,7 +21,7 @@ class ReservationAmountCalculatorTest {
     private static final long MILLION = 1_000_000L;
 
     @Test
-    void mimoBaselineUpperBound() {
+    void baselineUpperBound() {
         // input: 1_048_576 * 30/1M = 31.45728
         // output: 8192 * 60/1M = 0.49152
         // total: 31.9488 (already scale 8)

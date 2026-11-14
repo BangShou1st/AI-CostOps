@@ -141,7 +141,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
     const projectCode = `m22-${label.toLowerCase()}-${suffix}`
 
     const providerAccount = await api.createProviderAccount(token, {
-      providerCode: 'OPENCODE_ZEN',
+      providerCode: 'CUSTOM_OPENAI_COMPATIBLE',
       displayName: providerDisplayName,
       externalAccountRef: `${suffixForOrg}-provider`,
     })
@@ -155,7 +155,8 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
     const connectionResult = await assertApi(context, token, `${label}: own Provider Connection create`,
       'POST', '/provider-connections', 201, {
         providerAccountId: Number(providerAccount.id),
-        templateCode: 'OPENCODE_ZEN',
+        templateCode: 'CUSTOM_OPENAI_COMPATIBLE',
+        baseUrl: 'https://example.com',
       })
     const connection = connectionResult.body as OrgData['connection']
     const rawSecret = `m22-synthetic-${label.toLowerCase()}-${suffix}`
@@ -481,7 +482,7 @@ test('M22 两组织独立浏览器会话与真实 API 数据隔离', async ({ br
       const forgedAccountResponse = await attackerContext.request.post(`${API_ROOT}/provider-accounts`, {
         headers: { Authorization: `Bearer ${attacker.token}` },
         data: {
-          providerCode: 'OPENCODE_ZEN',
+          providerCode: 'CUSTOM_OPENAI_COMPATIBLE',
           displayName: forgedAccountName,
           externalAccountRef: `m22-forged-${suffix}-${attacker === orgA ? 'a' : 'b'}`,
           orgId: Number(victim.organizationId),

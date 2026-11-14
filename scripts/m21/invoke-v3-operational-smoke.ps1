@@ -207,7 +207,7 @@ if ($attemptModelId -ne $state.provider_model_id) {
 }
 
 # Step 8: Verify provider_catalog legacy URL is NOT used for dispatch
-$catalogUrl = Invoke-Mysql "SELECT base_url FROM provider_catalog WHERE provider_code='MIMO' AND status='ACTIVE' LIMIT 1;"
+$catalogUrl = Invoke-Mysql "SELECT base_url FROM provider_catalog WHERE status='ACTIVE' ORDER BY provider_code LIMIT 1;"
 if (-not [string]::IsNullOrWhiteSpace($catalogUrl) -and $catalogUrl -eq $state.mock_base_url) {
     Write-Warning "[M21-SMOKE] Catalog base_url matches mock URL — legacy URL may have authority"
 } else {

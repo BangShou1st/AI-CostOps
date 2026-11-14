@@ -107,7 +107,7 @@ async function main(signal) {
   if (command === 'setup') return step(frontend(['ci']))
 
   if (command === 'maven:settings') {
-    // Optional mirrors/proxies for container builds; public JitPack libraries need no credentials.
+    // Optional mirrors/proxies for container builds.
     const source = env.ZEN_MAVEN_SETTINGS_SOURCE ?? join(homedir(), '.m2', 'settings.xml')
     if (!existsSync(source)) {
       throw new Error(`未找到 Maven settings：${source}。如需配置镜像或代理，请用 ZEN_MAVEN_SETTINGS_SOURCE 指定来源。`)
