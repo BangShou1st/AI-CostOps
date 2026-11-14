@@ -25,6 +25,7 @@
 6. MiMo 模型路由 adapter 同步移除；MiMo 账单工作簿导入与 canonical cost 归一化保留，因为其处理的是既有财务账单事实，不是模型接入。
 7. 新增 Flyway `V33__retire_shared_library_providers.sql`，仅将 `OPENCODE_ZEN`、`KILO_GATEWAY`、`MIMO` 的 `provider_catalog.status` 置为 `DISABLED`；账户、连接档案、定价、费用、用量与账本历史均不删除。
 8. 前端 Provider 展示、benchmark fixture、E2E 夹具与当前产品/运维/API 文档同步收敛为自定义 OpenAI 兼容端点。
+9. `DevGatewayBootstrap` 恢复一个**中性的自定义 OpenAI 兼容开发路由**（不再绑定任何厂商），仅用于本地 dev 与 E2E 的路由策略/隔离验收。
 
 ## 验证环境与执行命令
 

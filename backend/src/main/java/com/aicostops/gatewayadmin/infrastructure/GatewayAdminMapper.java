@@ -1,5 +1,6 @@
 package com.aicostops.gatewayadmin.infrastructure;
 
+import java.time.Instant;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -72,5 +73,166 @@ public interface GatewayAdminMapper {
               UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
             """)
     int insertModelCatalog(@Param("modelKey") String modelKey);
+
+    @Select("SELECT COUNT(*) FROM provider_catalog WHERE provider_code=#{providerCode}")
+    int countProviderCatalog(@Param("providerCode") String providerCode);
+
+    @Insert("""
+            INSERT INTO provider_catalog(
+              provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at)
+            VALUES (#{providerCode},#{name},#{adapterCode},#{baseUrl},'ACTIVE',
+              JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS','SSE_STREAMING')),
+              UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+            ON DUPLICATE KEY UPDATE name=VALUES(name), adapter_code=VALUES(adapter_code),
+              base_url=VALUES(base_url), status='ACTIVE', capabilities_json=VALUES(capabilities_json),
+              updated_at=UTC_TIMESTAMP(6)
+            """)
+    int insertProviderCatalog(
+            @Param("providerCode") String providerCode,
+            @Param("name") String name,
+            @Param("adapterCode") String adapterCode,
+            @Param("baseUrl") String baseUrl);
+
+    @Select("SELECT id FROM provider_model WHERE provider_code=#{providerCode} AND provider_model_name=#{providerModelName}")
+    Long findProviderModelId(
+            @Param("providerCode") String providerCode,
+            @Param("providerModelName") String providerModelName);
+
+    @Insert("""
+            INSERT INTO provider_model(
+              provider_code,model_id,provider_model_name,status,routing_eligible,
+              capabilities_json,created_at,updated_at)
+            VALUES (#{providerCode},#{modelId},#{providerModelName},'ACTIVE',TRUE,
+              JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS','SSE_STREAMING')),
+              UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+            """)
+    int insertProviderModel(
+            @Param("providerCode") String providerCode,
+            @Param("modelId") long modelId,
+            @Param("providerModelName") String providerModelName);
+
+    @Select("SELECT id FROM provider_account WHERE org_id=#{orgId} AND provider_code=#{providerCode} AND status='ACTIVE' ORDER BY id LIMIT 1")
+    Long findActiveProviderAccountId(
+            @Param("orgId") long orgId, @Param("providerCode") String providerCode);
+
+    @Insert("""
+            INSERT INTO provider_account(
+              org_id,provider_code,display_name,external_account_ref,status,metadata_json,
+              created_at,updated_at)
+            VALUES (#{orgId},#{providerCode},#{displayName},#{externalRef},'ACTIVE',JSON_OBJECT(),
+              UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+            """)
+    int insertProviderAccount(
+            @Param("orgId") long orgId,
+            @Param("providerCode") String providerCode,
+            @Param("displayName") String displayName,
+            @Param("externalRef") String externalRef);
+
+    @Select("SELECT id FROM provider_connection_profile WHERE org_id=#{orgId} AND provider_account_id=#{providerAccountId} AND status='ACTIVE' ORDER BY id LIMIT 1")
+    Long findActiveConnectionProfileId(
+            @Param("orgId") long orgId, @Param("providerAccountId") long providerAccountId);
+
+    @Insert("""
+            INSERT INTO provider_connection_profile(
+              org_id,provider_account_id,version,connection_kind,template_code,protocol_code,
+              base_url,completion_path,models_path,auth_type,auth_header_name,network_policy,
+              user_agent,connect_timeout_ms,response_timeout_ms,status,created_by,created_at,
+              activated_at,retired_at)
+            VALUES (#{orgId},#{providerAccountId},1,'CUSTOM',NULL,'OPENAI_CHAT_COMPLETIONS',
+              #{baseUrl},'/chat/completions','/models','API_KEY_HEADER','X-API-Key','DIRECT_PUBLIC_ONLY',
+              NULL,5000,60000,'ACTIVE',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL)
+            """)
+    int insertActiveConnectionProfile(
+            @Param("orgId") long orgId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("baseUrl") String baseUrl);
+
+    @Select("SELECT id FROM pricing_version WHERE org_id=#{orgId} AND provider_account_id=#{providerAccountId} AND provider_model_id=#{providerModelId} AND version=#{version}")
+    Long findPricingVersionId(
+            @Param("orgId") long orgId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId,
+            @Param("version") int version);
+
+    @Insert("""
+            INSERT INTO pricing_version(
+              org_id,provider_account_id,provider_model_id,version,currency,
+              effective_from,effective_to,status,created_at,activated_at,retired_at)
+            VALUES (#{orgId},#{providerAccountId},#{providerModelId},#{version},'USD',
+              #{effectiveFrom},#{effectiveTo},'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL)
+            """)
+    int insertPricingVersion(
+            @Param("orgId") long orgId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId,
+            @Param("version") int version,
+            @Param("effectiveFrom") Instant effectiveFrom,
+            @Param("effectiveTo") Instant effectiveTo);
+
+    @Insert("""
+            INSERT IGNORE INTO pricing_rate(org_id,pricing_version_id,dimension_code,unit_quantity,unit_price)
+            VALUES (#{orgId},#{pricingVersionId},#{dimensionCode},#{unitQuantity},#{unitPrice})
+            """)
+    int insertPricingRateIfMissing(
+            @Param("orgId") long orgId,
+            @Param("pricingVersionId") long pricingVersionId,
+            @Param("dimensionCode") String dimensionCode,
+            @Param("unitQuantity") long unitQuantity,
+            @Param("unitPrice") String unitPrice);
+
+    @Select("SELECT id FROM provider_credential WHERE org_id=#{orgId} AND provider_account_id=#{providerAccountId} AND status='ACTIVE' ORDER BY id LIMIT 1")
+    Long findActiveProviderCredentialId(
+            @Param("orgId") long orgId, @Param("providerAccountId") long providerAccountId);
+
+    @Insert("""
+            INSERT INTO provider_credential(
+              org_id,provider_account_id,credential_type,ciphertext,nonce,
+              encryption_key_version,safe_label,status,predecessor_credential_id,
+              created_at,rotated_at,revoked_at)
+            VALUES (#{orgId},#{providerAccountId},'API_KEY',#{ciphertext},#{nonce},
+              1,'dev-custom-provider','ACTIVE',NULL,UTC_TIMESTAMP(6),NULL,NULL)
+            """)
+    int insertProviderCredential(
+            @Param("orgId") long orgId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("ciphertext") byte[] ciphertext,
+            @Param("nonce") byte[] nonce);
+
+    @Select("""
+            SELECT id FROM routing_policy
+            WHERE org_id=#{orgId} AND project_id IS NULL AND model_id=#{modelId}
+              AND status='ACTIVE'
+            ORDER BY version DESC LIMIT 1
+            """)
+    Long findActiveOrganizationRoutingPolicyId(
+            @Param("orgId") long orgId, @Param("modelId") long modelId);
+
+    @Insert("""
+            INSERT INTO routing_policy(
+              org_id,project_id,model_id,version,status,created_at,activated_at)
+            VALUES (#{orgId},NULL,#{modelId},1,'ACTIVE',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+            """)
+    int insertActiveOrganizationRoutingPolicy(
+            @Param("orgId") long orgId, @Param("modelId") long modelId);
+
+    @Insert("""
+            INSERT IGNORE INTO routing_policy_candidate(
+              org_id,routing_policy_id,provider_account_id,provider_model_id,priority,status,
+              privacy_region_code,created_at)
+            VALUES (#{orgId},#{routingPolicyId},#{providerAccountId},#{providerModelId},0,'ACTIVE',NULL,UTC_TIMESTAMP(6))
+            """)
+    int insertRoutingPolicyCandidateIfMissing(
+            @Param("orgId") long orgId,
+            @Param("routingPolicyId") long routingPolicyId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("providerModelId") long providerModelId);
+
+    @Select("""
+            SELECT b.period_start, b.period_end
+            FROM billing_period b
+            WHERE b.org_id=#{orgId} AND b.status='OPEN'
+            ORDER BY b.period_start DESC LIMIT 1
+            """)
+    java.util.Map<String, Object> findOpenBillingPeriodRange(@Param("orgId") long orgId);
 
 }

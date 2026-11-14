@@ -84,17 +84,24 @@ public class ProviderControlPlaneTransport {
 
     private final CustomEndpointValidator.DnsResolver dnsResolver;
     private final Predicate<InetAddress> addressPolicy;
+    private final boolean enforceLoopbackGuard;
     private final ConcurrentHashMap<Integer, HttpClient> clients = new ConcurrentHashMap<>();
 
     public ProviderControlPlaneTransport() {
         this(CustomEndpointValidator.DnsResolver.system(),
-                CustomEndpointValidator::isPublicUnicast);
+                CustomEndpointValidator::isPublicUnicast, true);
     }
 
     ProviderControlPlaneTransport(CustomEndpointValidator.DnsResolver dnsResolver,
             Predicate<InetAddress> addressPolicy) {
+        this(dnsResolver, addressPolicy, false);
+    }
+
+    ProviderControlPlaneTransport(CustomEndpointValidator.DnsResolver dnsResolver,
+            Predicate<InetAddress> addressPolicy, boolean enforceLoopbackGuard) {
         this.dnsResolver = dnsResolver;
         this.addressPolicy = addressPolicy;
+        this.enforceLoopbackGuard = enforceLoopbackGuard;
     }
 
     /** Bounded GET with no request body; redirects are never followed automatically. */
@@ -138,6 +145,9 @@ public class ProviderControlPlaneTransport {
     }
 
     private void validateDestination(String url) {
+        if (!enforceLoopbackGuard) {
+            return;
+        }
         try {
             var uri = java.net.URI.create(url);
             var host = uri.getHost();

@@ -37,7 +37,7 @@ class GatewayM12ReservationSchemaIntegrationTest extends MySqlContainerSupport {
     void emptyDatabaseMigratesThroughV23AndV1TablesRemainUsable() {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1",
-                Integer.class)).isEqualTo(32);
+                Integer.class)).isEqualTo(33);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20' AND success = 1",
                 Integer.class)).isEqualTo(1);
@@ -46,6 +46,9 @@ class GatewayM12ReservationSchemaIntegrationTest extends MySqlContainerSupport {
                 Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '32' AND success = 1",
+                Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '33' AND success = 1",
                 Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '21' AND success = 1",
