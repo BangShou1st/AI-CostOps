@@ -13,6 +13,8 @@ import io.github.bangshou1st.modelbridge.core.protocol.ProtocolId;
 import io.github.bangshou1st.modelbridge.core.protocol.openai.OpenAiCompatibleAdapter;
 import io.github.bangshou1st.modelbridge.core.security.ErrorCategory;
 import io.github.bangshou1st.modelbridge.core.security.ModelBridgeException;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -25,7 +27,10 @@ import java.util.function.Consumer;
  * (and the frozen integration fixtures) omit the terminal {@code finish_reason}.
  * CostOps must still finalize the observed usage and close the stream, so this
  * wrapper converts only those end-of-stream validation failures into a terminal
- * {@link StreamChunk}. Malformed frames and upstream stream errors stay fatal.
+ * {@link StreamChunk}. It also accepts reasoning-only non-streaming responses:
+ * those may legitimately have {@code content=null} and no tool calls while
+ * still carrying usage. Malformed frames, missing choices and upstream errors
+ * stay fatal.
  */
 final class PermissiveOpenAiCompatibleAdapter implements ChatProtocolAdapter {
 
@@ -52,7 +57,21 @@ final class PermissiveOpenAiCompatibleAdapter implements ChatProtocolAdapter {
 
     @Override
     public ChatResponse complete(ProviderConfig provider, ChatRequest request) {
-        return delegate.complete(provider, request);
+        try {
+            return delegate.complete(provider, request);
+        } catch (ModelBridgeException failure) {
+            if (!benignNoContent(failure)) {
+                throw failure;
+            }
+            // Reasoning-only responses can legitimately have content=null and
+            // no tool calls. The bridge treats that shape as malformed, but it
+            // is a valid OpenAI-compatible completion and may still carry
+            // billable usage. Preserve the observed usage and let the public
+            // response expose content=null; never synthesize token counts.
+            return new ChatResponse(
+                    null, null, List.of(), null, failure.usage(),
+                    provider.id(), request.model(), 0L, Map.of());
+        }
     }
 
     @Override
@@ -88,9 +107,17 @@ final class PermissiveOpenAiCompatibleAdapter implements ChatProtocolAdapter {
             return false;
         }
         var message = failure.getMessage();
-        return message != null
-                && (message.contains("finish_reason")
-                        || message.contains("neither text nor tool calls")
-                        || message.contains("returned no choices"));
+        return benignNoContent(failure)
+                || (message != null
+                        && (message.contains("finish_reason")
+                                || message.contains("returned no choices")));
+    }
+
+    private static boolean benignNoContent(ModelBridgeException failure) {
+        if (failure.category() != ErrorCategory.INVALID_RESPONSE) {
+            return false;
+        }
+        var message = failure.getMessage();
+        return message != null && message.contains("neither text nor tool calls");
     }
 }
