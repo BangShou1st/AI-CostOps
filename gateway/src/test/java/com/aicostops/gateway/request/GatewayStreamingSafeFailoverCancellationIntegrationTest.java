@@ -204,7 +204,7 @@ class GatewayStreamingSafeFailoverCancellationIntegrationTest extends GatewayMyS
     }
 
     private long addCandidate(String suffix, int priority) {
-        return GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+        return GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                 "https://" + suffix + ".invalid/v1", priority);
     }
 

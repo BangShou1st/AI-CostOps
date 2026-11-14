@@ -34,7 +34,7 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
     private static final String RAW_KEY = "aic_0123456789ab_" + "A".repeat(43);
     private static final String RESPONSE = """
             {"id":"chatcmpl-failover","object":"chat.completion","created":1788000100,
-             "model":"mimo-v2.5-pro","choices":[{"index":0,"message":{"role":"assistant",
+             "model":"test-chat-model","choices":[{"index":0,"message":{"role":"assistant",
              "content":"from B"},"finish_reason":"stop"}],
              "usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}
             """;
@@ -65,7 +65,7 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
                 requestBody = new String(in.readAllBytes(), StandardCharsets.UTF_8);
             }
             if (failPrimaryWith500
-                    && "sk-test-a".equals(exchange.getRequestHeaders().getFirst("api-key"))) {
+                    && "sk-test-a".equals(exchange.getRequestHeaders().getFirst("X-API-Key"))) {
                 var body = "{\"error\":{\"message\":\"synthetic provider failure\"}}"
                         .getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(500, body.length);
@@ -77,8 +77,8 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
             }
             var streaming = requestBody.contains("\"stream\":true");
             var response = streaming
-                    ? "data: {\"id\":\"stream-failover\",\"created\":1788000100,\"model\":\"mimo-v2.5-pro\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"from B\"},\"finish_reason\":null}]}\n\n"
-                            + "data: {\"id\":\"stream-failover\",\"created\":1788000100,\"model\":\"mimo-v2.5-pro\",\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\n"
+                    ? "data: {\"id\":\"stream-failover\",\"created\":1788000100,\"model\":\"test-chat-model\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"from B\"},\"finish_reason\":null}]}\n\n"
+                            + "data: {\"id\":\"stream-failover\",\"created\":1788000100,\"model\":\"test-chat-model\",\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\n"
                             + "data: [DONE]\n\n"
                     : RESPONSE;
             var body = response.getBytes(StandardCharsets.UTF_8);
@@ -104,7 +104,7 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
         failPrimaryWith500 = false;
         env = GatewayTestFixture.seed(jdbc, "safe-failover-" + System.nanoTime(), HMAC_KEY,
                 RAW_KEY, GatewayTestFixture.TEST_KEK, "sk-test-a", "https://does-not-exist.invalid/v1");
-        secondAccountId = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+        secondAccountId = GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                 "http://127.0.0.1:" + upstream.getAddress().getPort() + "/v1", 1);
     }
 
@@ -213,7 +213,7 @@ class GatewaySafeFailoverIntegrationTest extends GatewayMySqlContainerSupport {
     @Test
     void staticallySkippedPrimaryMakesFirstActualAttemptInitialFallback() {
         jdbc.update("UPDATE provider_model SET routing_eligible=FALSE WHERE id=?", env.providerModelId());
-        secondAccountId = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+        secondAccountId = GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                 "http://127.0.0.1:" + upstream.getAddress().getPort() + "/v1", 1);
 
         web.post().uri("/v1/chat/completions")

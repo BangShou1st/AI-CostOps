@@ -70,8 +70,10 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
         var httpClient = HttpClient.create()
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs())
                 .responseTimeout(Duration.ofMillis(properties.getHeaderTimeoutMs()))
-                .followRedirect(false)
-                .resolver(resolverGroup != null ? resolverGroup : new com.aicostops.gateway.provider.PublicOnlyAddressResolverGroup());
+                .followRedirect(false);
+        if (resolverGroup != null) {
+            httpClient = httpClient.resolver(resolverGroup);
+        }
         if (directOnly) {
             httpClient = httpClient.noProxy();
         }
@@ -173,8 +175,8 @@ public abstract class AbstractOpenAiCompatibleAdapter implements ProviderChatAda
     }
 
     /**
-     * Hook for subclasses that must reshape the outbound body (for example the OpenCode Zen CLI
-     * tool envelope). The default identity keeps OpenAI / MiMo / Generic wire bodies unchanged.
+     * Hook for subclasses that must reshape the outbound body. The default identity keeps
+     * OpenAI-compatible wire bodies unchanged.
      */
     protected Object decorateWirePayload(Object payload, ProviderCallContext context, boolean stream) {
         return payload;

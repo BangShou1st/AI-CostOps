@@ -14,45 +14,16 @@ public final class ProviderTransportSupport {
     public static final int MAX_BODY_BYTES = 65536;
     public static final int MAX_MODEL_IDS = 500;
     public static final int MAX_REDIRECTS = 3;
-    public static final String OPENCODE_USER_AGENT =
-            ProviderTemplateRegistry.OPENCODE_ZEN_USER_AGENT;
     /**
-     * Neutral User-Agent for custom Providers without an explicit userAgent. Custom traffic must
-     * never masquerade as OpenCode; the OpenCode UA is provider-specific to OPENCODE_ZEN.
+     * Neutral User-Agent for custom Providers without an explicit userAgent. Provider traffic must
+     * never masquerade as another product.
      */
     public static final String NEUTRAL_PROVIDER_USER_AGENT = "AI-CostOps-Provider/3.0";
-
-    @Deprecated
-    public static final String DEFAULT_PROBE_USER_AGENT = OPENCODE_USER_AGENT;
 
     private ProviderTransportSupport() {
     }
 
-    /**
-     * Server-owned User-Agent policy: explicit profile UA wins; otherwise OPENCODE_ZEN uses the
-     * provider-specific OpenCode UA and CUSTOM falls back to the neutral provider UA.
-     */
-    public static String serverUserAgent(String profileUserAgent, String templateCode) {
-        if (profileUserAgent != null && !profileUserAgent.isBlank()) {
-            return profileUserAgent;
-        }
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(templateCode)) {
-            return OPENCODE_USER_AGENT;
-        }
-        return NEUTRAL_PROVIDER_USER_AGENT;
-    }
-
-    /**
-     * Built-in templates whose free tier may reach Provider endpoints without a stored organization
-     * key. OpenCode Zen carries its shared public credential; Kilo Gateway's free models are called
-     * anonymously. Every other Provider stays fail-closed on a missing key.
-     */
-    public static boolean allowsKeylessCredential(String templateCode) {
-        return ProviderTemplateRegistry.OPENCODE_ZEN.equals(templateCode)
-                || ProviderTemplateRegistry.KILO_GATEWAY.equals(templateCode);
-    }
-
-    @Deprecated
+    /** Explicit profile UA wins; otherwise every Provider uses the neutral server-owned UA. */
     public static String serverUserAgent(String profileUserAgent) {
         return profileUserAgent == null || profileUserAgent.isBlank()
                 ? NEUTRAL_PROVIDER_USER_AGENT : profileUserAgent;

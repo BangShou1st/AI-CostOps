@@ -47,10 +47,10 @@ class ConnectionProfileEndpointAuthorityIntegrationTest extends GatewayMySqlCont
         assertThat(candidate.providerConnectionProfileId()).isPositive();
         assertThat(candidate.baseUrl()).isEqualTo(GatewayTestFixture.DEFAULT_BASE_URL);
         assertThat(candidate.completionPath()).isEqualTo("/chat/completions");
-        assertThat(candidate.protocolCode()).isEqualTo("MIMO_CHAT_COMPLETIONS");
+        assertThat(candidate.protocolCode()).isEqualTo("OPENAI_CHAT_COMPLETIONS");
 
         jdbc.update("UPDATE provider_catalog SET base_url='https://moved.example.test/v9'"
-                + " WHERE provider_code='MIMO'");
+                + " WHERE provider_code='CUSTOM_OPENAI_COMPATIBLE'");
         var resolved = resolver.resolve(env.orgId(), env.projectId(), env.modelId(), Instant.now());
         assertThat(resolved.candidates().get(0).baseUrl())
                 .isEqualTo(GatewayTestFixture.DEFAULT_BASE_URL);
@@ -77,7 +77,7 @@ class ConnectionProfileEndpointAuthorityIntegrationTest extends GatewayMySqlCont
                 FROM provider_connection_profile WHERE org_id=? AND provider_account_id=? AND status='ACTIVE'
                 """, env.orgId(), env.providerAccountId());
         var oldProfileId = ((Number) oldProfile.get("id")).longValue();
-        var nextBaseUrl = "https://mimo-version-2.example.test/v2";
+        var nextBaseUrl = "https://provider-version-2.example.test/v2";
 
         jdbc.update("UPDATE provider_connection_profile SET status='RETIRED',retired_at=UTC_TIMESTAMP(6)"
                 + " WHERE id=? AND status='ACTIVE'", oldProfileId);

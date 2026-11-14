@@ -131,7 +131,7 @@ function createProviderStack(orgId, suffix) {
       template_code,protocol_code,base_url,completion_path,models_path,auth_type,auth_header_name,
       network_policy,user_agent,connect_timeout_ms,response_timeout_ms,status,created_by,created_at,
       activated_at,retired_at)
-    VALUES (${orgId},${accountId},1,'CUSTOM',NULL,'MIMO_CHAT_COMPLETIONS',
+    VALUES (${orgId},${accountId},1,'CUSTOM',NULL,'OPENAI_CHAT_COMPLETIONS',
       ${sqlQuote(`http://127.0.0.1:${MOCK_PORT}/v1`)},'/chat/completions','/models',
       'API_KEY_HEADER','X-API-Key','DIRECT_PUBLIC_ONLY',NULL,3000,30000,'ACTIVE',NULL,
       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL);`)
@@ -185,7 +185,7 @@ export function seed() {
       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));`)
   sqlStatement(`INSERT INTO provider_catalog(provider_code,name,adapter_code,base_url,status,
       capabilities_json,created_at,updated_at)
-    VALUES (${sqlQuote(PROVIDER_CODE)},'HC-03 Mock Provider','MIMO',
+    VALUES (${sqlQuote(PROVIDER_CODE)},'HC-03 Mock Provider','CUSTOM_OPENAI_COMPATIBLE',
       ${sqlQuote(`http://127.0.0.1:${MOCK_PORT}/v1`)},'ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));`)
   sqlStatement(`INSERT INTO provider_model(provider_code,model_id,provider_model_name,status,routing_eligible,
       capabilities_json,created_at,updated_at)

@@ -76,7 +76,7 @@ if (-not $modelId) {
 $providerCode = "M16MOCK"
 $hasCatalog = (Invoke-Root ("SELECT provider_code FROM provider_catalog WHERE provider_code='" + $providerCode + "';")).Trim()
 if (-not $hasCatalog) {
-    Invoke-Root ("INSERT INTO provider_catalog(provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at) VALUES ('" + $providerCode + "','M16 Mock','MIMO','" + $MockBaseUrl + "','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));") | Out-Null
+    Invoke-Root ("INSERT INTO provider_catalog(provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at) VALUES ('" + $providerCode + "','M16 Mock','CUSTOM_OPENAI_COMPATIBLE','" + $MockBaseUrl + "','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));") | Out-Null
 } else {
     Invoke-Root ("UPDATE provider_catalog SET base_url='" + $MockBaseUrl + "', updated_at=UTC_TIMESTAMP(6) WHERE provider_code='" + $providerCode + "';") | Out-Null
 }

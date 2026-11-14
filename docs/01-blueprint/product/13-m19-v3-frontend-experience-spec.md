@@ -58,7 +58,7 @@ Right dock or evidence drawer allowed when structure serves explanation.
 ## 7. Provider Hub (B density on A system)
 
 Gallery is a readiness matrix: connection, models, pricing, routing. Not a logo wall.
-OpenCode Zen featured as built-in. Custom rows use neutral lettermark.
+Custom OpenAI-compatible connections use neutral lettermark.
 Connections: Connection Auth Endpoint Network policy Version Health Last probe Status.
 Secrets always masked labels.
 Models: AVAILABLE UNAVAILABLE, protocol Chat Unsupported Unknown, probe PASS FAIL UNKNOWN,

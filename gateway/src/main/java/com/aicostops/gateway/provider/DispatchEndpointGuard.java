@@ -2,6 +2,7 @@ package com.aicostops.gateway.provider;
 
 import java.net.URI;
 import java.util.Locale;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -14,6 +15,13 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class DispatchEndpointGuard {
+
+    private final boolean allowPrivateEndpoints;
+
+    public DispatchEndpointGuard(
+            @Value("${aicostops.gateway.provider.allow-private-endpoints:false}") boolean allowPrivateEndpoints) {
+        this.allowPrivateEndpoints = allowPrivateEndpoints;
+    }
 
     public void check(String baseUrl, String completionPath, String networkPolicy) {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -36,7 +44,9 @@ public class DispatchEndpointGuard {
         if (host == null || host.isBlank()) {
             throw guardFailure("endpoint hostname is malformed");
         }
-        if ("DIRECT_PUBLIC_ONLY".equals(networkPolicy) && isLiteralBlockedIp(host)) {
+        if (!allowPrivateEndpoints
+                && "DIRECT_PUBLIC_ONLY".equals(networkPolicy)
+                && isLiteralBlockedIp(host)) {
             throw guardFailure("endpoint literal address is not public");
         }
         if (completionPath != null && !completionPath.isBlank()

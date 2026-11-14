@@ -1,7 +1,6 @@
 package com.aicostops.providerhub.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -78,35 +77,6 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
     }
 
     @Test
-    void templatesExposeServerOwnedZenDefaults() throws Exception {
-        mockMvc.perform(get("/api/v1/provider-templates").header("Authorization", bearer()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.code=='OPENCODE_ZEN')].baseUrl", hasItem("https://opencode.ai/inference/v1")))
-                .andExpect(jsonPath("$[?(@.code=='OPENCODE_ZEN')].networkPolicy", hasItem("DIRECT_ONLY")));
-    }
-
-    @Test
-    void templatesExposeServerOwnedKiloGatewayDefaults() throws Exception {
-        mockMvc.perform(get("/api/v1/provider-templates").header("Authorization", bearer()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.code=='KILO_GATEWAY')].baseUrl", hasItem("https://ai-gateway.kilo.ai/api/v1")))
-                .andExpect(jsonPath("$[?(@.code=='KILO_GATEWAY')].networkPolicy", hasItem("DIRECT_ONLY")))
-                .andExpect(jsonPath("$[?(@.code=='KILO_GATEWAY')].connectionKind", hasItem("BUILTIN")));
-    }
-
-    @Test
-    void builtInKiloGatewayConnectionsRequireAKiloGatewayAccount() throws Exception {
-        // The only account in this fixture is CUSTOM_OPENAI_COMPATIBLE: a built-in template must not
-        // bind to it.
-        mockMvc.perform(post("/api/v1/provider-connections").header("Authorization", bearer())
-                        .contentType("application/json")
-                        .content("{\"providerAccountId\":" + accountId
-                                + ",\"templateCode\":\"KILO_GATEWAY\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
-    }
-
-    @Test
     void readerCannotMutateAndSeesOnlyOwnOrg() throws Exception {
         replaceAssignment("HUB_READER", "ORG", organizationId);
         mockMvc.perform(post("/api/v1/provider-connections").header("Authorization", bearer())
@@ -137,16 +107,6 @@ class ProviderHubApiIntegrationTest extends AuthenticationContainersSupport {
                         .content("{\"providerAccountId\":" + accountId
                                 + ",\"baseUrl\":\"https://example.com\",\"authType\":\"API_KEY_HEADER\","
                                 + "\"authHeaderName\":\"Authorization\"}"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void builtinTemplateFieldsAreServerOwned() throws Exception {
-        mockMvc.perform(post("/api/v1/provider-connections").header("Authorization", bearer())
-                        .contentType("application/json")
-                        .content("{\"providerAccountId\":" + accountId
-                                + ",\"templateCode\":\"OPENCODE_ZEN\","
-                                + "\"baseUrl\":\"https://evil.example.test\"}"))
                 .andExpect(status().isBadRequest());
     }
 

@@ -17,7 +17,7 @@ class DeterministicRouteSelectorTest {
     }
 
     private static ResolvedRoutingPolicy.Candidate candidate(long id, int priority) {
-        return new ResolvedRoutingPolicy.Candidate(id, priority, id, "MIMO", id, "model", id,
-                "USD", "https://example.test", "MIMO", true, true, true, true);
+        return new ResolvedRoutingPolicy.Candidate(id, priority, id, "OPENAI", id, "model", id,
+                "USD", "https://example.test", "OPENAI", true, true, true, true);
     }
 }

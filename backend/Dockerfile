@@ -1,4 +1,3 @@
-# Public shared libraries resolve anonymously from JitPack.
 # Optional BuildKit Maven settings support mirrors/proxies; credentials are not required.
 FROM eclipse-temurin:21-jdk-noble AS build
 

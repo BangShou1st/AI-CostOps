@@ -121,7 +121,7 @@ VALUES ('${escapedKey}','${escapedName}',${organizationId},'ACTIVE',
 SET @m22_model = LAST_INSERT_ID();
 INSERT INTO provider_model(provider_code,model_id,provider_model_name,status,
   routing_eligible,capabilities_json,owner_org_id,provider_account_id,created_at,updated_at)
-VALUES ('OPENCODE_ZEN',@m22_model,'${escapedName}','ACTIVE',TRUE,
+VALUES ('CUSTOM_OPENAI_COMPATIBLE',@m22_model,'${escapedName}','ACTIVE',TRUE,
   JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS')),
   ${organizationId},${providerAccountId},UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));
 SET @m22_provider_model = LAST_INSERT_ID();

@@ -40,9 +40,6 @@ public class ModelDiscoveryService {
     private final Clock clock;
     private final ModelDiscoveryService self;
     private final String providerKek;
-    private final OpenCodeModelManifest openCodeManifest;
-    private final KiloGatewayModelManifest kiloManifest;
-    private final OpenCodeZenTransportHeaders openCodeZenHeaders;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ModelDiscoveryService(
@@ -55,10 +52,7 @@ public class ModelDiscoveryService {
             AuditService audit,
             Clock clock,
             @Lazy ModelDiscoveryService self,
-            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
-            OpenCodeModelManifest openCodeManifest,
-            KiloGatewayModelManifest kiloManifest,
-            OpenCodeZenTransportHeaders openCodeZenHeaders) {
+            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.mapper = mapper;
@@ -69,9 +63,6 @@ public class ModelDiscoveryService {
         this.clock = clock;
         this.self = self;
         this.providerKek = providerKek;
-        this.openCodeManifest = openCodeManifest;
-        this.kiloManifest = kiloManifest;
-        this.openCodeZenHeaders = openCodeZenHeaders;
     }
 
     public List<DiscoveryResponse> list(AuthenticatedUser user, long profileId) {
@@ -144,19 +135,8 @@ public class ModelDiscoveryService {
             if (name.isEmpty() || name.length() > 200 || !seen.add(name)) {
                 continue;
             }
-            // P1-4 OpenCode manifest: live /models proves availability only. Per-model protocol
-            // and pricing come from the server-owned manifest; unknown stays UNKNOWN and can
-            // never be guessed into the generic Chat adapter. Custom connections keep the
-            // explicit connection-level Chat contract.
             var protocol = profile.protocolCode();
             var pricing = "UNKNOWN";
-            if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
-                protocol = openCodeManifest.protocolFor(name);
-                pricing = openCodeManifest.pricingFor(name);
-            } else if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())) {
-                protocol = kiloManifest.protocolFor(name);
-                pricing = kiloManifest.pricingFor(name);
-            }
             mapper.upsertObservation(context.organizationId(), profileId, name, name,
                     "LIVE_DISCOVERY", "AVAILABLE", protocol, pricing,
                     EMPTY_CAPABILITIES, EMPTY_CAPABILITIES, now);
@@ -222,17 +202,8 @@ public class ModelDiscoveryService {
             throw validationFailed("Model name is required.");
         }
         var now = clock.instant();
-        // P1-4 OpenCode manifest also applies to manual observations: never guess Chat
-        // compatibility from the connection-level protocol.
         var manualProtocol = profile.protocolCode();
         var manualPricing = "UNKNOWN";
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
-            manualProtocol = openCodeManifest.protocolFor(name);
-            manualPricing = openCodeManifest.pricingFor(name);
-        } else if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())) {
-            manualProtocol = kiloManifest.protocolFor(name);
-            manualPricing = kiloManifest.pricingFor(name);
-        }
         mapper.upsertObservation(context.organizationId(), profileId, name, name,
                 "MANUAL", "AVAILABLE", manualProtocol, manualPricing,
                 EMPTY_CAPABILITIES, EMPTY_CAPABILITIES, now);
@@ -269,28 +240,6 @@ public class ModelDiscoveryService {
                 || !"OPENAI_CHAT_COMPLETIONS".equals(profile.protocolCode())) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
                     "Model not promotable", "Only OPENAI_CHAT_COMPLETIONS models can be promoted.");
-        }
-        // P1-4 OpenCode manifest gate + FREE_ONLY (2026-10-16): promotion requires controlled
-        // FREE-ELIGIBLE Chat compatibility plus a successful probe plus verified CHAT. PAID,
-        // UNKNOWN, UNSUPPORTED and delisted ids stay AVAILABLE but never become routable through
-        // the built-in template. Custom connections skip the manifest because their connection
-        // itself is the explicit Chat contract.
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())
-                && !openCodeManifest.isFreeEligible(discovery.providerModelName())) {
-            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
-                    "Model not promotable",
-                    "OpenCode Zen is admitted for verified-free Chat Completions models only;"
-                            + " this model has no current free evidence in the controlled manifest.");
-        }
-        // Kilo Gateway FREE_ONLY (2026-10-18): the built-in template is admitted for free models
-        // only, and free evidence is the shared library policy (single definition shared with the
-        // Gateway barrier). Non-free ids stay discovered/AVAILABLE but never become routable.
-        if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())
-                && !kiloManifest.isFreeEligible(discovery.providerModelName())) {
-            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
-                    "Model not promotable",
-                    "Kilo Gateway is admitted for free models only;"
-                            + " this model has no free evidence in the shared free-model policy.");
         }
         if (!"PASS".equals(discovery.lastProbeStatus())) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.MODEL_NOT_VERIFIED,
@@ -344,17 +293,9 @@ public class ModelDiscoveryService {
                 row.lastSeenAt(), row.lastProbedAt(), row.lastProbeStatus(), row.lastProbeErrorCode());
     }
 
-    /**
-     * Internal logical model key for a discovered Provider model. The built-in Kilo template derives
-     * a stable, legal key because its raw ids carry {@code /} and {@code :} (see
-     * {@link KiloGatewayModelManifest#logicalModelKey(String)}); every other Provider keeps the
-     * historical raw lowercase name.
-     */
+    /** Internal logical model key for a discovered Provider model. */
     private String logicalModelKey(
             com.aicostops.providerhub.domain.ProviderConnection profile, String providerModelName) {
-        if (ProviderTemplateRegistry.KILO_GATEWAY.equals(profile.templateCode())) {
-            return kiloManifest.logicalModelKey(providerModelName);
-        }
         return providerModelName.toLowerCase(java.util.Locale.ROOT);
     }
 
@@ -403,10 +344,8 @@ public class ModelDiscoveryService {
         endpointValidator.validateEndpoint(target);
         var origin = java.net.URI.create(target);
         var secret = resolveSecret(profile);
-        var openCodeZen = ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode());
-        var authenticated = secret != null || openCodeZen;
-        var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent(),
-                profile.templateCode());
+        var authenticated = secret != null;
+        var userAgent = ProviderTransportSupport.serverUserAgent(profile.userAgent());
         var current = target;
         for (var hop = 0; hop <= ProviderTransportSupport.MAX_REDIRECTS; hop++) {
             final ProviderControlPlaneTransport.Result response;
@@ -455,9 +394,6 @@ public class ModelDiscoveryService {
         }
         var credential = credentials.findActive(profile.organizationId(), profile.providerAccountId());
         if (credential == null) {
-            if (ProviderTransportSupport.allowsKeylessCredential(profile.templateCode())) {
-                return null;
-            }
             throw authFailed("Provider credential is not available.");
         }
         if (providerKek == null || providerKek.isBlank()) {
@@ -476,9 +412,6 @@ public class ModelDiscoveryService {
     private java.util.Map<String, String> discoveryHeaders(
             com.aicostops.providerhub.domain.ProviderConnection profile, String userAgent,
             String secret, String endpoint) {
-        if (ProviderTemplateRegistry.OPENCODE_ZEN.equals(profile.templateCode())) {
-            return openCodeZenHeaders.catalog(java.net.URI.create(endpoint), secret, "application/json");
-        }
         var headers = new java.util.LinkedHashMap<String, String>();
         headers.put("Accept", "application/json");
         headers.put("User-Agent", userAgent);

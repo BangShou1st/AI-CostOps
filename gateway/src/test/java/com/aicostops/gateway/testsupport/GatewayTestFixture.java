@@ -11,16 +11,16 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 /**
  * Seeds one org-scoped M11 runtime projection for gateway integration tests:
  * OPEN billing period + project + SERVICE credential + explicit model
- * relation + MIMO provider route with an ACTIVE Provider credential and an
+ * relation + custom OpenAI-compatible provider route with an ACTIVE credential and an
  * ACTIVE Pricing Version.
  */
 public final class GatewayTestFixture {
 
-    public static final String PROVIDER_CODE = "MIMO";
-    public static final String PROVIDER_MODEL_NAME = "mimo-v2.5-pro";
+    public static final String PROVIDER_CODE = "CUSTOM_OPENAI_COMPATIBLE";
+    public static final String PROVIDER_MODEL_NAME = "test-chat-model";
     public static final String MODEL_KEY = "default-chat";
     public static final String TEST_KEK = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
-    public static final String DEFAULT_BASE_URL = "https://api.xiaomimimo.com/v1";
+    public static final String DEFAULT_BASE_URL = "https://provider.example.test/v1";
 
     // Shared test-only nonce source. SecureRandom seeding is expensive, so one
     // static instance serves every provider-secret encryption in tests.
@@ -118,17 +118,15 @@ public final class GatewayTestFixture {
         }
 
         // Global catalogs are shared across orgs; seed them idempotently.
-        var existingProviders = jdbc.queryForList(
-                "SELECT provider_code FROM provider_catalog WHERE provider_code=?",
-                String.class, PROVIDER_CODE);
-        if (existingProviders.isEmpty()) {
-            jdbc.update("""
-                    INSERT INTO provider_catalog(
-                      provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at)
-                    VALUES (?,'MiMo','MIMO',?,'ACTIVE',JSON_OBJECT(),
-                      UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
-                    """, PROVIDER_CODE, baseUrl);
-        }
+        jdbc.update("""
+                INSERT INTO provider_catalog(
+                  provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at)
+                VALUES (?,'Custom OpenAI-Compatible','CUSTOM_OPENAI_COMPATIBLE',?,'ACTIVE',JSON_OBJECT(),
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE name=VALUES(name), adapter_code=VALUES(adapter_code),
+                  base_url=VALUES(base_url), status='ACTIVE', capabilities_json=VALUES(capabilities_json),
+                  updated_at=UTC_TIMESTAMP(6)
+                """, PROVIDER_CODE, baseUrl);
         var providerModelRows = jdbc.queryForList("""
                 SELECT id FROM provider_model
                 WHERE provider_code=? AND model_id=? AND provider_model_name=?
@@ -171,7 +169,7 @@ public final class GatewayTestFixture {
                   user_agent,connect_timeout_ms,response_timeout_ms,status,created_by,created_at,
                   activated_at,retired_at)
                 SELECT ?,?,1,'CUSTOM',NULL,
-                  CASE WHEN pc.provider_code='MIMO' THEN 'MIMO_CHAT_COMPLETIONS' ELSE 'OPENAI_CHAT_COMPLETIONS' END,
+                  'OPENAI_CHAT_COMPLETIONS',
                   pc.base_url,'/chat/completions','/models','API_KEY_HEADER','X-API-Key',
                   'DIRECT_PUBLIC_ONLY',NULL,5000,60000,'ACTIVE',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL
                 FROM provider_catalog pc WHERE pc.provider_code=?
@@ -281,20 +279,20 @@ public final class GatewayTestFixture {
         jdbc.update("DELETE FROM provider_catalog");
     }
 
-    /** Add a second certified MiMo-compatible account to the seeded policy. */
-    public static long addMimoCompatibleCandidate(JdbcTemplate sharedJdbc, SeededEnv env,
+    /** Add a second compatible custom account to the seeded policy. */
+    public static long addCompatibleCandidate(JdbcTemplate sharedJdbc, SeededEnv env,
             String baseUrl, int priority) {
         return onOneConnection(sharedJdbc,
-                jdbc -> addMimoCompatibleCandidateWithinOneConnection(jdbc, env, baseUrl, priority));
+                jdbc -> addCompatibleCandidateWithinOneConnection(jdbc, env, baseUrl, priority));
     }
 
-    private static long addMimoCompatibleCandidateWithinOneConnection(JdbcTemplate jdbc, SeededEnv env,
+    private static long addCompatibleCandidateWithinOneConnection(JdbcTemplate jdbc, SeededEnv env,
             String baseUrl, int priority) {
-        var providerCode = "MIMO_TEST_" + priority + "_" + System.nanoTime();
+        var providerCode = "CUSTOM_FAILOVER_" + priority + "_" + System.nanoTime();
         jdbc.update("""
                 INSERT INTO provider_catalog(
                   provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at)
-                VALUES (?,'MiMo test failover','MIMO',?,'ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                VALUES (?,'Custom test failover','CUSTOM_OPENAI_COMPATIBLE',?,'ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, providerCode, baseUrl);
         jdbc.update("""
                 INSERT INTO provider_model(
@@ -323,7 +321,7 @@ public final class GatewayTestFixture {
                   base_url,completion_path,models_path,auth_type,auth_header_name,network_policy,
                   user_agent,connect_timeout_ms,response_timeout_ms,status,created_by,created_at,
                   activated_at,retired_at)
-                VALUES (?,?,1,'CUSTOM',NULL,'MIMO_CHAT_COMPLETIONS',?,'/chat/completions','/models',
+                VALUES (?,?,1,'CUSTOM',NULL,'OPENAI_CHAT_COMPLETIONS',?,'/chat/completions','/models',
                   'API_KEY_HEADER','X-API-Key','DIRECT_PUBLIC_ONLY',NULL,5000,60000,'ACTIVE',NULL,
                   UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL)
                 """, env.orgId(), accountId, baseUrl);
