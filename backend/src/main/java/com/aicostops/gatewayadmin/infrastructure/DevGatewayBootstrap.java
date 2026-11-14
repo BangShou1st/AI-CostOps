@@ -21,15 +21,14 @@ import org.springframework.transaction.annotation.Transactional;
  * Local development provisioning for the M14 Gateway runtime projection.
  *
  * <p>Runs only in the {@code dev} profile and only when
- * {@code AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED=true}. It idempotently
- * provisions one SERVICE identity, one OPTIONAL Gateway credential, the
- * explicit {@code default-chat} model relation, the MiMo catalog/model
- * mapping, one ACTIVE Pricing Version with rates, and an encrypted Provider
- * credential only when {@code AICOSTOPS_MIMO_API_KEY} is present, plus an
- * idempotent ACTIVE organization-default routing policy.
+ * {@code AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED=true}. It idempotently provisions one SERVICE
+ * identity, one OPTIONAL Gateway credential, the explicit {@code default-chat} model relation,
+ * and one generic custom OpenAI-compatible Provider route. The route is vendor-neutral and exists
+ * so local development and browser E2E have a governed routing policy without hard-coding a real
+ * Provider integration.
  *
- * <p>Never logs or persists raw Gateway keys or raw Provider secrets: only
- * the credential prefix and keyed digest are stored.
+ * <p>Never logs or persists raw Gateway keys or raw Provider secrets: only the credential prefix
+ * and keyed digest are stored.
  */
 @Component
 @Profile("dev")
@@ -40,10 +39,9 @@ public class DevGatewayBootstrap implements ApplicationRunner {
     static final String SERVICE_CODE = "aicostops-gateway-dev";
     static final String PROJECT_CODE = "aicostops-gateway-dev";
     static final String MODEL_KEY = "default-chat";
-    static final String PROVIDER_CODE = "MIMO";
-    static final String PROVIDER_MODEL_NAME = "mimo-v2.5-pro";
-    static final String PROVIDER_BASE_URL = "https://api.xiaomimimo.com/v1";
-    static final String CURRENCY = "USD";
+    static final String PROVIDER_CODE = "CUSTOM_OPENAI_COMPATIBLE";
+    static final String PROVIDER_MODEL_NAME = "dev-chat-model";
+    static final String DEFAULT_PROVIDER_BASE_URL = "https://provider.example.test/v1";
 
     private final OrganizationMapper organizationMapper;
     private final IamMapper iamMapper;
@@ -54,7 +52,8 @@ public class DevGatewayBootstrap implements ApplicationRunner {
     private final String rawGatewayKey;
     private final String credentialHmacKey;
     private final String providerKek;
-    private final String mimoApiKey;
+    private final String providerBaseUrl;
+    private final String providerApiKey;
     private final String organizationSlug;
 
     public DevGatewayBootstrap(
@@ -67,7 +66,8 @@ public class DevGatewayBootstrap implements ApplicationRunner {
             @Value("${aicostops.gateway.dev-raw-key:}") String rawGatewayKey,
             @Value("${aicostops.gateway.credential-hmac-key-v1:}") String credentialHmacKey,
             @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
-            @Value("${AICOSTOPS_MIMO_API_KEY:}") String mimoApiKey,
+            @Value("${AICOSTOPS_DEV_PROVIDER_BASE_URL:https://provider.example.test/v1}") String providerBaseUrl,
+            @Value("${AICOSTOPS_DEV_PROVIDER_API_KEY:dev-only-provider-token}") String providerApiKey,
             @Value("${aicostops.auth.public-registration-org-slug:local-dev}") String organizationSlug) {
         this.organizationMapper = organizationMapper;
         this.iamMapper = iamMapper;
@@ -77,8 +77,10 @@ public class DevGatewayBootstrap implements ApplicationRunner {
         this.bootstrapEnabled = bootstrapEnabled;
         this.rawGatewayKey = rawGatewayKey;
         this.credentialHmacKey = credentialHmacKey;
-        this.providerKek = providerKek;
-        this.mimoApiKey = mimoApiKey == null ? "" : mimoApiKey.trim();
+        this.providerKek = providerKek == null ? "" : providerKek.trim();
+        this.providerBaseUrl = providerBaseUrl == null || providerBaseUrl.isBlank()
+                ? DEFAULT_PROVIDER_BASE_URL : providerBaseUrl.trim();
+        this.providerApiKey = providerApiKey == null ? "" : providerApiKey.trim();
         this.organizationSlug = organizationSlug;
     }
 
@@ -108,17 +110,17 @@ public class DevGatewayBootstrap implements ApplicationRunner {
                 organizationId, parsedKey, serviceIdentityId, projectId);
         var modelId = ensureModelCatalog();
         gatewayAdminMapper.insertCredentialModelIfMissing(credentialId, organizationId, modelId);
+
         var providerModelId = ensureProviderModel(modelId);
         var providerAccountId = ensureProviderAccount(organizationId);
+        ensureConnectionProfile(organizationId, providerAccountId);
         ensurePricingVersion(organizationId, providerAccountId, providerModelId);
+        ensureProviderCredential(organizationId, providerAccountId);
         ensureRoutingPolicy(organizationId, modelId, providerAccountId, providerModelId);
-        if (!mimoApiKey.isBlank()) {
-            ensureProviderCredential(organizationId, providerAccountId);
-        }
 
         log.info(
                 "M14 gateway dev bootstrap ready: org={} credentialId={} serviceIdentityId={} "
-                        + "projectId={} modelKey={} providerCode={} providerModelName={} pricingVersion present",
+                        + "projectId={} modelKey={} providerCode={} providerModelName={}",
                 organizationId, credentialId, serviceIdentityId, projectId, MODEL_KEY,
                 PROVIDER_CODE, PROVIDER_MODEL_NAME);
     }
@@ -171,9 +173,8 @@ public class DevGatewayBootstrap implements ApplicationRunner {
         if (existing != null) {
             return existing;
         }
-        if (gatewayAdminMapper.countProviderCatalog(PROVIDER_CODE) == 0) {
-            gatewayAdminMapper.insertProviderCatalog(PROVIDER_CODE, PROVIDER_BASE_URL);
-        }
+        gatewayAdminMapper.insertProviderCatalog(
+                PROVIDER_CODE, "Custom OpenAI-Compatible", PROVIDER_CODE, providerBaseUrl);
         gatewayAdminMapper.insertProviderModel(PROVIDER_CODE, modelId, PROVIDER_MODEL_NAME);
         var id = gatewayAdminMapper.findProviderModelId(PROVIDER_CODE, PROVIDER_MODEL_NAME);
         return require(id, "provider model " + PROVIDER_CODE + "/" + PROVIDER_MODEL_NAME);
@@ -184,9 +185,18 @@ public class DevGatewayBootstrap implements ApplicationRunner {
         if (existing != null) {
             return existing;
         }
-        gatewayAdminMapper.insertProviderAccount(organizationId, PROVIDER_CODE);
+        gatewayAdminMapper.insertProviderAccount(
+                organizationId, PROVIDER_CODE, "Development Custom Provider", "dev-custom-provider");
         var id = gatewayAdminMapper.findActiveProviderAccountId(organizationId, PROVIDER_CODE);
         return require(id, "provider account " + PROVIDER_CODE);
+    }
+
+    private void ensureConnectionProfile(long organizationId, long providerAccountId) {
+        if (gatewayAdminMapper.findActiveConnectionProfileId(organizationId, providerAccountId) != null) {
+            return;
+        }
+        gatewayAdminMapper.insertActiveConnectionProfile(
+                organizationId, providerAccountId, providerBaseUrl);
     }
 
     private void ensurePricingVersion(long organizationId, long providerAccountId, long providerModelId) {
@@ -217,13 +227,14 @@ public class DevGatewayBootstrap implements ApplicationRunner {
     }
 
     private void ensureProviderCredential(long organizationId, long providerAccountId) {
-        var existing = gatewayAdminMapper.findActiveProviderCredentialId(
-                organizationId, providerAccountId);
-        if (existing != null) {
+        if (providerKek.isBlank() || providerApiKey.isBlank()
+                || gatewayAdminMapper.findActiveProviderCredentialId(
+                        organizationId, providerAccountId) != null) {
             return;
         }
         var encryptor = new ProviderCredentialEncryptor(providerKek);
-        var encrypted = encryptor.encrypt(mimoApiKey, organizationId, providerAccountId, "API_KEY", (short) 1);
+        var encrypted = encryptor.encrypt(
+                providerApiKey, organizationId, providerAccountId, "API_KEY", (short) 1);
         gatewayAdminMapper.insertProviderCredential(
                 organizationId, providerAccountId, encrypted.ciphertext(), encrypted.nonce());
     }

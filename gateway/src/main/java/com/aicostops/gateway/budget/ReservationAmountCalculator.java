@@ -9,7 +9,7 @@ import java.util.Set;
 /**
  * M12 conservative reservation upper-bound calculator (AIC-087 section 9).
  *
- * <p>Input quantity is the fixed MiMo context ceiling (1_048_576 tokens); no
+ * <p>Input quantity is the fixed conservative context ceiling (1_048_576 tokens); no
  * chars/token estimate is used. Output quantity is the exact effective
  * max_completion_tokens the Gateway already validated and sends upstream.
  * When CACHED_INPUT_TOKEN exists, every conservative input token uses the
@@ -23,7 +23,7 @@ import java.util.Set;
  */
 public final class ReservationAmountCalculator {
 
-    /** Frozen conservative MiMo context token ceiling. */
+    /** Frozen conservative context token ceiling. */
     public static final long INPUT_RESERVATION_TOKENS = 1_048_576L;
 
     private static final Set<String> KNOWN_DIMENSIONS = Set.of(

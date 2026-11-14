@@ -21,7 +21,7 @@ RUNTIME_VERIFICATION = COMPLETE (2026-11-13, 2 defects fixed by v3.1.2)
 Known release-blocking defects = NONE
 ```
 
-M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`。其中 independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](maintenance/2026-10/2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [M22 v3 production certification](milestones/m22-v3-production-certification.md) 保留其原时间点结论，未改写。其他里程碑见 [M20](milestones/m20-v3-production-acceptance.md) 与 [M21](milestones/m21-v3-post-release-operational-readiness.md)。下方 V1 / V1.1 条目是历史验收证据。
+M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`。其中 independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](maintenance/2026-10/2026-10-19-m22-browser-organization-isolation.md)；real-provider external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [M22 v3 production certification](milestones/m22-v3-production-certification.md) 保留其原时间点结论，未改写。其他里程碑见 [M20](milestones/m20-v3-production-acceptance.md) 与 [M21](milestones/m21-v3-post-release-operational-readiness.md)。下方 V1 / V1.1 条目是历史验收证据。
 
 ## 2026-10 维护验收
 
@@ -38,6 +38,7 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 
 ## 2026-11 维护验收
 
+- **共享库 Provider 退役（2026-11-14）**：移除 OpenCode Zen / Kilo Gateway 两个外部共享库及其 Backend/Gateway 接入，同步下线 MiMo 模型路由；新增 V33 仅禁用 catalog 行，不删除账户、连接、费用、用量或账本历史。MiMo 账单导入保留：[退役记录](maintenance/2026-11/2026-11-14-shared-library-provider-retirement.md)
 - **全仓库文档维护（2026-11-13）**：版本/发布日期口径、Redis 8.8 技术事实、目录与历史路径、文档索引、发布基线与链接校验器一次性对齐；`verify:links` 扩展为全仓 Markdown + 本地图片检查；无代码、Schema 或财务语义变更：[文档维护记录](maintenance/2026-11/2026-11-13-documentation-maintenance.md)
 - **核心业务真实性与产品一致性总报告**：链路 A/B 验收汇总、产品一致性审查（占位实现 / 前后端状态 / README 证据核查）、前端文案改造与截图验收、死代码清理与提交清单，总体 PASS：[核心业务真实性与产品一致性验收](maintenance/2026-11/2026-11-10-core-business-consistency-acceptance.md)
 - 业务链路 B（外部账单归集与财务对账）端到端真实性验收：file_hash / 记录指纹 / posting_key 三层幂等、Worker 租约与崩溃恢复、POSTED Ledger 不可变与 Correction 语义、8 项 CloseBlocker 与 CLOSED 账期写栅栏、对账溯源与前端契约层一致性，8/8 检查点 PASS：[账单归集与财务对账链路端到端验收](maintenance/2026-11/2026-11-10-billing-chain-e2e-acceptance.md)
@@ -59,7 +60,7 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 - **运行期专项验收（2026-11-13）**：真实 Docker HC-01 owner label 归属（无 label / 他人 owner 拒绝、本 run 允许）；Edge 验证 `/ledger` 与 Provider 连接 UTC、证据下载 200 B 且 SHA-256 匹配；对账 31 分钟僵尸 RUNNING 经真实 `@Scheduled` 收敛为 `FAILED/RECONCILIATION_RUN_ABANDONED` 并写审计；发现并修复 `prod` profile 因 `ProductionConfigurationValidator` 构造器装配失败无法启动（`@Autowired`），以及微小定价费率响应 `1E-8` 导致页面 `—`（scale-8 serializer）；修复后 prod 8/8、定价 API/Edge PASS。可选 HC-01 quick 未运行，Firefox/Safari `NOT_VERIFIED`：[运行期专项验收](maintenance/2026-11/2026-11-13-runtime-verification.md)。
 - **HC-01 quick 冒烟（2026-11-12）**：在 `dev=046c4f3` 上重建 Backend/Gateway JAR 后运行完整 quick 矩阵（13 场景，5–20 并发档位）；Gateway loopback Mock Provider 仅在 SSRF private-endpoint opt-in 下可达，resolver 测试 13/13 证明默认/prod 拒绝；真实 Docker 探针验证 Redis owner label 不误删无 label/他人/HC-03 容器；8 个组织 2153 条 FINAL 全部 1:1 结算入账，20 个预算 0 超支，0 duplicate FINAL / 0 缺失 posting；Docker VM 1.86 GiB，耗时约 4 分 26 秒，清理后无 Redis 容器残留：[HC-01 quick 冒烟验收](maintenance/2026-11/2026-11-12-hc-01-quick-smoke.md)。
 
-OpenCode Zen / Kilo Gateway 的接入与协议维护、Cost Intelligence 历史覆盖与输入身份改进、结算 Worker 可靠性修复等变更的逐项记录见 [`maintenance/2026-10/`](maintenance/2026-10/)。
+OpenCode Zen / Kilo Gateway 已于 2026-11 退役，相关接入与协议维护记录作为历史证据保留在 [`maintenance/2026-10/`](maintenance/2026-10/)；Retirement 决策与验证见 [共享库 Provider 退役记录](maintenance/2026-11/2026-11-14-shared-library-provider-retirement.md)。Cost Intelligence 历史覆盖与输入身份改进、结算 Worker 可靠性修复等变更的逐项记录见 [`maintenance/2026-10/`](maintenance/2026-10/)。
 
 M9 总入口：[`milestones/m9-acceptance-matrix.md`](milestones/m9-acceptance-matrix.md)；最终收敛报告：[`milestones/aic-083-m9-final-acceptance.md`](milestones/aic-083-m9-final-acceptance.md)；逐项证据见 [`milestones/`](milestones/)。
 

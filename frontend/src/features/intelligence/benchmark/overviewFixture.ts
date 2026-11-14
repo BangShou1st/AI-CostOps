@@ -45,7 +45,7 @@ export const overviewFixture = {
       driversJson: JSON.stringify([{ dimension: 'PROJECT', key: 'project:atlas', delta: '223.45' }, { dimension: 'TEAM', key: 'team:core', delta: '86.68' }]),
     },
     {
-      id: 8, grainType: 'PROVIDER', grainKey: 'opencode-zen', currency: 'USD',
+      id: 8, grainType: 'PROVIDER', grainKey: 'custom-provider', currency: 'USD',
       observedAmount: '1180.60', baselineAmount: '890.00', deltaAmount: '290.60',
       deltaPercent: '32.7', robustZScore: 3.6,
       driversJson: JSON.stringify([{ dimension: 'PROJECT', key: 'project:mercury', delta: '201.10' }, { dimension: 'TEAM', key: 'team:core', delta: '89.50' }]),

@@ -80,12 +80,18 @@ public interface GatewayAdminMapper {
     @Insert("""
             INSERT INTO provider_catalog(
               provider_code,name,adapter_code,base_url,status,capabilities_json,created_at,updated_at)
-            VALUES (#{providerCode},'MiMo','MIMO',#{baseUrl},'ACTIVE',
+            VALUES (#{providerCode},#{name},#{adapterCode},#{baseUrl},'ACTIVE',
               JSON_OBJECT('capabilities',JSON_ARRAY('CHAT_COMPLETIONS','SSE_STREAMING')),
               UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+            ON DUPLICATE KEY UPDATE name=VALUES(name), adapter_code=VALUES(adapter_code),
+              base_url=VALUES(base_url), status='ACTIVE', capabilities_json=VALUES(capabilities_json),
+              updated_at=UTC_TIMESTAMP(6)
             """)
     int insertProviderCatalog(
-            @Param("providerCode") String providerCode, @Param("baseUrl") String baseUrl);
+            @Param("providerCode") String providerCode,
+            @Param("name") String name,
+            @Param("adapterCode") String adapterCode,
+            @Param("baseUrl") String baseUrl);
 
     @Select("SELECT id FROM provider_model WHERE provider_code=#{providerCode} AND provider_model_name=#{providerModelName}")
     Long findProviderModelId(
@@ -113,10 +119,33 @@ public interface GatewayAdminMapper {
             INSERT INTO provider_account(
               org_id,provider_code,display_name,external_account_ref,status,metadata_json,
               created_at,updated_at)
-            VALUES (#{orgId},#{providerCode},'MiMo Dev Account','mimo-dev', 'ACTIVE',JSON_OBJECT(),
+            VALUES (#{orgId},#{providerCode},#{displayName},#{externalRef},'ACTIVE',JSON_OBJECT(),
               UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
             """)
-    int insertProviderAccount(@Param("orgId") long orgId, @Param("providerCode") String providerCode);
+    int insertProviderAccount(
+            @Param("orgId") long orgId,
+            @Param("providerCode") String providerCode,
+            @Param("displayName") String displayName,
+            @Param("externalRef") String externalRef);
+
+    @Select("SELECT id FROM provider_connection_profile WHERE org_id=#{orgId} AND provider_account_id=#{providerAccountId} AND status='ACTIVE' ORDER BY id LIMIT 1")
+    Long findActiveConnectionProfileId(
+            @Param("orgId") long orgId, @Param("providerAccountId") long providerAccountId);
+
+    @Insert("""
+            INSERT INTO provider_connection_profile(
+              org_id,provider_account_id,version,connection_kind,template_code,protocol_code,
+              base_url,completion_path,models_path,auth_type,auth_header_name,network_policy,
+              user_agent,connect_timeout_ms,response_timeout_ms,status,created_by,created_at,
+              activated_at,retired_at)
+            VALUES (#{orgId},#{providerAccountId},1,'CUSTOM',NULL,'OPENAI_CHAT_COMPLETIONS',
+              #{baseUrl},'/chat/completions','/models','API_KEY_HEADER','X-API-Key','DIRECT_PUBLIC_ONLY',
+              NULL,5000,60000,'ACTIVE',NULL,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL)
+            """)
+    int insertActiveConnectionProfile(
+            @Param("orgId") long orgId,
+            @Param("providerAccountId") long providerAccountId,
+            @Param("baseUrl") String baseUrl);
 
     @Select("SELECT id FROM pricing_version WHERE org_id=#{orgId} AND provider_account_id=#{providerAccountId} AND provider_model_id=#{providerModelId} AND version=#{version}")
     Long findPricingVersionId(
@@ -161,7 +190,7 @@ public interface GatewayAdminMapper {
               encryption_key_version,safe_label,status,predecessor_credential_id,
               created_at,rotated_at,revoked_at)
             VALUES (#{orgId},#{providerAccountId},'API_KEY',#{ciphertext},#{nonce},
-              1,'MiMo Dev', 'ACTIVE',NULL,UTC_TIMESTAMP(6),NULL,NULL)
+              1,'dev-custom-provider','ACTIVE',NULL,UTC_TIMESTAMP(6),NULL,NULL)
             """)
     int insertProviderCredential(
             @Param("orgId") long orgId,
@@ -205,4 +234,5 @@ public interface GatewayAdminMapper {
             ORDER BY b.period_start DESC LIMIT 1
             """)
     java.util.Map<String, Object> findOpenBillingPeriodRange(@Param("orgId") long orgId);
+
 }

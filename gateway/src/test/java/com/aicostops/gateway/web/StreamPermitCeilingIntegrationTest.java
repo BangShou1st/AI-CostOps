@@ -120,7 +120,7 @@ class StreamPermitCeilingIntegrationTest extends GatewayMySqlContainerSupport {
                     return;
                 }
                 var frames = ("data: {\"id\":\"chatcmpl_hold\",\"object\":\"chat.completion.chunk\","
-                        + "\"created\":1788000200,\"model\":\"mimo-v2.5-pro\","
+                        + "\"created\":1788000200,\"model\":\"test-chat-model\","
                         + "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"},"
                         + "\"finish_reason\":null}]}\n\n"
                         + "data: [DONE]\n\n").getBytes(StandardCharsets.UTF_8);

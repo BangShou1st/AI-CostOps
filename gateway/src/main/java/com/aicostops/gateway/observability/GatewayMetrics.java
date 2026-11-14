@@ -15,8 +15,7 @@ import org.springframework.stereotype.Component;
 public class GatewayMetrics {
 
     private static final Set<String> PROVIDER_CODES = Set.of(
-            "MIMO", "OPENAI", "KILO_GATEWAY", "OPENCODE_ZEN",
-            "CUSTOM_OPENAI_COMPATIBLE", "UNKNOWN");
+            "OPENAI", "CUSTOM_OPENAI_COMPATIBLE", "UNKNOWN");
     private static final Set<String> ROUTING_REASONS = Set.of(
             "INITIAL_PRIMARY", "INITIAL_FALLBACK", "SAFE_FAILOVER", "CIRCUIT_OPEN",
             "NO_ELIGIBLE_CANDIDATE", "UNKNOWN");

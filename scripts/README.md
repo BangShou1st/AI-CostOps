@@ -43,7 +43,7 @@ Windows 子进程使用隐藏窗口并保持非 detached 启动，避免为任�
 
 `setup/dev/build/test/verify/infra:*` 支持 `--dry-run`：例如 `npm run dev -- --dry-run`。它只输出命令计划，不启动进程、不创建 POM 或 `.env`。`doctor/status` 是实际只读检查。
 
-OpenCode Zen `v1.5.4` 和 Kilo Gateway 均通过公开 JitPack 坐标解析，本地、CI 和默认 Docker Compose 构建无需 PAT 或 Maven settings。
+Provider 依赖只来自 Maven Central / Spring Boot 管理；本地、CI 和默认 Docker Compose 构建不需要 PAT 或额外 Maven settings。
 
 ### 本地配置与运行方式
 

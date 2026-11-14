@@ -45,7 +45,7 @@ class GatewayHeaderLimitIntegrationTest extends GatewayMySqlContainerSupport {
     private static final String HMAC_KEY = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
     private static final String MOCK_RESPONSE = """
             {"id":"chatcmpl_hdr","object":"chat.completion","created":1788000100,
-             "model":"mimo-v2.5-pro","choices":[{"index":0,"message":{"role":"assistant",
+             "model":"test-chat-model","choices":[{"index":0,"message":{"role":"assistant",
              "content":"ok"},"finish_reason":"stop"}],
              "usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}
             """;

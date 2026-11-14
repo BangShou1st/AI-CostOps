@@ -59,7 +59,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
                 env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
         coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.BUDGET_INSUFFICIENT_PRE_PROVIDER);
 
-        var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+        var secondAccount = GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                 "https://second.example/v1", 1);
         var secondModel = jdbc.queryForObject(
                 "SELECT provider_model_id FROM routing_policy_candidate "
@@ -76,7 +76,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
                 .satisfies(error -> assertThat(((RouteAttemptCoordinator.PlanRejectedException) error).rejection())
                         .isEqualTo(RouteAttemptCoordinator.PlanRejection.CANDIDATE_ALREADY_ATTEMPTED));
 
-        var thirdAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+        var thirdAccount = GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                 "https://third.example/v1", 2);
         var thirdModel = jdbc.queryForObject(
                 "SELECT provider_model_id FROM routing_policy_candidate "
@@ -103,7 +103,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
                     env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
             coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.DNS_PRE_CONNECT);
             insertReservation(requestId, first.id(), status);
-            var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+            var secondAccount = GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                     "https://hold.example/v1", 1);
             var secondModel = jdbc.queryForObject(
                     "SELECT provider_model_id FROM routing_policy_candidate WHERE provider_account_id=?",
@@ -135,7 +135,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var first = coordinator.plan(env.orgId(), requestId, policyId, "INITIAL_PRIMARY",
                 env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
         coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.DNS_PRE_CONNECT);
-        var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+        var secondAccount = GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                 "https://race.example/v1", 1);
         var secondModel = jdbc.queryForObject(
                 "SELECT provider_model_id FROM routing_policy_candidate WHERE provider_account_id=?",
@@ -174,7 +174,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         var first = coordinator.plan(env.orgId(), requestId, policyId, "INITIAL_PRIMARY",
                 env.providerAccountId(), env.providerModelId(), null, env.pricingVersionId());
         coordinator.markSafe(env.orgId(), first.id(), ProviderSafetyReason.DNS_PRE_CONNECT);
-        var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+        var secondAccount = GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                 "https://duplicate.example/v1", 1);
         var secondModel = jdbc.queryForObject(
                 "SELECT provider_model_id FROM routing_policy_candidate WHERE provider_account_id=?",
@@ -217,7 +217,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
         jdbc.update("UPDATE gateway_request SET state='FAILED_PRE_DISPATCH', terminal_at=UTC_TIMESTAMP(6) "
                 + "WHERE id=? AND org_id=?", requestId, env.orgId());
 
-        var secondAccount = GatewayTestFixture.addMimoCompatibleCandidate(jdbc, env,
+        var secondAccount = GatewayTestFixture.addCompatibleCandidate(jdbc, env,
                 "https://terminal.example/v1", 1);
         var secondModel = jdbc.queryForObject(
                 "SELECT provider_model_id FROM routing_policy_candidate WHERE provider_account_id=?",

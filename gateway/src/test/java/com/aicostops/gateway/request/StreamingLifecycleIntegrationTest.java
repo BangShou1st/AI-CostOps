@@ -195,7 +195,7 @@ class StreamingLifecycleIntegrationTest extends GatewayMySqlContainerSupport {
 
     private static String chunkFrame(int index) {
         return "data: {\"id\":\"chatcmpl_ls" + index + "\",\"object\":\"chat.completion.chunk\","
-                + "\"created\":1788000200,\"model\":\"mimo-v2.5-pro\","
+                + "\"created\":1788000200,\"model\":\"test-chat-model\","
                 + "\"choices\":[{\"index\":0,\"delta\":{\"content\":\"t\"},\"finish_reason\":null}]}\n\n";
     }
 

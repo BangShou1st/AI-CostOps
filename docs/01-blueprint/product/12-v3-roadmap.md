@@ -38,7 +38,6 @@ Two pillars:
 
 ```text
 A. Model Provider Hub
-   - OpenCode Zen built-in template
    - custom OpenAI-compatible model connections
    - model discovery / probe / promotion
    - secure credentials
@@ -64,7 +63,6 @@ Freeze product and architecture before implementation.
 
 ```text
 Provider Hub domain model
-OpenCode template policy
 Custom Provider boundary
 Network / SSRF / secret policy
 Organization-private model catalog design
@@ -96,8 +94,8 @@ Implement the entire V3 backend and freeze its OpenAPI contract before frontend 
 ```text
 V24+ schema migration
 versioned Provider Connection profiles
-OpenCode Zen built-in template
-DIRECT_ONLY OpenCode transport
+Custom OpenAI-compatible connection template
+DIRECT_PUBLIC_ONLY transport
 poison-proxy/7897 bypass proof
 custom OpenAI-compatible Chat Completions
 credential reuse / rotation
@@ -194,7 +192,7 @@ Settings
   Routing Policies
 ```
 
-OpenCode should be a short guided connection experience. Custom Providers use a wizard, not a raw low-level configuration form.
+Custom Providers use a guided connection experience, not a raw low-level configuration form.
 
 ---
 
@@ -209,7 +207,7 @@ Prove V3 preserves V1/V2 correctness while adding Provider Hub and AI intelligen
 ```text
 A. Financial invariants
 B. Provider Hub security / isolation
-C. OpenCode DIRECT_ONLY / zero proxy hit
+C. Custom Provider DIRECT_PUBLIC_ONLY / zero proxy hit
 D. SSRF protections
 E. Cost Intelligence deterministic fixtures
 F. AI Advisor cannot author financial truth
@@ -257,8 +255,7 @@ Kafka / Elasticsearch / Kubernetes without measured need
 V3 is successful when a user can:
 
 ```text
-connect OpenCode Zen safely
-or connect a custom OpenAI-compatible Provider
+connect a custom OpenAI-compatible Provider safely
         ↓
 discover/register and verify a model
         ↓
@@ -282,7 +279,7 @@ LLM financial authority = 0
 Provider secret leak = 0
 cross-org model leak = 0
 SSRF escape = 0
-OpenCode proxy hit = 0
+unexpected Provider proxy hit = 0
 lost Settlement = 0
 duplicate Ledger effect = 0
 race Budget overspend = 0

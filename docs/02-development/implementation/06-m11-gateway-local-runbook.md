@@ -113,7 +113,7 @@ Gateway 正常运行、本地 dev 凭证就绪后:
 .\scripts\smoke-m11-gateway.ps1 -BaseUrl "http://localhost:8081" -EnvFile ".env.m11"
 ```
 
-有 `AICOSTOPS_MIMO_API_KEY` 时跑完整 Provider 路径(非流式、幂等 replay、SSE `[DONE]`、status);无 key 时记录 `BLOCKED: missing external MiMo credential`,绝不伪造 PASS。脚本不打印任何 secret。
+Provider 路由不再由开发 bootstrap 自动写入；先在 Provider Hub 配置一个可用的自定义 OpenAI 兼容连接，再执行 Provider 路径（非流式、幂等 replay、SSE `[DONE]`、status）。未配置时记录 `BLOCKED: missing Provider Hub connection`，绝不伪造 PASS。脚本不打印任何 secret。
 
 ## 7. 一次本地 Gateway 镜像验证
 

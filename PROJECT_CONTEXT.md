@@ -23,6 +23,7 @@ STABLE_RELEASE = v3.1.2
 Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
 V4 = NOT_PLANNED
+Provider model routing = CUSTOM_OPENAI_COMPATIBLE (OpenCode Zen / Kilo Gateway / MiMo model routes retired)
 M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
 M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
@@ -34,7 +35,7 @@ Known release-blocking defects = NONE
 
 V3 是最终功能版本：功能研发已关闭，项目进入长期维护模式；V4 不在路线图内，不再规划或实现 V4，不新增 Provider 或业务功能，维护任务按真实故障与必要性触发。`STABLE_RELEASE = v3.1.2` 是 `main` 上的当前稳定标签，`main` 与 `dev` 保持同一发布内容，`dev` 仅额外包含发布同步记录。
 
-M22 原始记录中的两个 `DEFERRED / NON-BLOCKING` gate 需分开解释：independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](docs/03-acceptance/maintenance/2026-10/2026-10-19-m22-browser-organization-isolation.md)；real-provider / OpenCode external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [m22-v3-production-certification.md](docs/03-acceptance/milestones/m22-v3-production-certification.md) 保留其原时间点结论，未改写。
+M22 原始记录中的两个 `DEFERRED / NON-BLOCKING` gate 需分开解释：independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](docs/03-acceptance/maintenance/2026-10/2026-10-19-m22-browser-organization-isolation.md)；real-provider external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [m22-v3-production-certification.md](docs/03-acceptance/milestones/m22-v3-production-certification.md) 保留其原时间点结论，未改写。
 
 ### 冻结入口
 

@@ -2,7 +2,6 @@ package com.aicostops.gateway.config;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.aicostops.gateway.provider.mimo.MimoEndpointPolicy;
 import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
@@ -10,7 +9,7 @@ import org.springframework.mock.env.MockEnvironment;
 /**
  * AIC-091 production fail-fast: malformed/missing Base64 32-byte HMAC/KEK
  * secrets, dev bootstrap and dev raw keys reject startup, the Provider
- * boundary rejects non-HTTPS/non-approved MiMo endpoints in production, and
+ * boundary rejects unsafe production settings, and
  * missing/default datasource credentials reject startup (M16).
  */
 class GatewayProductionConfigurationValidatorTest {
@@ -101,20 +100,6 @@ class GatewayProductionConfigurationValidatorTest {
         assertThatThrownBy(() -> new GatewayProductionConfigurationValidator(properties, safeEnv()).validate())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("maxActiveStreams");
-    }
-
-    @Test
-    void providerEndpointPolicyRequiresHttpsAndApprovedHost() {
-        assertThatThrownBy(() -> MimoEndpointPolicy.validate("http://api.xiaomimimo.com/v1"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("HTTPS");
-        assertThatThrownBy(() -> MimoEndpointPolicy.validate("https://evil.example.com/v1"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("not approved");
-        assertThatThrownBy(() -> MimoEndpointPolicy.validate("not a url"))
-                .isInstanceOf(IllegalStateException.class);
-
-        MimoEndpointPolicy.validate("https://api.xiaomimimo.com/v1");
     }
 
     @Test

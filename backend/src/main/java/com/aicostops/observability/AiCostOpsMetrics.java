@@ -125,7 +125,7 @@ public class AiCostOpsMetrics {
         // Fixed low-cardinality catalog of registered adapter codes. Never accept
         // an arbitrary provider/model/account string as a label.
         var safeProvider = switch (providerCode == null ? "" : providerCode) {
-            case "MIMO", "OPENAI", "KILO_GATEWAY", "OPENCODE_ZEN",
+            case "OPENAI",
                     "CUSTOM_OPENAI_COMPATIBLE" -> providerCode;
             default -> "UNKNOWN";
         };
