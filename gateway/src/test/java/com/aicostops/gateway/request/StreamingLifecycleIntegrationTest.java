@@ -63,6 +63,7 @@ class StreamingLifecycleIntegrationTest extends GatewayMySqlContainerSupport {
         mockUpstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         mockUpstream.createContext("/", exchange -> {
             UPSTREAM_CALLS.incrementAndGet();
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
             exchange.sendResponseHeaders(200, 0);
             var out = exchange.getResponseBody();
             int index = 0;

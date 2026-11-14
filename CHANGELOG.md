@@ -12,14 +12,18 @@
 - 移除 OpenCode Zen `opencode-zen-spring-boot-starter` 与 Kilo Gateway `kilo-gateway-spring-boot-starter` 两个 JitPack 共享库依赖及 `jitpack` 仓库。
 - 移除 Backend / Gateway 的 OpenCode Zen、Kilo Gateway 与 MiMo 模型路由适配、免费层准入、Relay 与内置 UA 分支；Provider Hub 仅保留 `CUSTOM_OPENAI_COMPATIBLE` 模板。
 - 新增 Flyway `V33`：将 `OPENCODE_ZEN`、`KILO_GATEWAY`、`MIMO` catalog 行置为 `DISABLED`，不删除账户、连接档案、定价、费用、用量或账本历史。
+- 移除 Gateway 旧 `OpenAiChatAdapter`、`AbstractOpenAiCompatibleAdapter`、`GenericOpenAiCompatibleChatAdapter` 及其 wire DTO / SSE decoder / endpoint policy / resolver 测试；Provider adapter code 仍为 `CUSTOM_OPENAI_COMPATIBLE`。
 
 ### Changed
 - Provider 路由收敛为通用 OpenAI 兼容适配器 + 受控传输；前端 Provider Gallery、环境模板、E2E 夹具和当前 API/运维文档同步移除已退役模板。
 - `DevGatewayBootstrap` 改为种子一个中性的自定义 OpenAI 兼容开发路由，保留本地路由策略与 M22 E2E 的可验证性，不再绑定 MiMo。
 - MiMo 账单工作簿导入与 canonical cost 归一化保留，避免破坏既有财务历史；仅下线 MiMo 模型路由。
+- Gateway `CUSTOM_OPENAI_COMPATIBLE` wire 层改由 `ai-model-bridge-core v0.2.0` 承担；仅依赖 core，不引入 bridge starter/server，不新增 deployable。Bridge 同步读调用落在 virtual-thread executor，使用 `StreamHandle` 取消、`EndpointConfig` 路径覆盖、`failOnLength=false`、256 事件有界流队列与 idle/hard timeout，保留 failover 安全分类。
+- Gateway 重新引入受管理的 Jackson 2（`2.21.7`）与 JitPack 仓库，仅服务 bridge core 的 Jackson 2 API；API、DB schema、预算、路由、结算与账本语义不变。
 
 ### Documentation
 - 新增 [共享库 Provider 退役记录](docs/03-acceptance/maintenance/2026-11/2026-11-14-shared-library-provider-retirement.md) 并更新验收索引、README、PROJECT_CONTEXT、运行手册与产品文档。
+- 新增 [Gateway ai-model-bridge 接入验收](docs/03-acceptance/maintenance/2026-11/2026-11-14-gateway-ai-model-bridge.md)，登记功能回归、已知边界与后续 transport SPI 事项。
 
 ## [3.1.2] - 2026-11-13
 

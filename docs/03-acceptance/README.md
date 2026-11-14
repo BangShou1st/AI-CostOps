@@ -38,6 +38,7 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 
 ## 2026-11 维护验收
 
+- **Gateway ai-model-bridge 接入（2026-11-14）**：`CUSTOM_OPENAI_COMPATIBLE` wire 层切换到 `ai-model-bridge-core v0.2.0`，删除旧 OpenAI adapter / wire DTO / SSE decoder；API、Provider Hub、预算、路由、结算与账本不变。完整 Gateway `verify` 通过（单测 155 + 集成 99），完成 10 个 adapter 定向单测（含有界背压），并用真实 Gemini / ModelScope key 验证非流式 + 流式上游路径；SSRF connect-time pinning 与 Provider metadata 按部署边界/排障需求延后，不恢复旧 Adapter：[接入验收](maintenance/2026-11/2026-11-14-gateway-ai-model-bridge.md)
 - **共享库 Provider 退役（2026-11-14）**：移除 OpenCode Zen / Kilo Gateway 两个外部共享库及其 Backend/Gateway 接入，同步下线 MiMo 模型路由；新增 V33 仅禁用 catalog 行，不删除账户、连接、费用、用量或账本历史。MiMo 账单导入保留：[退役记录](maintenance/2026-11/2026-11-14-shared-library-provider-retirement.md)
 - **全仓库文档维护（2026-11-13）**：版本/发布日期口径、Redis 8.8 技术事实、目录与历史路径、文档索引、发布基线与链接校验器一次性对齐；`verify:links` 扩展为全仓 Markdown + 本地图片检查；无代码、Schema 或财务语义变更：[文档维护记录](maintenance/2026-11/2026-11-13-documentation-maintenance.md)
 - **核心业务真实性与产品一致性总报告**：链路 A/B 验收汇总、产品一致性审查（占位实现 / 前后端状态 / README 证据核查）、前端文案改造与截图验收、死代码清理与提交清单，总体 PASS：[核心业务真实性与产品一致性验收](maintenance/2026-11/2026-11-10-core-business-consistency-acceptance.md)
