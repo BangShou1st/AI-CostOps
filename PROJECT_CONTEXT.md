@@ -23,7 +23,8 @@ STABLE_RELEASE = v3.1.2
 Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
 V4 = NOT_PLANNED
-Provider model routing = CUSTOM_OPENAI_COMPATIBLE (OpenCode Zen / Kilo Gateway / MiMo model routes retired)
+Provider model routing = CUSTOM_OPENAI_COMPATIBLE via ai-model-bridge-core v0.2.0
+                         (OpenCode Zen / Kilo Gateway / MiMo model routes retired)
 M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
 M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
@@ -113,6 +114,7 @@ Spring Security
 Plain MyBatis
 MySQL 8.4
 Redis
+ai-model-bridge-core v0.2.0 (Gateway Provider wire)
 Flyway
 MinIO / S3-compatible storage
 React 19
