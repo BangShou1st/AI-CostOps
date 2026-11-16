@@ -1,6 +1,7 @@
 package com.aicostops.ingestion.application;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Outcome of {@link ProviderAdapter#inspect}.
@@ -15,9 +16,20 @@ public record InspectionResult(
         String schemaVariant,
         String schemaFingerprint,
         boolean compatible,
-        List<ImportIssueDraft> issues) {
+        List<ImportIssueDraft> issues,
+        Map<String, Object> adapterState) {
 
     public InspectionResult {
         issues = List.copyOf(issues);
+        adapterState = adapterState == null ? Map.of() : Map.copyOf(adapterState);
+    }
+
+    public InspectionResult(
+            String detectedProviderCode,
+            String schemaVariant,
+            String schemaFingerprint,
+            boolean compatible,
+            List<ImportIssueDraft> issues) {
+        this(detectedProviderCode, schemaVariant, schemaFingerprint, compatible, issues, Map.of());
     }
 }

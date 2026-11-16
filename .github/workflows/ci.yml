@@ -479,6 +479,8 @@ jobs:
           MYSQL_DATABASE=aicostops
           MYSQL_USER=aicostops
           MYSQL_PASSWORD=ci-e2e-mysql-only
+          MYSQL_GATEWAY_USER=aicostops
+          MYSQL_GATEWAY_PASSWORD=ci-e2e-mysql-only
           MYSQL_ROOT_PASSWORD=ci-e2e-root-only
           FRONTEND_PORT=8080
           REDIS_PASSWORD=ci-e2e-redis-only
@@ -508,8 +510,15 @@ jobs:
       - name: Start isolated full Compose project
         if: steps.check.outputs.should_run == 'true'
         run: |
-          docker compose -p aicostops-browser-e2e --env-file "$E2E_ENV_FILE" \
-            up -d --build --wait --wait-timeout 360
+          docker compose -f compose.yaml -f compose.v3-operational.yaml \
+            -p aicostops-browser-e2e --env-file "$E2E_ENV_FILE" \
+            up -d --build --wait --wait-timeout 600
+
+      - name: Verify Gateway container health
+        if: steps.check.outputs.should_run == 'true'
+        run: |
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8081/actuator/health/liveness
 
       - if: steps.check.outputs.should_run == 'true'
         uses: actions/setup-node@v6
@@ -564,7 +573,8 @@ jobs:
       - name: Clean up the E2E Compose project
         if: always() && steps.check.outputs.should_run == 'true'
         run: |
-          docker compose -p aicostops-browser-e2e --env-file "$E2E_ENV_FILE" \
+          docker compose -f compose.yaml -f compose.v3-operational.yaml \
+            -p aicostops-browser-e2e --env-file "$E2E_ENV_FILE" \
             down --volumes --remove-orphans
 
   ci-status:

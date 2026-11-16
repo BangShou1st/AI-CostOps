@@ -278,7 +278,8 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
             var fingerprint = SchemaFingerprint.sha256(new SchemaDescriptor(
                     PROVIDER_CODE, sourceType, variant, roles));
             return new InspectionResult(PROVIDER_CODE, variant, fingerprint,
-                    accumulator.compatible(), accumulator.issues);
+                    accumulator.compatible(), accumulator.issues,
+                    Map.of("bucketWindows", List.copyOf(accumulator.bucketWindows)));
         } catch (IOException | JacksonException failure) {
             return incompatible(variant, List.of(issue(ImportIssueSeverity.ERROR, "MALFORMED_JSON",
                     input.originalFilename(), null, "Payload is not a readable official API page")));
@@ -343,6 +344,8 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         var startTimeSeen = false;
         var endTimeSeen = false;
         var resultsSeen = false;
+        Long startTime = null;
+        Long endTime = null;
         while (parser.nextToken() != JsonToken.END_OBJECT) {
             var field = parser.currentName();
             if ("object".equals(field)) {
@@ -357,12 +360,14 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
                     accumulator.shapeValid = false;
                     return;
                 }
+                startTime = parser.getLongValue();
                 startTimeSeen = true;
             } else if ("end_time".equals(field)) {
                 if (parser.nextToken() != JsonToken.VALUE_NUMBER_INT) {
                     accumulator.shapeValid = false;
                     return;
                 }
+                endTime = parser.getLongValue();
                 endTimeSeen = true;
             } else if ("results".equals(field)) {
                 if (parser.nextToken() != JsonToken.START_ARRAY) {
@@ -388,6 +393,8 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         // array; an empty results array still requires valid times.
         if (!bucketObjectSeen || !startTimeSeen || !endTimeSeen || !resultsSeen) {
             accumulator.shapeValid = false;
+        } else {
+            accumulator.bucketWindows.add(new BucketWindow(startTime, endTime));
         }
     }
 
@@ -462,6 +469,7 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
         private final int maxSchemaFields;
         private final Set<String> allKeys = new TreeSet<>();
         private final List<ImportIssueDraft> issues = new ArrayList<>();
+        private final List<BucketWindow> bucketWindows = new ArrayList<>();
         private final Set<String> reportedSchemaIssues = new TreeSet<>();
         private final Set<String> reportedUnknownFields = new TreeSet<>();
         private final Set<String> reportedOptionalMissing = new TreeSet<>();
@@ -552,11 +560,14 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
      */
     private void parseJsonResults(
             ProviderInput input, InspectionResult inspection, ProviderRecordSink sink, boolean usage) {
-        var windows = new ArrayList<BucketWindow>();
-        try (var content = input.source().openStream()) {
-            collectBucketWindows(content, windows);
-        } catch (IOException | JacksonException failure) {
-            throw new IllegalStateException("OpenAI JSON parse failed (category)", failure);
+        var windows = inspectedBucketWindows(inspection);
+        if (windows == null) {
+            windows = new ArrayList<>();
+            try (var content = input.source().openStream()) {
+                collectBucketWindows(content, windows);
+            } catch (IOException | JacksonException failure) {
+                throw new IllegalStateException("OpenAI JSON parse failed (category)", failure);
+            }
         }
         var index = new AtomicInteger();
         try (var content = input.source().openStream();
@@ -643,6 +654,20 @@ public final class OpenAiProviderAdapter implements ProviderAdapter {
                 }
             }
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<BucketWindow> inspectedBucketWindows(InspectionResult inspection) {
+        var value = inspection.adapterState().get("bucketWindows");
+        if (!(value instanceof List<?> windows)) {
+            return null;
+        }
+        for (var window : windows) {
+            if (!(window instanceof BucketWindow)) {
+                return null;
+            }
+        }
+        return (List<BucketWindow>) windows;
     }
 
     /** One bucket's validated epoch window; bounded by max-json-buckets. */

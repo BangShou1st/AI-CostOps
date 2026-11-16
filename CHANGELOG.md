@@ -15,6 +15,9 @@
 - 移除 Gateway 旧 `OpenAiChatAdapter`、`AbstractOpenAiCompatibleAdapter`、`GenericOpenAiCompatibleChatAdapter` 及其 wire DTO / SSE decoder / endpoint policy / resolver 测试；Provider adapter code 仍为 `CUSTOM_OPENAI_COMPATIBLE`。
 
 ### Changed
+- Gateway Provider wire 升级到 `ai-model-bridge-core v0.2.1`；`PUBLIC_HTTPS_ONLY` 使用 Apache HttpClient 5 的连接期公网 DNS 解析器，关闭 DNS rebinding TOCTOU 窗口。
+- Backend 导入持久化从逐行 JDBC 改为有界多行批量插入：raw record、import issue 与五类 canonical facts 在同一 500 行事务内批量写入，租约 fencing 与全批回滚语义不变。
+- OpenAI 官方 JSON 导入复用 inspection 阶段的分桶窗口，MinIO 源流读取从 3 次降为 2 次；sanitized normalized payload 直接以 `JsonNode` 进入 canonicalization，避免序列化后立即反序列化。
 - Provider 路由收敛为通用 OpenAI 兼容适配器 + 受控传输；前端 Provider Gallery、环境模板、E2E 夹具和当前 API/运维文档同步移除已退役模板。
 - `DevGatewayBootstrap` 改为种子一个中性的自定义 OpenAI 兼容开发路由，保留本地路由策略与 M22 E2E 的可验证性，不再绑定 MiMo。
 - MiMo 账单工作簿导入与 canonical cost 归一化保留，避免破坏既有财务历史；仅下线 MiMo 模型路由。
@@ -22,12 +25,23 @@
 - Gateway 重新引入受管理的 Jackson 2（`2.21.7`）与 JitPack 仓库，仅服务 bridge core 的 Jackson 2 API；API、DB schema、预算、路由、结算与账本语义不变。
 
 ### Fixed
+- Gateway 安全：将 bridge 传递依赖 `httpcore5` / `httpcore5-h2` 从 5.4.2 覆盖到 5.4.3，关闭 CVE-2026-54399 / CVE-2026-54428 两项 HIGH；`httpclient5` 5.6.1 保持不变。
+- Ledger：Expense / ProviderCharge 记账事务改为 `READ COMMITTED`，修复共享账期锁下并发重复记账因旧快照看不到已提交 posting 的误判；幂等重放仍只产生一笔 posting。
+- Gateway：新增 `gateway_budget_reservation_amount` 指标，并将 1,048,576 token 保守输入预占、请求成功不缩减预占、5 秒结算轮询登记为已接受运维边界。
+- Gateway：流式 Bridge adapter 对 `Sinks` 多线程发射的 `FAIL_NON_SERIALIZED` 做串行化重试，不再把内部竞争误判为客户端取消；成功、错误与 watchdog 超时只允许一个终态，超时立即释放 watchdog。
+- Gateway：`GET /v1/gateway/requests/{requestId}` 返回当前 `gateway_usage_fact` 与 `gateway_settlement` 的真实 `meteringStatus` / `settlementStatus`，不再硬编码 `null`。
+- Budget：财务写围栏改为 `FOR SHARE` 共享账期锁，Gateway 预占、异步结算与账本记账可并发；Close/Reopen 仍以 `FOR UPDATE` 排空在途共享持有者。
+- Gateway tests：集成测试迁移改为动态加载 Backend 全部 Flyway 脚本，当前覆盖 V1–V33，避免容器 schema 再次落后生产。
+- CI：`browser-e2e` 启动 `compose.v3-operational.yaml` 的 Gateway + mock provider，并显式检查 Gateway liveness。
 - 部署：Full Compose 的 Nginx 前端将上传上限从默认 1 MiB 对齐到后端 525 MiB 请求合同，并配置慢上传与长响应超时，避免供应商账单和证据上传在边缘被 413 截断。
 - 安全：前端 `vite` 升级至 `8.3.8`，并以 `undici@7.30.2` override 修复 `jsdom` 传递依赖；完整依赖树 HIGH/CRITICAL 清零，生产依赖 audit 保持 0。
 - Advisor：无执行配置的组织可在 UI 打开首次配置表单并通过 `PUT /api/v1/ai-advisor/profile` 创建 profile，不再因空 profile 隐藏入口。
 - Gateway：OpenAI-compatible reasoning-only/`content=null` 非流式响应不再误判为 `MALFORMED_PROVIDER_RESPONSE` 并返回 502；保留 Provider usage，缺失 usage 仍不补零。
 
 ### Documentation
+- 新增 [账单导入批量持久化性能验收](docs/03-acceptance/maintenance/2026-11/2026-11-17-import-batching-benchmark.md)：10k 单 Worker 三次 worker 中位数 4,304.778 rows/s，正确性断言全绿。
+- 新增 [Gateway 连接期 DNS 防护验收](docs/03-acceptance/maintenance/2026-11/2026-11-17-gateway-bridge-dns-pinning.md) 与 [预算保守预占边界登记](docs/03-acceptance/maintenance/2026-11/2026-11-17-budget-reservation-boundary.md)。
+- 修正 README / v3 runbook 中已删除的 `OpenAiChatAdapter`、`PublicOnlyAddressResolverGroup` 等历史描述；`MIMO_CHAT_COMPLETIONS` 按历史只读兼容值保留并在 OpenAPI 中标注。
 - 新增 [2026-11-15 维护修复验收](docs/03-acceptance/maintenance/2026-11/2026-11-15-maintenance-fixes.md)，记录上传边界、依赖安全、Advisor 首次配置、reasoning-only 响应及完整观测拓扑的本地验证。
 - 新增 [共享库 Provider 退役记录](docs/03-acceptance/maintenance/2026-11/2026-11-14-shared-library-provider-retirement.md) 并更新验收索引、README、PROJECT_CONTEXT、运行手册与产品文档。
 - 新增 [Gateway ai-model-bridge 接入验收](docs/03-acceptance/maintenance/2026-11/2026-11-14-gateway-ai-model-bridge.md)，登记功能回归、已知边界与后续 transport SPI 事项。

@@ -40,6 +40,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** ACID expense posting orchestration; the expense module owns APPROVED -> POSTED. */
@@ -82,6 +83,11 @@ public class ExpensePostingService {
         this.audit = audit;
         this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
+        // The billing-period fence is shared across financial writers. A
+        // REPEATABLE READ snapshot taken before waiting on the budget lock can
+        // miss the winner's committed posting; current reads make idempotent
+        // replay visible without re-serializing the period.
+        this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = clock;
     }
 

@@ -44,11 +44,17 @@ public interface GatewayRequestMapper {
     ExistingRequestRow findByIdForUpdate(@Param("requestId") long requestId, @Param("orgId") long orgId);
 
     @Select("""
-            SELECT credential_id, public_request_id, state,
-                   CONCAT(DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s'), 'Z') AS created_at,
-                   CONCAT(DATE_FORMAT(updated_at, '%Y-%m-%dT%H:%i:%s'), 'Z') AS updated_at
-            FROM gateway_request
-            WHERE public_request_id=#{publicRequestId} AND org_id=#{orgId}
+            SELECT gr.credential_id, gr.public_request_id, gr.state,
+                   uf.status AS metering_status,
+                   gs.status AS settlement_status,
+                   CONCAT(DATE_FORMAT(gr.created_at, '%Y-%m-%dT%H:%i:%s'), 'Z') AS created_at,
+                   CONCAT(DATE_FORMAT(gr.updated_at, '%Y-%m-%dT%H:%i:%s'), 'Z') AS updated_at
+            FROM gateway_request gr
+            LEFT JOIN gateway_usage_fact uf
+              ON uf.id=gr.current_usage_fact_id AND uf.org_id=gr.org_id
+            LEFT JOIN gateway_settlement gs
+              ON gs.request_id=gr.id AND gs.org_id=gr.org_id
+            WHERE gr.public_request_id=#{publicRequestId} AND gr.org_id=#{orgId}
             """)
     RequestStatusRow findRequestStatus(
             @Param("publicRequestId") String publicRequestId, @Param("orgId") long orgId);
@@ -418,6 +424,8 @@ public interface GatewayRequestMapper {
             long credentialId,
             String publicRequestId,
             String state,
+            String meteringStatus,
+            String settlementStatus,
             String createdAt,
             String updatedAt) {
     }

@@ -456,7 +456,9 @@ class ImportCanonicalizationIntegrationTest extends MySqlContainerSupport {
 
     private void write(String payloadJson, long rawId) {
         var input = new CanonicalizationInput(orgId, "OPENAI", 1L, rawId, 0L,
-                "data[0].results[0]", payloadJson, USAGE_START, USAGE_END);
+                "data[0].results[0]",
+                new tools.jackson.databind.ObjectMapper().readTree(payloadJson),
+                USAGE_START, USAGE_END);
         canonicalCostWritePort.write(input);
     }
 

@@ -39,6 +39,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import com.aicostops.observability.AiCostOpsMetrics;
@@ -85,6 +86,9 @@ public class ProviderChargePostingService {
         this.audit = audit;
         this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
+        // See ExpensePostingService: shared period fences require current reads
+        // so a concurrent posting winner is replayed instead of revalidated.
+        this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = clock;
     }
 

@@ -42,12 +42,17 @@ services:
       AICOSTOPS_PROVIDER_KEK_V1: ${AICOSTOPS_PROVIDER_KEK_V1:-}
       AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED: ${AICOSTOPS_GATEWAY_DEV_BOOTSTRAP_ENABLED:-true}
       AICOSTOPS_GATEWAY_DEV_RAW_KEY: ${AICOSTOPS_GATEWAY_DEV_RAW_KEY:-}
+      # This topology uses the deterministic plain-HTTP mock Provider on the
+      # isolated compose network. Production keeps the public-only default.
+      AICOSTOPS_GATEWAY_PROVIDER_ALLOW_PRIVATE_ENDPOINTS: "true"
       AICOSTOPS_GATEWAY_DB_POOL_MAX: ${AICOSTOPS_GATEWAY_DB_POOL_MAX:-12}
       AICOSTOPS_GATEWAY_MAX_ACTIVE_STREAMS: ${AICOSTOPS_GATEWAY_MAX_ACTIVE_STREAMS:-128}
     depends_on:
       mysql:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      backend:
         condition: service_healthy
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-8081}:8081"

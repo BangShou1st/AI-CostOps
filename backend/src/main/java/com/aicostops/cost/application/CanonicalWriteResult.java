@@ -7,4 +7,17 @@ public record CanonicalWriteResult(
         int pricings,
         int charges,
         int hints) {
+
+    public static CanonicalWriteResult empty() {
+        return new CanonicalWriteResult(0, 0, 0, 0, 0);
+    }
+
+    public CanonicalWriteResult plus(CanonicalWriteResult other) {
+        return new CanonicalWriteResult(
+                documents + other.documents,
+                consumptions + other.consumptions,
+                pricings + other.pricings,
+                charges + other.charges,
+                hints + other.hints);
+    }
 }

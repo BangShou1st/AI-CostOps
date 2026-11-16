@@ -1,8 +1,6 @@
 package com.aicostops.gateway.testsupport;
 
-import java.nio.file.Path;
 import java.sql.DriverManager;
-import java.util.List;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -11,43 +9,16 @@ import org.testcontainers.containers.MySQLContainer;
 
 /**
  * Gateway integration-test support. The Gateway has no Flyway dependency (the
- * Backend is the sole production migration owner), so tests apply the exact
- * repository migration scripts V1..V27 directly from the Backend module over
- * the shared MySQL 8.4 container. A shared Redis container provides the
- * runtime rate-limit/coordination dependency so an enabled mandatory limiter
- * has a real broker.
+ * Backend is the sole production migration owner), so tests apply every
+ * repository migration script directly from the Backend module over the shared
+ * MySQL 8.4 container. The migration set is discovered at runtime so tests
+ * cannot silently drift behind the production schema. A shared Redis container
+ * provides the runtime rate-limit/coordination dependency so an enabled
+ * mandatory limiter has a real broker.
  */
 public abstract class GatewayMySqlContainerSupport {
 
     private static final int STARTUP_TIMEOUT_SECONDS = 600;
-    private static final List<String> MIGRATIONS = List.of(
-            "V1__foundation_baseline.sql",
-            "V2__m1_identity_organization_schema.sql",
-            "V3__seed_v1_roles_permissions.sql",
-            "V4__m2_evidence_import_schema.sql",
-            "V5__m2_finance_reviewer_provider_account_read.sql",
-            "V6__m2_raw_provider_record_usage_window_check.sql",
-            "V7__m2_import_workflow_review_indexes.sql",
-            "V8__m3_canonical_cost_foundation.sql",
-            "V9__m3_duplicate_attribution_foundation.sql",
-            "V10__m4_expense_approval.sql",
-            "V11__m4_budget_period_schema.sql",
-            "V12__m4_budget_commitment_approval.sql",
-            "V13__m5_immutable_ledger_schema.sql",
-            "V14__m5_expense_posted_state.sql",
-            "V15__m5_ledger_target_integrity.sql",
-            "V16__m6_reconciliation_close.sql",
-            "V17__m8_budget_lookup_index.sql",
-            "V18__m11_gateway_edge_foundation.sql",
-            "V19__m12_budget_reservation.sql",
-            "V20__m13_gateway_usage_fact.sql",
-            "V21__m13_gateway_settlement.sql",
-            "V22__m14_multi_provider_routing.sql",
-            "V23__m15_hybrid_reconciliation.sql",
-            "V24__m18_provider_hub.sql",
-            "V25__m18_cost_intelligence_advisor.sql",
-            "V26__m18_advisor_identity_binding.sql",
-            "V27__m18_advisor_evidence_freeze.sql");
 
     protected static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
             .withDatabaseName("aicostops_test")
@@ -75,12 +46,11 @@ public abstract class GatewayMySqlContainerSupport {
     }
 
     private static void applyMigrations() {
-        var migrationRoot = Path.of("..", "backend", "src", "main", "resources", "db", "migration");
         var url = MYSQL.getJdbcUrl() + "?serverTimezone=UTC";
         try (var connection = DriverManager.getConnection(url, MYSQL.getUsername(), MYSQL.getPassword())) {
-            for (var migration : MIGRATIONS) {
+            for (var migration : GatewayMigrationSupport.migrationPaths()) {
                 var resource = new org.springframework.core.io.FileSystemResource(
-                        migrationRoot.resolve(migration).toFile());
+                        migration.toFile());
                 ScriptUtils.executeSqlScript(connection, resource);
             }
         } catch (Exception ex) {
