@@ -15,9 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
-import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
 
 /**
  * Pure canonical fact mapping driven by an explicit {@code (sourceSchema, recordKind)}
@@ -78,20 +76,12 @@ public final class CanonicalCostNormalizer {
     private static final List<String> KIMI_METADATA_FIELDS =
             List.of("billingEntity", "periodText", "providerOrganization");
 
-    private final ObjectMapper objectMapper;
-
-    public CanonicalCostNormalizer(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
-
     /** Maps one raw record's normalized payload; unknown schemas fail closed. */
     public CanonicalFactBatch normalize(CanonicalizationInput input) {
-        JsonNode payload;
-        try {
-            payload = objectMapper.readTree(input.normalizedPayload());
-        } catch (JacksonException malformed) {
+        var payload = input.normalizedPayload();
+        if (payload == null) {
             throw new IllegalStateException(
-                    "normalized payload is not readable JSON for record " + input.recordLocator(), malformed);
+                    "normalized payload is missing for record " + input.recordLocator());
         }
         var schema = payload.path("sourceSchema").asText();
         var kind = payload.path("recordKind").asText();

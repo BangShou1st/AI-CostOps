@@ -1,6 +1,7 @@
 package com.aicostops.cost.application;
 
 import java.time.Instant;
+import tools.jackson.databind.JsonNode;
 
 /**
  * Canonicalization context for exactly one raw record, assembled by the
@@ -15,7 +16,7 @@ public record CanonicalizationInput(
         long rawRecordId,
         long recordIndex,
         String recordLocator,
-        String normalizedPayload,
+        JsonNode normalizedPayload,
         Instant usageStart,
         Instant usageEnd) {
 }

@@ -38,6 +38,10 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 
 ## 2026-11 维护验收
 
+- **账单导入批量持久化（2026-11-17）**：raw/issue/canonical facts 改为有界多行插入，OpenAI JSON 源流读取 3→2；10k 单 Worker 三次 worker 中位数 4,304.778 rows/s，历史基线区间 289–343 rows/s，正确性断言全绿：[性能验收](maintenance/2026-11/2026-11-17-import-batching-benchmark.md)
+- **Gateway 连接期 DNS 防护（2026-11-17）**：`ai-model-bridge v0.2.1` 使用 Apache HttpClient 5 连接期 `DnsResolver`，DNS 从公网翻转为私网时在建连前拒绝；GitHub tag、JitPack core/starter/server 构建、干净 Maven 解析与 Gateway 定向回归 PASS，CI 待确认：[验收](maintenance/2026-11/2026-11-17-gateway-bridge-dns-pinning.md)
+- **Gateway 预算保守预占边界（2026-11-17）**：保留 1,048,576 token 输入预占、成功后不缩额与 5 秒结算轮询，新增预占金额分布指标并明确其非财务真相属性：[边界登记](maintenance/2026-11/2026-11-17-budget-reservation-boundary.md)
+- **Gateway 流式竞态、账期共享锁与状态接口（2026-11-16）**：修复 Bridge 流式 `Sinks` 多线程 `FAIL_NON_SERIALIZED` 误判取消、watchdog 未释放；Backend 财务围栏改共享账期锁；Status API 返回真实 metering/settlement；Gateway 容器测试动态覆盖 V1–V33，browser-e2e 启动 Gateway + mock provider。本地定向回归与 Compose 模型解析 PASS，CI/Security 待提交后确认：[维护验收](maintenance/2026-11/2026-11-16-gateway-streaming-lock-status-hardening.md)
 - **维护修复（2026-11-15）**：关闭 Nginx 1 MiB 上传上限与前端依赖 2 个 HIGH；修复 Advisor 无 profile 时无法首次配置、Gateway reasoning-only/`content=null` 误报 502，并校正完整 V3 观测拓扑命令。前端 561 用例、Gateway 158 单测 + 99 集成、脚本 56 用例与 545 条文档链接全部通过；真实三层栈 2 MiB 上传 201：[维护修复验收](maintenance/2026-11/2026-11-15-maintenance-fixes.md)
 - **Gateway ai-model-bridge 接入（2026-11-14）**：`CUSTOM_OPENAI_COMPATIBLE` wire 层切换到 `ai-model-bridge-core v0.2.0`，删除旧 OpenAI adapter / wire DTO / SSE decoder；API、Provider Hub、预算、路由、结算与账本不变。完整 Gateway `verify` 通过（单测 155 + 集成 99），完成 10 个 adapter 定向单测（含有界背压），并用真实 Gemini / ModelScope key 验证非流式 + 流式上游路径；SSRF connect-time pinning 与 Provider metadata 按部署边界/排障需求延后，不恢复旧 Adapter：[接入验收](maintenance/2026-11/2026-11-14-gateway-ai-model-bridge.md)
 - **共享库 Provider 退役（2026-11-14）**：移除 OpenCode Zen / Kilo Gateway 两个外部共享库及其 Backend/Gateway 接入，同步下线 MiMo 模型路由；新增 V33 仅禁用 catalog 行，不删除账户、连接、费用、用量或账本历史。MiMo 账单导入保留：[退役记录](maintenance/2026-11/2026-11-14-shared-library-provider-retirement.md)

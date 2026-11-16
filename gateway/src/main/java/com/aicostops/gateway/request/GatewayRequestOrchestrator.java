@@ -152,6 +152,11 @@ public class GatewayRequestOrchestrator {
                                 authorized.billingPeriodId(), candidate.pricingVersionId(), candidate.currency(),
                                 authorized.command().effectiveMaxOutputTokens(), -1L, true));
                         metrics.recordReservationAttempt(admission.outcome().name());
+                        if (admission.outcome() == AdmissionOutcome.RESERVED
+                                && admission.reservedAmount() != null) {
+                            metrics.recordBudgetReservationAmount(
+                                    candidate.currency(), admission.reservedAmount());
+                        }
                         if (admission.outcome() != AdmissionOutcome.RESERVED
                                 && admission.outcome() != AdmissionOutcome.UNBUDGETED) {
                             attempts.markSafe(authorized.principal().organizationId(), planned.id(),
@@ -348,6 +353,11 @@ public class GatewayRequestOrchestrator {
                                 freshCandidate.pricingVersionId(), freshCandidate.currency(),
                                 previous.command().effectiveMaxOutputTokens(), -1L, true));
                         metrics.recordReservationAttempt(admission.outcome().name());
+                        if (admission.outcome() == BudgetReservationService.AdmissionOutcome.RESERVED
+                                && admission.reservedAmount() != null) {
+                            metrics.recordBudgetReservationAmount(
+                                    freshCandidate.currency(), admission.reservedAmount());
+                        }
                         if (admission.outcome() != BudgetReservationService.AdmissionOutcome.RESERVED
                                 && admission.outcome() != BudgetReservationService.AdmissionOutcome.UNBUDGETED) {
                             attempts.markSafe(previous.principal().organizationId(), planned.id(),

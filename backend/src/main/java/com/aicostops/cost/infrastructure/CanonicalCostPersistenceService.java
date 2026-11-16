@@ -8,7 +8,9 @@ import com.aicostops.cost.domain.CanonicalDecimal;
 import com.aicostops.cost.domain.CanonicalFactBatch;
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.ToIntFunction;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
@@ -19,9 +21,16 @@ import tools.jackson.databind.ObjectMapper;
  * DECIMAL representability guard and every currency passes the non-blank,
  * exactly-3-character check before insert; violations fail closed so the whole
  * transaction rolls back. Provider evidence is never rounded or truncated.
+ *
+ * <p>One import batch is normalized and validated as a unit, then inserted with
+ * bounded multi-row statements. The SQL chunk size stays below MySQL's
+ * prepared-statement parameter limit even for OpenAI usage records that emit
+ * several consumption rows per raw record.
  */
 @Service
 public class CanonicalCostPersistenceService implements CanonicalCostWritePort {
+
+    private static final int MAX_ROWS_PER_INSERT = 500;
 
     private final CanonicalCostNormalizer normalizer;
     private final CanonicalFactsMapper factsMapper;
@@ -41,63 +50,93 @@ public class CanonicalCostPersistenceService implements CanonicalCostWritePort {
 
     @Override
     public CanonicalWriteResult write(CanonicalizationInput input) {
-        var batch = normalizer.normalize(input);
-        if (batch.documents().isEmpty() && batch.consumptions().isEmpty()
-                && batch.pricings().isEmpty() && batch.charges().isEmpty()
-                && batch.hints().isEmpty()) {
-            return new CanonicalWriteResult(0, 0, 0, 0, 0);
+        return writeAll(List.of(input));
+    }
+
+    @Override
+    public CanonicalWriteResult writeAll(List<CanonicalizationInput> inputs) {
+        if (inputs == null || inputs.isEmpty()) {
+            return CanonicalWriteResult.empty();
         }
         var now = clock.instant();
-        var documents = 0;
+        var documents = new ArrayList<CanonicalFactsMapper.DocumentRow>();
+        var consumptions = new ArrayList<CanonicalFactsMapper.ConsumptionRow>();
+        var pricings = new ArrayList<CanonicalFactsMapper.PricingRow>();
+        var charges = new ArrayList<CanonicalFactsMapper.ChargeRow>();
+        var hints = new ArrayList<CanonicalFactsMapper.HintRow>();
+
+        for (var input : inputs) {
+            collect(normalizer.normalize(input), documents, consumptions, pricings, charges, hints);
+        }
+
+        insertChunked(documents, chunk -> factsMapper.insertDocuments(chunk, now));
+        insertChunked(consumptions, chunk -> factsMapper.insertConsumptions(chunk, now));
+        insertChunked(pricings, chunk -> factsMapper.insertPricings(chunk, now));
+        insertChunked(charges, chunk -> factsMapper.insertCharges(chunk, now));
+        insertChunked(hints, chunk -> factsMapper.insertHints(chunk, now));
+        return new CanonicalWriteResult(
+                documents.size(), consumptions.size(), pricings.size(), charges.size(), hints.size());
+    }
+
+    private void collect(
+            CanonicalFactBatch batch,
+            List<CanonicalFactsMapper.DocumentRow> documents,
+            List<CanonicalFactsMapper.ConsumptionRow> consumptions,
+            List<CanonicalFactsMapper.PricingRow> pricings,
+            List<CanonicalFactsMapper.ChargeRow> charges,
+            List<CanonicalFactsMapper.HintRow> hints) {
         for (var fact : batch.documents()) {
-            factsMapper.insertDocument(fact.orgId(), fact.rawRecordId(), fact.factIndex(),
-                    fact.documentType().name(),
+            documents.add(new CanonicalFactsMapper.DocumentRow(
+                    fact.orgId(), fact.rawRecordId(), fact.factIndex(), fact.documentType().name(),
                     fact.periodStart(), fact.periodEnd(), nullableCurrency(fact.currency()),
                     money(fact.reportedTotalAmount()), money(fact.reportedPayableAmount()),
                     money(fact.reportedPaidAmount()), money(fact.reportedOutstandingAmount()),
-                    serialize(fact.metadata()), now);
-            documents++;
+                    serialize(fact.metadata())));
         }
-        var consumptions = 0;
         for (var fact : batch.consumptions()) {
-            factsMapper.insertConsumption(fact.orgId(), fact.rawRecordId(), fact.factIndex(),
-                    fact.providerCode(), fact.serviceCode(), fact.model(), fact.meterCode(),
+            consumptions.add(new CanonicalFactsMapper.ConsumptionRow(
+                    fact.orgId(), fact.rawRecordId(), fact.factIndex(), fact.providerCode(),
+                    fact.serviceCode(), fact.model(), fact.meterCode(),
                     CanonicalDecimal.usage(fact.quantity()), fact.unit(),
                     fact.usageStart(), fact.usageEnd(), fact.timeGrain(),
                     fact.providerOrgRef(), fact.providerProjectRef(), fact.providerUserRef(),
-                    fact.providerApiKeyHash(), fact.providerApiKeyLabel(), now);
-            consumptions++;
+                    fact.providerApiKeyHash(), fact.providerApiKeyLabel()));
         }
-        var pricings = 0;
         for (var fact : batch.pricings()) {
-            factsMapper.insertPricing(fact.orgId(), fact.rawRecordId(), fact.factIndex(),
-                    fact.providerCode(), fact.serviceCode(), fact.model(), fact.meterCode(),
+            pricings.add(new CanonicalFactsMapper.PricingRow(
+                    fact.orgId(), fact.rawRecordId(), fact.factIndex(), fact.providerCode(),
+                    fact.serviceCode(), fact.model(), fact.meterCode(),
                     CanonicalDecimal.money(fact.unitPrice()), requireCurrency(fact.currency()),
                     fact.pricingUnit(), fact.periodStart(), fact.periodEnd(),
-                    serialize(fact.metadata()), now);
-            pricings++;
+                    serialize(fact.metadata())));
         }
-        var charges = 0;
         for (var fact : batch.charges()) {
-            factsMapper.insertCharge(fact.orgId(), fact.rawRecordId(), fact.factIndex(),
-                    fact.providerCode(), fact.chargeCategory().name(),
-                    CanonicalDecimal.money(fact.amount()), requireCurrency(fact.currency()),
-                    fact.fundingSource(), money(fact.payableAmount()), money(fact.paidAmount()),
-                    money(fact.outstandingAmount()),
-                    fact.periodStart(), fact.periodEnd(), fact.reviewStatus().name(),
-                    fact.duplicateOfChargeId(), serialize(fact.metadata()), now);
-            charges++;
+            charges.add(new CanonicalFactsMapper.ChargeRow(
+                    fact.orgId(), fact.rawRecordId(), fact.factIndex(), fact.providerCode(),
+                    fact.chargeCategory().name(), CanonicalDecimal.money(fact.amount()),
+                    requireCurrency(fact.currency()), fact.fundingSource(),
+                    money(fact.payableAmount()), money(fact.paidAmount()),
+                    money(fact.outstandingAmount()), fact.periodStart(), fact.periodEnd(),
+                    fact.reviewStatus().name(), fact.duplicateOfChargeId(),
+                    serialize(fact.metadata())));
         }
-        var hints = 0;
         for (var fact : batch.hints()) {
-            factsMapper.insertHint(fact.orgId(), fact.rawRecordId(), fact.factIndex(),
-                    fact.hintType().name(),
+            hints.add(new CanonicalFactsMapper.HintRow(
+                    fact.orgId(), fact.rawRecordId(), fact.factIndex(), fact.hintType().name(),
                     fact.candidateScopeType() == null ? null : fact.candidateScopeType().name(),
                     fact.candidateScopeId(), fact.providerValue(), fact.confidence(),
-                    serialize(fact.metadata()), now);
-            hints++;
+                    serialize(fact.metadata())));
         }
-        return new CanonicalWriteResult(documents, consumptions, pricings, charges, hints);
+    }
+
+    private static <T> void insertChunked(List<T> rows, ToIntFunction<List<T>> insert) {
+        for (var start = 0; start < rows.size(); start += MAX_ROWS_PER_INSERT) {
+            var end = Math.min(rows.size(), start + MAX_ROWS_PER_INSERT);
+            var chunk = rows.subList(start, end);
+            if (insert.applyAsInt(chunk) != chunk.size()) {
+                throw new IllegalStateException("Canonical batch insert affected an unexpected row count");
+            }
+        }
     }
 
     private static BigDecimal money(BigDecimal value) {

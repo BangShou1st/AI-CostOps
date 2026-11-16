@@ -43,11 +43,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.net.ssl.SSLHandshakeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -130,14 +132,22 @@ public class BridgeOpenAiCompatibleChatAdapter implements ProviderChatAdapter {
         var emitted = new AtomicBoolean();
         var done = new AtomicBoolean();
         var current = new AtomicReference<StreamHandle>();
+        var watchdogRef = new AtomicReference<Disposable>();
         var lastEventNanos = new AtomicLong(System.nanoTime());
         var startedNanos = System.nanoTime();
         var config = providerConfig(context, true);
         var request = chatRequest(context, command);
+        var emitter = new StreamEventEmitter(sink, canceled);
 
         var flux = sink.asFlux()
-                .doOnCancel(() -> cancel(canceled, current))
-                .doOnTerminate(() -> cancel(canceled, current));
+                .doOnCancel(() -> {
+                    cancel(canceled, current);
+                    dispose(watchdogRef);
+                })
+                .doOnTerminate(() -> {
+                    cancel(canceled, current);
+                    dispose(watchdogRef);
+                });
 
         var watchdog = WATCHDOG.schedulePeriodically(() -> {
             if (canceled.get()) {
@@ -148,14 +158,16 @@ public class BridgeOpenAiCompatibleChatAdapter implements ProviderChatAdapter {
             var elapsed = TimeUnit.NANOSECONDS.toMillis(now - startedNanos);
             if (idle > properties.getStreamIdleTimeoutMs()
                     || elapsed > properties.getHardTimeoutMs()) {
-                cancel(canceled, current);
-                sink.tryEmitError(new ProviderExecutionException(
+                emitter.error(new ProviderExecutionException(
                         ProviderSafetyOutcome.BILLABLE_POSSIBLE,
                         ProviderSafetyReason.STREAM_TIMEOUT,
                         ProviderHealthSignal.QUALIFYING_FAILURE,
                         null, null, true, null));
+                cancel(canceled, current);
+                dispose(watchdogRef);
             }
         }, 1, 1, TimeUnit.SECONDS);
+        watchdogRef.set(watchdog);
 
         try {
             var handle = client.openStream(config, request, chunk -> {
@@ -171,7 +183,9 @@ public class BridgeOpenAiCompatibleChatAdapter implements ProviderChatAdapter {
                 if (event instanceof ProviderChatStreamEvent.Done) {
                     done.set(true);
                 }
-                emit(sink, event, canceled);
+                if (!emitter.next(event) && canceled.get()) {
+                    throw new StreamCanceled();
+                }
             });
             current.set(handle);
             if (canceled.get()) {
@@ -181,47 +195,33 @@ public class BridgeOpenAiCompatibleChatAdapter implements ProviderChatAdapter {
                 try {
                     handle.await();
                     if (!done.get() && !canceled.get()) {
-                        emit(sink, new ProviderChatStreamEvent.Done(), canceled);
+                        emitter.next(new ProviderChatStreamEvent.Done());
                     }
                     if (!canceled.get()) {
-                        sink.tryEmitComplete();
+                        emitter.complete();
                     }
                 } catch (Throwable error) {
                     if (!canceled.get()) {
-                        sink.tryEmitError(mapFailure(error, true, emitted.get()));
+                        emitter.error(mapFailure(error, true, emitted.get()));
                     }
                 } finally {
-                    watchdog.dispose();
+                    dispose(watchdogRef);
                 }
             });
         } catch (Throwable error) {
-            watchdog.dispose();
+            dispose(watchdogRef);
             if (!canceled.get()) {
-                sink.tryEmitError(mapFailure(error, true, emitted.get()));
+                emitter.error(mapFailure(error, true, emitted.get()));
             }
         }
         return flux;
     }
 
-    private static void emit(
-            Sinks.Many<ProviderChatStreamEvent> sink,
-            ProviderChatStreamEvent event,
-            AtomicBoolean canceled) {
-        while (!canceled.get()) {
-            var result = sink.tryEmitNext(event);
-            if (result == Sinks.EmitResult.OK) {
-                return;
-            }
-            if (result == Sinks.EmitResult.FAIL_OVERFLOW
-                    || result == Sinks.EmitResult.FAIL_ZERO_SUBSCRIBER) {
-                // The bounded queue is full: park the Provider reader so TCP
-                // backpressure reaches the upstream instead of growing a heap queue.
-                LockSupport.parkNanos(1_000_000L);
-                continue;
-            }
-            throw new StreamCanceled();
+    private static void dispose(AtomicReference<Disposable> watchdog) {
+        var scheduled = watchdog.getAndSet(null);
+        if (scheduled != null) {
+            scheduled.dispose();
         }
-        throw new StreamCanceled();
     }
 
     private static void cancel(AtomicBoolean canceled, AtomicReference<StreamHandle> handle) {
@@ -496,5 +496,95 @@ public class BridgeOpenAiCompatibleChatAdapter implements ProviderChatAdapter {
     }
 
     private static final class StreamCanceled extends RuntimeException {
+    }
+
+    /**
+     * The bridge reader thread, completion thread and watchdog may all publish
+     * into the unicast sink. Reactor's sink is not safe for concurrent emitters:
+     * a losing writer gets {@code FAIL_NON_SERIALIZED}, which must be retried
+     * rather than mistaken for a client cancellation. One lock serializes the
+     * actual sink calls, while the terminal CAS makes complete/error idempotent.
+     */
+    static final class StreamEventEmitter {
+
+        private final Sinks.Many<ProviderChatStreamEvent> sink;
+        private final AtomicBoolean canceled;
+        private final AtomicBoolean terminal = new AtomicBoolean();
+        private final ReentrantLock lock = new ReentrantLock();
+
+        StreamEventEmitter(Sinks.Many<ProviderChatStreamEvent> sink, AtomicBoolean canceled) {
+            this.sink = sink;
+            this.canceled = canceled;
+        }
+
+        boolean next(ProviderChatStreamEvent event) {
+            while (!canceled.get()) {
+                final Sinks.EmitResult result;
+                lock.lock();
+                try {
+                    if (terminal.get()) {
+                        return false;
+                    }
+                    result = sink.tryEmitNext(event);
+                } finally {
+                    lock.unlock();
+                }
+                if (result == Sinks.EmitResult.OK) {
+                    return true;
+                }
+                if (result == Sinks.EmitResult.FAIL_OVERFLOW
+                        || result == Sinks.EmitResult.FAIL_ZERO_SUBSCRIBER) {
+                    // The bounded queue is full: park the Provider reader so TCP
+                    // backpressure reaches the upstream instead of growing a heap queue.
+                    LockSupport.parkNanos(1_000_000L);
+                    continue;
+                }
+                if (result == Sinks.EmitResult.FAIL_NON_SERIALIZED) {
+                    // Another publisher won the sink's internal race. Back off
+                    // briefly and replay the same event; never treat it as cancel.
+                    LockSupport.parkNanos(100_000L);
+                    continue;
+                }
+                return false;
+            }
+            return false;
+        }
+
+        boolean complete() {
+            return terminate(false, null);
+        }
+
+        boolean error(Throwable failure) {
+            return terminate(true, failure);
+        }
+
+        private boolean terminate(boolean failure, Throwable error) {
+            if (!terminal.compareAndSet(false, true)) {
+                return false;
+            }
+            while (!canceled.get()) {
+                final Sinks.EmitResult result;
+                lock.lock();
+                try {
+                    result = failure ? sink.tryEmitError(error) : sink.tryEmitComplete();
+                } finally {
+                    lock.unlock();
+                }
+                if (result == Sinks.EmitResult.OK) {
+                    return true;
+                }
+                if (result == Sinks.EmitResult.FAIL_NON_SERIALIZED) {
+                    LockSupport.parkNanos(100_000L);
+                    continue;
+                }
+                if (result == Sinks.EmitResult.FAIL_OVERFLOW
+                        || result == Sinks.EmitResult.FAIL_ZERO_SUBSCRIBER) {
+                    LockSupport.parkNanos(1_000_000L);
+                    continue;
+                }
+                return false;
+            }
+            return false;
+        }
     }
 }

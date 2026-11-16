@@ -254,6 +254,7 @@ public final class GatewayTestFixture {
         jdbc.update("UPDATE gateway_request SET current_usage_fact_id = NULL");
         jdbc.update("DELETE FROM gateway_usage_dimension");
         jdbc.update("UPDATE gateway_usage_fact SET supersedes_usage_fact_id = NULL");
+        jdbc.update("DELETE FROM gateway_settlement");
         jdbc.update("DELETE FROM gateway_usage_fact");
         jdbc.update("DELETE FROM budget_reservation");
         jdbc.update("DELETE FROM budget");
