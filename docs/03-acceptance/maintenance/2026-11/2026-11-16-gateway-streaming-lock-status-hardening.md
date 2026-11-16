@@ -18,7 +18,9 @@
    watchdog 超时立即释放自身与上游 handle，不再重复发终态。
 2. `BillingPeriodFinancialWriteFenceService` 及 `CommitmentConsumeService` 的账期
    读取改为 `FOR SHARE`。并发 Gateway 预占、Backend 结算与账本记账可以共享同一
-   OPEN 账期；Close/Reopen 仍由 `FOR UPDATE` 独占锁排空在途财务事务。
+   OPEN 账期；Close/Reopen 仍由 `FOR UPDATE` 独占锁排空在途财务事务。Expense /
+   ProviderCharge 记账事务同步改为 `READ COMMITTED`，避免等待预算行锁前建立的
+   REPEATABLE READ 快照漏读并发赢家已提交的 `ledger_posting`。
 3. `GET /v1/gateway/requests/{requestId}` 现在 join 当前 `gateway_usage_fact` 与
    `gateway_settlement`，返回真实 `meteringStatus` / `settlementStatus`；不存在对应
    阶段时继续返回 null，隐私 404 与不暴露 prompt/secret/finance detail 的边界不变。
@@ -56,13 +58,18 @@ docker compose -f compose.yaml -f compose.v3-operational.yaml config --quiet
 - Backend：`BillingPeriodFinancialWriteFenceIntegrationTest` 6/6 通过，其中新增测试在
   两个并发事务中同时持有同一 OPEN 账期的共享锁；`GatewayPeriodSharedLockCloseIntegrationTest`
   2/2 通过，Close 仍等待共享持有者并进入 CLOSING。
+- 2026-11-17 PR CI 发现共享锁下的并发回归：
+  `ExpensePostingIntegrationTest.concurrentPostingReturnsOneResultAndIncrementsBudgetOnlyOnce`
+  因旧快照误判费用已非 APPROVED。两个 Ledger 记账服务改为 `READ COMMITTED` 后，
+  `ExpensePostingIntegrationTest` 10/10、Provider 并发/记账与账期围栏定向测试 15/15
+  通过。
 - Gateway 容器测试实际执行到 V33，日志包含
   `Successfully applied 33 migrations ... now at version v33`。
 - Compose 模型解析通过；CI browser-e2e 的 Gateway liveness 步骤待 GitHub Actions 实际执行。
 
 ## 结论与影响边界
 
-**结论：本地定向回归 PASS；CI / Security 结果待提交后确认。**
+**结论：本地定向回归 PASS；PR #212 的 CI / Security 作为最终门禁。**
 
 本修复不改变 Gateway API schema、预算金额计算、结算/账本写入语义或前端契约；
 只修复并发射终态、账期锁粒度、状态读取和测试/部署覆盖。连接期 socket IP

@@ -63,7 +63,7 @@ cd gateway
 
 ## 结论与影响边界
 
-**结论：上游发布、JitPack 构建、干净 Maven 解析与 Gateway 定向验证 PASS；AI-CostOps CI / Security 待提交后确认。**
+**结论：上游发布、JitPack 构建、干净 Maven 解析与 Gateway 定向验证 PASS；AI-CostOps PR #212 的 CI / Security 作为最终门禁。**
 
 该修复恢复的是“连接时公网地址复验”，不改变 Gateway 的预算、路由、结算、账本或
 API 契约。JitPack `v0.2.1` 已可被干净环境解析。
