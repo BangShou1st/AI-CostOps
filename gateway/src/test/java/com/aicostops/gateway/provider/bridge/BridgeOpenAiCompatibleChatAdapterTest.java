@@ -2,6 +2,10 @@ package com.aicostops.gateway.provider.bridge;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.provider.DispatchEndpointGuard;
@@ -28,11 +32,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Sinks;
 import reactor.test.StepVerifier;
 
 class BridgeOpenAiCompatibleChatAdapterTest {
@@ -326,6 +332,39 @@ class BridgeOpenAiCompatibleChatAdapterTest {
                                     .isEqualTo(ProviderSafetyOutcome.BILLABLE_POSSIBLE);
                         }))
                 .verify(Duration.ofSeconds(6));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void nonSerializedEmitIsRetriedInsteadOfBeingTreatedAsClientCancel() {
+        Sinks.Many<ProviderChatStreamEvent> sink = mock(Sinks.Many.class);
+        var event = new ProviderChatStreamEvent.Delta(null, 1L, "gpt-test", "x");
+        when(sink.tryEmitNext(event))
+                .thenReturn(Sinks.EmitResult.FAIL_NON_SERIALIZED, Sinks.EmitResult.OK);
+
+        var emitter = new BridgeOpenAiCompatibleChatAdapter.StreamEventEmitter(
+                sink, new AtomicBoolean());
+
+        assertThat(emitter.next(event)).isTrue();
+        verify(sink, times(2)).tryEmitNext(event);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void streamEmitterPublishesOnlyOneTerminalSignal() {
+        Sinks.Many<ProviderChatStreamEvent> sink = mock(Sinks.Many.class);
+        when(sink.tryEmitComplete()).thenReturn(Sinks.EmitResult.OK);
+        when(sink.tryEmitError(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Sinks.EmitResult.OK);
+        var emitter = new BridgeOpenAiCompatibleChatAdapter.StreamEventEmitter(
+                sink, new AtomicBoolean());
+
+        assertThat(emitter.complete()).isTrue();
+        assertThat(emitter.complete()).isFalse();
+        assertThat(emitter.error(new IllegalStateException("late"))).isFalse();
+
+        verify(sink, times(1)).tryEmitComplete();
+        verify(sink, times(0)).tryEmitError(org.mockito.ArgumentMatchers.any());
     }
 
     private BridgeOpenAiCompatibleChatAdapter adapter(GatewayProperties properties) {

@@ -129,16 +129,20 @@ Runs the real `AdvisorInferenceWorker` through the `gw_m21` DB account against t
 
 ## Security Notes
 
-### Production Code Fix (M21 Post-Release)
+### Provider Dispatch SSRF Boundary
 
-The OpenAI and custom OpenAI-compatible adapters use transport-level DNS rebinding defense in the production profile:
+The Gateway now has one `CUSTOM_OPENAI_COMPATIBLE` wire implementation backed by
+`ai-model-bridge-core v0.2.1`. The former `OpenAiChatAdapter`,
+`GenericOpenAiCompatibleChatAdapter` and `PublicOnlyAddressResolverGroup` are no
+longer present.
 
-- `OpenAiChatAdapter`: now uses `PublicOnlyAddressResolverGroup` when `prod` profile is active
-- `GenericOpenAiCompatibleChatAdapter`: uses the public-only resolver and dispatch endpoint guard
-
-Non-production profiles (dev/test) use the default JVM resolver to allow local mock validation.
-
-This preserves the frozen M18 `DIRECT_PUBLIC_ONLY` SSRF contract.
+- `DispatchEndpointGuard` validates endpoint shape and literal-IP policy on every dispatch.
+- `OutboundEndpointPolicy` resolves and validates the complete DNS answer before the request.
+- `ai-model-bridge v0.2.1` uses Apache HttpClient 5 with a connection-time
+  `PublicOnlyDnsResolver` in `PUBLIC_HTTPS_ONLY` mode; a DNS answer that flips to
+  a private, loopback, link-local or metadata address is rejected before the
+  socket is used.
+- Redirects stay disabled; private, loopback, link-local and cloud-metadata destinations are rejected.
 
 ### Secret Safety
 

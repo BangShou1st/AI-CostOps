@@ -40,9 +40,9 @@ public interface BillingPeriodMapper {
               AND bp.period_end > #{at}
             ORDER BY bp.period_start DESC, bp.id DESC
             LIMIT 2
-            FOR UPDATE
+            FOR SHARE
             """)
-    List<BillingPeriod> selectCoveringCandidatesForUpdate(
+    List<BillingPeriod> selectCoveringCandidatesForShare(
             @Param("organizationId") long organizationId,
             @Param("at") Instant at);
 
@@ -73,6 +73,17 @@ public interface BillingPeriodMapper {
             FOR UPDATE
             """)
     BillingPeriod selectByIdForUpdate(
+            @Param("organizationId") long organizationId,
+            @Param("periodId") long periodId);
+
+    @Select("""
+            SELECT
+            """ + PERIOD_COLUMNS + """
+            FROM billing_period bp
+            WHERE bp.org_id=#{organizationId} AND bp.id=#{periodId}
+            FOR SHARE
+            """)
+    BillingPeriod selectByIdForShare(
             @Param("organizationId") long organizationId,
             @Param("periodId") long periodId);
 

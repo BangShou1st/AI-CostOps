@@ -97,6 +97,11 @@ text). Examples:
 - `aicostops_period_close_total{result=...}` / `aicostops_period_reopen_total{result=...}`
 - `aicostops_dependency_error_total{dependency=...}`
 
+Gateway data-plane metrics use bounded `gateway_*` names, including
+`gateway_budget_reservation_amount{currency=...}` as a distribution summary of
+the conservative reservation amount. The metric is diagnostic only; the
+authoritative amount remains the MySQL `budget_reservation` row.
+
 Infrastructure signals (HTTP, JVM, GC, Hikari pool) come from Spring Boot /
 Micrometer built-ins.
 

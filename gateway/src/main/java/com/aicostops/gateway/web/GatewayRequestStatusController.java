@@ -18,10 +18,10 @@ import reactor.core.publisher.Mono;
 /**
  * Bounded recovery status surface (AIC-092 section 20): only the owning
  * credential sees a request; a nonexistent request and a request owned by a
- * different credential both return the same privacy-preserving 404. M12
- * returns {@code meteringStatus=null} and {@code settlementStatus=null}
- * because usage facts and Settlement arrive in M13. Never returns prompt,
- * completion, Provider secrets, Budget totals or Ledger detail.
+ * different credential both return the same privacy-preserving 404. Metering
+ * and Settlement are nullable because a request may not have reached those
+ * stages yet. Never returns prompt, completion, Provider secrets, Budget totals
+ * or Ledger detail.
  */
 @RestController
 @RequestMapping(path = "/v1")
@@ -53,8 +53,8 @@ public class GatewayRequestStatusController {
         var body = new LinkedHashMap<String, Object>();
         body.put("requestId", row.publicRequestId());
         body.put("requestState", row.state());
-        body.put("meteringStatus", null);
-        body.put("settlementStatus", null);
+        body.put("meteringStatus", row.meteringStatus());
+        body.put("settlementStatus", row.settlementStatus());
         body.put("createdAt", row.createdAt());
         body.put("updatedAt", row.updatedAt());
         return body;

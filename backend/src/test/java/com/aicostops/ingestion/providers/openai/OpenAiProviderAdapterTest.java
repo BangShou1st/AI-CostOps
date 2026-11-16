@@ -207,6 +207,22 @@ class OpenAiProviderAdapterTest {
     }
 
     @Test
+    void usageJsonParseReusesInspectionBucketWindows() {
+        var source = new CountingSource(
+                classpath("/provider-fixtures/openai/official-usage-completions.json"));
+        var input = new ProviderInput(source, ImportSourceType.USAGE_API_JSON,
+                "usage.json", "application/json");
+        var inspection = adapter.inspect(input);
+        var records = new ArrayList<NormalizedProviderRecord>();
+
+        adapter.parse(input, inspection, (ProviderRecordSink) records::add);
+
+        assertThat(inspection.compatible()).isTrue();
+        assertThat(records).isNotEmpty();
+        assertThat(source.opens()).isEqualTo(2);
+    }
+
+    @Test
     void usageBytesAreRejectedUnderCostsApiJson() {
         var result = adapter.inspect(input(ImportSourceType.COSTS_API_JSON,
                 classpath("/provider-fixtures/openai/official-usage-completions.json"),
@@ -756,6 +772,35 @@ class OpenAiProviderAdapterTest {
         @Override
         public String objectKey() {
             return "fixture";
+        }
+    }
+
+    private static final class CountingSource implements ProviderSource {
+        private final byte[] bytes;
+        private int opens;
+
+        private CountingSource(byte[] bytes) {
+            this.bytes = bytes;
+        }
+
+        @Override
+        public InputStream openStream() {
+            opens++;
+            return new ByteArrayInputStream(bytes);
+        }
+
+        @Override
+        public long sizeBytes() {
+            return bytes.length;
+        }
+
+        @Override
+        public String objectKey() {
+            return "fixture";
+        }
+
+        private int opens() {
+            return opens;
         }
     }
 }
