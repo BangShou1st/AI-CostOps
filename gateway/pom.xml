@@ -24,7 +24,7 @@
     <!-- ai-model-bridge-core still uses the Jackson 2 API; keep it on the patched line. -->
     <jackson-2-bom.version>2.21.7</jackson-2-bom.version>
     <jackson-bom.version>3.1.7</jackson-bom.version>
-    <ai-model-bridge.version>v0.2.0</ai-model-bridge.version>
+    <ai-model-bridge.version>v0.2.1</ai-model-bridge.version>
     <mybatis-spring-boot.version>4.1.0</mybatis-spring-boot.version>
     <testcontainers.version>2.0.5</testcontainers.version>
     <archunit.version>1.4.2</archunit.version>

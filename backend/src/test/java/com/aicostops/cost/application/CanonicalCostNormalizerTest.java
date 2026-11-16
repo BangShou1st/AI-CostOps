@@ -21,15 +21,15 @@ import tools.jackson.databind.ObjectMapper;
  */
 class CanonicalCostNormalizerTest {
 
-    private final CanonicalCostNormalizer normalizer =
-            new CanonicalCostNormalizer(new ObjectMapper());
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final CanonicalCostNormalizer normalizer = new CanonicalCostNormalizer();
 
     private static final Instant USAGE_START = Instant.parse("2026-01-01T00:00:00Z");
     private static final Instant USAGE_END = Instant.parse("2026-01-02T00:00:00Z");
 
     private CanonicalFactBatch normalize(String providerCode, String payloadJson) {
         var input = new CanonicalizationInput(42L, providerCode, 7L, 99L, 0L,
-                "data[0].results[0]", payloadJson, USAGE_START, USAGE_END);
+                "data[0].results[0]", objectMapper.readTree(payloadJson), USAGE_START, USAGE_END);
         return normalizer.normalize(input);
     }
 

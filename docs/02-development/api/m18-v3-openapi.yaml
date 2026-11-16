@@ -351,7 +351,13 @@ components:
         version: {type: integer}
         connectionKind: {type: string, enum: [BUILTIN, CUSTOM]}
         templateCode: {type: string, nullable: true, enum: [CUSTOM_OPENAI_COMPATIBLE]}
-        protocolCode: {type: string, enum: [OPENAI_CHAT_COMPLETIONS, MIMO_CHAT_COMPLETIONS]}
+        protocolCode:
+          type: string
+          description: >-
+            New profiles always use OPENAI_CHAT_COMPLETIONS. MIMO_CHAT_COMPLETIONS
+            remains readable only for historical connection profiles; V33 retires
+            the MIMO catalog route without deleting historical financial evidence.
+          enum: [OPENAI_CHAT_COMPLETIONS, MIMO_CHAT_COMPLETIONS]
         baseUrl: {type: string}
         completionPath: {type: string}
         modelsPath: {type: string, nullable: true}

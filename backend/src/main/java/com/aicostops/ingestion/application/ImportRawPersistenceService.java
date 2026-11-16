@@ -8,11 +8,13 @@ import com.aicostops.ingestion.infrastructure.ImportIssueMapper;
 import com.aicostops.ingestion.infrastructure.ImportWorkerProperties;
 import com.aicostops.ingestion.infrastructure.RawProviderRecordMapper;
 import java.time.Clock;
-import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -75,31 +77,56 @@ public class ImportRawPersistenceService {
             var warnings = 0L;
             var errors = 0L;
             var valid = 0L;
-            var issuesInserted = 0L;
+            var rawRows = new ArrayList<RawProviderRecordMapper.RawRecordInsert>(records.size());
+            var normalizedPayloads = new HashMap<Integer, JsonNode>(records.size());
             for (var record : records) {
                 var rawPayload = serialize(PayloadRedactor.redact(record.rawPayload()));
                 // The sanitized normalized JSON is produced exactly once and is the
                 // single source for both the persisted normalized_payload and the
                 // canonicalization input (invariant: one sanitized normalized JSON).
-                var normalizedPayload = record.normalizedPayload() == null
-                        ? null : serialize(PayloadRedactor.redactNormalizedPayload(record.normalizedPayload()));
+                var redactedNormalized = record.normalizedPayload() == null
+                        ? null : PayloadRedactor.redactNormalizedPayload(record.normalizedPayload());
+                var normalizedPayload = redactedNormalized == null ? null : serialize(redactedNormalized);
+                normalizedPayloads.put(record.index(),
+                        redactedNormalized == null ? null : objectMapper.valueToTree(redactedNormalized));
                 // User-controlled metadata (adapter-derived locators/keys such as
                 // GLM worksheet names) passes the same secret-shaped redaction as
                 // payloads, bounded to the VARCHAR(500) column limits.
-                rawMapper.insert(lease.attemptId(), record.index(),
+                rawRows.add(new RawProviderRecordMapper.RawRecordInsert(
+                        lease.attemptId(), record.index(),
                         IssueSanitizer.sanitizeLocator(record.locator()),
                         IssueSanitizer.sanitizeRecordKey(record.providerRecordKey()),
                         rawPayload, normalizedPayload,
-                        record.usageStart(), record.usageEnd(), record.normalizeStatus().name(), now);
-                var rawId = rawMapper.lastInsertId();
+                        record.usageStart(), record.usageEnd(), record.normalizeStatus().name(), now));
+            }
+            if (rawMapper.insertBatch(rawRows) != rawRows.size()) {
+                throw new IllegalStateException("Raw provider batch insert affected an unexpected row count");
+            }
+            var firstIndex = records.getFirst().index();
+            var lastIndex = records.getLast().index();
+            var rawIds = new HashMap<Long, Long>(records.size());
+            for (var row : rawMapper.findIdsByIndexRange(lease.attemptId(), firstIndex, lastIndex)) {
+                rawIds.put(row.recordIndex(), row.id());
+            }
+            if (rawIds.size() != records.size()) {
+                throw new IllegalStateException("Raw provider batch did not produce one id per record");
+            }
+
+            var issueRows = new ArrayList<ImportIssueMapper.IssueInsert>();
+            var canonicalInputs = new ArrayList<CanonicalizationInput>();
+            for (var record : records) {
+                var rawId = rawIds.get((long) record.index());
+                if (rawId == null) {
+                    throw new IllegalStateException("Raw provider record id is missing for index "
+                            + record.index());
+                }
                 for (var issue : record.issues()) {
-                    issueMapper.insert(lease.attemptId(), rawId, issue.severity().name(),
-                            issue.issueCode(),
+                    issueRows.add(new ImportIssueMapper.IssueInsert(
+                            lease.attemptId(), rawId, issue.severity().name(), issue.issueCode(),
                             IssueSanitizer.sanitizeLocator(issue.recordLocator()),
                             IssueSanitizer.sanitizeFieldName(issue.fieldName()),
                             IssueSanitizer.sanitizeMessage(issue.message()),
-                            IssueSanitizer.sanitizeMasked(issue.rawValueMasked()), now);
-                    issuesInserted++;
+                            IssueSanitizer.sanitizeMasked(issue.rawValueMasked()), now));
                     if (issue.severity().name().equals("ERROR")) {
                         errors++;
                     } else {
@@ -115,14 +142,18 @@ public class ImportRawPersistenceService {
                 // out of canonical tables.
                 if (record.normalizeStatus() != RawRecordNormalizeStatus.ERROR
                         && record.normalizedPayload() != null) {
-                    canonicalCostWritePort.write(new CanonicalizationInput(
+                    canonicalInputs.add(new CanonicalizationInput(
                             orgId, providerCode, lease.attemptId(), rawId,
-                            record.index(), record.locator(), normalizedPayload,
+                            record.index(), record.locator(), normalizedPayloads.get(record.index()),
                             record.usageStart(), record.usageEnd()));
                 }
             }
+            if (!issueRows.isEmpty() && issueMapper.insertBatch(issueRows) != issueRows.size()) {
+                throw new IllegalStateException("Import issue batch insert affected an unexpected row count");
+            }
+            canonicalCostWritePort.writeAll(canonicalInputs);
             attemptMapper.incrementCounters(lease.attemptId(), records.size(), valid, warnings, errors);
-            return new PersistResult(records.size(), issuesInserted, false);
+            return new PersistResult(records.size(), issueRows.size(), false);
         });
     }
 
@@ -144,18 +175,22 @@ public class ImportRawPersistenceService {
             var now = clock.instant();
             var warnings = 0L;
             var errors = 0L;
+            var issueRows = new ArrayList<ImportIssueMapper.IssueInsert>(issues.size());
             for (var issue : issues) {
-                issueMapper.insert(lease.attemptId(), null, issue.severity().name(),
-                        issue.issueCode(),
+                issueRows.add(new ImportIssueMapper.IssueInsert(
+                        lease.attemptId(), null, issue.severity().name(), issue.issueCode(),
                         IssueSanitizer.sanitizeLocator(issue.recordLocator()),
                         IssueSanitizer.sanitizeFieldName(issue.fieldName()),
                         IssueSanitizer.sanitizeMessage(issue.message()),
-                        IssueSanitizer.sanitizeMasked(issue.rawValueMasked()), now);
+                        IssueSanitizer.sanitizeMasked(issue.rawValueMasked()), now));
                 if (issue.severity().name().equals("ERROR")) {
                     errors++;
                 } else {
                     warnings++;
                 }
+            }
+            if (issueMapper.insertBatch(issueRows) != issueRows.size()) {
+                throw new IllegalStateException("Inspection issue batch insert affected an unexpected row count");
             }
             attemptMapper.incrementCounters(lease.attemptId(), 0, 0, warnings, errors);
             return new PersistResult(0, issues.size(), false);

@@ -110,7 +110,7 @@ public class CommitmentConsumeService {
         // the budget already binds this commitment to its period, so the
         // primitive must not re-gate the Source-determined posting period
         // with the current wall clock.
-        var period = billingPeriodMapper.selectByIdForUpdate(command.organizationId(),
+        var period = billingPeriodMapper.selectByIdForShare(command.organizationId(),
                 budget.billingPeriodId());
         if (period == null) {
             throw stateConflict("Billing period is missing",

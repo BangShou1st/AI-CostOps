@@ -10,6 +10,11 @@ import com.aicostops.shared.web.DomainException;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -30,6 +35,7 @@ class BillingPeriodFinancialWriteFenceIntegrationTest extends MySqlContainerSupp
     private long orgId;
     private long periodId;
     private TransactionTemplate tx;
+    private final ExecutorService executor = Executors.newFixedThreadPool(2);
 
     @BeforeEach
     void setUp() {
@@ -50,6 +56,11 @@ class BillingPeriodFinancialWriteFenceIntegrationTest extends MySqlContainerSupp
         periodId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
 
+    @AfterEach
+    void tearDown() {
+        executor.shutdownNow();
+    }
+
     @Test
     void locksUniqueOpenPeriodByIdAndEffectiveTime() {
         tx.executeWithoutResult(status -> {
@@ -58,6 +69,32 @@ class BillingPeriodFinancialWriteFenceIntegrationTest extends MySqlContainerSupp
             assertThat(fence.lockOpenAt(orgId, Instant.parse("2026-08-15T00:00:00Z")).id())
                     .isEqualTo(periodId);
         });
+    }
+
+    @Test
+    void concurrentFinancialFencesCanHoldTheSameOpenPeriod() throws Exception {
+        var firstHeld = new CountDownLatch(1);
+        var secondHeld = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+
+        var first = executor.submit(() -> tx.executeWithoutResult(status -> {
+            fence.lockOpenById(orgId, periodId);
+            firstHeld.countDown();
+            await(release);
+        }));
+        var second = executor.submit(() -> tx.executeWithoutResult(status -> {
+            fence.lockOpenAt(orgId, Instant.parse("2026-08-15T00:00:00Z"));
+            secondHeld.countDown();
+            await(release);
+        }));
+
+        assertThat(firstHeld.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(secondHeld.await(5, TimeUnit.SECONDS))
+                .describedAs("two financial fences must share one OPEN period")
+                .isTrue();
+        release.countDown();
+        assertThat(first.get(5, TimeUnit.SECONDS)).isNull();
+        assertThat(second.get(5, TimeUnit.SECONDS)).isNull();
     }
 
     @Test
@@ -120,5 +157,16 @@ class BillingPeriodFinancialWriteFenceIntegrationTest extends MySqlContainerSupp
                 fence.lockIfCoveredAndRequireOpenAt(
                         orgId, Instant.parse("2026-08-15T00:00:00Z"))))
                 .isInstanceOf(DomainException.class);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("test latch timed out");
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(interrupted);
+        }
     }
 }

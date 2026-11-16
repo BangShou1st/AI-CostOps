@@ -23,7 +23,7 @@ STABLE_RELEASE = v3.1.2
 Feature development = CLOSED
 Operational mode = MAINTENANCE_ONLY
 V4 = NOT_PLANNED
-Provider model routing = CUSTOM_OPENAI_COMPATIBLE via ai-model-bridge-core v0.2.0
+Provider model routing = CUSTOM_OPENAI_COMPATIBLE via ai-model-bridge-core v0.2.1
                          (OpenCode Zen / Kilo Gateway / MiMo model routes retired)
 M20 Production Acceptance = COMPLETE
 M21 Operational Readiness = COMPLETE
@@ -32,6 +32,8 @@ M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
 DEEP_CODE_REVIEW = COMPLETE (2026-11-12, 4 P1 + 22 P2 + 6 P3, all disposed by v3.1.1)
 RUNTIME_VERIFICATION = COMPLETE (2026-11-13, 2 defects fixed by v3.1.2)
 Known release-blocking defects = NONE
+Known operational limits = conservative 1,048,576 input-token reservation;
+                            5s settlement poll; no post-success reservation shrink
 ```
 
 V3 是最终功能版本：功能研发已关闭，项目进入长期维护模式；V4 不在路线图内，不再规划或实现 V4，不新增 Provider 或业务功能，维护任务按真实故障与必要性触发。`STABLE_RELEASE = v3.1.2` 是 `main` 上的当前稳定标签，`main` 与 `dev` 保持同一发布内容，`dev` 仅额外包含发布同步记录。
@@ -114,7 +116,7 @@ Spring Security
 Plain MyBatis
 MySQL 8.4
 Redis
-ai-model-bridge-core v0.2.0 (Gateway Provider wire)
+ai-model-bridge-core v0.2.1 (Gateway Provider wire, connection-time public DNS guard)
 Flyway
 MinIO / S3-compatible storage
 React 19

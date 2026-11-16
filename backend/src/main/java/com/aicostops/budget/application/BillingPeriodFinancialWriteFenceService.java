@@ -21,7 +21,7 @@ public class BillingPeriodFinancialWriteFenceService implements BillingPeriodFin
 
     @Override
     public BillingPeriod lockOpenAt(long organizationId, Instant effectiveAt) {
-        var candidates = mapper.selectCoveringCandidatesForUpdate(organizationId, effectiveAt);
+        var candidates = mapper.selectCoveringCandidatesForShare(organizationId, effectiveAt);
         if (candidates.isEmpty()) {
             throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
                     "No covering billing period",
@@ -33,7 +33,7 @@ public class BillingPeriodFinancialWriteFenceService implements BillingPeriodFin
 
     @Override
     public BillingPeriod lockById(long organizationId, long billingPeriodId) {
-        var period = mapper.selectByIdForUpdate(organizationId, billingPeriodId);
+        var period = mapper.selectByIdForShare(organizationId, billingPeriodId);
         if (period == null) {
             throw new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                     "Billing period not found",
@@ -63,7 +63,7 @@ public class BillingPeriodFinancialWriteFenceService implements BillingPeriodFin
 
     @Override
     public void lockIfCoveredAndRequireOpenAt(long organizationId, Instant effectiveAt) {
-        var candidates = mapper.selectCoveringCandidatesForUpdate(organizationId, effectiveAt);
+        var candidates = mapper.selectCoveringCandidatesForShare(organizationId, effectiveAt);
         if (candidates.isEmpty()) {
             return;
         }

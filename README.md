@@ -170,7 +170,7 @@ mindmap
 * **版本化连接档案（Provider Connections）**：集中管理供应商端点与凭证，API Key 经 `MODEL_CONFIG_MASTER_KEY` 由 AES-256-GCM 强加密存储，API 接口只写不读，日志全量脱敏。
 * **实时模型发现与探针校验（Discovery & Probe）**：支持一键从上游拉取最新模型目录，通过 Ping Probe 与 Chat Probe 实时校验端点可用性与首字延迟。
 * **受控免费层准入策略（Governed Free Tier Policy）**：针对外部声称免费的模型，实施严格的“必须提供权威官方定价证据”准入审查，防止隐藏扣费陷阱。
-* **严密网络与 SSRF 防护网**：内置 `DispatchEndpointGuard`、`FilteringAddressResolverGroup` 与 `PublicOnlyAddressResolverGroup`，严格校验 DNS 解析与公网 IP，彻底阻断利用自定义端点扫描企业内网或本地回环地址。
+* **严密网络与 SSRF 防护网**：Gateway 内置 `DispatchEndpointGuard` 与 `ai-model-bridge v0.2.1` 的 `OutboundEndpointPolicy`；请求前校验 URL 形态，并在实际 socket 建连时再次解析和拒绝内网、回环、链路本地或云元数据地址，关闭 DNS rebinding TOCTOU 窗口。
 
 ---
 
@@ -441,7 +441,7 @@ npm run dev
 * **探针与可用性探测（Probing）**：支持定时向 Provider 端点发起探针（Ping 与 Chat Probe），实时记录往返时延（RTT）、TLS 握手延迟与 HTTP 状态码，为动态路由提供健康度事实。
 * **严密网络边界与 SSRF 防护网**：
   * 内置 `DispatchEndpointGuard` 校验自定义接入 URL。
-  * 结合 Netty `FilteringAddressResolverGroup` 与 `PublicOnlyAddressResolverGroup`，在底层 DNS 解析阶段校验 IP 地址，**强力阻断内网回环（127.0.0.1、localhost）、私有网段（10.0.0.0/8、172.16.0.0/12、192.168.0.0/16）及云厂商元数据端点（169.254.169.254）**。
+  * Gateway 的 Provider wire 统一走 `ai-model-bridge v0.2.1`；`PUBLIC_HTTPS_ONLY` 使用 Apache HttpClient 5 的连接期 `DnsResolver`，在验证与建连之间发生 DNS 翻转时仍拒绝内网回环（127.0.0.1、localhost）、私有网段（10.0.0.0/8、172.16.0.0/12、192.168.0.0/16）及云厂商元数据端点（169.254.169.254）。
 
 ---
 
@@ -573,7 +573,7 @@ CI Pipeline ─┬─ detect-changes              (路径过滤与 docs-only 短
              ├─ gateway-unit / gateway-integration
              ├─ frontend-quality (lint & build) / frontend-test
              ├─ docker-build (Backend / Gateway / Frontend)
-             ├─ browser-e2e                (Playwright 真实浏览器验收)
+             ├─ browser-e2e                (Playwright + Gateway/mock-provider 容器)
              └─ ci-status                  (必需检查汇总门禁)
 ```
 

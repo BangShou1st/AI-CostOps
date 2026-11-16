@@ -2,6 +2,8 @@ package com.aicostops.gateway.observability;
 
 import com.aicostops.gateway.metering.GatewayUsageStatus;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.math.BigDecimal;
+import java.util.Locale;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
@@ -118,6 +120,23 @@ public class GatewayMetrics {
     public void recordReservationAttempt(String outcome) {
         registry.counter("gateway_reservation_attempt_total", "outcome",
                 bounded(outcome, RESERVATION_ATTEMPTS)).increment();
+    }
+
+    /**
+     * Conservative reservation sizes are operational telemetry only; the
+     * authoritative amount remains the MySQL {@code budget_reservation} row.
+     */
+    public void recordBudgetReservationAmount(String currency, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
+        var boundedCurrency = currency == null || currency.length() != 3
+                ? "UNKNOWN" : currency.toUpperCase(Locale.ROOT);
+        io.micrometer.core.instrument.DistributionSummary
+                .builder("gateway_budget_reservation_amount")
+                .tag("currency", boundedCurrency)
+                .register(registry)
+                .record(amount.doubleValue());
     }
 
     /** outcome is a small fixed enum: ALLOWED, REJECTED, DEPENDENCY_UNAVAILABLE, DISABLED. */

@@ -43,17 +43,18 @@ public class BridgeProviderConfiguration {
                 ? OutboundEndpointPolicy.privateNetwork(true,
                         Set.of("127.0.0.1", "::1", "localhost"), Set.of())
                 : OutboundEndpointPolicy.httpsOnly();
-        var client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .executor(bridgeProviderExecutor)
-                .build();
-        var transport = new HttpTransport(
-                mapper,
-                policy,
-                Duration.ofMillis(properties.getConnectTimeoutMs()),
-                Duration.ofMillis(properties.getHeaderTimeoutMs()),
-                client);
+        var connectTimeout = Duration.ofMillis(properties.getConnectTimeoutMs());
+        var headerTimeout = Duration.ofMillis(properties.getHeaderTimeoutMs());
+        var transport = allowPrivateEndpoints
+                // Explicit local/private testing keeps the JDK transport with the
+                // bridge provider executor. Production uses the pinned transport.
+                ? new HttpTransport(mapper, policy, connectTimeout, headerTimeout,
+                        HttpClient.newBuilder()
+                                .connectTimeout(connectTimeout)
+                                .followRedirects(HttpClient.Redirect.NEVER)
+                                .executor(bridgeProviderExecutor)
+                                .build())
+                : new HttpTransport(mapper, policy, connectTimeout, headerTimeout);
         var registry = new AdapterRegistry()
                 .register(new PermissiveOpenAiCompatibleAdapter(
                         new OpenAiCompatibleAdapter(mapper, transport)));

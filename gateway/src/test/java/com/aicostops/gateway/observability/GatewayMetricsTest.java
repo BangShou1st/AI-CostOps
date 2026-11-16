@@ -44,6 +44,19 @@ class GatewayMetricsTest {
     }
 
     @Test
+    void reservationAmountSummaryUsesOnlyCurrencyLabel() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new GatewayMetrics(registry);
+
+        metrics.recordBudgetReservationAmount("usd", new java.math.BigDecimal("80.00000000"));
+
+        var summary = registry.get("gateway_budget_reservation_amount")
+                .tag("currency", "USD").summary();
+        assertThat(summary.count()).isEqualTo(1);
+        assertThat(summary.totalAmount()).isEqualTo(80.0);
+    }
+
+    @Test
     void activeStreamsGaugeReflectsLimiterState() {
         var registry = new SimpleMeterRegistry();
         var metrics = new GatewayMetrics(registry);

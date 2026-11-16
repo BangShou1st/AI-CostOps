@@ -25,9 +25,8 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 
 /**
  * AIC-100 recovery status API over real MySQL + mock upstream: owning
- * credential reads bounded status with null metering/settlement in M11, and
- * nonexistent or foreign-owned requests both surface the same privacy-
- * preserving 404.
+ * credential reads durable metering/settlement state, and nonexistent or
+ * foreign-owned requests both surface the same privacy-preserving 404.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureWebTestClient
@@ -108,10 +107,48 @@ class GatewayRequestStatusControllerTest extends GatewayMySqlContainerSupport {
                 .expectBody()
                 .jsonPath("$.requestId").isEqualTo(requestId)
                 .jsonPath("$.requestState").isEqualTo("TRANSPORT_COMPLETED")
-                .jsonPath("$.meteringStatus").isEmpty()
+                .jsonPath("$.meteringStatus").isEqualTo("FINAL")
                 .jsonPath("$.settlementStatus").isEmpty()
                 .jsonPath("$.createdAt").exists()
                 .jsonPath("$.updatedAt").exists();
+    }
+
+    @Test
+    void owningCredentialSeesDurableSettlementStatus() {
+        var post = web.post().uri("/v1/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .header("Idempotency-Key", "sts-idem-settlement")
+                .bodyValue(body(env))
+                .exchange()
+                .expectStatus().isOk()
+                .returnResult(String.class);
+
+        var requestId = post.getResponseHeaders().getFirst("X-AI-CostOps-Request-Id");
+        var request = jdbc.queryForMap("""
+                SELECT id,current_route_attempt_id,current_usage_fact_id
+                FROM gateway_request WHERE public_request_id=?
+                """, requestId);
+        jdbc.update("""
+                INSERT INTO gateway_settlement(
+                  org_id,settlement_key,request_id,route_attempt_id,usage_fact_id,reservation_id,
+                  billing_period_id,financial_scope_type,financial_scope_id,provider_account_id,
+                  provider_model_id,pricing_version_id,currency,status,attempt_count,
+                  created_at,updated_at)
+                VALUES (?,?,?,?,?,NULL,?,'PROJECT',?,?,?,?,'USD','PENDING',0,
+                  UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                """, env.orgId(), "gw-status-" + requestId,
+                request.get("id"), request.get("current_route_attempt_id"),
+                request.get("current_usage_fact_id"), env.periodId(), env.projectId(),
+                env.providerAccountId(), env.providerModelId(), env.pricingVersionId());
+
+        web.get().uri("/v1/gateway/requests/{requestId}", requestId)
+                .header(HttpHeaders.AUTHORIZATION, bearer(rawKey()))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.meteringStatus").isEqualTo("FINAL")
+                .jsonPath("$.settlementStatus").isEqualTo("PENDING");
     }
 
     @Test
