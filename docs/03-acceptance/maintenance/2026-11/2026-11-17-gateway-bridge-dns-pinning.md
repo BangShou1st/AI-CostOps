@@ -54,6 +54,10 @@ cd gateway
   执行 `dependency:get`，2026-11-17 复验 `BUILD SUCCESS`（2:40），core JAR
   277,101 bytes 由 JitPack 解析；同一空仓库执行 Gateway `-DskipTests compile`
   也 `BUILD SUCCESS`（3:18，84 个源文件），证明干净环境可直接构建。
+- 2026-11-17 Trivy 首轮扫描发现 bridge 传递依赖 `httpcore5` /
+  `httpcore5-h2` 5.4.2 命中 CVE-2026-54399 / CVE-2026-54428（HIGH）；
+  Gateway 通过 dependencyManagement 将两者覆盖到 5.4.3，`httpclient5` 5.6.1
+  保持不变，依赖树复验为 5.4.3。
 - 2026-11-14 记录的 DNS pinning 已知边界不再适用于 AI-CostOps Gateway；
   旧的 `OpenAiChatAdapter` / `PublicOnlyAddressResolverGroup` 仍保持删除，不恢复第二套 wire。
 

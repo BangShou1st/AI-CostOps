@@ -25,6 +25,7 @@
 - Gateway 重新引入受管理的 Jackson 2（`2.21.7`）与 JitPack 仓库，仅服务 bridge core 的 Jackson 2 API；API、DB schema、预算、路由、结算与账本语义不变。
 
 ### Fixed
+- Gateway 安全：将 bridge 传递依赖 `httpcore5` / `httpcore5-h2` 从 5.4.2 覆盖到 5.4.3，关闭 CVE-2026-54399 / CVE-2026-54428 两项 HIGH；`httpclient5` 5.6.1 保持不变。
 - Gateway：新增 `gateway_budget_reservation_amount` 指标，并将 1,048,576 token 保守输入预占、请求成功不缩减预占、5 秒结算轮询登记为已接受运维边界。
 - Gateway：流式 Bridge adapter 对 `Sinks` 多线程发射的 `FAIL_NON_SERIALIZED` 做串行化重试，不再把内部竞争误判为客户端取消；成功、错误与 watchdog 超时只允许一个终态，超时立即释放 watchdog。
 - Gateway：`GET /v1/gateway/requests/{requestId}` 返回当前 `gateway_usage_fact` 与 `gateway_settlement` 的真实 `meteringStatus` / `settlementStatus`，不再硬编码 `null`。
