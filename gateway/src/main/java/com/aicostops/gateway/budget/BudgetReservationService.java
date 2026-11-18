@@ -2,6 +2,7 @@ package com.aicostops.gateway.budget;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.config.BlockingIoScheduler;
+import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import com.aicostops.gateway.web.GatewayErrorCode;
@@ -39,7 +40,7 @@ public class BudgetReservationService {
 
     private final BudgetReservationMapper reservationMapper;
     private final GatewayRequestMapper requestMapper;
-    private final GatewayPropertiesBridge properties;
+    private final GatewayProperties properties;
     private final BlockingIoScheduler blockingIo;
     private final TransactionTemplate transactions;
     private final Clock clock;
@@ -47,7 +48,7 @@ public class BudgetReservationService {
     public BudgetReservationService(
             BudgetReservationMapper reservationMapper,
             GatewayRequestMapper requestMapper,
-            GatewayPropertiesBridge properties,
+            GatewayProperties properties,
             BlockingIoScheduler blockingIo,
             PlatformTransactionManager transactionManager,
             Clock clock) {
@@ -156,7 +157,7 @@ public class BudgetReservationService {
         }
 
         // 7. Insert the ACTIVE hold; a concurrent winner converges via replay.
-        var expiresAt = now.plusMillis(properties.reservationTtlMs());
+        var expiresAt = now.plusMillis(properties.getReservationTtlMs());
         try {
             reservationMapper.insertActiveReservation(new BudgetReservationMapper.ReservationInsert(
                     orgId, command.requestId(), command.routeAttemptId(),

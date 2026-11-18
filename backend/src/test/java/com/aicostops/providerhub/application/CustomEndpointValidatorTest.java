@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.aicostops.shared.web.DomainException;
+import io.netty.util.NetUtil;
 import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -15,26 +17,22 @@ class CustomEndpointValidatorTest {
 
     private static CustomEndpointValidator validatorFor(Map<String, String[]> dns) {
         return new CustomEndpointValidator(host -> {
-            var ips = dns.get(host.toLowerCase(java.util.Locale.ROOT));
-            if (ips == null) {
-                // Literal IPs resolve to themselves without DNS; named test
-                // hosts fall back to a documentation public address so the
-                // suite stays deterministic offline.
-                try {
-                    return new InetAddress[] { InetAddress.getByName(host) };
-                } catch (java.net.UnknownHostException ex) {
-                    return new InetAddress[] { InetAddress.getByName("93.184.216.34") };
-                }
-            }
+            var ips = dns.getOrDefault(host, new String[] {host});
             var resolved = new InetAddress[ips.length];
             for (var i = 0; i < ips.length; i++) {
-                resolved[i] = InetAddress.getByName(ips[i]);
+                var address = NetUtil.createByteArrayFromIpAddressString(ips[i]);
+                if (address == null) {
+                    throw new UnknownHostException(ips[i]);
+                }
+                resolved[i] = InetAddress.getByAddress(address);
             }
             return resolved;
         });
     }
 
-    private final CustomEndpointValidator validator = validatorFor(Map.of());
+    private final CustomEndpointValidator validator = validatorFor(Map.of(
+            "localhost", new String[] {"127.0.0.1"},
+            "api.example-provider.com", new String[] {"93.184.216.34"}));
 
     @ParameterizedTest
     @ValueSource(strings = {

@@ -5,9 +5,4 @@ package com.aicostops.gatewaysettlement.application;
 public interface GatewaySettlementFailureInjector {
 
     void after(String financialStage);
-
-    static GatewaySettlementFailureInjector noop() {
-        return stage -> {
-        };
-    }
 }

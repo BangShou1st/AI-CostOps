@@ -194,9 +194,16 @@ describe('RulesPage', () => {
     expect(mockedRulesApi.createVersion).not.toHaveBeenCalled()
   })
 
-  it('submits the selected optional provider account with the new version', async () => {
+  it('loads a later active account only when the editor opens and submits it with the new version', async () => {
     mockedRulesApi.createVersion.mockResolvedValue({ ...RULE, version: 3 })
-    const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE'])
+    mockedSettingsApi.listProviderAccounts
+      .mockResolvedValueOnce({ items: [], page: 0, size: 200, totalElements: 1, totalPages: 2 })
+      .mockResolvedValueOnce({
+        items: [{ id: '29', providerCode: 'OPENAI', displayName: 'Later account', externalAccountRef: null, metadata: {}, status: 'ACTIVE', createdAt: '', updatedAt: '' }],
+        page: 1, size: 200, totalElements: 1, totalPages: 2,
+      })
+    const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE', 'PROVIDER_ACCOUNT_READ'])
+    expect(mockedSettingsApi.listProviderAccounts).not.toHaveBeenCalled()
     await openEditor()
 
     fillCoreFields()
@@ -205,21 +212,19 @@ describe('RulesPage', () => {
     // The optional provider-account dropdown loads asynchronously.
     const accountSelect = await screen.findByLabelText('供应商账号（可选）')
     fireEvent.mouseDown(accountSelect)
-    await waitFor(() => expect(screen.getByText('Main account（OPENAI）')).toBeInTheDocument())
-    fireEvent.click(screen.getByText('Main account（OPENAI）'))
+    await waitFor(() => expect(screen.getByText('Later account（OPENAI）')).toBeInTheDocument())
+    fireEvent.click(screen.getByText('Later account（OPENAI）'))
 
     fireEvent.click(screen.getByRole('button', { name: '创 建' }))
 
     await waitFor(() => expect(mockedRulesApi.createVersion).toHaveBeenCalledTimes(1))
     const [, definition] = mockedRulesApi.createVersion.mock.calls[0]
-    expect(definition.providerAccountId).toBe('9')
+    expect(definition.providerAccountId).toBe('29')
+    expect(mockedSettingsApi.listProviderAccounts).toHaveBeenNthCalledWith(1, 0, 200, 'ACTIVE', expect.any(AbortSignal))
+    expect(mockedSettingsApi.listProviderAccounts).toHaveBeenNthCalledWith(2, 1, 200, 'ACTIVE', expect.any(AbortSignal))
   })
 
-  it('keeps the form usable and stays null when provider accounts are forbidden', async () => {
-    mockedSettingsApi.listProviderAccounts.mockRejectedValue({
-      isAxiosError: true,
-      response: { data: { title: 'Forbidden', status: 403, detail: 'No access', code: 'FORBIDDEN', traceId: 't' } },
-    })
+  it('keeps the form usable without account-read permission and creates an unconstrained rule', async () => {
     mockedRulesApi.createVersion.mockResolvedValue(RULE)
     const { formInstance } = renderPage(['ALLOCATION_RULE_MANAGE'])
     await openEditor()
@@ -234,6 +239,7 @@ describe('RulesPage', () => {
     await waitFor(() => expect(mockedRulesApi.createVersion).toHaveBeenCalledTimes(1))
     const [, definition] = mockedRulesApi.createVersion.mock.calls[0]
     expect(definition.providerAccountId).toBeNull()
+    expect(mockedSettingsApi.listProviderAccounts).not.toHaveBeenCalled()
   })
 
   it('archive calls the real contract and refreshes', async () => {

@@ -77,24 +77,14 @@ public class ModelDiscoveryService {
     }
 
     /**
-     * Legacy client-authored refresh entry: production live provenance must come from the
-     * Provider. Client modelNames can no longer become LIVE_DISCOVERY; use
-     * POST .../models/manual for intentional registration. Rejected with zero mutation.
-     */
-    public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId, List<String> observedModelNames) {
-        throw validationFailed("Model refresh requires live Provider discovery; use manual registration for declared models.");
-    }
-
-    /**
-     * Refreshes observations, optionally fetching the live {@code /models} catalog first
+     * Refreshes observations by fetching the live {@code /models} catalog first
      * (bounded, names only — response bodies are never stored). Live I/O happens before the DB
      * transaction is opened, but only after PROVIDER_ACCOUNT_MANAGE is enforced: live discovery
      * performs outbound Provider I/O and must never be triggerable by a read-only user. A live
      * failure never masquerades as an empty catalog; only a successful snapshot may mark absent
      * models UNAVAILABLE.
      */
-    public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId,
-            List<String> observedModelNames, boolean fetchLive) {
+    public List<DiscoveryResponse> refresh(AuthenticatedUser user, long profileId, boolean fetchLive) {
         if (!fetchLive) {
             throw validationFailed("Model refresh requires live Provider discovery; use manual registration for declared models.");
         }
@@ -451,11 +441,6 @@ public class ModelDiscoveryService {
     private DomainException providerUnavailable(String detail) {
         return new DomainException(HttpStatus.BAD_GATEWAY, ProblemCode.PROVIDER_UNAVAILABLE,
                 "Provider unavailable", detail);
-    }
-
-    @Deprecated
-    private List<String> fetchLiveModels(com.aicostops.providerhub.domain.ProviderConnection profile) {
-        return fetchLiveModelsOrThrow(profile);
     }
 
     private static final tools.jackson.databind.ObjectMapper DISCOVERY_MAPPER =

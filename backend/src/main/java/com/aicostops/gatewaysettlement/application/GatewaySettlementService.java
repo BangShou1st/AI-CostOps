@@ -24,7 +24,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -50,7 +49,6 @@ public final class GatewaySettlementService {
     private final TransactionTemplate transactions;
     private final Clock clock;
 
-    @Autowired
     public GatewaySettlementService(
             GatewaySettlementMapper settlements,
             GatewaySettlementLineageReader lineageReader,
@@ -82,32 +80,6 @@ public final class GatewaySettlementService {
         this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
         this.clock = clock;
-    }
-
-    /** Convenient constructor for focused unit tests. */
-    public GatewaySettlementService(
-            GatewaySettlementMapper settlements,
-            GatewaySettlementLineageReader lineageReader,
-            GatewaySettlementCostCalculator calculator,
-            BillingPeriodFinancialWriteFence periodFence,
-            LedgerBudgetPort budgets,
-            GatewayReservationSettlementMapper reservations,
-            GatewaySettlementLedgerService gatewayLedger,
-            LedgerPostingMapper ledger,
-            CommitmentConsumeService commitmentConsume,
-            GatewaySettlementAuditPort audit,
-            AiCostOpsMetrics metrics,
-            PlatformTransactionManager transactionManager,
-            Clock clock) {
-        this(settlements, lineageReader, calculator, periodFence, budgets, reservations,
-                gatewayLedger, ledger, commitmentConsume, audit,
-                GatewaySettlementFailureInjector.noop(),
-                new GatewayFinancialTerminalPort() {
-                    @Override
-                    public boolean hasTerminalResolution(long organizationId, long requestId) {
-                        return false;
-                    }
-                }, metrics, transactionManager, clock);
     }
 
     public SettlementResult settle(long organizationId, long settlementId) {

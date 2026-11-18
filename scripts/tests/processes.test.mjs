@@ -19,6 +19,19 @@ test('missing executable and nonzero status propagate; capture is bounded', asyn
   await assert.rejects(capture(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { timeout: 100 }), /超时/)
 })
 
+test('stdout-only capture keeps machine output parseable and retains stderr on failure', async () => {
+  const code = 'console.warn("diagnostic"); console.log(JSON.stringify(["service"]));'
+  const options = { mergeStderr: false }
+  assert.deepEqual(JSON.parse(await capture(process.execPath, ['-e', code], options)), ['service'])
+  await assert.rejects(capture(process.execPath, ['-e', code + 'process.exitCode = 1'], options),
+    error => /diagnostic/.test(error.output))
+})
+
+test('capture decodes UTF-8 correctly when a multibyte character spans data chunks', async () => {
+  const code = "const bytes=Buffer.from('成本'); process.stdout.write(bytes.subarray(0,1)); setTimeout(()=>process.stdout.write(bytes.subarray(1)),10)"
+  assert.equal(await capture(process.execPath, ['-e', code]), '成本')
+})
+
 test('Windows batch preserves paths with spaces and reports wrapper exit code', { skip: !isWindows }, async t => {
   const root = temporary(t)
   const path = join(root, 'wrapper with space & 中文.cmd')
