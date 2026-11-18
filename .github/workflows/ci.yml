@@ -250,10 +250,10 @@ jobs:
           cache: maven
           cache-dependency-path: gateway/pom.xml
 
-      # Run Surefire unit tests and ArchUnit architecture tests in a single VM
-      - name: Run gateway unit and architecture tests
+      # Run the full Surefire suite, including tagged smoke tests, in a single VM
+      - name: Run all gateway Surefire tests, including tagged smoke tests
         working-directory: gateway
-        run: ./mvnw -B -DexcludedGroups=integration test
+        run: ./mvnw -B test
 
   gateway-integration:
     name: gateway-integration
