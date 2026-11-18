@@ -29,6 +29,7 @@
 
 ### Fixed
 - Issue #214：修复 Gateway Redis 降级时本地半开状态租期处理；`infra:up` 的 Compose `ps --format json` 仅从 stdout 解析，stderr 告警不再打断端口检查，失败诊断仍保留 stdout 与 stderr。
+- Issue #214：迁移集成测试在 `@AfterAll` 停止 V24、V30、V32、V22 的专用 MySQL 容器，并在需要时结束 Spring context，避免容器在类结束后继续占用本机 Docker 内存并导致共享测试 MySQL 被 OOMKilled；保留原断言、迁移及共享测试库生命周期。
 - Gateway 安全：将 bridge 传递依赖 `httpcore5` / `httpcore5-h2` 从 5.4.2 覆盖到 5.4.3，关闭 CVE-2026-54399 / CVE-2026-54428 两项 HIGH；`httpclient5` 5.6.1 保持不变。
 - Ledger：Expense / ProviderCharge 记账事务改为 `READ COMMITTED`，修复共享账期锁下并发重复记账因旧快照看不到已提交 posting 的误判；幂等重放仍只产生一笔 posting。
 - Gateway：新增 `gateway_budget_reservation_amount` 指标，并将 1,048,576 token 保守输入预占、请求成功不缩减预占、5 秒结算轮询登记为已接受运维边界。

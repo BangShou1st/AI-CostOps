@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.util.Map;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,11 @@ class V30OpenCodeZenInferenceBaseMigrationIntegrationTest {
 
     static {
         MYSQL.start();
+    }
+
+    @AfterAll
+    void stopMysql() {
+        MYSQL.stop();
     }
 
     private final JdbcTemplate jdbc = new JdbcTemplate(

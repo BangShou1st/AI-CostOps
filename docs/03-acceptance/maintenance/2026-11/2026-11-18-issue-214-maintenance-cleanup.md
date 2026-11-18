@@ -47,7 +47,11 @@ git show cbe412b:compose.dev.yaml | docker compose --env-file .env -f compose.ya
 docker compose --env-file .env -f compose.yaml -f compose.dev.yaml config '--hash=*'
 ```
 
-Compose 对照与 workflow lint 结果由根任务独立复核。全量 Maven verify 与远端 CI / Security 的完整状态记录在 Issue #214 关联 PR 描述中。
+Compose 对照与 workflow lint 结果由根任务独立复核。完整 Maven verify 与远端 CI / Security 的最终状态记录在 Issue #214 关联 PR 描述中。
+
+单趟 Backend `verify` 曾因本机 Docker WSL 内存约 1.86 GiB 而中断：V24、V30、V32、V22 四个临时迁移 MySQL 容器在对应测试类完成后仍占用内存，导致共享测试 MySQL `OOMKilled=true`（Exit 137）。中断前已完成 194/196 个集成测试类、1227 项断言/测试，以及 681 个单元/架构测试（含 1 项原有跳过）；这不是全量 `verify` 通过记录。
+
+处置为给上述四个迁移测试类增加 `@AfterAll`，停止专用 MySQL 容器，并在必要时结束 Spring context；保持原测试断言、迁移文件和共享测试库生命周期不变。V10、V11 及最后改动的四个迁移类计划局部重跑，Gateway 另行完整运行；执行结果与远端 CI / Security 记录在关联 PR，不在此声称整趟 `verify` 通过。
 
 ## 关键断言与证据
 
