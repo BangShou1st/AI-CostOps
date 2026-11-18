@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useState } from 'react'
 import { AuthSessionProvider } from '../../auth/AuthSessionProvider'
 import { ConnectionDetailPage } from '../ConnectionDetailPage'
-import { ProviderConnectionsPage } from '../ProviderConnectionsPage'
 import { ProviderGalleryPage } from '../ProviderGalleryPage'
 import { ProviderModelsPage } from '../ProviderModelsPage'
 import { capabilitiesFixture, connectionFixture, discoveryFixture, promotionFixture, templateFixture } from './providerFixture'
@@ -19,10 +18,6 @@ function Shell(props: { children: React.ReactNode }) {
 
 export function V3GalleryBenchmark() {
   return <Shell><ProviderGalleryPage preview={{ templates: templateFixture, connections: connectionFixture }} /></Shell>
-}
-
-export function V3ConnectionsBenchmark() {
-  return <Shell><ProviderConnectionsPage preview={{ connections: connectionFixture }} /></Shell>
 }
 
 export function V3ConnectionDetailBenchmark() {

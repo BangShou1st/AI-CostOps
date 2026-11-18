@@ -32,8 +32,3 @@ export function AvailabilityPill(props: { availability: string }) {
   if (props.availability === 'UNAVAILABLE') return <span className="v3-pill v3-pill-neutral">不可用</span>
   return <span className="v3-pill v3-pill-neutral">{props.availability || '未知'}</span>
 }
-
-export function ReadinessDot(props: { ready: boolean | null; label: string }) {
-  const cls = props.ready === true ? 'v3-dot-ok' : props.ready === false ? 'v3-dot-bad' : 'v3-dot-unknown'
-  return <span className="v3-readiness"><span className={`v3-dot ${cls}`} aria-hidden="true" />{props.label}</span>
-}

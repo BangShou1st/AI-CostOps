@@ -102,11 +102,17 @@ export async function supervise(specs, { signal = new AbortController().signal, 
 
 export function run(spec, signal) { return supervise([spec], { signal, allowExit: true }) }
 
-export async function capture(command, args, { signal, cwd, env = process.env, timeout = 15_000 } = {}) {
+export async function capture(command, args, { signal, cwd, env = process.env, timeout = 15_000, mergeStderr = true } = {}) {
   signal?.throwIfAborted()
   const child = spawnCommand(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], group: true })
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
   let output = ''
-  child.stdout.on('data', chunk => { output += chunk })
+  let stdout = ''
+  child.stdout.on('data', chunk => {
+    output += chunk
+    if (!mergeStderr) stdout += chunk
+  })
   child.stderr.on('data', chunk => { output += chunk })
   const completion = outcome(child, command)
   const controller = new AbortController()
@@ -121,6 +127,6 @@ export async function capture(command, args, { signal, cwd, env = process.env, t
     })
     const error = await Promise.race([completion, interrupted])
     if (error) { error.output = output; throw error }
-    return output
+    return mergeStderr ? output : stdout
   } finally { clearTimeout(timer); cancelled.removeEventListener('abort', stop); await terminate(child) }
 }

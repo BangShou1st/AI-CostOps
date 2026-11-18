@@ -7,7 +7,7 @@ import { problemDetail as presentProblemDetail, problemSummary, toProblemDetail,
 import { READABLE_SELECT_PROPS, readableOption } from '../../lib/selectPresentation'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../auth/permissions'
-import { settingsApi } from '../settings/api/settingsApi'
+import { activeProviderAccountsQuery } from '../settings/api/activeProviderAccountsQuery'
 import { ruleKeys } from './api/ruleKeys'
 import {
   rulesApi,
@@ -56,6 +56,7 @@ export function RulesPage({ externalForm }: RulesPageProps) {
   const form = externalForm ?? internalForm
 
   const canManage = hasPermission(auth.user?.permissions, 'ALLOCATION_RULE_MANAGE')
+  const canReadProviderAccounts = hasPermission(auth.user?.permissions, 'PROVIDER_ACCOUNT_READ')
 
   const list = useQuery({
     queryKey: ruleKeys.list({ page, size: PAGE_SIZE }),
@@ -65,11 +66,11 @@ export function RulesPage({ externalForm }: RulesPageProps) {
   // Optional account constraint; when the reader lacks PROVIDER_ACCOUNT_READ
   // the dropdown simply disappears and the rule stays unconstrained (null).
   const providerAccounts = useQuery({
-    queryKey: ['provider-accounts', 'list', 'ACTIVE'],
-    queryFn: () => settingsApi.listProviderAccounts(0, 200, 'ACTIVE'),
+    ...activeProviderAccountsQuery,
+    enabled: editorOpen && canReadProviderAccounts,
     retry: false,
   })
-  const accountOptions = (providerAccounts.data?.items ?? []).map((account) => readableOption(
+  const accountOptions = (canReadProviderAccounts ? providerAccounts.data ?? [] : []).map((account) => readableOption(
     account.id,
     `${account.displayName}（${account.providerCode}）`,
   ))

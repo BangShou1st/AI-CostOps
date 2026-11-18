@@ -131,7 +131,7 @@ async function main(signal) {
       if (command === 'infra:up') {
         // Repeated up is allowed for this project's services. Foreign listeners
         // and standalone containers must never be replaced or stopped.
-        const result = await capture('docker', [...compose, 'ps', '--format', 'json'], { signal, cwd: ROOT })
+        const result = await capture('docker', [...compose, 'ps', '--format', 'json'], { signal, cwd: ROOT, mergeStderr: false })
         const containers = result.trim().startsWith('[') ? JSON.parse(result) : result.trim().split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line))
         const infrastructurePorts = { mysql: port(env.MYSQL_PORT, 3307, 'MYSQL_PORT'), redis: port(env.REDIS_PORT, 6379, 'REDIS_PORT'),
           minio: port(env.MINIO_API_PORT, 9000, 'MINIO_API_PORT'), minioConsole: port(env.MINIO_CONSOLE_PORT, 9001, 'MINIO_CONSOLE_PORT') }
@@ -178,9 +178,13 @@ try { process.exitCode = await withSignals(main) }
 catch (error) { console.error(`[task failed] ${error.message}`); process.exitCode = 1 }
 finally {
   for (const pom of poms) pom.cleanup()
-  // Prune after this run so the directory it is still using is never a candidate.
-  if (currentBuild) {
-    const removed = pruneBuilds(ROOT, currentBuild)
-    if (removed.length > 0) console.log(`已清理 ${removed.length} 个历史构建目录，保留最近 ${RETAINED_BUILDS} 个：${join(ROOT, '.local-dev', 'builds')}`)
+  if (currentBuild && ['build', 'test', 'verify'].includes(command) && process.exitCode === 0) {
+    try {
+      writeFileSync(join(currentBuild, '.complete'), '')
+      const removed = pruneBuilds(ROOT)
+      if (removed.length > 0) console.log(`已清理 ${removed.length} 个历史构建目录，保留最近 ${RETAINED_BUILDS} 个：${join(ROOT, '.local-dev', 'builds')}`)
+    } catch (error) {
+      console.warn(`构建目录清理未完成：${error.code ?? error.message}`)
+    }
   }
 }

@@ -1,5 +1,6 @@
 package com.aicostops.gateway.budget;
 
+import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.observability.GatewayMetrics;
 import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
@@ -34,14 +35,14 @@ public class ReservationRecoveryService {
 
     private final BudgetReservationMapper reservationMapper;
     private final GatewayRequestMapper requestMapper;
-    private final GatewayPropertiesBridge properties;
+    private final GatewayProperties properties;
     private final GatewayMetrics metrics;
     private final TransactionTemplate transactions;
 
     public ReservationRecoveryService(
             BudgetReservationMapper reservationMapper,
             GatewayRequestMapper requestMapper,
-            GatewayPropertiesBridge properties,
+            GatewayProperties properties,
             GatewayMetrics metrics,
             PlatformTransactionManager transactionManager) {
         this.reservationMapper = reservationMapper;
@@ -55,7 +56,7 @@ public class ReservationRecoveryService {
         List<ExpiredHold> holds;
         try {
             holds = reservationMapper.findExpiredActiveHolds(
-                    properties.reservationRecoveryBatchSize());
+                    properties.getReservationRecoveryBatchSize());
         } catch (RuntimeException ex) {
             log.warn("Reservation recovery scan failed", ex);
             metrics.recordReservationRecovery("FAILED");
@@ -72,7 +73,7 @@ public class ReservationRecoveryService {
         List<GatewayRequestMapper.SafeReleasedRequest> requests;
         try {
             requests = requestMapper.findSafeReleasedRequests(
-                    properties.reservationRecoveryBatchSize());
+                    properties.getReservationRecoveryBatchSize());
         } catch (RuntimeException ex) {
             log.warn("Safe released request recovery scan failed", ex);
             metrics.recordReservationRecovery("FAILED");
@@ -117,8 +118,8 @@ public class ReservationRecoveryService {
         List<GatewayRequestMapper.StalePreDispatchRequest> requests;
         try {
             requests = requestMapper.findStalePreDispatchRequests(
-                    Math.max(1L, properties.reservationTtlMs() / 1000L),
-                    properties.reservationRecoveryBatchSize());
+                    Math.max(1L, properties.getReservationTtlMs() / 1000L),
+                    properties.getReservationRecoveryBatchSize());
         } catch (RuntimeException ex) {
             log.warn("Stale pre-dispatch request recovery scan failed", ex);
             metrics.recordReservationRecovery("FAILED");

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.mysql.MySQLContainer;
@@ -24,6 +26,7 @@ import org.testcontainers.mysql.MySQLContainer;
  * identical to the provider code, otherwise the Gateway cannot dispatch the KILO_GATEWAY adapter.
  */
 @SpringBootTest(properties = "spring.flyway.enabled=false")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class V32KiloGatewayCatalogMigrationIntegrationTest {
@@ -37,6 +40,11 @@ class V32KiloGatewayCatalogMigrationIntegrationTest {
 
     static {
         MYSQL.start();
+    }
+
+    @AfterAll
+    void stopMysql() {
+        MYSQL.stop();
     }
 
     @Autowired

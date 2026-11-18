@@ -13,6 +13,7 @@ import com.aicostops.iam.application.PasswordResetDelivery;
 import com.aicostops.iam.application.RegisterCommand;
 import com.aicostops.iam.application.RegistrationService;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,32 +46,14 @@ class PasswordResetApiIntegrationTest extends AuthenticationContainersSupport {
     @BeforeEach
     void setUp() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
-        cleanDatabase();
+        M2DatabaseCleaner.clean(jdbc);
         jdbc.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('Reset','reset-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
         registration.register(new RegisterCommand("reset@auth.test", "Reset User", "old-password"));
     }
 
-    /**
-     * This suite registers a real {@code app_user} + {@code user_credential} pair and
-     * writes {@code audit_event} rows. Without a teardown the last test's rows
-     * survive the class and block the {@code app_user} cleanup of whichever suite
-     * runs next in the shared MySQL Testcontainer.
-     */
     @AfterEach
     void tearDown() {
-        cleanDatabase();
-    }
-
-    private void cleanDatabase() {
-        jdbc.update("DELETE FROM audit_event"); jdbc.update("DELETE FROM invitation");
-        jdbc.update("DELETE FROM role_assignment");
-        // M6 close/reconciliation history references organization members.
-        jdbc.update("DELETE FROM period_close_check");
-        jdbc.update("DELETE FROM period_close_run");
-        jdbc.update("DELETE FROM reconciliation_case");
-        jdbc.update("DELETE FROM reconciliation_run");
-        jdbc.update("DELETE FROM organization_member"); jdbc.update("DELETE FROM user_credential");
-        jdbc.update("DELETE FROM app_user"); jdbc.update("DELETE FROM organization WHERE slug='reset-org'");
+        M2DatabaseCleaner.clean(jdbc);
     }
 
     @Test

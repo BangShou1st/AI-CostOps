@@ -4,8 +4,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthSessionProvider'
 import { hasPermission } from '../auth/permissions'
-import { settingsApi } from '../settings/api/settingsApi'
-import { settingsKeys } from '../settings/api/settingsKeys'
+import { activeProviderAccountsQuery } from '../settings/api/activeProviderAccountsQuery'
 import { importKeys } from './api/importKeys'
 import { importsApi } from './api/importsApi'
 import type { ImportBatchStatus, ImportSummary } from './api/importTypes'
@@ -38,11 +37,7 @@ export function ImportListPage() {
   })
 
   const accounts = useQuery({
-    queryKey: settingsKeys.providerAccountsAll(),
-    queryFn: async () => {
-      const result = await settingsApi.listProviderAccounts(0, 200)
-      return result.items.filter((account) => account.status === 'ACTIVE')
-    },
+    ...activeProviderAccountsQuery,
     enabled: canFilterByAccount,
   })
 
