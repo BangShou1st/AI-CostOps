@@ -5,7 +5,7 @@ import { formatMoney } from '../../lib/money'
 import { useMemo, useState } from 'react'
 import { problemDetail, problemTitle, toProblemDetail, type ProblemDetail } from '../../api/problem'
 import { useAuth } from '../auth/AuthSessionProvider'
-import { settingsApi } from '../settings/api/settingsApi'
+import { activeProviderAccountsQuery } from '../settings/api/activeProviderAccountsQuery'
 import { hasPermission } from '../auth/permissions'
 import { useAuthorizationMutation } from '../settings/useAuthorizationMutation'
 import { gatewayApi } from './api/gatewayApi'
@@ -134,7 +134,7 @@ export function ModelPricingPage() {
 }
 
 function CreatePricingVersionModal({ saving, onCancel, onCreate }: { saving: boolean; onCancel: () => void; onCreate: (input: Parameters<typeof gatewayApi.createPricingVersion>[0]) => void }) {
-  const accountsQuery = useQuery({ queryKey: ['settings', 'provider-accounts', 0, 100], queryFn: () => settingsApi.listProviderAccounts(0, 100) })
+  const accountsQuery = useQuery(activeProviderAccountsQuery)
   const providerModelsQuery = useQuery({ queryKey: gatewayKeys.providerModels, queryFn: () => gatewayApi.listProviderModels() })
   const [accountId, setAccountId] = useState<string | null>(null)
   const [providerModelId, setProviderModelId] = useState<string | null>(null)
@@ -142,7 +142,8 @@ function CreatePricingVersionModal({ saving, onCancel, onCreate }: { saving: boo
   const [outputPrice, setOutputPrice] = useState('')
   const [unitQuantity, setUnitQuantity] = useState(1000000)
 
-  const account = (accountsQuery.data?.items ?? []).find((item) => item.id === accountId)
+  const accounts = accountsQuery.data ?? []
+  const account = accounts.find((item) => item.id === accountId)
   const modelOptions = (providerModelsQuery.data ?? [])
     .filter((model) => model.providerCode === account?.providerCode)
     .map((model) => ({ value: model.id, label: model.providerModelName }))
@@ -162,7 +163,7 @@ function CreatePricingVersionModal({ saving, onCancel, onCreate }: { saving: boo
     onOk={() => onCreate(buildPricingCreateInput(accountId!, providerModelId!, unitQuantity, inputPrice, outputPrice))}
   >
     <Space direction="vertical" style={{ width: '100%' }}>
-      <label>服务商账号<Select aria-label="服务商账号" style={{ width: '100%' }} placeholder="选择服务商账号" value={accountId} onChange={setAccountId} options={(accountsQuery.data?.items ?? []).map((item) => ({ value: item.id, label: `${item.displayName}（${item.providerCode}）` }))} /></label>
+      <label>服务商账号<Select aria-label="服务商账号" style={{ width: '100%' }} placeholder="选择服务商账号" value={accountId} onChange={setAccountId} options={accounts.map((item) => ({ value: item.id, label: `${item.displayName}（${item.providerCode}）` }))} /></label>
       <label>服务商模型（仅显示该账号可用的模型）<Select aria-label="服务商模型" style={{ width: '100%' }} placeholder="选择服务商模型" value={providerModelId} onChange={setProviderModelId} options={modelOptions} /></label>
       <label>单位数量<InputNumber aria-label="单位数量" min={1} value={unitQuantity} onChange={(value) => setUnitQuantity(value ?? 1000000)} style={{ width: '100%' }} /></label>
       <label>输入令牌单价（每单位，USD）<Input aria-label="输入令牌单价" placeholder="如 30.00000000" value={inputPrice} onChange={(event) => setInputPrice(event.target.value)} /></label>

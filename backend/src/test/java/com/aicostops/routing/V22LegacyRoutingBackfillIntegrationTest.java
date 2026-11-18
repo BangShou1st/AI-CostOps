@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.util.List;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.mysql.MySQLContainer;
@@ -22,6 +24,7 @@ import org.testcontainers.mysql.MySQLContainer;
  * inspecting the V22 script or a schema-only projection.
  */
 @SpringBootTest(properties = "spring.flyway.enabled=false")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class V22LegacyRoutingBackfillIntegrationTest {
@@ -37,6 +40,11 @@ class V22LegacyRoutingBackfillIntegrationTest {
 
     static {
         MYSQL.start();
+    }
+
+    @AfterAll
+    void stopMysql() {
+        MYSQL.stop();
     }
 
     @Autowired

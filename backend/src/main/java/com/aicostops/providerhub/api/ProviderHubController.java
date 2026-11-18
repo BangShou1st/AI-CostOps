@@ -122,9 +122,8 @@ public class ProviderHubController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable long id,
             @RequestBody(required = false) RefreshModelsRequest request) {
-        var observed = request == null || request.modelNames() == null ? List.<String>of() : request.modelNames();
         var fetchLive = request != null && Boolean.TRUE.equals(request.fetchLive());
-        return discovery.refresh(user, id, observed, fetchLive);
+        return discovery.refresh(user, id, fetchLive);
     }
 
     @PostMapping("/provider-connections/{id}/models/manual")

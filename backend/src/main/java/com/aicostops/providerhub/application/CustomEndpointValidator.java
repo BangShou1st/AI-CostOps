@@ -3,7 +3,6 @@ package com.aicostops.providerhub.application;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
 import java.net.IDN;
-import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.URI;
 import java.util.ArrayList;
@@ -166,17 +165,13 @@ public class CustomEndpointValidator {
         if (raw.length == 4) {
             return isGloballyRoutableIpv4(raw);
         }
-        if (address instanceof Inet6Address) {
-            return isGloballyRoutableIpv6((Inet6Address) address, raw);
-        }
-        return isGloballyRoutableIpv6Raw(raw);
+        return isGloballyRoutableIpv6(raw);
     }
 
-    static boolean isGloballyRoutableIpv4(byte[] raw) {
+    private static boolean isGloballyRoutableIpv4(byte[] raw) {
         int b0 = raw[0] & 0xFF;
         int b1 = raw[1] & 0xFF;
         int b2 = raw[2] & 0xFF;
-        int b3 = raw[3] & 0xFF;
         if (b0 == 0) {
             return false;
         }
@@ -219,13 +214,10 @@ public class CustomEndpointValidator {
         if ((b0 & 0xF0) == 0xF0) {
             return false;
         }
-        if (b0 == 255 && b1 == 255 && b2 == 255 && b3 == 255) {
-            return false;
-        }
         return true;
     }
 
-    static boolean isGloballyRoutableIpv6(Inet6Address address, byte[] raw) {
+    private static boolean isGloballyRoutableIpv6(byte[] raw) {
         if (raw.length != 16) {
             return false;
         }
@@ -253,13 +245,6 @@ public class CustomEndpointValidator {
         return true;
     }
 
-    static boolean isGloballyRoutableIpv6Raw(byte[] raw) {
-        if (raw.length != 16) {
-            return false;
-        }
-        return isGloballyRoutableIpv6(null, raw);
-    }
-
     private static boolean isIpv4Mapped(byte[] raw) {
         for (var i = 0; i < 10; i++) {
             if (raw[i] != 0) {
@@ -272,11 +257,6 @@ public class CustomEndpointValidator {
     private static boolean isDocumentationV6(byte[] raw) {
         return (raw[0] & 0xFF) == 0x20 && (raw[1] & 0xFF) == 0x01
                 && (raw[2] & 0xFF) == 0x0D && (raw[3] & 0xFF) == 0xB8;
-    }
-
-    private static boolean isUniqueLocal(Inet6Address address) {
-        var raw = address.getAddress();
-        return (raw[0] & 0xFE) == 0xFC;
     }
 
     private DomainException blocked(String detail) {

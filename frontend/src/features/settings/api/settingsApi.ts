@@ -75,8 +75,8 @@ export const settingsApi = {
   async updateCostCenter(id: string, update: { name?: string; status?: MasterDataStatus }) {
     return (await apiClient.patch<MasterDataRecord>(`/cost-centers/${encodeURIComponent(id)}`, update)).data
   },
-  async listProviderAccounts(page: number, size: number, status?: MasterDataStatus) {
-    return (await apiClient.get<PageResponse<ProviderAccount>>('/provider-accounts', { params: { page, size, status } })).data
+  async listProviderAccounts(page: number, size: number, status?: MasterDataStatus, signal?: AbortSignal) {
+    return (await apiClient.get<PageResponse<ProviderAccount>>('/provider-accounts', { params: { page, size, status }, signal })).data
   },
   async createProviderAccount(input: {
     providerCode: string

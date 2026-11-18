@@ -423,15 +423,6 @@ public class ProviderConnectionService {
         }
     }
 
-    @Deprecated
-    private String resolveProbeSecret(com.aicostops.providerhub.domain.ProviderConnection profile) {
-        try {
-            return resolveProbeSecretOrThrow(profile);
-        } catch (ProbeAuthException ex) {
-            return null;
-        }
-    }
-
     private static final class RedirectBlockedException extends Exception {
     }
 

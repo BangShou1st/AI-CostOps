@@ -111,26 +111,28 @@ public class RedisCircuitBreakerService implements CircuitBreakerService {
     }
 
     private CircuitDecision localBeforeCall(RouteCircuitKey key) {
-        var state = local.computeIfAbsent(key, ignored -> new LocalState(CircuitState.CLOSED, 0, 0));
+        var state = local.get(key);
+        if (state == null) return CircuitDecision.closed();
         synchronized (state) {
             if (state.state == CircuitState.CLOSED) return CircuitDecision.closed();
-            if (state.state == CircuitState.HALF_OPEN) return state.probeInUse
-                    ? CircuitDecision.open() : markProbe(state);
-            if (nowMillis() - state.openedAt < properties.getCircuitOpenDurationMs()) return CircuitDecision.open();
+            var now = nowMillis();
+            if (state.state == CircuitState.OPEN
+                    && now - state.openedAt < properties.getCircuitOpenDurationMs()) {
+                return CircuitDecision.open();
+            }
+            if (state.state == CircuitState.HALF_OPEN
+                    && now - state.probeStartedAt < properties.getCircuitHalfOpenLeaseMs()) {
+                return CircuitDecision.open();
+            }
             state.state = CircuitState.HALF_OPEN;
-            return markProbe(state);
+            state.probeStartedAt = now;
+            return CircuitDecision.probe();
         }
-    }
-
-    private CircuitDecision markProbe(LocalState state) {
-        state.probeInUse = true;
-        return CircuitDecision.probe();
     }
 
     private void localRecordFailure(RouteCircuitKey key, ProviderHealthSignal signal) {
         var state = local.computeIfAbsent(key, ignored -> new LocalState(CircuitState.CLOSED, 0, 0));
         synchronized (state) {
-            state.probeInUse = false;
             if (signal == ProviderHealthSignal.ROUTE_CONFIGURATION_FAILURE
                     || state.state == CircuitState.HALF_OPEN
                     || ++state.failures >= properties.getCircuitFailureThreshold()) {
@@ -158,7 +160,7 @@ public class RedisCircuitBreakerService implements CircuitBreakerService {
         private CircuitState state;
         private int failures;
         private long openedAt;
-        private boolean probeInUse;
+        private long probeStartedAt;
 
         private LocalState(CircuitState state, int failures, long openedAt) {
             this.state = state;

@@ -158,20 +158,21 @@ describe('ImportListPage', () => {
     expect(mockedSettingsApi.listProviderAccounts).not.toHaveBeenCalled()
   })
 
-  it('mounts provider-account filter options only with provider-account read', async () => {
-    mockedSettingsApi.listProviderAccounts.mockResolvedValue(pageOf([
+  it('offers active provider accounts from later pages when the user can read them', async () => {
+    mockedSettingsApi.listProviderAccounts.mockResolvedValueOnce({ ...pageOf([]), totalPages: 2 })
+    mockedSettingsApi.listProviderAccounts.mockResolvedValueOnce({ ...pageOf([
       {
-        id: '5', providerCode: 'TEST_PROVIDER', displayName: 'Primary', externalAccountRef: null,
+        id: '5', providerCode: 'TEST_PROVIDER', displayName: 'Later account', externalAccountRef: null,
         status: 'ACTIVE', metadata: {}, createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z',
       },
-    ]))
+    ]), page: 1, totalPages: 2 })
     renderPage(['IMPORT_READ', 'PROVIDER_ACCOUNT_READ'], 'list')
     await screen.findByText('invoice.csv')
 
-    expect(mockedSettingsApi.listProviderAccounts).toHaveBeenCalled()
     fireEvent.mouseDown(screen.getByLabelText(/供应商账号/))
-    const matches = await screen.findAllByText('Primary')
-    expect(matches.length).toBeGreaterThan(1)
+    expect(await screen.findByText('Later account')).toBeInTheDocument()
+    expect(mockedSettingsApi.listProviderAccounts).toHaveBeenNthCalledWith(1, 0, 200, 'ACTIVE', expect.any(AbortSignal))
+    expect(mockedSettingsApi.listProviderAccounts).toHaveBeenNthCalledWith(2, 1, 200, 'ACTIVE', expect.any(AbortSignal))
   })
 
   it('shows upload button only with upload and provider-account read permissions', async () => {

@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, readdirSync, statSync, rmSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, readdirSync, realpathSync, statSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { parseEnv } from 'node:util'
 import { createServer } from 'node:net'
 import { randomUUID } from 'node:crypto'
@@ -73,28 +73,31 @@ export async function requireFreePorts(ports) {
   }
 }
 
-// Each root task run leaves a full Maven build tree under .local-dev/builds. Without a cap they
-// accumulate at ~200 MB per run and are never reusable, so the newest RETAINED_BUILDS are kept for
-// post-mortem and everything older is removed.
+// Only completed task runs can be pruned. Maven may still be using any unmarked directory.
 export const RETAINED_BUILDS = 3
 
-export function pruneBuilds(root, current, keep = RETAINED_BUILDS) {
-  const builds = join(root, '.local-dev', 'builds')
+export function pruneBuilds(root) {
+  const builds = join(realpathSync(root), '.local-dev', 'builds')
   if (!existsSync(builds)) return []
-  const currentName = basename(current)
+  if (realpathSync(builds) !== builds) return []
   const stale = readdirSync(builds, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && entry.name !== currentName)
-    .map(entry => ({ name: entry.name, modified: statSync(join(builds, entry.name)).mtimeMs }))
-    .sort((left, right) => right.modified - left.modified)
-    .slice(Math.max(keep - 1, 0))
-    .map(entry => entry.name)
+    .filter(entry => entry.isDirectory()
+      && /^(?:dev|build|test|verify)-\d+-[\da-f-]{36}$/.test(entry.name))
+    .flatMap(({ name }) => {
+      const marker = statSync(join(builds, name, '.complete'), { throwIfNoEntry: false })
+      return marker?.isFile() ? [{ name, completed: marker.mtimeMs }] : []
+    })
+    .sort((left, right) => right.completed - left.completed || right.name.localeCompare(left.name))
+    .slice(RETAINED_BUILDS)
   const removed = []
-  for (const name of stale) {
+  for (const { name } of stale) {
+    const directory = join(builds, name)
     try {
-      rmSync(join(builds, name), { recursive: true, force: true, maxRetries: 3 })
+      if (realpathSync(directory) !== directory) continue
+      rmSync(directory, { recursive: true, force: true, maxRetries: 3 })
       removed.push(name)
     } catch {
-      // A directory still locked by a running build is left for the next run.
+      // Another task may have removed the directory, or the OS may still have it locked.
     }
   }
   return removed

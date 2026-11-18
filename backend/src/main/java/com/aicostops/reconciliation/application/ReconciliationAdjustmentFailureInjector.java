@@ -5,9 +5,4 @@ package com.aicostops.reconciliation.application;
 public interface ReconciliationAdjustmentFailureInjector {
 
     void after(String financialStage);
-
-    static ReconciliationAdjustmentFailureInjector noop() {
-        return stage -> {
-        };
-    }
 }

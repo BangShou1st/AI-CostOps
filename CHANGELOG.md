@@ -9,12 +9,16 @@
 ## [Unreleased]
 
 ### Removed
+- Issue #214：删除 Backend 未调用的 legacy refresh/probe 方法、仅供测试捷径使用的 settlement 构造器与 noop facade，以及未使用的 reconciliation Java enum；保留默认失败注入、回滚接缝与 HTTP `modelNames` 字段，外部枚举契约不变。移除 Gateway 配置透传桥及前端无入口的 Dev connection preview / `ReadinessDot`。
 - 移除 OpenCode Zen `opencode-zen-spring-boot-starter` 与 Kilo Gateway `kilo-gateway-spring-boot-starter` 两个 JitPack 共享库依赖及 `jitpack` 仓库。
 - 移除 Backend / Gateway 的 OpenCode Zen、Kilo Gateway 与 MiMo 模型路由适配、免费层准入、Relay 与内置 UA 分支；Provider Hub 仅保留 `CUSTOM_OPENAI_COMPATIBLE` 模板。
 - 新增 Flyway `V33`：将 `OPENCODE_ZEN`、`KILO_GATEWAY`、`MIMO` catalog 行置为 `DISABLED`，不删除账户、连接档案、定价、费用、用量或账本历史。
 - 移除 Gateway 旧 `OpenAiChatAdapter`、`AbstractOpenAiCompatibleAdapter`、`GenericOpenAiCompatibleChatAdapter` 及其 wire DTO / SSE decoder / endpoint policy / resolver 测试；Provider adapter code 仍为 `CUSTOM_OPENAI_COMPATIBLE`。
 
 ### Changed
+- Issue #214：Backend 合并等价 Provider 地址校验分支，DNS 相关单测改为离线；密码重置集成测试复用 FK-safe 全量 cleaner。导入、证据上传、分摊规则与定价的 ACTIVE 目录列表统一分页并支持中止请求。CI 删除 8 个非矩阵重复准入步骤、收紧 docs-only 变更识别；集成测试选择器作为 Backend 两个 integration job 的输入，mock provider 变更触发 `browser-e2e`。required check 名称、测试矩阵和 Security workflow 保持不变。
+- Issue #214：开发 Compose overlay 删除 3 个与基础 Compose 相同的环境值；Maven 构建目录只自动轮换带成功完成标记的 build/test/verify 产物并保留最近 3 个，失败、取消、dev、未标记与旧目录不参与自动轮换。
+- Issue #214：Backend 与 Gateway POM 将 `-Dsurefire.skip=true` 仅绑定到 Surefire；Failsafe、`verify` 打包、标准 `-DskipTests` 行为及独立单元/架构门禁保持不变。
 - Gateway Provider wire 升级到 `ai-model-bridge-core v0.2.1`；`PUBLIC_HTTPS_ONLY` 使用 Apache HttpClient 5 的连接期公网 DNS 解析器，关闭 DNS rebinding TOCTOU 窗口。
 - Backend 导入持久化从逐行 JDBC 改为有界多行批量插入：raw record、import issue 与五类 canonical facts 在同一 500 行事务内批量写入，租约 fencing 与全批回滚语义不变。
 - OpenAI 官方 JSON 导入复用 inspection 阶段的分桶窗口，MinIO 源流读取从 3 次降为 2 次；sanitized normalized payload 直接以 `JsonNode` 进入 canonicalization，避免序列化后立即反序列化。
@@ -25,6 +29,8 @@
 - Gateway 重新引入受管理的 Jackson 2（`2.21.7`）与 JitPack 仓库，仅服务 bridge core 的 Jackson 2 API；API、DB schema、预算、路由、结算与账本语义不变。
 
 ### Fixed
+- Issue #214：修复 Gateway Redis 降级时本地半开状态租期处理；`infra:up` 的 Compose `ps --format json` 仅从 stdout 解析，stderr 告警不再打断端口检查，失败诊断仍保留 stdout 与 stderr。
+- Issue #214：迁移集成测试在 `@AfterAll` 停止 V24、V30、V32、V22 的专用 MySQL 容器，并在需要时结束 Spring context，避免容器在类结束后继续占用本机 Docker 内存并导致共享测试 MySQL 被 OOMKilled；保留原断言、迁移及共享测试库生命周期。
 - Gateway 安全：将 bridge 传递依赖 `httpcore5` / `httpcore5-h2` 从 5.4.2 覆盖到 5.4.3，关闭 CVE-2026-54399 / CVE-2026-54428 两项 HIGH；`httpclient5` 5.6.1 保持不变。
 - Ledger：Expense / ProviderCharge 记账事务改为 `READ COMMITTED`，修复共享账期锁下并发重复记账因旧快照看不到已提交 posting 的误判；幂等重放仍只产生一笔 posting。
 - Gateway：新增 `gateway_budget_reservation_amount` 指标，并将 1,048,576 token 保守输入预占、请求成功不缩减预占、5 秒结算轮询登记为已接受运维边界。
@@ -39,6 +45,7 @@
 - Gateway：OpenAI-compatible reasoning-only/`content=null` 非流式响应不再误判为 `MALFORMED_PROVIDER_RESPONSE` 并返回 502；保留 Provider usage，缺失 usage 仍不补零。
 
 ### Documentation
+- 新增 [Issue #214 维护清理验收记录](docs/03-acceptance/maintenance/2026-11/2026-11-18-issue-214-maintenance-cleanup.md)，记录跨 Backend、Gateway、Frontend、CI 与脚本的定向维护验证及保留边界。
 - 新增 [账单导入批量持久化性能验收](docs/03-acceptance/maintenance/2026-11/2026-11-17-import-batching-benchmark.md)：10k 单 Worker 三次 worker 中位数 4,304.778 rows/s，正确性断言全绿。
 - 新增 [Gateway 连接期 DNS 防护验收](docs/03-acceptance/maintenance/2026-11/2026-11-17-gateway-bridge-dns-pinning.md) 与 [预算保守预占边界登记](docs/03-acceptance/maintenance/2026-11/2026-11-17-budget-reservation-boundary.md)。
 - 修正 README / v3 runbook 中已删除的 `OpenAiChatAdapter`、`PublicOnlyAddressResolverGroup` 等历史描述；`MIMO_CHAT_COMPLETIONS` 按历史只读兼容值保留并在 OpenAPI 中标注。
