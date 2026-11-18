@@ -2,11 +2,8 @@ services:
   backend:
     environment:
       SPRING_PROFILES_ACTIVE: dev
-      PUBLIC_REGISTRATION_ORG_SLUG: ${PUBLIC_REGISTRATION_ORG_SLUG:-local-dev}
       AICOSTOPS_ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT}
       AICOSTOPS_REFRESH_COOKIE_SECURE: "false"
-      AICOSTOPS_DEV_MAILBOX_PATH: /var/lib/aicostops/mailbox
-      AICOSTOPS_DEV_RESET_PAGE_URL: http://localhost:${FRONTEND_PORT}/reset-password
       AICOSTOPS_IAM_DEV_INVITATION_MAILBOX_PATH: /var/lib/aicostops/invitations
       AICOSTOPS_IAM_DEV_INVITE_PAGE_URL: http://localhost:${FRONTEND_PORT}/invite
     volumes:

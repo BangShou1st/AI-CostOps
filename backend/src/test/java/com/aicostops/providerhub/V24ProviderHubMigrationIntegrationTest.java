@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.mysql.MySQLContainer;
@@ -23,6 +25,7 @@ import org.testcontainers.mysql.MySQLContainer;
  * single-ACTIVE and org-private namespaces hold on real MySQL.
  */
 @SpringBootTest(properties = "spring.flyway.enabled=false")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class V24ProviderHubMigrationIntegrationTest {
@@ -36,6 +39,11 @@ class V24ProviderHubMigrationIntegrationTest {
 
     static {
         MYSQL.start();
+    }
+
+    @AfterAll
+    void stopMysql() {
+        MYSQL.stop();
     }
 
     @Autowired

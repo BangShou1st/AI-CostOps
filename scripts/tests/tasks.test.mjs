@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, utimesSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'node:http'
 import { capture, isWindows } from '../lib/processes.mjs'
@@ -11,6 +11,35 @@ const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const invoke = (root, command, args = [], env = process.env) => capture(process.execPath,
   [join(root, 'scripts', 'tasks.mjs'), command, ...args], { cwd: root, env })
   .catch(error => { error.message += `\n${error.output ?? ''}`; throw error })
+
+function seedCompletedBuilds(builds) {
+  const historical = index => {
+    const name = `verify-170000000${index}000-00000000-0000-4000-8000-00000000000${index}`
+    const dir = join(builds, name)
+    mkdirSync(dir, { recursive: true })
+    const marker = join(dir, '.complete')
+    writeFileSync(marker, '')
+    const time = new Date(1_700_000_000_000 + index * 60_000)
+    utimesSync(marker, time, time)
+    return name
+  }
+  return [0, 1, 2, 3, 4].map(historical)
+}
+
+function prepareBuildFixture(root, backendExitCode = 0) {
+  const source = '<project><build><plugins/></build></project>'
+  for (const module of ['backend', 'gateway']) {
+    mkdirSync(join(root, module), { recursive: true })
+    writeFileSync(join(root, module, 'pom.xml'), source)
+    const exitCode = module === 'backend' ? backendExitCode : 0
+    writeFileSync(join(root, module, isWindows ? 'mvnw.cmd' : 'mvnw'),
+      isWindows ? `@echo off\r\nexit /b ${exitCode}\r\n` : `#!/bin/sh\nexit ${exitCode}\n`, { mode: 0o755 })
+  }
+  mkdirSync(join(root, 'frontend'), { recursive: true })
+  const npmCli = join(root, 'npm-cli.mjs')
+  writeFileSync(npmCli, 'process.exit(0)\n')
+  return { env: { ...process.env, npm_execpath: npmCli }, source: readFileSync(join(root, 'backend', 'pom.xml'), 'utf8') }
+}
 
 test('dry-run covers all three native processes with local profile and strict frontend port', async t => {
   const root = fixture(t)
@@ -91,46 +120,39 @@ test('setup delegates npm ci to frontend without modifying backend or root confi
   assert.equal(existsSync(join(root, '.env')), false)
 })
 
-test('native build failure stops later steps and cleans its temporary POM', async t => {
+test('failed build leaves its unmarked output and does not prune completed or active builds', async t => {
   const root = fixture(t)
-  const source = '<project><build><plugins/></build></project>'
-  for (const module of ['backend', 'gateway']) {
-    mkdirSync(join(root, module))
-    writeFileSync(join(root, module, 'pom.xml'), source)
-    writeFileSync(join(root, module, isWindows ? 'mvnw.cmd' : 'mvnw'),
-      isWindows ? '@echo off\r\nexit /b 23\r\n' : '#!/bin/sh\nexit 23\n', { mode: 0o755 })
-  }
-  await assert.rejects(invoke(root, 'build'), /exit 1/)
+  const { env, source } = prepareBuildFixture(root, 23)
+  const builds = join(root, '.local-dev', 'builds')
+  const historical = seedCompletedBuilds(builds)
+  const active = 'dev-1699999999999-00000000-0000-4000-8000-000000000000'
+  mkdirSync(join(builds, active))
+  await assert.rejects(invoke(root, 'build', [], env), /exit 1/)
   assert.equal(readdirSync(join(root, 'backend')).some(name => name.startsWith('.task-build-')), false)
-  assert.equal(existsSync(join(root, '.local-dev', 'builds')), true)
-  for (const run of readdirSync(join(root, '.local-dev', 'builds'))) assert.equal(existsSync(join(root, '.local-dev', 'builds', run, 'gateway')), false)
+  const remaining = readdirSync(builds)
+  const current = remaining.find(name => name.startsWith('build-'))
+  assert.ok(current)
+  assert.equal(existsSync(join(builds, current, '.complete')), false)
+  assert.deepEqual(remaining.sort(), [current, active, ...historical].sort())
   assert.equal(readFileSync(join(root, 'backend', 'pom.xml'), 'utf8'), source)
 })
 
-test('build directories are pruned to the three most recent runs', async t => {
+test('successful build marks its output and prunes only older completed build directories', async t => {
   const root = fixture(t)
   const builds = join(root, '.local-dev', 'builds')
-  const historical = index => {
-    const name = `verify-170000000${index}000-00000000-0000-4000-8000-00000000000${index}`
-    mkdirSync(join(builds, name), { recursive: true })
-    const time = new Date(1_700_000_000_000 + index * 60_000)
-    utimesSync(join(builds, name), time, time)
-    return name
-  }
-  const names = [0, 1, 2, 3, 4].map(historical)
-  for (const module of ['backend', 'gateway']) {
-    mkdirSync(join(root, module))
-    writeFileSync(join(root, module, 'pom.xml'), '<project><build><plugins/></build></project>')
-    writeFileSync(join(root, module, isWindows ? 'mvnw.cmd' : 'mvnw'),
-      isWindows ? '@echo off\r\nexit /b 23\r\n' : '#!/bin/sh\nexit 23\n', { mode: 0o755 })
-  }
-  // Pruning runs after the build, so a failed run must still collect the old directories.
-  await assert.rejects(invoke(root, 'build'), /exit 1/)
+  const { env } = prepareBuildFixture(root)
+  const names = seedCompletedBuilds(builds)
+  const active = 'dev-1699999999999-00000000-0000-4000-8000-000000000000'
+  mkdirSync(join(builds, active))
+  mkdirSync(join(builds, 'manual'))
+  writeFileSync(join(builds, 'manual', '.complete'), '')
+  const output = await invoke(root, 'build', [], env)
+  const outputPath = output.match(/Maven 隔离输出与测试报告：(.+)/)?.[1]
+  assert.ok(outputPath)
+  const current = basename(outputPath)
+  assert.equal(existsSync(join(builds, current, '.complete')), true)
   const remaining = readdirSync(builds)
-  assert.equal(remaining.length, 3)
-  assert.equal(remaining.includes(names[4]), true)
-  assert.equal(remaining.includes(names[3]), true)
-  assert.equal(remaining.includes(names[2]), false)
+  assert.deepEqual(remaining.sort(), [current, active, 'manual', ...names.slice(3)].sort())
 })
 
 test('PowerShell wrappers share the runner and propagate failure from another cwd', { skip: !isWindows }, async t => {

@@ -52,7 +52,8 @@ ${name === 'minio' ? `      - "127.0.0.1:${env.MINIO_CONSOLE_PORT}:6380"\n` : ''
       interval: 1s
       timeout: 1s
       retries: 20`).join('\n')
-  writeFileSync(join(root, 'compose.yaml'), `name: ${project}\nservices:\n${services}\nvolumes:\n  mysql-test-data:\n  redis-test-data:\n  minio-test-data:\n`)
+  // Compose emits an obsolete version warning on stderr even when ps returns valid JSON.
+  writeFileSync(join(root, 'compose.yaml'), `version: "3.9"\nname: ${project}\nservices:\n${services}\nvolumes:\n  mysql-test-data:\n  redis-test-data:\n  minio-test-data:\n`)
   writeFileSync(join(root, 'compose.dev.yaml'), 'services: {}\n')
   writeFileSync(join(root, '.env'), ['MYSQL_PORT', 'REDIS_PORT', 'MINIO_API_PORT', 'MINIO_CONSOLE_PORT'].map(name => `${name}=${env[name]}`).join('\n'))
   const invoke = async command => {
@@ -63,12 +64,13 @@ ${name === 'minio' ? `      - "127.0.0.1:${env.MINIO_CONSOLE_PORT}:6380"\n` : ''
       return result
     } catch (error) {
       output += error.output || error.message
+      error.message += `\n${error.output ?? ''}`
       throw error
     }
   }
   const containerIds = async () => (await capture('docker', ['ps', '-a', '-q', '--filter', `label=com.docker.compose.project=${project}`])).trim().split(/\r?\n/).filter(Boolean).sort()
   const volumes = async () => (await capture('docker', ['volume', 'ls', '-q', '--filter', `label=com.docker.compose.project=${project}`])).trim().split(/\r?\n/).filter(Boolean).sort()
-  await assert.rejects(invoke('infra:up'), /exit 1/)
+  await assert.rejects(invoke('infra:up'), /mysql 端口 \d+ 已被当前 Compose 项目之外的进程占用/)
   assert.equal(sockets[0].listening, true)
   assert.deepEqual(await containerIds(), [])
   await new Promise(resolve => sockets[0].close(resolve))

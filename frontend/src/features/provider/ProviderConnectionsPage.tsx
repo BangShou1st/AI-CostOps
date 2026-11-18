@@ -14,23 +14,21 @@ import { formatDateTime } from '../intelligence/format'
 import '../../features/intelligence/v3-tokens.css'
 import './provider.css'
 
-/** Dense connections table with lifecycle entry points. preview is DEV-only. */
-export function ProviderConnectionsPage(props: { preview?: { connections: import('./api/providerHubTypes').ProviderConnection[] } }) {
+export function ProviderConnectionsPage() {
   const auth = useAuth()
   const queryClient = useQueryClient()
   const [page, setPage] = useState(0)
   const [createOpen, setCreateOpen] = useState(false)
   const [problem, setProblem] = useState<ProblemDetail | null>(null)
-  const preview = props.preview
   const canManage = hasPermission(auth.user?.permissions, 'PROVIDER_ACCOUNT_MANAGE')
   const size = 50
 
-  const listQuery = useQuery({ queryKey: providerHubKeys.connections(page, size), queryFn: () => providerHubApi.connections(page, size), enabled: !preview, staleTime: 30_000 })
-  const templatesQuery = useQuery({ queryKey: providerHubKeys.templates(), queryFn: () => providerHubApi.templates(), enabled: !preview && createOpen, staleTime: 60_000 })
-  const connections = preview?.connections ?? listQuery.data?.items ?? []
+  const listQuery = useQuery({ queryKey: providerHubKeys.connections(page, size), queryFn: () => providerHubApi.connections(page, size), staleTime: 30_000 })
+  const templatesQuery = useQuery({ queryKey: providerHubKeys.templates(), queryFn: () => providerHubApi.templates(), enabled: createOpen, staleTime: 60_000 })
+  const connections = listQuery.data?.items ?? []
   const total = listQuery.data?.totalElements ?? connections.length
-  const isLoading = !preview && listQuery.isLoading
-  const loadProblem = !preview && listQuery.error ? (toProblemDetail(listQuery.error) as { title?: string; detail?: string }) : null
+  const isLoading = listQuery.isLoading
+  const loadProblem = listQuery.error ? toProblemDetail(listQuery.error) : null
 
   return (
     <main className="v3-page">
@@ -42,7 +40,7 @@ export function ProviderConnectionsPage(props: { preview?: { connections: import
       </header>
       {problem && <div role="alert"><Alert type="error" showIcon closable onClose={() => setProblem(null)} title="操作失败" description={(problem as { detail?: string }).detail ?? '请稍后重试。'} /></div>}
       {loadProblem && <div role="alert"><Alert type="error" showIcon title={loadProblem.title ?? '加载失败'} description={loadProblem.detail ?? '请稍后重试。'} /></div>}
-      {!preview && canManage && <div className="v3-actions"><Button type="primary" onClick={() => { setProblem(null); setCreateOpen(true) }}>新建连接</Button></div>}
+      {canManage && <div className="v3-actions"><Button type="primary" onClick={() => { setProblem(null); setCreateOpen(true) }}>新建连接</Button></div>}
       {isLoading && <div className="v3-skeleton" role="status" aria-label="正在加载连接"><div className="v3-note" style={{ minHeight: 200 }} /></div>}
       {!isLoading && !loadProblem && connections.length === 0 && <div style={{ marginTop: 20 }}><Empty description="暂无连接配置。" /></div>}
       {connections.length > 0 && (
@@ -51,7 +49,7 @@ export function ProviderConnectionsPage(props: { preview?: { connections: import
             rowKey="id"
             dataSource={connections}
             loading={isLoading}
-            pagination={preview ? false : { current: page + 1, pageSize: size, total, onChange: (p) => setPage(p - 1) }}
+            pagination={{ current: page + 1, pageSize: size, total, onChange: (p) => setPage(p - 1) }}
             scroll={{ x: 980 }}
             columns={[
               { title: '连接', key: 'id', fixed: 'left' as const, width: 150, render: (_: unknown, c) => <span>#{c.id} · v{c.version}</span> },

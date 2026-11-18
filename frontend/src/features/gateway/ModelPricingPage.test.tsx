@@ -74,6 +74,40 @@ describe('ModelPricingPage', () => {
     expect(isValidDecimalRate('-1.5')).toBe(false)
   })
 
+  it('offers a later active provider account and submits it for pricing creation', async () => {
+    mockedApi.createPricingVersion.mockResolvedValue({
+      id: '8', providerAccountId: '207', providerModelId: '1', version: 1, currency: 'USD',
+      status: 'DRAFT', effectiveFrom: '2026-09-08T00:00:00Z', effectiveTo: null,
+      createdAt: '2026-09-08T00:00:00Z', activatedAt: null, rates: [],
+    })
+    mockedSettings.listProviderAccounts
+      .mockResolvedValueOnce({ items: [], page: 0, size: 200, totalElements: 1, totalPages: 2 })
+      .mockResolvedValueOnce({
+        items: [{ id: '207', providerCode: 'M16MOCK', displayName: 'Later account', externalAccountRef: null, status: 'ACTIVE', metadata: {}, createdAt: '', updatedAt: '' }],
+        page: 1, size: 200, totalElements: 1, totalPages: 2,
+      })
+
+    renderPage(['PROVIDER_ACCOUNT_READ', 'PROVIDER_ACCOUNT_MANAGE'])
+    fireEvent.click(await screen.findByRole('button', { name: '创建定价版本' }))
+
+    fireEvent.mouseDown(await screen.findByLabelText('服务商账号'))
+    fireEvent.click(await screen.findByText('Later account（M16MOCK）'))
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '服务商模型' }))
+    const providerModelOptions = await screen.findAllByText('m16-mock-chat')
+    fireEvent.click(providerModelOptions[providerModelOptions.length - 1])
+    fireEvent.change(screen.getByLabelText('输入令牌单价（每单位，USD）'), { target: { value: '30.00000000' } })
+    fireEvent.change(screen.getByLabelText('输出令牌单价（每单位，USD）'), { target: { value: '60.00000000' } })
+    fireEvent.click(screen.getByRole('button', { name: '创建草稿' }))
+
+    await waitFor(() => expect(mockedApi.createPricingVersion).toHaveBeenCalledTimes(1))
+    expect(mockedApi.createPricingVersion.mock.calls[0][0]).toEqual(expect.objectContaining({
+      providerAccountId: 207,
+      providerModelId: 1,
+    }))
+    expect(mockedSettings.listProviderAccounts).toHaveBeenNthCalledWith(1, 0, 200, 'ACTIVE', expect.any(AbortSignal))
+    expect(mockedSettings.listProviderAccounts).toHaveBeenNthCalledWith(2, 1, 200, 'ACTIVE', expect.any(AbortSignal))
+  })
+
   it('activates a draft version through the governed action', async () => {
     mockedApi.listPricingVersions.mockResolvedValue([{
       id: '7', providerAccountId: '106', providerModelId: '1', version: 1, currency: 'USD',

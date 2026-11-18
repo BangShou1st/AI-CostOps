@@ -2,9 +2,7 @@ import { Alert, Form, Modal, Select, Upload, type UploadFile } from 'antd'
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { problemDetail as presentProblemDetail, problemTitle, toProblemDetail } from '../../../api/problem'
-import { settingsApi } from '../../settings/api/settingsApi'
-import { settingsKeys } from '../../settings/api/settingsKeys'
-import type { ProviderAccount } from '../../settings/api/settingsTypes'
+import { activeProviderAccountsQuery } from '../../settings/api/activeProviderAccountsQuery'
 import { importsApi } from '../api/importsApi'
 import type { ImportSourceType, ProviderImportResult } from '../api/importTypes'
 import { formatImportSourceType } from '../presentation'
@@ -30,8 +28,8 @@ const SOURCE_TYPE_LABELS: Record<ImportSourceType, string> = {
 
 /**
  * Reusable Provider Evidence upload modal. The provider-account directory is
- * only fetched here; callers must gate mounting on BOTH EVIDENCE_UPLOAD_PROVIDER
- * and PROVIDER_ACCOUNT_READ (backend authorization stays authoritative).
+ * fetched only while open; callers should only open it for users with both
+ * EVIDENCE_UPLOAD_PROVIDER and PROVIDER_ACCOUNT_READ permissions.
  */
 export function ProviderImportUploadModal({ open, onClose, onUploaded }: ProviderImportUploadModalProps) {
   const [form] = Form.useForm<{ providerAccountId: string; sourceType?: ImportSourceType; file?: UploadFile }>()
@@ -39,11 +37,7 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
   const [file, setFile] = useState<File | undefined>()
 
   const accountsQuery = useQuery({
-    queryKey: settingsKeys.providerAccountsAll(),
-    queryFn: async () => {
-      const page = await settingsApi.listProviderAccounts(0, 200)
-      return page.items.filter((account) => account.status === 'ACTIVE')
-    },
+    ...activeProviderAccountsQuery,
     enabled: open,
   })
 
@@ -102,9 +96,7 @@ export function ProviderImportUploadModal({ open, onClose, onUploaded }: Provide
             {...READABLE_SELECT_PROPS}
             style={{ width: '100%' }}
             placeholder="选择供应商账号"
-            options={(accountsQuery.data ?? []).map((account: ProviderAccount) => ({
-              ...readableOption(account.id, account.displayName),
-            }))}
+            options={(accountsQuery.data ?? []).map((account) => readableOption(account.id, account.displayName))}
             onChange={handleAccountChange}
             loading={accountsQuery.isLoading}
           />
