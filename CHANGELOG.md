@@ -18,6 +18,7 @@
 ### Changed
 - Issue #214：Backend 合并等价 Provider 地址校验分支，DNS 相关单测改为离线；密码重置集成测试复用 FK-safe 全量 cleaner。导入、证据上传、分摊规则与定价的 ACTIVE 目录列表统一分页并支持中止请求。CI 删除 8 个非矩阵重复准入步骤、收紧 docs-only 变更识别；集成测试选择器作为 Backend 两个 integration job 的输入，mock provider 变更触发 `browser-e2e`。required check 名称、测试矩阵和 Security workflow 保持不变。
 - Issue #214：开发 Compose overlay 删除 3 个与基础 Compose 相同的环境值；Maven 构建目录只自动轮换带成功完成标记的 build/test/verify 产物并保留最近 3 个，失败、取消、dev、未标记与旧目录不参与自动轮换。
+- Issue #214：Backend 与 Gateway POM 将 `-Dsurefire.skip=true` 仅绑定到 Surefire；Failsafe、`verify` 打包、标准 `-DskipTests` 行为及独立单元/架构门禁保持不变。
 - Gateway Provider wire 升级到 `ai-model-bridge-core v0.2.1`；`PUBLIC_HTTPS_ONLY` 使用 Apache HttpClient 5 的连接期公网 DNS 解析器，关闭 DNS rebinding TOCTOU 窗口。
 - Backend 导入持久化从逐行 JDBC 改为有界多行批量插入：raw record、import issue 与五类 canonical facts 在同一 500 行事务内批量写入，租约 fencing 与全批回滚语义不变。
 - OpenAI 官方 JSON 导入复用 inspection 阶段的分桶窗口，MinIO 源流读取从 3 次降为 2 次；sanitized normalized payload 直接以 `JsonNode` 进入 canonicalization，避免序列化后立即反序列化。

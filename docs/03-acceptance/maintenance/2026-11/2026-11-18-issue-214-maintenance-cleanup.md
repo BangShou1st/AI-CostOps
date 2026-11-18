@@ -31,6 +31,7 @@
 |---|---|---|
 | Backend 定向单测 | `Set-Location backend; .\mvnw.cmd -B "-Dtest=CustomEndpointValidatorTest,M18TransportRegressionTest,ReconciliationMatchEngineTest" test` | 42 tests 通过 |
 | Gateway 定向回归 | `Set-Location gateway; .\mvnw.cmd -B "-Dit.test=BudgetReservationConcurrencyIntegrationTest,BudgetReservationServiceIntegrationTest,ReservationRecoveryIntegrationTest,CircuitBreakerRedisIntegrationTest" verify` | 164 Surefire + 25 集成测试通过 |
+| Gateway 全量回归 | `Set-Location gateway; .\mvnw.cmd -B verify` | 164 Surefire + 99 Failsafe，0 跳过；PR 最新运行作为最终远端证据 |
 | scripts 全量回归 | `npm run test:scripts`；`npm run test:scripts:integration` | 最终版 58 + 2 通过 |
 | Frontend 定向回归 | `Set-Location frontend; npm test -- --run RulesPage ModelPricingPage ImportWorkflow ProviderImportUploadModal ProviderHub` | 5 个核心文件、48 tests 通过 |
 | Frontend 生产构建 | `Set-Location frontend; npm run build` | 通过；产物用于独立浏览器验收 |
@@ -51,7 +52,7 @@ Compose 对照与 workflow lint 结果由根任务独立复核。完整 Maven ve
 
 单趟 Backend `verify` 曾因本机 Docker WSL 内存约 1.86 GiB 而中断：V24、V30、V32、V22 四个临时迁移 MySQL 容器在对应测试类完成后仍占用内存，导致共享测试 MySQL `OOMKilled=true`（Exit 137）。中断前已完成 194/196 个集成测试类、1227 项断言/测试，以及 681 个单元/架构测试（含 1 项原有跳过）；这不是全量 `verify` 通过记录。
 
-处置为给上述四个迁移测试类增加 `@AfterAll`，停止专用 MySQL 容器，并在必要时结束 Spring context；保持原测试断言、迁移文件和共享测试库生命周期不变。V10、V11 及最后改动的四个迁移类计划局部重跑，Gateway 另行完整运行；执行结果与远端 CI / Security 记录在关联 PR，不在此声称整趟 `verify` 通过。
+处置为给上述四个迁移测试类增加 `@AfterAll`，停止专用 MySQL 容器，并在必要时结束 Spring context；保持原测试断言、迁移文件和共享测试库生命周期不变。另确认 CI 分片虽传 `-Dsurefire.skip=true`，Backend POM 原先未绑定该参数；本地 Backend 补跑带该参数仍执行了 681 个 Surefire 测试后才进入集成阶段。Backend 与 Gateway POM 现将该开关仅接到 Surefire，Failsafe、`verify` 打包、标准 `-DskipTests` 及独立单元/架构门禁保持原行为。V10、V11 与最后改动的四个迁移类计划局部重跑；Gateway 全量 `verify` 已完成，164 Surefire + 99 Failsafe、0 跳过。执行结果与远端 CI / Security 记录在关联 PR，不在此声称 Backend 单趟 `verify` 通过。
 
 ## 关键断言与证据
 
