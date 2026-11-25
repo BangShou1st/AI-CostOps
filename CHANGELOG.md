@@ -30,6 +30,7 @@
 - Gateway 重新引入受管理的 Jackson 2（`2.21.7`）与 JitPack 仓库，仅服务 bridge core 的 Jackson 2 API；API、DB schema、预算、路由、结算与账本语义不变。
 
 ### Fixed
+- HC-04：同步 M21 Gateway 数据库最小授权，允许更新预算预占计数及其版本和时间戳，并验证总额、实际额和承诺额的列级写保护。
 - Issue #214：修复 Gateway Redis 降级时本地半开状态租期处理；`infra:up` 的 Compose `ps --format json` 仅从 stdout 解析，stderr 告警不再打断端口检查，失败诊断仍保留 stdout 与 stderr。
 - Issue #214：迁移集成测试在 `@AfterAll` 停止 V24、V30、V32、V22 的专用 MySQL 容器，并在需要时结束 Spring context，避免容器在类结束后继续占用本机 Docker 内存并导致共享测试 MySQL 被 OOMKilled；保留原断言、迁移及共享测试库生命周期。
 - Gateway 安全：将 bridge 传递依赖 `httpcore5` / `httpcore5-h2` 从 5.4.2 覆盖到 5.4.3，关闭 CVE-2026-54399 / CVE-2026-54428 两项 HIGH；`httpclient5` 5.6.1 保持不变。

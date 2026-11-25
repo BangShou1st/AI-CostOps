@@ -12,6 +12,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot "test-gateway-budget-grants.ps1")
 
 # Self-import env
 $helperPath = Join-Path $PSScriptRoot "import-v3-operational-env.ps1"
@@ -96,17 +97,10 @@ if ($grants -notmatch "(?i)\bLOCK\s+TABLES\b") {
     Add-Pass "LOCK TABLES present (locking reads enabled)."
 }
 
-# The Gateway must never be able to mutate budget / billing_period contents.
-$forbiddenBudgetGrants = @()
-foreach ($line in ($grants -split "`n")) {
-    if ($line -match "(?i)\bbudget\b|\bbilling_period\b") {
-        if ($line -match "(?i)\bUPDATE\b|\bDELETE\b|\bALL\b") { $forbiddenBudgetGrants += $line.Trim() }
-    }
-}
-if ($forbiddenBudgetGrants.Count -gt 0) {
-    Add-Failure ("Gateway identity must not hold UPDATE/DELETE/ALL on budget/billing_period: " + ($forbiddenBudgetGrants -join " | "))
+if (Test-GatewayBudgetGrants $grants) {
+    Add-Pass "Only the budget reservation columns are writable; billing_period is read-only."
 } else {
-    Add-Pass "No UPDATE/DELETE on budget/billing_period."
+    Add-Failure "Expected UPDATE on budget reservation columns and read-only billing_period."
 }
 
 # AdvisorInferenceWorker has a deliberately narrow table-level grant set.
@@ -216,6 +210,12 @@ if ($explanationOut -match "ERROR 1452") {
 }
 
 # === Phase 4: Positive Gateway-owned write (rolled back) ===
+$reservationWrite = Invoke-Gateway "UPDATE budget SET reserved_amount=reserved_amount, version=version, updated_at=updated_at WHERE id=0;"
+if ($reservationWrite -match "ERROR") {
+    Add-Failure "Budget reservation UPDATE failed: $reservationWrite"
+} else {
+    Add-Pass "Budget reservation UPDATE succeeds without matching rows."
+}
 $writeSql = "START TRANSACTION; " +
     "INSERT INTO gateway_request(org_id,public_request_id,credential_id,principal_type,service_identity_id,project_id,financial_scope_type,financial_scope_id,logical_model_id,api_surface,idempotency_key_digest,request_fingerprint,request_hmac_version,state,created_at,validated_at,updated_at) " +
     "VALUES (1,'m21priv00000000000000000000000000001',1,'SERVICE',1,1,'PROJECT',1,1,'CHAT_COMPLETIONS',UNHEX(SHA2('m21-priv-k',256)),UNHEX(SHA2('m21-priv-fp',256)),1,'VALIDATED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6)); " +
@@ -228,9 +228,11 @@ if ($out -match "ERROR") {
     Add-Pass "Gateway-owned INSERT+UPDATE (rolled back)."
 }
 
-# === Phase 5: Negative matrix (MySQL must deny with ERROR 1142) ===
+# === Phase 5: Negative matrix (MySQL must deny table or column privileges) ===
 $negative = @(
-    @{ Label = "budget UPDATE"; Sql = "UPDATE budget SET actual_amount=1 WHERE id=999999;" },
+    @{ Label = "budget actual UPDATE"; Sql = "UPDATE budget SET actual_amount=1 WHERE id=999999;" },
+    @{ Label = "budget committed UPDATE"; Sql = "UPDATE budget SET committed_amount=1 WHERE id=999999;" },
+    @{ Label = "budget total UPDATE"; Sql = "UPDATE budget SET total_amount=1 WHERE id=999999;" },
     @{ Label = "billing_period close"; Sql = "UPDATE billing_period SET status='CLOSED' WHERE id=999999;" },
     @{ Label = "ledger_posting INSERT"; Sql = "INSERT INTO ledger_posting(org_id,posting_key,source_type,source_id,billing_period_id,status,created_at) VALUES (1,'m21-priv-evil','MANUAL',1,1,'DRAFT',UTC_TIMESTAMP(6));" },
     @{ Label = "ledger_entry INSERT"; Sql = "INSERT INTO ledger_entry(org_id,posting_id,entry_index,entry_type,amount,currency,created_at) VALUES (1,1,0,'DEBIT','1.00','USD',UTC_TIMESTAMP(6));" },
@@ -245,7 +247,7 @@ $negative = @(
 
 foreach ($case in $negative) {
     $out = Invoke-Gateway $case.Sql
-    if ($out -match "ERROR 1142") {
+    if ($out -match "ERROR (1142|1143)") {
         Add-Pass "Denied: $($case.Label)."
     } else {
         Add-Failure "Forbidden statement NOT denied [$($case.Label)]: $out"

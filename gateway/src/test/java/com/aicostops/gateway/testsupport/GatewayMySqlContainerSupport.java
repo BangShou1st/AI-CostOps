@@ -27,7 +27,10 @@ public abstract class GatewayMySqlContainerSupport {
             .withStartupTimeoutSeconds(STARTUP_TIMEOUT_SECONDS)
             .withConnectTimeoutSeconds(60);
 
-    protected static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8.8.1-alpine")
+    protected static final String REDIS_IMAGE =
+            System.getProperty("aicostops.test.redis-image", "redis:8.8.1-alpine");
+
+    protected static final GenericContainer<?> REDIS = new GenericContainer<>(REDIS_IMAGE)
             .withExposedPorts(6379);
 
     static {

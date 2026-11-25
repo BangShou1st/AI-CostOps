@@ -63,7 +63,7 @@ This is an operational validation topology, **not** a production deployment: it 
 
 Creates the least-privilege `gw_m21` user. The script self-imports `.env.m21.local`; no manual environment setup is required.
 
-Grants include the frozen contract plus the MySQL 8.4 / Advisor Worker additions: database-level `LOCK TABLES` (required for locking reads on MySQL 8.4) and the Advisor Worker table grants (`advisor_inference_job`, `advisor_inference_attempt`, `advisor_explanation`, `advisor_profile`, `advisor_evidence_snapshot`). It never grants `ALL PRIVILEGES`, `GRANT OPTION`, `DELETE`, `DROP`, DDL, or `UPDATE`/`DELETE` on `budget` / `billing_period` / ledger tables.
+Run provisioning after Backend applies Flyway V34. Gateway receives column-level `UPDATE` on `budget.reserved_amount`, `budget.version` and `budget.updated_at` for reservation admission and release. The remaining budget columns, billing periods and ledger tables are read-only to Gateway. MySQL 8.4 locking reads require database-level `LOCK TABLES`. The script also provisions the Advisor Worker table grants and verifies the account's scope.
 
 Expected: `M21_GATEWAY_DB_PROVISION_PASS`
 
@@ -73,7 +73,7 @@ Expected: `M21_GATEWAY_DB_PROVISION_PASS`
 .\scripts\m21\verify-v3-gateway-privileges.ps1 -ComposeProject aicostops-m21-final-r3
 ```
 
-The script self-imports `.env.m21.local`; no manual `$env:MYSQL_GATEWAY_*` assignment is needed. It runs the full positive and negative privilege matrix as the real `gw_m21` account (not root): runtime SELECTs, `SELECT ... FOR UPDATE`, `LOCK TABLES` presence, Advisor Worker grants, and Gateway-owned writes, plus negative assertions that must all be denied (`budget` UPDATE, `billing_period` close, ledger INSERT, `provider_credential` UPDATE, DELETE, DDL, GRANT).
+The script loads `.env.m21.local` and runs the SQL matrix as `gw_m21`. It checks runtime reads, locking reads, Advisor Worker access, reservation-column updates and Gateway-owned writes. It also verifies that MySQL denies changes to budget total, actual and committed amounts, billing-period close, ledger inserts, provider credential updates, DELETE, DDL and grants.
 
 Expected: `M21_GATEWAY_PRIVILEGE_GREEN`
 

@@ -28,6 +28,7 @@ import java.math.BigDecimal;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -37,6 +38,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -477,6 +479,36 @@ class GatewayConfigCacheIntegrationTest extends GatewayMySqlContainerSupport {
     }
 
     @Test
+    void missedPubSubDeliveryConvergesAtTheCredentialL1TtlAfterRedisDeletion() {
+        var prefix = "cac000000008";
+        var rawKey = "aic_" + prefix + "_" + "H".repeat(43);
+        var env = GatewayTestFixture.seed(jdbc, "cache-missed-pubsub", HMAC_KEY, rawKey);
+        var digestHex = hmacHex(env.secretPart());
+        var digest = HexFormat.of().parseHex(digestHex);
+        var now = new AtomicReference<>(Instant.now());
+        var clock = Mockito.mock(Clock.class);
+        Mockito.when(clock.instant()).thenAnswer(call -> now.get());
+        var disconnectedCache = new GatewayConfigCache(redis, objectMapper, readMapper,
+                routingMapper, reservationMapper, clock);
+        try {
+            assertThat(disconnectedCache.getCredentialByDigest(digestHex, prefix, digest).status())
+                    .isEqualTo("ACTIVE");
+            jdbc.update("UPDATE gateway_credential SET status='REVOKED', revoked_at=UTC_TIMESTAMP(6) WHERE id=?",
+                    env.credentialId());
+            assertThat(redis.delete(GatewayConfigCacheKeys.credKey(digestHex))).isTrue();
+
+            now.updateAndGet(time -> time.plusSeconds(29));
+            assertThat(disconnectedCache.getCredentialByDigest(digestHex, prefix, digest).status())
+                    .isEqualTo("ACTIVE");
+            now.updateAndGet(time -> time.plusSeconds(1));
+            assertThat(disconnectedCache.getCredentialByDigest(digestHex, prefix, digest).status())
+                    .isEqualTo("REVOKED");
+        } finally {
+            disconnectedCache.resetForTests();
+        }
+    }
+
+    @Test
     void redisOutageFailsOpenToMySqlOnLiveChatCompletions() {
         var rawKey = "aic_cac000000006_" + "F".repeat(43);
         GatewayTestFixture.seed(
@@ -501,7 +533,7 @@ class GatewayConfigCacheIntegrationTest extends GatewayMySqlContainerSupport {
                 "SELECT id FROM provider_connection_profile WHERE org_id=? LIMIT 1",
                 Long.class, env.orgId());
 
-        try (var ephemeralRedis = new GenericContainer<>("redis:8.8.1-alpine").withExposedPorts(6379)) {
+        try (var ephemeralRedis = new GenericContainer<>(REDIS_IMAGE).withExposedPorts(6379)) {
             ephemeralRedis.start();
             var factory = new LettuceConnectionFactory(
                     new RedisStandaloneConfiguration(ephemeralRedis.getHost(), ephemeralRedis.getMappedPort(6379)));
