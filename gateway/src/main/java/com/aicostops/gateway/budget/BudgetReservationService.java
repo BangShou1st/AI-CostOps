@@ -52,6 +52,7 @@ public class BudgetReservationService {
     private final Clock clock;
     private final BudgetAdmissionSemaphore budgetSemaphore;
     private final GatewayConfigCache configCache;
+    private final ReservationDelayQueue delayQueue;
 
     public BudgetReservationService(
             BudgetReservationMapper reservationMapper,
@@ -61,7 +62,7 @@ public class BudgetReservationService {
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this(reservationMapper, requestMapper, properties, blockingIo, transactionManager, clock,
-                new BudgetAdmissionSemaphore(properties), null);
+                new BudgetAdmissionSemaphore(properties), null, null);
     }
 
     public BudgetReservationService(
@@ -73,7 +74,7 @@ public class BudgetReservationService {
             Clock clock,
             BudgetAdmissionSemaphore budgetSemaphore) {
         this(reservationMapper, requestMapper, properties, blockingIo, transactionManager, clock,
-                budgetSemaphore, null);
+                budgetSemaphore, null, null);
     }
 
     @Autowired
@@ -85,7 +86,8 @@ public class BudgetReservationService {
             PlatformTransactionManager transactionManager,
             Clock clock,
             BudgetAdmissionSemaphore budgetSemaphore,
-            GatewayConfigCache configCache) {
+            GatewayConfigCache configCache,
+            ReservationDelayQueue delayQueue) {
         this.reservationMapper = reservationMapper;
         this.requestMapper = requestMapper;
         this.properties = properties;
@@ -98,6 +100,7 @@ public class BudgetReservationService {
         this.clock = clock;
         this.budgetSemaphore = budgetSemaphore;
         this.configCache = configCache;
+        this.delayQueue = delayQueue;
     }
 
     public Mono<AdmissionResult> admit(AdmissionCommand command) {
@@ -153,15 +156,19 @@ public class BudgetReservationService {
         // semaphore. If no Budget matches, enter TX1 directly for noBudget().
         var preResolvedBudget = resolveBudget(
                 orgId, command.billingPeriodId(), principal, command.currency());
-        if (preResolvedBudget == null) {
-            return transactions.execute(status -> admitInTx(command, amountToReserve, impossible));
-        }
-        var permit = budgetSemaphore.acquire(preResolvedBudget.id());
+        var permit = preResolvedBudget == null ? null : budgetSemaphore.acquire(preResolvedBudget.id());
+        AdmissionResult result;
         try {
-            return transactions.execute(status -> admitInTx(command, amountToReserve, impossible));
+            result = transactions.execute(status -> admitInTx(command, amountToReserve, impossible));
         } finally {
-            permit.release();
+            if (permit != null) {
+                permit.release();
+            }
         }
+        if (delayQueue != null && result.expiresAt() != null) {
+            delayQueue.enqueue(result.reservationId(), result.expiresAt());
+        }
+        return result;
     }
 
     AdmissionResult admitInTx(
@@ -243,7 +250,7 @@ public class BudgetReservationService {
                     "Request cannot reach reserved state");
         }
         return new AdmissionResult(AdmissionOutcome.RESERVED, reservationId,
-                budget.id(), reservedAmount);
+                budget.id(), reservedAmount, expiresAt);
     }
 
     private AdmissionResult noBudget(GatewayPrincipal principal, AdmissionCommand command) {
@@ -369,7 +376,12 @@ public class BudgetReservationService {
             AdmissionOutcome outcome,
             long reservationId,
             long budgetId,
-            BigDecimal reservedAmount) {
+            BigDecimal reservedAmount,
+            Instant expiresAt) {
+        public AdmissionResult(AdmissionOutcome outcome, long reservationId, long budgetId,
+                BigDecimal reservedAmount) {
+            this(outcome, reservationId, budgetId, reservedAmount, null);
+        }
     }
 
     public enum AdmissionOutcome {

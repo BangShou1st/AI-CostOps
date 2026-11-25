@@ -156,6 +156,18 @@ public interface BudgetReservationMapper {
             @Param("limit") int limit);
 
     @Select("""
+            SELECT org_id, id AS reservation_id, version, budget_id, billing_period_id,
+                   TIMESTAMPDIFF(MICROSECOND, UTC_TIMESTAMP(6), expires_at) AS remaining_micros
+            FROM budget_reservation
+            WHERE id=#{reservationId} AND status='ACTIVE'
+            """)
+    QueuedHold findQueuedActiveHold(@Param("reservationId") long reservationId);
+
+    record QueuedHold(long orgId, long reservationId, long version, long budgetId,
+            long billingPeriodId, long remainingMicros) {
+    }
+
+    @Select("""
             SELECT id, status, reserved_amount, budget_id, billing_period_id, route_attempt_id,
                    version, request_id
             FROM budget_reservation

@@ -1,6 +1,9 @@
 package com.aicostops.gateway.budget;
 
 import com.aicostops.gateway.config.BlockingIoScheduler;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -20,8 +23,11 @@ import org.springframework.stereotype.Component;
         matchIfMissing = true)
 public class ReservationRecoveryScheduler {
 
+    private static final Logger log = LoggerFactory.getLogger(ReservationRecoveryScheduler.class);
+
     private final ReservationRecoveryService recoveryService;
     private final BlockingIoScheduler blockingIo;
+    private final AtomicBoolean queuePollRunning = new AtomicBoolean();
 
     public ReservationRecoveryScheduler(
             ReservationRecoveryService recoveryService, BlockingIoScheduler blockingIo) {
@@ -32,5 +38,14 @@ public class ReservationRecoveryScheduler {
     @Scheduled(fixedDelayString = "${aicostops.gateway.reservation-recovery-interval-ms:60000}")
     public void recoverExpired() {
         blockingIo.run(recoveryService::recoverExpiredBlocking).subscribe();
+    }
+
+    @Scheduled(fixedDelayString = "${aicostops.gateway.reservation-delay-poll-interval-ms:1000}")
+    public void recoverQueued() {
+        if (queuePollRunning.compareAndSet(false, true)) {
+            blockingIo.run(recoveryService::recoverQueuedBlocking)
+                    .doFinally(signal -> queuePollRunning.set(false))
+                    .subscribe(null, error -> log.warn("Reservation queue poll failed", error));
+        }
     }
 }

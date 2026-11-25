@@ -16,6 +16,7 @@
 - 移除 Gateway 旧 `OpenAiChatAdapter`、`AbstractOpenAiCompatibleAdapter`、`GenericOpenAiCompatibleChatAdapter` 及其 wire DTO / SSE decoder / endpoint policy / resolver 测试；Provider adapter code 仍为 `CUSTOM_OPENAI_COMPATIBLE`。
 
 ### Changed
+- HC-04 WP4：Gateway 通过 Redis ZSET 唤醒到期预占回收，保留每 60 秒的 MySQL 扫描。Redis SET NX 协调同键请求的首次写入，MySQL 唯一约束和请求状态继续裁定重放与派发。
 - Issue #214：Backend 合并等价 Provider 地址校验分支，DNS 相关单测改为离线；密码重置集成测试复用 FK-safe 全量 cleaner。导入、证据上传、分摊规则与定价的 ACTIVE 目录列表统一分页并支持中止请求。CI 删除 8 个非矩阵重复准入步骤、收紧 docs-only 变更识别；集成测试选择器作为 Backend 两个 integration job 的输入，mock provider 变更触发 `browser-e2e`。required check 名称、测试矩阵和 Security workflow 保持不变。
 - Issue #214：开发 Compose overlay 删除 3 个与基础 Compose 相同的环境值；Maven 构建目录只自动轮换带成功完成标记的 build/test/verify 产物并保留最近 3 个，失败、取消、dev、未标记与旧目录不参与自动轮换。
 - Issue #214：Backend 与 Gateway POM 将 `-Dsurefire.skip=true` 仅绑定到 Surefire；Failsafe、`verify` 打包、标准 `-DskipTests` 行为及独立单元/架构门禁保持不变。

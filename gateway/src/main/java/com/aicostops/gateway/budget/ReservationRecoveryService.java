@@ -4,6 +4,8 @@ import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.observability.GatewayMetrics;
 import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,18 +40,48 @@ public class ReservationRecoveryService {
     private final GatewayProperties properties;
     private final GatewayMetrics metrics;
     private final TransactionTemplate transactions;
+    private final ReservationDelayQueue delayQueue;
+    private final Clock clock;
 
     public ReservationRecoveryService(
             BudgetReservationMapper reservationMapper,
             GatewayRequestMapper requestMapper,
             GatewayProperties properties,
             GatewayMetrics metrics,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            ReservationDelayQueue delayQueue,
+            Clock clock) {
         this.reservationMapper = reservationMapper;
         this.requestMapper = requestMapper;
         this.properties = properties;
         this.metrics = metrics;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.delayQueue = delayQueue;
+        this.clock = clock;
+    }
+
+    void recoverQueuedBlocking() {
+        var ids = delayQueue.claimDue(Instant.now(clock), properties.getReservationRecoveryBatchSize());
+        for (long id : ids) {
+            try {
+                var hold = reservationMapper.findQueuedActiveHold(id);
+                if (hold == null) {
+                    continue;
+                }
+                // The database clock decides expiry. Reschedule if a JVM
+                // clock difference (or sub-millisecond rounding) woke us early.
+                if (hold.remainingMicros() > 0) {
+                    delayQueue.enqueue(id, Instant.now(clock)
+                            .plusMillis(Math.ceilDiv(hold.remainingMicros(), 1_000)));
+                    continue;
+                }
+                recoverOne(new ExpiredHold(hold.orgId(), id, hold.version(),
+                        hold.budgetId(), hold.billingPeriodId()));
+            } catch (RuntimeException ex) {
+                log.warn("Queued reservation lookup failed for reservation {}", id, ex);
+                metrics.recordReservationRecovery("FAILED");
+            }
+        }
     }
 
     void recoverExpiredBlocking() {
@@ -160,6 +192,9 @@ public class ReservationRecoveryService {
             // Each hold converges in its own short transaction so one slow
             // Budget lock never blocks the rest of the batch.
             var outcome = transactions.execute(status -> recoverOneBlocking(hold));
+            if ("RELEASED".equals(outcome) || "PENDING_HOLD".equals(outcome)) {
+                delayQueue.remove(hold.reservationId());
+            }
             metrics.recordReservationRecovery(outcome == null ? "SKIPPED" : outcome);
         } catch (RuntimeException ex) {
             log.warn("Reservation recovery failed for reservation {}", hold.reservationId(), ex);

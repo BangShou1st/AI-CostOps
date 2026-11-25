@@ -1,13 +1,16 @@
 package com.aicostops.gateway.testsupport;
 
 import com.aicostops.gateway.cache.GatewayConfigCache;
+import java.util.ArrayList;
+import org.springframework.data.redis.core.ScanOptions;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.TestContext;
 import org.springframework.test.context.support.AbstractTestExecutionListener;
 
 /**
  * Resets {@link GatewayConfigCache} (both local Caffeine L1 and Redis {@code cfg:*}
- * L2 entries) before and after every Spring test method so shared-container
- * integration tests reusing fixed key prefixes never leak cached state.
+ * L2 entries) before and after Spring tests. Tests using the shared Redis
+ * container also clear reservation-expiry and request-idempotency hints.
  */
 public class GatewayCacheResetTestExecutionListener extends AbstractTestExecutionListener {
 
@@ -35,6 +38,16 @@ public class GatewayCacheResetTestExecutionListener extends AbstractTestExecutio
                 .getIfAvailable();
         if (cache != null) {
             cache.resetForTests();
+        }
+        if (testContext.getTestInstance() instanceof GatewayMySqlContainerSupport) {
+            var redis = testContext.getApplicationContext().getBean(StringRedisTemplate.class);
+            var keys = new ArrayList<String>();
+            keys.add("aicostops:v2:gateway:reservation-expiry");
+            try (var cursor = redis.scan(ScanOptions.scanOptions()
+                    .match("aicostops:v2:gateway:idem:*").count(500).build())) {
+                cursor.forEachRemaining(keys::add);
+            }
+            redis.delete(keys);
         }
     }
 }
