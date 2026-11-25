@@ -76,6 +76,8 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
                 fixture.projectId(), fixture.budgetId())).isOne();
         assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
                 BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("1.80000000");
+        assertThat(jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
         assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
                 String.class, fixture.reservationId())).isEqualTo("FINALIZED");
         assertThat(jdbc.queryForObject("""
@@ -151,6 +153,8 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
                 Integer.class, fixture.commitmentId())).isZero();
         assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
                 String.class, fixture.reservationId())).isEqualTo("FINALIZED");
+        assertThat(jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?",
                 Integer.class, fixture.orgId())).isOne();
     }
@@ -208,6 +212,7 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
         var settlement = discovery.discover(fixture.orgId()).getFirst();
         jdbc.update("UPDATE budget_reservation SET status='RELEASED',released_at=UTC_TIMESTAMP(6) WHERE id=?",
                 fixture.reservationId());
+        jdbc.update("UPDATE budget SET reserved_amount='0.00000000' WHERE id=?", fixture.budgetId());
 
         var result = service.settle(fixture.orgId(), settlement.id());
 
@@ -304,6 +309,8 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
                 Integer.class, fixture.orgId())).isZero();
         assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
                 BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
+        assertThat(jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("1.00000000");
         assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
                 String.class, fixture.reservationId())).isEqualTo("ACTIVE");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_event WHERE org_id=?",
@@ -375,6 +382,121 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
                 BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
     }
 
+    @Test
+    void concurrentSettlementAndConditionalReservationMaintainBudgetInvariant() throws Exception {
+        var fixture = fixture(true);
+        var settlement = discovery.discover(fixture.orgId()).getFirst();
+        jdbc.update("UPDATE budget SET total_amount='4.00000000', reserved_amount='2.00000000' WHERE id=?",
+                fixture.budgetId());
+        jdbc.update("UPDATE budget_reservation SET reserved_amount='2.00000000' WHERE id=?",
+                fixture.reservationId());
+
+        // Prepare 5 distinct request/attempt pairs to race with settlement.
+        var credentialId = jdbc.queryForObject(
+                "SELECT id FROM gateway_credential WHERE org_id=? LIMIT 1", Long.class, fixture.orgId());
+        var serviceId = jdbc.queryForObject(
+                "SELECT id FROM service_identity WHERE org_id=? LIMIT 1", Long.class, fixture.orgId());
+        var modelId = jdbc.queryForObject(
+                "SELECT logical_model_id FROM gateway_request WHERE org_id=? LIMIT 1", Long.class, fixture.orgId());
+        var attemptRow = jdbc.queryForMap(
+                "SELECT provider_account_id, provider_model_id, pricing_version_id FROM gateway_route_attempt WHERE org_id=? LIMIT 1",
+                fixture.orgId());
+        long providerAccountId = ((Number) attemptRow.get("provider_account_id")).longValue();
+        long providerModelId = ((Number) attemptRow.get("provider_model_id")).longValue();
+        long pricingVersionId = ((Number) attemptRow.get("pricing_version_id")).longValue();
+
+        int contenders = 5;
+        var reqAttempts = new java.util.ArrayList<long[]>(contenders);
+        for (int i = 0; i < contenders; i++) {
+            jdbc.update("""
+                    INSERT INTO gateway_request(org_id,public_request_id,credential_id,principal_type,
+                      organization_member_id,service_identity_id,project_id,financial_scope_type,
+                      financial_scope_id,logical_model_id,api_surface,idempotency_key_digest,
+                      request_fingerprint,request_hmac_version,state,billing_period_id,created_at,
+                      validated_at,updated_at)
+                    VALUES (?,?,?,'SERVICE',NULL,?,?,'PROJECT',?,?,'CHAT_COMPLETIONS',?,?,1,
+                      'VALIDATED',?,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                    """, fixture.orgId(), fixedId("gwr"), credentialId, serviceId, fixture.projectId(),
+                    fixture.projectId(), modelId, digest(20 + i), digest(40 + i), fixture.periodId());
+            long reqId = lastId();
+            jdbc.update("""
+                    INSERT INTO gateway_route_attempt(org_id,request_id,attempt_no,route_decision_id,
+                      provider_account_id,provider_model_id,pricing_version_id,status,created_at)
+                    VALUES (?,?,1,?,?,?,?,'PLANNED',UTC_TIMESTAMP(6))
+                    """, fixture.orgId(), reqId, fixedId("grd"), providerAccountId,
+                    providerModelId, pricingVersionId);
+            long attId = lastId();
+            reqAttempts.add(new long[]{reqId, attId});
+        }
+
+        var readCommittedTx = new TransactionTemplate(transactionManager);
+        readCommittedTx.setIsolationLevel(org.springframework.transaction.TransactionDefinition.ISOLATION_READ_COMMITTED);
+
+        var latch = new CountDownLatch(1);
+        var reservedByContenders = new java.util.concurrent.atomic.AtomicInteger();
+        try (ExecutorService executor = Executors.newFixedThreadPool(6)) {
+            var futures = new java.util.ArrayList<Future<?>>();
+            futures.add(executor.submit(() -> {
+                latch.await();
+                var settled = service.settle(fixture.orgId(), settlement.id());
+                assertThat(settled.settlement().status().name()).isEqualTo("SETTLED");
+                return null;
+            }));
+            for (var pair : reqAttempts) {
+                futures.add(executor.submit(() -> {
+                    latch.await();
+                    readCommittedTx.executeWithoutResult(tx -> {
+                        jdbc.queryForObject(
+                                "SELECT status FROM billing_period WHERE id=? AND org_id=? FOR SHARE",
+                                String.class, fixture.periodId(), fixture.orgId());
+                        int updated = jdbc.update("""
+                                UPDATE budget
+                                SET reserved_amount = reserved_amount + 1.00000000,
+                                    version = version + 1,
+                                    updated_at = UTC_TIMESTAMP(6)
+                                WHERE org_id=? AND id=? AND status='ACTIVE'
+                                  AND total_amount - actual_amount - committed_amount - reserved_amount >= 1.00000000
+                                """, fixture.orgId(), fixture.budgetId());
+                        if (updated == 1) {
+                            jdbc.update("""
+                                    INSERT INTO budget_reservation(org_id,request_id,route_attempt_id,billing_period_id,
+                                      budget_id,financial_scope_type,financial_scope_id,currency,reserved_amount,
+                                      commitment_id,commitment_backed_amount,status,version,expires_at,created_at,updated_at)
+                                    VALUES (?,?,?,?,?,'PROJECT',?,'USD','1.00000000',NULL,0,'ACTIVE',0,
+                                      DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 15 MINUTE),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                                    """, fixture.orgId(), pair[0], pair[1], fixture.periodId(),
+                                    fixture.budgetId(), fixture.projectId());
+                            reservedByContenders.incrementAndGet();
+                        }
+                    });
+                    return null;
+                }));
+            }
+            latch.countDown();
+            for (var future : futures) {
+                future.get(20, TimeUnit.SECONDS);
+            }
+        }
+
+        assertThat(reservedByContenders.get()).isEqualTo(2);
+        var budgetRow = jdbc.queryForMap(
+                "SELECT total_amount, actual_amount, committed_amount, reserved_amount FROM budget WHERE id=?",
+                fixture.budgetId());
+        var total = (BigDecimal) budgetRow.get("total_amount");
+        var actual = (BigDecimal) budgetRow.get("actual_amount");
+        var committed = (BigDecimal) budgetRow.get("committed_amount");
+        var reserved = (BigDecimal) budgetRow.get("reserved_amount");
+        assertThat(actual).isEqualByComparingTo("1.80000000");
+        assertThat(actual.add(committed).add(reserved)).isLessThanOrEqualTo(total);
+        var expectedReserved = jdbc.queryForObject("""
+                SELECT COALESCE(SUM(reserved_amount), 0) FROM budget_reservation
+                WHERE org_id=? AND budget_id=? AND status IN ('ACTIVE','PENDING_HOLD')
+                """, BigDecimal.class, fixture.orgId(), fixture.budgetId());
+        assertThat(reserved).isEqualByComparingTo(expectedReserved);
+        assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
+                String.class, fixture.reservationId())).isEqualTo("FINALIZED");
+    }
+
     private Future<?> submitClose(ExecutorService executor, Fixture fixture,
             CountDownLatch locked, CountDownLatch release, boolean complete) {
         return executor.submit(() -> new TransactionTemplate(transactionManager)
@@ -411,6 +533,8 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
                 Integer.class, fixture.orgId())).isZero();
         assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
                 BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
+        assertThat(jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("1.00000000");
         assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
                 String.class, fixture.reservationId())).isEqualTo("ACTIVE");
         assertThat(jdbc.queryForObject("SELECT status FROM gateway_settlement WHERE id=?",
@@ -539,8 +663,9 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
         if (boundReservation) {
             jdbc.update("""
                     INSERT INTO budget(org_id,billing_period_id,scope_type,scope_id,currency,
-                      total_amount,actual_amount,committed_amount,status,version,created_at,updated_at)
-                    VALUES (?,?, 'PROJECT',?,'USD','1.00000000',0,?, 'ACTIVE',0,
+                      total_amount,actual_amount,committed_amount,reserved_amount,status,version,
+                      created_at,updated_at)
+                    VALUES (?,?, 'PROJECT',?,'USD','1.00000000',0,?, '1.00000000', 'ACTIVE',0,
                       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
             """, orgId, periodId, projectId, explicitCommitment ? "0.50000000" : "0.00000000");
             budgetId = lastId();

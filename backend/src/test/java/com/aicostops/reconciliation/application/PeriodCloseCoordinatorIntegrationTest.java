@@ -202,6 +202,8 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
 
         assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
                 BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("1.80000000");
+        assertThat(jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
         assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
                 String.class, fixture.reservationId())).isEqualTo("FINALIZED");
     }
@@ -246,6 +248,8 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
                 Integer.class, orgId)).isOne();
         assertThat(jdbc.queryForObject("SELECT actual_amount FROM budget WHERE id=?",
                 BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("1.80000000");
+        assertThat(jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0.00000000");
         assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
                 String.class, fixture.reservationId())).isEqualTo("FINALIZED");
         assertThat(jdbc.queryForObject("""
@@ -379,8 +383,9 @@ class PeriodCloseCoordinatorIntegrationTest extends AllocationApiTestSupport {
                 usageFactId, requestId);
         jdbc.update("""
                 INSERT INTO budget(org_id,billing_period_id,scope_type,scope_id,currency,
-                  total_amount,actual_amount,committed_amount,status,version,created_at,updated_at)
-                VALUES (?,?, 'PROJECT',?,'USD','100.00000000',0,0,'ACTIVE',0,
+                  total_amount,actual_amount,committed_amount,reserved_amount,status,version,
+                  created_at,updated_at)
+                VALUES (?,?, 'PROJECT',?,'USD','100.00000000',0,0,'1.00000000','ACTIVE',0,
                   UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, orgId, periodId, projectId);
         var budgetId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);

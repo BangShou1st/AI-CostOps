@@ -44,6 +44,12 @@ public class SafeReservationReleaseService {
             if (reservationMapper.releaseActiveReservation(reservation.id(), orgId, reservation.version()) != 1) {
                 return new ReleaseResult(ReleaseStatus.SKIPPED, reservation.id());
             }
+            if (reservationMapper.releaseReservedBudgetAmount(
+                    orgId, reservation.budgetId(), reservation.reservedAmount()) != 1) {
+                throw new IllegalStateException(
+                        "Failed to decrement budget reserved_amount on safe release for budget "
+                                + reservation.budgetId());
+            }
             return new ReleaseResult(ReleaseStatus.RELEASED, reservation.id());
         });
         return result == null ? new ReleaseResult(ReleaseStatus.SKIPPED, -1L) : result;

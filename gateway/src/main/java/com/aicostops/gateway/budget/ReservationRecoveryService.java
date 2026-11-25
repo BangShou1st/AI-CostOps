@@ -198,6 +198,12 @@ public class ReservationRecoveryService {
                     reservation.id(), hold.orgId(), reservation.version()) != 1) {
                 return "SKIPPED";
             }
+            if (reservationMapper.releaseReservedBudgetAmount(
+                    hold.orgId(), reservation.budgetId(), reservation.reservedAmount()) != 1) {
+                throw new IllegalStateException(
+                        "Failed to decrement budget reserved_amount on recovery release for budget "
+                                + reservation.budgetId());
+            }
             reservationMapper.markRequestFailedPreDispatch(reservation.requestId(), hold.orgId());
             return "RELEASED";
         }

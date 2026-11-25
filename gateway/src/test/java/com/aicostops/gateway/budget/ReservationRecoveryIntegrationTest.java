@@ -78,6 +78,11 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
 
         assertThat(reservationStatus(admission.reservationId())).isEqualTo("RELEASED");
         assertThat(requestState(ids.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0.00000000");
+
+        // Second recovery pass must be a no-op and never double-decrement.
+        recoveryService.recoverExpiredBlocking();
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -94,6 +99,8 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
 
         assertThat(reservationStatus(reservationId)).isEqualTo("PENDING_HOLD");
         assertThat(requestState(result.requestId())).isEqualTo("DISPATCH_INTENT");
+        // ACTIVE -> PENDING_HOLD stays an effective hold, so reserved_amount stays intact.
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("31.94880000");
     }
 
     @Test
@@ -124,6 +131,13 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
         var release = safeReleaseService.releaseForSafeAttempt(
                 env.orgId(), ids.requestId(), ids.attemptId(), env.periodId());
         assertThat(release.status()).isEqualTo(SafeReservationReleaseService.ReleaseStatus.RELEASED);
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0.00000000");
+
+        // Repeated safe release must never double-decrement.
+        var duplicateRelease = safeReleaseService.releaseForSafeAttempt(
+                env.orgId(), ids.requestId(), ids.attemptId(), env.periodId());
+        assertThat(duplicateRelease.status()).isEqualTo(SafeReservationReleaseService.ReleaseStatus.NONE);
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0.00000000");
 
         recoveryService.recoverExpiredBlocking();
 
@@ -312,6 +326,11 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
     private String requestState(long requestId) {
         return jdbc.queryForObject("SELECT state FROM gateway_request WHERE id=?",
                 String.class, requestId);
+    }
+
+    private java.math.BigDecimal budgetReservedAmount(long budgetId) {
+        return jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                java.math.BigDecimal.class, budgetId);
     }
 
     private AdmissionCommand admissionCommand(

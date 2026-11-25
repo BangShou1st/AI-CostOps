@@ -2,17 +2,20 @@ package com.aicostops.gateway.persistence;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 /**
- * M12 MySQL-authoritative budget reservation writes and locked budget reads.
- * Gateway MAY read/lock BillingPeriod and Budget and write budget_reservation;
- * it MUST NOT mutate actual/committed/Ledger/Settlement (no such statement
- * exists in this mapper by design).
+ * M12/HC-04 MySQL-authoritative budget reservation writes and locked budget
+ * reads. Gateway MAY read/lock BillingPeriod and Budget, write
+ * {@code budget_reservation}, and atomically adjust {@code budget.reserved_amount};
+ * it MUST NOT mutate actual/committed/total/Ledger/Settlement (no such
+ * statement exists in this mapper by design).
  */
 @Mapper
 public interface BudgetReservationMapper {
@@ -37,9 +40,61 @@ public interface BudgetReservationMapper {
                    total_amount, actual_amount, committed_amount, status
             FROM budget
             WHERE org_id=#{orgId} AND id=#{budgetId}
+            """)
+    BudgetRow selectBudgetById(@Param("orgId") long orgId, @Param("budgetId") long budgetId);
+
+    @Select("""
+            SELECT id, org_id, billing_period_id, scope_type, scope_id, currency,
+                   total_amount, actual_amount, committed_amount, status
+            FROM budget
+            WHERE org_id=#{orgId} AND id=#{budgetId}
             FOR UPDATE
             """)
     BudgetRow lockBudgetById(@Param("orgId") long orgId, @Param("budgetId") long budgetId);
+
+    @Update("""
+            UPDATE budget
+            SET reserved_amount = reserved_amount + #{amount},
+                version = version + 1,
+                updated_at = UTC_TIMESTAMP(6)
+            WHERE org_id=#{orgId} AND id=#{budgetId} AND status='ACTIVE'
+              AND total_amount - actual_amount - committed_amount - reserved_amount >= #{amount}
+            """)
+    int reserveBudgetAmount(
+            @Param("orgId") long orgId,
+            @Param("budgetId") long budgetId,
+            @Param("amount") BigDecimal amount);
+
+    @Update("""
+            UPDATE budget
+            SET reserved_amount = reserved_amount - #{amount},
+                version = version + 1,
+                updated_at = UTC_TIMESTAMP(6)
+            WHERE org_id=#{orgId} AND id=#{budgetId}
+              AND reserved_amount >= #{amount}
+            """)
+    int releaseReservedBudgetAmount(
+            @Param("orgId") long orgId,
+            @Param("budgetId") long budgetId,
+            @Param("amount") BigDecimal amount);
+
+    @Select("""
+            SELECT b.id AS budget_id,
+                   b.org_id AS org_id,
+                   b.reserved_amount AS budget_reserved_amount,
+                   COALESCE(holds.expected_reserved, 0) AS expected_reserved_amount
+            FROM budget b
+            LEFT JOIN (
+              SELECT br.org_id, br.budget_id, SUM(br.reserved_amount) AS expected_reserved
+              FROM budget_reservation br
+              WHERE br.status IN ('ACTIVE','PENDING_HOLD')
+              GROUP BY br.org_id, br.budget_id
+            ) holds ON holds.org_id=b.org_id AND holds.budget_id=b.id
+            WHERE b.reserved_amount <> COALESCE(holds.expected_reserved, 0)
+            ORDER BY b.id ASC
+            LIMIT #{limit}
+            """)
+    List<ReservedAmountDriftRow> findReservedAmountDrifts(@Param("limit") int limit);
 
     @Select("""
             SELECT COALESCE(SUM(reserved_amount), 0)
@@ -116,10 +171,8 @@ public interface BudgetReservationMapper {
               #{reservedAmount},NULL,0,
               'ACTIVE',0,#{expiresAt},UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),NULL,NULL)
             """)
+    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertActiveReservation(ReservationInsert insert);
-
-    @Select("SELECT LAST_INSERT_ID()")
-    long lastInsertId();
 
     @Update("""
             UPDATE gateway_request
@@ -215,16 +268,95 @@ public interface BudgetReservationMapper {
             long requestId) {
     }
 
-    record ReservationInsert(
-            long orgId,
-            long requestId,
-            long routeAttemptId,
-            long periodId,
+    record ReservedAmountDriftRow(
             long budgetId,
-            String scopeType,
-            long scopeId,
-            String currency,
-            BigDecimal reservedAmount,
-            Instant expiresAt) {
+            long orgId,
+            BigDecimal budgetReservedAmount,
+            BigDecimal expectedReservedAmount) {
+    }
+
+    final class ReservationInsert {
+        private long id;
+        private final long orgId;
+        private final long requestId;
+        private final long routeAttemptId;
+        private final long periodId;
+        private final long budgetId;
+        private final String scopeType;
+        private final long scopeId;
+        private final String currency;
+        private final BigDecimal reservedAmount;
+        private final Instant expiresAt;
+
+        public ReservationInsert(
+                long orgId,
+                long requestId,
+                long routeAttemptId,
+                long periodId,
+                long budgetId,
+                String scopeType,
+                long scopeId,
+                String currency,
+                BigDecimal reservedAmount,
+                Instant expiresAt) {
+            this.orgId = orgId;
+            this.requestId = requestId;
+            this.routeAttemptId = routeAttemptId;
+            this.periodId = periodId;
+            this.budgetId = budgetId;
+            this.scopeType = scopeType;
+            this.scopeId = scopeId;
+            this.currency = currency;
+            this.reservedAmount = reservedAmount;
+            this.expiresAt = expiresAt;
+        }
+
+        public long getId() {
+            return id;
+        }
+
+        public void setId(long id) {
+            this.id = id;
+        }
+
+        public long getOrgId() {
+            return orgId;
+        }
+
+        public long getRequestId() {
+            return requestId;
+        }
+
+        public long getRouteAttemptId() {
+            return routeAttemptId;
+        }
+
+        public long getPeriodId() {
+            return periodId;
+        }
+
+        public long getBudgetId() {
+            return budgetId;
+        }
+
+        public String getScopeType() {
+            return scopeType;
+        }
+
+        public long getScopeId() {
+            return scopeId;
+        }
+
+        public String getCurrency() {
+            return currency;
+        }
+
+        public BigDecimal getReservedAmount() {
+            return reservedAmount;
+        }
+
+        public Instant getExpiresAt() {
+            return expiresAt;
+        }
     }
 }

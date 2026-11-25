@@ -280,6 +280,7 @@ public class GatewayFinancialResolutionService {
         }
 
         Budget budget = null;
+        var budgetIdsToLock = new java.util.ArrayList<Long>(2);
         if (TYPE_STATEMENT.equals(command.resolutionType())) {
             var selection = budgets.resolveSelections(organizationId, adjustmentPeriodId,
                     List.of(new EntryScopeAmount(0,
@@ -288,8 +289,14 @@ public class GatewayFinancialResolutionService {
                     .getFirst();
             budget = selection.budget();
             if (budget != null) {
-                budgets.lockBudgets(organizationId, List.of(budget.id()));
+                budgetIdsToLock.add(budget.id());
             }
+        }
+        if (preRead.reservationId() != null && preRead.reservationBudgetId() != null) {
+            budgetIdsToLock.add(preRead.reservationBudgetId());
+        }
+        if (!budgetIdsToLock.isEmpty()) {
+            budgets.lockBudgets(organizationId, budgetIdsToLock);
         }
 
         // The Commitment is only ever bound through the reservation lineage.
@@ -301,6 +308,11 @@ public class GatewayFinancialResolutionService {
         }
         var lockedReservation = preRead.reservationId() == null ? null
                 : reservations.selectByIdForUpdate(organizationId, preRead.reservationId());
+        if (lockedReservation != null
+                && (preRead.reservationBudgetId() == null
+                        || preRead.reservationBudgetId().longValue() != lockedReservation.budgetId())) {
+            throw conflict("The bound reservation budget lineage changed while resolving.");
+        }
         if (lockedCommitment != null) {
             if (lockedReservation == null || lockedReservation.commitmentId() == null
                     || lockedReservation.commitmentId() != lockedCommitment.id()) {
@@ -328,7 +340,8 @@ public class GatewayFinancialResolutionService {
                 || current.billingPeriodId() == null
                 || current.billingPeriodId() != requestPeriodId
                 || current.providerAccountId() != preRead.providerAccountId()
-                || !current.currency().equals(preRead.currency())) {
+                || !current.currency().equals(preRead.currency())
+                || !java.util.Objects.equals(current.reservationId(), preRead.reservationId())) {
             throw conflict("The gateway request changed while resolving.");
         }
         validateEligibility(current);
@@ -401,6 +414,8 @@ public class GatewayFinancialResolutionService {
             if (changed != 1) {
                 throw conflict("The bound reservation changed while resolving.");
             }
+            budgets.decrementReserved(organizationId, lockedReservation.budgetId(),
+                    lockedReservation.reservedAmount(), now);
             reservationOutcome = TYPE_STATEMENT.equals(command.resolutionType())
                     ? "FINALIZED" : "RELEASED";
         }

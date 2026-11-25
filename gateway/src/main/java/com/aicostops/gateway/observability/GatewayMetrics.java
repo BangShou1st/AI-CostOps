@@ -45,6 +45,8 @@ public class GatewayMetrics {
     private static final Set<String> RESERVATION_RECOVERY_OUTCOMES = Set.of(
             "RELEASED", "PENDING_HOLD", "SKIPPED", "FAILED",
             "STALE_PRE_DISPATCH_TERMINAL", "SAFE_RELEASED_TERMINAL");
+    private static final Set<String> RESERVED_DRIFT_CHECK_OUTCOMES = Set.of(
+            "OK", "DRIFT", "FAILED");
     private static final Set<String> RESERVATION_ATTEMPTS = Set.of(
             "RESERVED", "UNBUDGETED", "REJECTED_BUDGET", "REJECTED_DEPENDENCY");
     private static final Set<String> QUOTA_OUTCOMES = Set.of(
@@ -114,6 +116,18 @@ public class GatewayMetrics {
     public void recordReservationRecovery(String outcome) {
         registry.counter("gateway_reservation_recovery_total", "outcome",
                 bounded(outcome, RESERVATION_RECOVERY_OUTCOMES)).increment();
+    }
+
+    public void recordBudgetReservedDrift(int driftedBudgets) {
+        if (driftedBudgets > 0) {
+            registry.counter("gateway_budget_reserved_drift_total").increment(driftedBudgets);
+        }
+    }
+
+    /** outcome is a small fixed enum: OK, DRIFT, FAILED. */
+    public void recordBudgetReservedDriftCheck(String outcome) {
+        registry.counter("gateway_budget_reserved_drift_check_total", "outcome",
+                bounded(outcome, RESERVED_DRIFT_CHECK_OUTCOMES)).increment();
     }
 
     /** outcome is a small fixed enum: RESERVED, UNBUDGETED, REJECTED_BUDGET, REJECTED_DEPENDENCY. */

@@ -238,10 +238,18 @@ public final class GatewaySettlementService {
         failureInjector.after("AUDIT_WRITTEN");
 
         if (lockedReservation != null) {
+            var finalizedAt = Instant.now(clock);
             if (reservations.finalizeForSettlement(organizationId, lockedReservation.id(),
-                    lockedReservation.version(), Instant.now(clock)) != 1) {
+                    lockedReservation.version(), finalizedAt) != 1) {
                 throw reconcile("RESERVATION_FINALIZATION_CONFLICT",
                         "Bound reservation was not ACTIVE or PENDING_HOLD");
+            }
+            try {
+                budgets.decrementReserved(organizationId, lockedReservation.budgetId(),
+                        lockedReservation.reservedAmount(), finalizedAt);
+            } catch (DomainException budgetFailure) {
+                throw reconcile("RESERVATION_FINALIZATION_CONFLICT",
+                        "Bound budget reserved amount could not be decremented");
             }
         }
         failureInjector.after("BEFORE_SETTLEMENT_SETTLED");

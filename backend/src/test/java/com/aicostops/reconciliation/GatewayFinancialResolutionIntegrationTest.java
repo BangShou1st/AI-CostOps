@@ -567,6 +567,34 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?", String.class,
                 fixture.reservationId())).isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE org_id=? AND billing_period_id=? "
+                        + "AND scope_type='PROJECT' AND scope_id=?",
+                BigDecimal.class, orgId, periodId, projectId)).isEqualByComparingTo("0.00000000");
+    }
+
+    @Test
+    void noChargeResolutionReleasesPendingHoldAndReplayDoesNotDoubleDecrement() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, true);
+        jdbc.update("UPDATE budget_reservation SET status='PENDING_HOLD' WHERE id=?",
+                fixture.reservationId());
+        insertUnresolvedEvidence(fixture);
+
+        var cmd = new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                "NO_CHARGE_CONFIRMED", null, "provider-portal-pending-hold-1", null,
+                NO_CHARGE_PROOF, "Provider confirmed no charge for pending hold");
+        var first = resolutions.resolveGatewayFinancialWork(actor, cmd, "gwres-ph-rel-1");
+        var replay = resolutions.resolveGatewayFinancialWork(actor, cmd, "gwres-ph-rel-1");
+
+        assertThat(first.reservationOutcome()).isEqualTo("RELEASED");
+        assertThat(replay.resolutionId()).isEqualTo(first.resolutionId());
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fixture.reservationId())).isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE org_id=? AND billing_period_id=? "
+                        + "AND scope_type='PROJECT' AND scope_id=?",
+                BigDecimal.class, orgId, periodId, projectId)).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -584,6 +612,10 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?", String.class,
                 fixture.reservationId())).isEqualTo("FINALIZED");
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE org_id=? AND billing_period_id=? "
+                        + "AND scope_type='PROJECT' AND scope_id=?",
+                BigDecimal.class, orgId, periodId, projectId)).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -726,6 +758,12 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?", String.class,
                 fin.reservationId())).isEqualTo("FINALIZED");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("0.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                septemberBudgetId)).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -841,6 +879,15 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM budget_commitment_usage WHERE org_id=?",
                 Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fin.reservationId())).isEqualTo("FINALIZED");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("0.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                septemberBudgetId)).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -877,6 +924,9 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?", String.class,
                 fin.reservationId())).isEqualTo("FINALIZED");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -1346,8 +1396,9 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         if (withReservation) {
             jdbc.update("""
                     INSERT INTO budget(org_id,billing_period_id,scope_type,scope_id,currency,
-                      total_amount,actual_amount,committed_amount,status,version,created_at,updated_at)
-                    VALUES (?,?,'PROJECT',?,'USD','20.00000000',0,0,'ACTIVE',0,
+                      total_amount,actual_amount,committed_amount,reserved_amount,status,version,
+                      created_at,updated_at)
+                    VALUES (?,?,'PROJECT',?,'USD','20.00000000',0,0,'5.00000000','ACTIVE',0,
                       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                     """, orgId, periodId, projectId);
             var budgetId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
@@ -1496,6 +1547,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
                 """, orgId, fixture.requestId(), fixture.attemptId(), budgetPeriodId, budgetId,
                 projectId, commitmentId, new java.math.BigDecimal("2.00000000"));
         var reservationId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("UPDATE budget SET reserved_amount='5.00000000' WHERE id=?", budgetId);
         return new CommitmentFixture(budgetId, commitmentId, reservationId);
     }
 

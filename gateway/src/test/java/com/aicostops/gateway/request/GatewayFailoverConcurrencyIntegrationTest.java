@@ -119,6 +119,7 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
 
             jdbc.update("UPDATE budget_reservation SET status='RELEASED', version=version+1, "
                     + "released_at=UTC_TIMESTAMP(6) WHERE request_id=?", requestId);
+            jdbc.update("UPDATE budget SET reserved_amount='0.00000000' WHERE id=?", env.budgetId());
             var legal = coordinator.plan(env.orgId(), requestId, policyId, "SAFE_FAILOVER",
                     secondAccount, secondModel, null, secondPricing);
             assertThat(legal.attemptNo()).isEqualTo(2);
@@ -284,6 +285,8 @@ class GatewayFailoverConcurrencyIntegrationTest extends GatewayMySqlContainerSup
                   UTC_TIMESTAMP(6),NULL,NULL)
                 """, env.orgId(), requestId, attemptId, env.periodId(), env.budgetId(),
                 env.projectId(), new BigDecimal("1.00000000"), status);
+        jdbc.update("UPDATE budget SET reserved_amount=reserved_amount+'1.00000000' WHERE id=?",
+                env.budgetId());
     }
 
     private static String rawKey() {

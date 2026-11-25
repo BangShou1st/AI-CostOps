@@ -134,6 +134,25 @@ public interface BudgetMapper {
             @Param("amount") BigDecimal amount,
             @Param("now") Instant now);
 
+    /**
+     * Atomic decrement of the gateway reservation counter on settlement
+     * finalization or reconciliation release/finalization. Like
+     * {@link #decrementCommitted}, does not require {@code status='ACTIVE'}
+     * because an already-held reservation must still be releasable.
+     */
+    @Update("""
+            UPDATE budget
+            SET reserved_amount=reserved_amount-#{amount},
+                version=version+1, updated_at=#{now}
+            WHERE id=#{budgetId} AND org_id=#{organizationId}
+              AND reserved_amount >= #{amount}
+            """)
+    int decrementReserved(
+            @Param("organizationId") long organizationId,
+            @Param("budgetId") long budgetId,
+            @Param("amount") BigDecimal amount,
+            @Param("now") Instant now);
+
     @Update("""
             UPDATE budget
             SET actual_amount=actual_amount+#{amount},
