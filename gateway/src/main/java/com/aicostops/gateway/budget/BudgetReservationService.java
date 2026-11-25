@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -48,6 +49,7 @@ public class BudgetReservationService {
     private final BlockingIoScheduler blockingIo;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final BudgetAdmissionSemaphore budgetSemaphore;
 
     public BudgetReservationService(
             BudgetReservationMapper reservationMapper,
@@ -56,6 +58,19 @@ public class BudgetReservationService {
             BlockingIoScheduler blockingIo,
             PlatformTransactionManager transactionManager,
             Clock clock) {
+        this(reservationMapper, requestMapper, properties, blockingIo, transactionManager, clock,
+                new BudgetAdmissionSemaphore(properties));
+    }
+
+    @Autowired
+    public BudgetReservationService(
+            BudgetReservationMapper reservationMapper,
+            GatewayRequestMapper requestMapper,
+            GatewayProperties properties,
+            BlockingIoScheduler blockingIo,
+            PlatformTransactionManager transactionManager,
+            Clock clock,
+            BudgetAdmissionSemaphore budgetSemaphore) {
         this.reservationMapper = reservationMapper;
         this.requestMapper = requestMapper;
         this.properties = properties;
@@ -66,6 +81,7 @@ public class BudgetReservationService {
         // reservation and budget state rather than an earlier REPEATABLE READ view.
         this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = clock;
+        this.budgetSemaphore = budgetSemaphore;
     }
 
     public Mono<AdmissionResult> admit(AdmissionCommand command) {
@@ -89,13 +105,9 @@ public class BudgetReservationService {
         var orgId = principal.organizationId();
 
         // Fast-path idempotent replay read before opening TX1 / acquiring any locks.
-        var fastExisting = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
+        var fastExisting = findOrFenceExistingHold(command);
         if (fastExisting != null) {
-            return replayExisting(command, fastExisting);
-        }
-        if (reservationMapper.countEffectiveHolds(orgId, command.requestId()) > 0) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                    "An effective reservation already exists for this request");
+            return fastExisting;
         }
 
         // Pre-compute conservative bound outside TX1 / Budget X lock. Do not
@@ -118,7 +130,20 @@ public class BudgetReservationService {
 
         final var amountToReserve = precomputedAmount;
         final var impossible = boundImpossible;
-        return transactions.execute(status -> admitInTx(command, amountToReserve, impossible));
+        // Resolve the target Budget in a brief read-only lookup so its Hikari
+        // connection returns to the pool before waiting on the per-budget
+        // semaphore. If no Budget matches, enter TX1 directly for noBudget().
+        var preResolvedBudget = resolveBudget(
+                orgId, command.billingPeriodId(), principal, command.currency());
+        if (preResolvedBudget == null) {
+            return transactions.execute(status -> admitInTx(command, amountToReserve, impossible));
+        }
+        var permit = budgetSemaphore.acquire(preResolvedBudget.id());
+        try {
+            return transactions.execute(status -> admitInTx(command, amountToReserve, impossible));
+        } finally {
+            permit.release();
+        }
     }
 
     AdmissionResult admitInTx(
@@ -138,12 +163,7 @@ public class BudgetReservationService {
 
         // 2. Resolve exact Budget, else ORG fallback, in the pricing currency.
         // No FX: a different-currency Budget is no matching Budget.
-        var budget = reservationMapper.selectBudgetByIdentity(orgId, command.billingPeriodId(),
-                principal.financialScopeType(), principal.financialScopeId(), command.currency());
-        if (budget == null && !isOrgScope(principal)) {
-            budget = reservationMapper.selectBudgetByIdentity(orgId, command.billingPeriodId(),
-                    "ORG", orgId, command.currency());
-        }
+        var budget = resolveBudget(orgId, command.billingPeriodId(), principal, command.currency());
         if (budget == null) {
             return noBudget(principal, command);
         }
@@ -158,13 +178,9 @@ public class BudgetReservationService {
         // 3. Atomic conditional UPDATE acquires the Budget row X lock and checks
         // remaining headroom: total - actual - committed - reserved >= amount.
         if (reservationMapper.reserveBudgetAmount(orgId, budget.id(), reservedAmount) != 1) {
-            var existing = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
+            var existing = findOrFenceExistingHold(command);
             if (existing != null) {
-                return replayExisting(command, existing);
-            }
-            if (reservationMapper.countEffectiveHolds(orgId, command.requestId()) > 0) {
-                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                        "An effective reservation already exists for this request");
+                return existing;
             }
             var latestBudget = reservationMapper.selectBudgetById(orgId, budget.id());
             if (latestBudget == null || !"ACTIVE".equals(latestBudget.status())) {
@@ -273,6 +289,34 @@ public class BudgetReservationService {
         }
         return new AdmissionResult(AdmissionOutcome.RESERVED, existing.id(),
                 existing.budgetId(), existing.reservedAmount());
+    }
+
+    private AdmissionResult findOrFenceExistingHold(AdmissionCommand command) {
+        var orgId = command.principal().organizationId();
+        var existing = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
+        if (existing != null) {
+            return replayExisting(command, existing);
+        }
+        if (reservationMapper.countEffectiveHolds(orgId, command.requestId()) > 0) {
+            var raceWinner = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
+            if (raceWinner != null) {
+                return replayExisting(command, raceWinner);
+            }
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "An effective reservation already exists for this request");
+        }
+        return null;
+    }
+
+    private BudgetReservationMapper.BudgetRow resolveBudget(
+            long orgId, long billingPeriodId, GatewayPrincipal principal, String currency) {
+        var budget = reservationMapper.selectBudgetByIdentity(orgId, billingPeriodId,
+                principal.financialScopeType(), principal.financialScopeId(), currency);
+        if (budget == null && !isOrgScope(principal)) {
+            budget = reservationMapper.selectBudgetByIdentity(orgId, billingPeriodId,
+                    "ORG", orgId, currency);
+        }
+        return budget;
     }
 
     private static boolean isOrgScope(GatewayPrincipal principal) {

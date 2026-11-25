@@ -74,4 +74,24 @@ class GatewayMetricsTest {
         permits.release();
         assertThat(registry.get("gateway_active_streams").gauge().value()).isEqualTo(1);
     }
+
+    @Test
+    void budgetSemaphoreAcquireCounterUsesBoundedOutcomesWithoutBudgetId() {
+        var registry = new SimpleMeterRegistry();
+        var metrics = new GatewayMetrics(registry);
+
+        metrics.recordBudgetSemaphoreAcquire("ACQUIRED");
+        metrics.recordBudgetSemaphoreAcquire("TIMEOUT");
+        metrics.recordBudgetSemaphoreAcquire("INTERRUPTED");
+        metrics.recordBudgetSemaphoreAcquire("unexpected-budget-123");
+
+        assertThat(registry.get("gateway_budget_semaphore_acquire_total")
+                .tag("outcome", "ACQUIRED").counter().count()).isEqualTo(1);
+        assertThat(registry.get("gateway_budget_semaphore_acquire_total")
+                .tag("outcome", "TIMEOUT").counter().count()).isEqualTo(1);
+        assertThat(registry.get("gateway_budget_semaphore_acquire_total")
+                .tag("outcome", "INTERRUPTED").counter().count()).isEqualTo(1);
+        assertThat(registry.get("gateway_budget_semaphore_acquire_total")
+                .tag("outcome", "UNKNOWN").counter().count()).isEqualTo(1);
+    }
 }

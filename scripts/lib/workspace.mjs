@@ -30,7 +30,7 @@ export function nativeEnvironment(env, ports) {
   for (const [destination, source] of Object.entries(mappings)) {
     if (result[destination] === undefined && env[source] !== undefined) result[destination] = env[source]
   }
-  if (env.MYSQL_DATABASE !== undefined) result.SPRING_DATASOURCE_URL ??= `jdbc:mysql://localhost:${port(env.MYSQL_PORT, 3307, 'MYSQL_PORT')}/${env.MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC`
+  if (env.MYSQL_DATABASE !== undefined) result.SPRING_DATASOURCE_URL ??= `jdbc:mysql://localhost:${port(env.MYSQL_PORT, 3307, 'MYSQL_PORT')}/${env.MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useLocalSessionState=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048&useServerPrepStmts=true`
   result.AICOSTOPS_REDIS_HOST ??= 'localhost'
   result.AICOSTOPS_REDIS_PORT ??= String(port(env.REDIS_PORT, 6379, 'REDIS_PORT'))
   result.AICOSTOPS_STORAGE_ENDPOINT ??= `http://localhost:${port(env.MINIO_API_PORT, 9000, 'MINIO_API_PORT')}`

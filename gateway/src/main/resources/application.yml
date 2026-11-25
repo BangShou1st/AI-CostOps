@@ -24,11 +24,17 @@ spring:
     # machine contract's 1 MiB decoded body limit is enforced on top of this.
     max-in-memory-size: ${AICOSTOPS_GATEWAY_MAX_IN_MEMORY_BYTES:16777216}
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useLocalSessionState=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048&useServerPrepStmts=true}
     username: ${SPRING_DATASOURCE_USERNAME:aicostops}
     password: ${SPRING_DATASOURCE_PASSWORD:change-me-local-only}
     hikari:
       maximum-pool-size: ${AICOSTOPS_GATEWAY_DB_POOL_MAX:12}
+      data-source-properties:
+        useLocalSessionState: "true"
+        cachePrepStmts: "true"
+        prepStmtCacheSize: "250"
+        prepStmtCacheSqlLimit: "2048"
+        useServerPrepStmts: "true"
   data:
     redis:
       # A connected-but-silent Redis must not block the data plane for the
@@ -95,6 +101,8 @@ aicostops:
     reservation-ttl-ms: ${AICOSTOPS_GATEWAY_RESERVATION_TTL_MS:900000}
     reservation-recovery-interval-ms: ${AICOSTOPS_GATEWAY_RESERVATION_RECOVERY_INTERVAL_MS:60000}
     reservation-recovery-batch-size: ${AICOSTOPS_GATEWAY_RESERVATION_RECOVERY_BATCH_SIZE:100}
+    budget-semaphore-permits: ${AICOSTOPS_GATEWAY_BUDGET_SEMAPHORE_PERMITS:2}
+    budget-semaphore-timeout-ms: ${AICOSTOPS_GATEWAY_BUDGET_SEMAPHORE_TIMEOUT_MS:2000}
     advisor-worker-enabled: ${AICOSTOPS_GATEWAY_ADVISOR_WORKER_ENABLED:true}
     advisor-worker-batch-limit: ${AICOSTOPS_GATEWAY_ADVISOR_WORKER_BATCH_LIMIT:10}
     circuit-failure-threshold: ${AICOSTOPS_GATEWAY_CIRCUIT_FAILURE_THRESHOLD:5}

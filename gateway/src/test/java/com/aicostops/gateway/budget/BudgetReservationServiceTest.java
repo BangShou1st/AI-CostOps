@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -48,15 +49,19 @@ class BudgetReservationServiceTest {
 
     private BudgetReservationMapper reservationMapper;
     private GatewayRequestMapper requestMapper;
+    private GatewayProperties properties;
+    private BlockingIoScheduler blockingIo;
+    private PlatformTransactionManager txManager;
+    private Clock clock;
     private BudgetReservationService service;
 
     @BeforeEach
     void setUp() {
         reservationMapper = mock(BudgetReservationMapper.class);
         requestMapper = mock(GatewayRequestMapper.class);
-        var properties = new GatewayProperties();
+        properties = new GatewayProperties();
         properties.setReservationTtlMs(900_000L);
-        var blockingIo = new BlockingIoScheduler() {
+        blockingIo = new BlockingIoScheduler() {
             @Override
             public <T> Mono<T> call(Callable<T> operation) {
                 return Mono.fromCallable(operation);
@@ -71,7 +76,7 @@ class BudgetReservationServiceTest {
             public void close() {
             }
         };
-        var txManager = new PlatformTransactionManager() {
+        txManager = new PlatformTransactionManager() {
             @Override
             public TransactionStatus getTransaction(TransactionDefinition definition) {
                 return new SimpleTransactionStatus();
@@ -85,7 +90,7 @@ class BudgetReservationServiceTest {
             public void rollback(TransactionStatus status) {
             }
         };
-        var clock = Clock.fixed(Instant.parse("2026-11-25T10:00:00Z"), ZoneOffset.UTC);
+        clock = Clock.fixed(Instant.parse("2026-11-25T10:00:00Z"), ZoneOffset.UTC);
         service = new BudgetReservationService(
                 reservationMapper, requestMapper, properties, blockingIo, txManager, clock);
     }
@@ -210,6 +215,100 @@ class BudgetReservationServiceTest {
                 .isEqualTo(AdmissionOutcome.REJECTED_DEPENDENCY);
         assertThat(service.admitSync(command("OPTIONAL")).outcome())
                 .isEqualTo(AdmissionOutcome.REJECTED_BUDGET);
+    }
+
+    @Test
+    void semaphoreTimeoutFailsClosedBeforeOpeningTx1() {
+        properties.setBudgetSemaphorePermits(1);
+        properties.setBudgetSemaphoreTimeoutMs(30L);
+        var semaphore = new BudgetAdmissionSemaphore(properties);
+        var guardedService = new BudgetReservationService(
+                reservationMapper, requestMapper, properties, blockingIo, txManager, clock, semaphore);
+
+        when(reservationMapper.findByRouteAttempt(ORG_ID, ATTEMPT_ID)).thenReturn(null);
+        when(reservationMapper.countEffectiveHolds(ORG_ID, REQUEST_ID)).thenReturn(0);
+        when(reservationMapper.findPricingRates(ORG_ID, PRICING_VERSION_ID)).thenReturn(validRates());
+        when(reservationMapper.selectBudgetByIdentity(ORG_ID, PERIOD_ID, "PROJECT", 55L, "USD"))
+                .thenReturn(budgetRow("ACTIVE"));
+
+        var held = semaphore.acquire(BUDGET_ID);
+        try {
+            assertThatThrownBy(() -> guardedService.admitSync(command("REQUIRED")))
+                    .isInstanceOf(GatewayErrorException.class)
+                    .satisfies(ex -> assertThat(((GatewayErrorException) ex).code())
+                            .isEqualTo(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE));
+        } finally {
+            held.release();
+        }
+
+        verify(requestMapper, never()).lockBillingPeriodShared(anyLong(), anyLong());
+        verify(reservationMapper, never()).reserveBudgetAmount(anyLong(), anyLong(), any());
+        assertThat(semaphore.availablePermitsIfCached(BUDGET_ID)).isEqualTo(1);
+    }
+
+    @Test
+    void orgFallbackBudgetAcquiresOrgSemaphoreAndReleasesPermitOnTxFailure() {
+        properties.setBudgetSemaphorePermits(1);
+        properties.setBudgetSemaphoreTimeoutMs(30L);
+        var semaphore = new BudgetAdmissionSemaphore(properties);
+        var guardedService = new BudgetReservationService(
+                reservationMapper, requestMapper, properties, blockingIo, txManager, clock, semaphore);
+
+        long orgBudgetId = 909L;
+        var orgBudget = new BudgetRow(
+                orgBudgetId, ORG_ID, PERIOD_ID, "ORG", ORG_ID, "USD",
+                new BigDecimal("100.00000000"), BigDecimal.ZERO, BigDecimal.ZERO, "ACTIVE");
+
+        when(reservationMapper.findByRouteAttempt(ORG_ID, ATTEMPT_ID)).thenReturn(null);
+        when(reservationMapper.countEffectiveHolds(ORG_ID, REQUEST_ID)).thenReturn(0);
+        when(reservationMapper.findPricingRates(ORG_ID, PRICING_VERSION_ID)).thenReturn(validRates());
+        when(reservationMapper.selectBudgetByIdentity(ORG_ID, PERIOD_ID, "PROJECT", 55L, "USD"))
+                .thenReturn(null);
+        when(reservationMapper.selectBudgetByIdentity(ORG_ID, PERIOD_ID, "ORG", ORG_ID, "USD"))
+                .thenReturn(orgBudget);
+        when(requestMapper.lockBillingPeriodShared(PERIOD_ID, ORG_ID)).thenReturn("OPEN");
+        when(reservationMapper.reserveBudgetAmount(eq(ORG_ID), eq(orgBudgetId), any()))
+                .thenThrow(new DataAccessResourceFailureException("simulated DB failure"));
+
+        assertThatThrownBy(() -> guardedService.admitSync(command("REQUIRED")))
+                .isInstanceOf(DataAccessResourceFailureException.class);
+
+        assertThat(semaphore.availablePermitsIfCached(orgBudgetId)).isEqualTo(1);
+    }
+
+    @Test
+    void noMatchingBudgetEntersTx1WithoutAcquiringAnySemaphore() {
+        properties.setBudgetSemaphorePermits(1);
+        properties.setBudgetSemaphoreTimeoutMs(30L);
+        var semaphore = new BudgetAdmissionSemaphore(properties);
+        var guardedService = new BudgetReservationService(
+                reservationMapper, requestMapper, properties, blockingIo, txManager, clock, semaphore);
+
+        when(reservationMapper.findByRouteAttempt(ORG_ID, ATTEMPT_ID)).thenReturn(null);
+        when(reservationMapper.countEffectiveHolds(ORG_ID, REQUEST_ID)).thenReturn(0);
+        when(reservationMapper.findPricingRates(ORG_ID, PRICING_VERSION_ID)).thenReturn(validRates());
+        when(reservationMapper.selectBudgetByIdentity(anyLong(), anyLong(), any(), anyLong(), any()))
+                .thenReturn(null);
+        when(requestMapper.lockBillingPeriodShared(PERIOD_ID, ORG_ID)).thenReturn("OPEN");
+
+        var result = guardedService.admitSync(command("OPTIONAL"));
+
+        assertThat(result.outcome()).isEqualTo(AdmissionOutcome.UNBUDGETED);
+        verify(requestMapper).lockBillingPeriodShared(PERIOD_ID, ORG_ID);
+    }
+
+    @Test
+    void preTx1FastPathConvergesWhenConcurrentWinnerCommitsBeforeHoldCount() {
+        when(reservationMapper.findByRouteAttempt(ORG_ID, ATTEMPT_ID))
+                .thenReturn(null)
+                .thenReturn(activeRow(777L, new BigDecimal("31.94880000")));
+        when(reservationMapper.countEffectiveHolds(ORG_ID, REQUEST_ID)).thenReturn(1);
+
+        var result = service.admitSync(command("REQUIRED"));
+
+        assertThat(result.outcome()).isEqualTo(AdmissionOutcome.RESERVED);
+        assertThat(result.reservationId()).isEqualTo(777L);
+        verify(requestMapper, never()).lockBillingPeriodShared(anyLong(), anyLong());
     }
 
     private AdmissionCommand command(String enforcementMode) {

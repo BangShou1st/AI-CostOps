@@ -49,6 +49,8 @@ public class GatewayMetrics {
             "OK", "DRIFT", "FAILED");
     private static final Set<String> RESERVATION_ATTEMPTS = Set.of(
             "RESERVED", "UNBUDGETED", "REJECTED_BUDGET", "REJECTED_DEPENDENCY");
+    private static final Set<String> BUDGET_SEMAPHORE_OUTCOMES = Set.of(
+            "ACQUIRED", "TIMEOUT", "INTERRUPTED", "UNKNOWN");
     private static final Set<String> QUOTA_OUTCOMES = Set.of(
             "ALLOWED", "REJECTED", "DEPENDENCY_UNAVAILABLE", "DISABLED");
 
@@ -134,6 +136,12 @@ public class GatewayMetrics {
     public void recordReservationAttempt(String outcome) {
         registry.counter("gateway_reservation_attempt_total", "outcome",
                 bounded(outcome, RESERVATION_ATTEMPTS)).increment();
+    }
+
+    /** outcome is a small fixed enum: ACQUIRED, TIMEOUT, INTERRUPTED. Never tag by budgetId. */
+    public void recordBudgetSemaphoreAcquire(String outcome) {
+        registry.counter("gateway_budget_semaphore_acquire_total", "outcome",
+                bounded(outcome, BUDGET_SEMAPHORE_OUTCOMES)).increment();
     }
 
     /**
