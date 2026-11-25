@@ -159,7 +159,7 @@ class BudgetReservationDuplicateKeyReversalIntegrationTest extends GatewayMySqlC
                     BudgetReservationMapper.class.getClassLoader(),
                     new Class<?>[]{BudgetReservationMapper.class},
                     (proxy, method, args) -> {
-                        if ("findPricingRates".equals(method.getName()) && state.armed.get()) {
+                        if ("selectBudgetByIdentity".equals(method.getName()) && state.armed.get()) {
                             state.arrived.countDown();
                             if (!state.arrived.await(20, TimeUnit.SECONDS)) {
                                 throw new IllegalStateException("Duplicate-key race barrier timed out");

@@ -6,6 +6,7 @@ import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.providerhub.infrastructure.ModelDiscoveryMapper;
 import com.aicostops.providerhub.infrastructure.ModelDiscoveryMapper.DiscoveryRow;
 import com.aicostops.providerhub.infrastructure.ProviderConnectionMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -40,6 +42,7 @@ public class ModelDiscoveryService {
     private final Clock clock;
     private final ModelDiscoveryService self;
     private final String providerKek;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ModelDiscoveryService(
@@ -53,6 +56,23 @@ public class ModelDiscoveryService {
             Clock clock,
             @Lazy ModelDiscoveryService self,
             @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
+        this(authorizationContexts, connections, mapper, credentials, endpointValidator,
+                transport, audit, clock, self, providerKek, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public ModelDiscoveryService(
+            AuthorizationContextService authorizationContexts,
+            ProviderConnectionMapper connections,
+            ModelDiscoveryMapper mapper,
+            com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials,
+            CustomEndpointValidator endpointValidator,
+            ProviderControlPlaneTransport transport,
+            AuditService audit,
+            Clock clock,
+            @Lazy ModelDiscoveryService self,
+            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.mapper = mapper;
@@ -63,6 +83,7 @@ public class ModelDiscoveryService {
         this.clock = clock;
         this.self = self;
         this.providerKek = providerKek;
+        this.invalidations = invalidations;
     }
 
     public List<DiscoveryResponse> list(AuthenticatedUser user, long profileId) {
@@ -274,6 +295,8 @@ public class ModelDiscoveryService {
                 "PROVIDER_CONNECTION", profileId,
                 Map.of("model", discovery.providerModelName(), "logicalModelId", logicalModelId,
                         "providerModelId", providerModelId));
+        invalidations.invalidateModelCatalog(context.organizationId());
+        invalidations.invalidateRoute(context.organizationId(), logicalModelId);
         return new PromotionResponse(logicalModelId, providerModelId, false, false);
     }
 

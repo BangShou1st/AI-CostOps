@@ -1,6 +1,7 @@
 package com.aicostops.gateway.budget;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.persistence.BudgetReservationMapper;
@@ -50,6 +51,7 @@ public class BudgetReservationService {
     private final TransactionTemplate transactions;
     private final Clock clock;
     private final BudgetAdmissionSemaphore budgetSemaphore;
+    private final GatewayConfigCache configCache;
 
     public BudgetReservationService(
             BudgetReservationMapper reservationMapper,
@@ -59,7 +61,19 @@ public class BudgetReservationService {
             PlatformTransactionManager transactionManager,
             Clock clock) {
         this(reservationMapper, requestMapper, properties, blockingIo, transactionManager, clock,
-                new BudgetAdmissionSemaphore(properties));
+                new BudgetAdmissionSemaphore(properties), null);
+    }
+
+    public BudgetReservationService(
+            BudgetReservationMapper reservationMapper,
+            GatewayRequestMapper requestMapper,
+            GatewayProperties properties,
+            BlockingIoScheduler blockingIo,
+            PlatformTransactionManager transactionManager,
+            Clock clock,
+            BudgetAdmissionSemaphore budgetSemaphore) {
+        this(reservationMapper, requestMapper, properties, blockingIo, transactionManager, clock,
+                budgetSemaphore, null);
     }
 
     @Autowired
@@ -70,7 +84,8 @@ public class BudgetReservationService {
             BlockingIoScheduler blockingIo,
             PlatformTransactionManager transactionManager,
             Clock clock,
-            BudgetAdmissionSemaphore budgetSemaphore) {
+            BudgetAdmissionSemaphore budgetSemaphore,
+            GatewayConfigCache configCache) {
         this.reservationMapper = reservationMapper;
         this.requestMapper = requestMapper;
         this.properties = properties;
@@ -82,6 +97,7 @@ public class BudgetReservationService {
         this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = clock;
         this.budgetSemaphore = budgetSemaphore;
+        this.configCache = configCache;
     }
 
     public Mono<AdmissionResult> admit(AdmissionCommand command) {
@@ -113,7 +129,9 @@ public class BudgetReservationService {
         // Pre-compute conservative bound outside TX1 / Budget X lock. Do not
         // short-circuit on ReservationBoundException yet: periodStatus != OPEN
         // and noBudget (UNBUDGETED / REJECTED_BUDGET) take precedence inside TX1.
-        var rates = reservationMapper.findPricingRates(orgId, command.pricingVersionId());
+        var rates = configCache != null
+                ? configCache.getPricingRates(orgId, command.pricingVersionId())
+                : reservationMapper.findPricingRates(orgId, command.pricingVersionId());
         var calculatorRates = new ArrayList<ReservationAmountCalculator.PricingRate>(rates.size());
         for (var rate : rates) {
             calculatorRates.add(new ReservationAmountCalculator.PricingRate(

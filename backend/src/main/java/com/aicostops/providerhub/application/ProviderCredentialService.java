@@ -6,6 +6,7 @@ import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
 import com.aicostops.providerhub.infrastructure.ProviderConnectionMapper;
 import com.aicostops.providerhub.infrastructure.ProviderCredentialAdminMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
@@ -13,6 +14,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,7 @@ public class ProviderCredentialService {
     private final AuditService audit;
     private final Clock clock;
     private final String providerKek;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProviderCredentialService(
@@ -43,12 +46,26 @@ public class ProviderCredentialService {
             AuditService audit,
             Clock clock,
             @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
+        this(authorizationContexts, connections, mapper, audit, clock, providerKek,
+                GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public ProviderCredentialService(
+            AuthorizationContextService authorizationContexts,
+            ProviderConnectionMapper connections,
+            ProviderCredentialAdminMapper mapper,
+            AuditService audit,
+            Clock clock,
+            @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.connections = connections;
         this.mapper = mapper;
         this.audit = audit;
         this.clock = clock;
         this.providerKek = providerKek;
+        this.invalidations = invalidations;
     }
 
     public List<CredentialResponse> list(AuthenticatedUser user, long connectionId) {
@@ -91,6 +108,9 @@ public class ProviderCredentialService {
         audit.append("PROVIDER_CREDENTIAL_CREATED", context.organizationId(), user.userId(),
                 "PROVIDER_CONNECTION", connectionId,
                 Map.of("credentialType", credentialType, "accountId", profile.providerAccountId()));
+        invalidations.invalidateProviderCredential(context.organizationId(), profile.providerAccountId());
+        invalidations.invalidateOrgRoutes(context.organizationId(),
+                connections.findRoutingPolicyModelIds(context.organizationId()));
         return new CredentialResponse(createdId, credentialType,
                 request.safeLabel() == null ? profile.authType() : request.safeLabel(),
                 "ACTIVE", now, null, null);
@@ -110,6 +130,9 @@ public class ProviderCredentialService {
         audit.append("PROVIDER_CREDENTIAL_ROTATED", context.organizationId(), user.userId(),
                 "PROVIDER_CONNECTION", connectionId,
                 Map.of("accountId", profile.providerAccountId()));
+        invalidations.invalidateProviderCredential(context.organizationId(), profile.providerAccountId());
+        invalidations.invalidateOrgRoutes(context.organizationId(),
+                connections.findRoutingPolicyModelIds(context.organizationId()));
         return created;
     }
 
@@ -125,6 +148,9 @@ public class ProviderCredentialService {
         audit.append("PROVIDER_CREDENTIAL_REVOKED", context.organizationId(), user.userId(),
                 "PROVIDER_CONNECTION", connectionId,
                 Map.of("accountId", profile.providerAccountId()));
+        invalidations.invalidateProviderCredential(context.organizationId(), profile.providerAccountId());
+        invalidations.invalidateOrgRoutes(context.organizationId(),
+                connections.findRoutingPolicyModelIds(context.organizationId()));
     }
 
     private com.aicostops.providerhub.domain.ProviderConnection require(long organizationId, long connectionId) {

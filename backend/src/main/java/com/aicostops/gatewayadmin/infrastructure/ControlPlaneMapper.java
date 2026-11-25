@@ -158,6 +158,12 @@ public interface ControlPlaneMapper {
             """)
     int revokeCredential(@Param("orgId") long orgId, @Param("id") long id);
 
+    @Select("SELECT LOWER(HEX(secret_digest)) FROM gateway_credential WHERE org_id=#{orgId} AND id=#{id}")
+    String selectCredentialDigestHex(@Param("orgId") long orgId, @Param("id") long id);
+
+    @Select("SELECT model_id FROM provider_model WHERE id=#{providerModelId}")
+    Long selectModelIdByProviderModel(@Param("providerModelId") long providerModelId);
+
     @Select("SELECT LAST_INSERT_ID()")
     long lastInsertId();
 

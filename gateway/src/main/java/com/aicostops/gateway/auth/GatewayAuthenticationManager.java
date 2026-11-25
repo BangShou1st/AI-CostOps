@@ -1,5 +1,6 @@
 package com.aicostops.gateway.auth;
 
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
@@ -8,8 +9,10 @@ import com.aicostops.gateway.web.GatewayErrorException;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.util.Base64;
+import java.util.HexFormat;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.core.Authentication;
@@ -31,16 +34,28 @@ public class GatewayAuthenticationManager implements ReactiveAuthenticationManag
     private final GatewayProperties properties;
     private final BlockingIoScheduler blockingIo;
     private final Clock clock;
+    private final GatewayConfigCache configCache;
 
     public GatewayAuthenticationManager(
             GatewayReadMapper readMapper,
             GatewayProperties properties,
             BlockingIoScheduler blockingIo,
             Clock clock) {
+        this(readMapper, properties, blockingIo, clock, null);
+    }
+
+    @Autowired
+    public GatewayAuthenticationManager(
+            GatewayReadMapper readMapper,
+            GatewayProperties properties,
+            BlockingIoScheduler blockingIo,
+            Clock clock,
+            GatewayConfigCache configCache) {
         this.readMapper = readMapper;
         this.properties = properties;
         this.blockingIo = blockingIo;
         this.clock = clock;
+        this.configCache = configCache;
     }
 
     @Override
@@ -62,7 +77,17 @@ public class GatewayAuthenticationManager implements ReactiveAuthenticationManag
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_AUTH_INVALID, ex.getMessage());
         }
 
-        var row = readMapper.findCredentialByPrefix(parsed.prefix());
+        var expected = digestSecret(parsed.secretPart());
+        GatewayReadMapper.CredentialRow row;
+        if (configCache != null) {
+            var digestHex = HexFormat.of().formatHex(expected);
+            row = configCache.getCredentialByDigest(digestHex, parsed.prefix(), expected);
+            if (row != null && !parsed.prefix().equals(row.credentialPrefix())) {
+                row = readMapper.findCredentialByPrefix(parsed.prefix());
+            }
+        } else {
+            row = readMapper.findCredentialByPrefix(parsed.prefix());
+        }
         if (row == null) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_AUTH_INVALID, "Invalid Gateway key");
         }
@@ -71,8 +96,8 @@ public class GatewayAuthenticationManager implements ReactiveAuthenticationManag
             // never authenticate through the public bearer filter.
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_AUTH_INVALID, "Invalid Gateway key");
         }
-        var expected = digestSecret(parsed.secretPart());
-        if (expected.length != row.secretDigest().length
+        if (row.secretDigest() == null
+                || expected.length != row.secretDigest().length
                 || !MessageDigest.isEqual(expected, row.secretDigest())) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_AUTH_INVALID, "Invalid Gateway key");
         }
@@ -83,9 +108,28 @@ public class GatewayAuthenticationManager implements ReactiveAuthenticationManag
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_AUTH_INVALID, "Gateway key has expired");
         }
 
-        validatePrincipalActive(row);
-        validateProjectActive(row);
-        validateFinancialScopeActive(row);
+        if (configCache != null) {
+            if (!"SERVICE".equals(row.principalType()) && !"HUMAN_MEMBER".equals(row.principalType())) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_AUTH_INVALID, "Unknown principal type");
+            }
+            var principalState = configCache.getPrincipalState(row);
+            if (!"ACTIVE".equals(principalState.principalStatus())) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
+                        "Principal is not active");
+            }
+            if (!"ACTIVE".equals(principalState.projectStatus())) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
+                        "Project is not active");
+            }
+            if (!"ACTIVE".equals(principalState.financialScopeStatus())) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
+                        "Financial scope is not active");
+            }
+        } else {
+            validatePrincipalActive(row);
+            validateProjectActive(row);
+            validateFinancialScopeActive(row);
+        }
 
         return new GatewayPrincipal(
                 row.id(),

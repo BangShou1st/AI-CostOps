@@ -5,11 +5,14 @@ import com.aicostops.gatewayadmin.security.ProviderCredentialEncryptor;
 import com.aicostops.iam.infrastructure.DevAuthenticationBootstrapMapper;
 import com.aicostops.iam.infrastructure.IamMapper;
 import com.aicostops.organization.infrastructure.OrganizationMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HexFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -55,6 +58,7 @@ public class DevGatewayBootstrap implements ApplicationRunner {
     private final String providerBaseUrl;
     private final String providerApiKey;
     private final String organizationSlug;
+    private final GatewayConfigInvalidationPublisher invalidations;
 
     public DevGatewayBootstrap(
             OrganizationMapper organizationMapper,
@@ -69,6 +73,26 @@ public class DevGatewayBootstrap implements ApplicationRunner {
             @Value("${AICOSTOPS_DEV_PROVIDER_BASE_URL:https://provider.example.test/v1}") String providerBaseUrl,
             @Value("${AICOSTOPS_DEV_PROVIDER_API_KEY:dev-only-provider-token}") String providerApiKey,
             @Value("${aicostops.auth.public-registration-org-slug:local-dev}") String organizationSlug) {
+        this(organizationMapper, iamMapper, devAuthenticationBootstrapMapper, gatewayAdminMapper, clock,
+                bootstrapEnabled, rawGatewayKey, credentialHmacKey, providerKek, providerBaseUrl,
+                providerApiKey, organizationSlug, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public DevGatewayBootstrap(
+            OrganizationMapper organizationMapper,
+            IamMapper iamMapper,
+            DevAuthenticationBootstrapMapper devAuthenticationBootstrapMapper,
+            GatewayAdminMapper gatewayAdminMapper,
+            Clock clock,
+            @Value("${aicostops.gateway.dev-bootstrap-enabled:false}") boolean bootstrapEnabled,
+            @Value("${aicostops.gateway.dev-raw-key:}") String rawGatewayKey,
+            @Value("${aicostops.gateway.credential-hmac-key-v1:}") String credentialHmacKey,
+            @Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            @Value("${AICOSTOPS_DEV_PROVIDER_BASE_URL:https://provider.example.test/v1}") String providerBaseUrl,
+            @Value("${AICOSTOPS_DEV_PROVIDER_API_KEY:dev-only-provider-token}") String providerApiKey,
+            @Value("${aicostops.auth.public-registration-org-slug:local-dev}") String organizationSlug,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.organizationMapper = organizationMapper;
         this.iamMapper = iamMapper;
         this.devAuthenticationBootstrapMapper = devAuthenticationBootstrapMapper;
@@ -82,6 +106,7 @@ public class DevGatewayBootstrap implements ApplicationRunner {
                 ? DEFAULT_PROVIDER_BASE_URL : providerBaseUrl.trim();
         this.providerApiKey = providerApiKey == null ? "" : providerApiKey.trim();
         this.organizationSlug = organizationSlug;
+        this.invalidations = invalidations;
     }
 
     @Override
@@ -117,6 +142,17 @@ public class DevGatewayBootstrap implements ApplicationRunner {
         ensurePricingVersion(organizationId, providerAccountId, providerModelId);
         ensureProviderCredential(organizationId, providerAccountId);
         ensureRoutingPolicy(organizationId, modelId, providerAccountId, providerModelId);
+
+        var digestHex = HexFormat.of().formatHex(
+                GatewayKeyCodec.digestSecret(parsedKey.secretPart(), credentialHmacKey));
+        invalidations.invalidateCredential(credentialId, digestHex);
+        invalidations.invalidateAllModelCatalogs();
+        invalidations.invalidateAllRoutes();
+        invalidations.invalidateProviderCredential(organizationId, providerAccountId);
+        var connId = gatewayAdminMapper.findActiveConnectionProfileId(organizationId, providerAccountId);
+        if (connId != null) {
+            invalidations.invalidateConnectionProfile(connId);
+        }
 
         log.info(
                 "M14 gateway dev bootstrap ready: org={} credentialId={} serviceIdentityId={} "

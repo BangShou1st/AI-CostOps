@@ -9,6 +9,7 @@ import com.aicostops.organization.api.TeamResponse;
 import com.aicostops.organization.api.UpdateTeamRequest;
 import com.aicostops.organization.domain.MasterDataStatus;
 import com.aicostops.organization.infrastructure.TeamMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageRequest;
@@ -16,6 +17,7 @@ import com.aicostops.shared.web.PageResponse;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -27,15 +29,26 @@ public class TeamService {
     private final AuthorizationContextService authorizationContexts;
     private final TeamMapper mapper;
     private final Clock clock;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public TeamService(
             AuthorizationContextService authorizationContexts,
             TeamMapper mapper,
             Clock clock) {
+        this(authorizationContexts, mapper, clock, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public TeamService(
+            AuthorizationContextService authorizationContexts,
+            TeamMapper mapper,
+            Clock clock,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.clock = clock;
+        this.invalidations = invalidations;
     }
 
     public PageResponse<TeamResponse> list(
@@ -93,6 +106,8 @@ public class TeamService {
         if (mapper.update(teamId, context.organizationId(), name, status.name(), clock.instant()) != 1) {
             throw notFound();
         }
+        invalidations.invalidatePrincipals(
+                mapper.findAffectedCredentialIds(context.organizationId(), teamId));
         var updated = mapper.findCurrentOrganizationTeam(teamId, context.organizationId());
         if (updated == null) {
             throw notFound();

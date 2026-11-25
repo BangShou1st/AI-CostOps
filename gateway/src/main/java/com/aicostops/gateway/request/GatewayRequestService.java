@@ -5,6 +5,7 @@ import com.aicostops.gateway.budget.BudgetReservationService;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionCommand;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionOutcome;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionResult;
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
@@ -18,6 +19,7 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -49,6 +51,7 @@ public class GatewayRequestService {
     private final RoutingPolicyResolver routingPolicyResolver;
     private final DeterministicRouteSelector routeSelector;
     private final CandidateEligibilityEvaluator eligibilityEvaluator;
+    private final GatewayConfigCache configCache;
 
     public GatewayRequestService(
             GatewayReadMapper readMapper,
@@ -61,6 +64,23 @@ public class GatewayRequestService {
             RoutingPolicyResolver routingPolicyResolver,
             DeterministicRouteSelector routeSelector,
             CandidateEligibilityEvaluator eligibilityEvaluator) {
+        this(readMapper, requestMapper, identityService, dispatchFenceService, reservationService,
+                blockingIo, clock, routingPolicyResolver, routeSelector, eligibilityEvaluator, null);
+    }
+
+    @Autowired
+    public GatewayRequestService(
+            GatewayReadMapper readMapper,
+            GatewayRequestMapper requestMapper,
+            RequestIdentityService identityService,
+            DispatchFenceService dispatchFenceService,
+            BudgetReservationService reservationService,
+            BlockingIoScheduler blockingIo,
+            Clock clock,
+            RoutingPolicyResolver routingPolicyResolver,
+            DeterministicRouteSelector routeSelector,
+            CandidateEligibilityEvaluator eligibilityEvaluator,
+            GatewayConfigCache configCache) {
         this.readMapper = readMapper;
         this.requestMapper = requestMapper;
         this.identityService = identityService;
@@ -71,6 +91,7 @@ public class GatewayRequestService {
         this.routingPolicyResolver = routingPolicyResolver;
         this.routeSelector = routeSelector;
         this.eligibilityEvaluator = eligibilityEvaluator;
+        this.configCache = configCache;
     }
 
     /**
@@ -116,12 +137,19 @@ public class GatewayRequestService {
         var fingerprint = identityService.requestFingerprint(command.rawBodyBytes());
 
         // 1. Explicit credential-model allowlist (deny by default) + active model.
-        if (!readMapper.findActiveModelIds(principal.credentialId())
-                .contains(command.logicalModelId())) {
+        boolean modelAllowed = configCache != null
+                ? configCache.getPrincipalState(principal).allowsModel(command.logicalModelId())
+                : readMapper.findActiveModelIds(principal.credentialId()).contains(command.logicalModelId());
+        if (!modelAllowed) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
                     "The requested model is not allowed for this credential");
         }
-        var model = readMapper.findModelById(command.logicalModelId());
+        var model = command.preResolvedModel();
+        if (model == null || model.id() != command.logicalModelId()) {
+            model = configCache != null
+                    ? configCache.getModelById(principal.organizationId(), command.logicalModelId())
+                    : readMapper.findModelById(command.logicalModelId());
+        }
         if (model == null || !"ACTIVE".equals(model.status())) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
                     "The requested model is not active");
@@ -327,11 +355,19 @@ public class GatewayRequestService {
             byte[] rawBodyBytes,
             String rawIdempotencyKey,
             long effectiveMaxOutputTokens,
-            boolean streaming) {
+            boolean streaming,
+            GatewayReadMapper.ModelRow preResolvedModel) {
 
         public AuthorizeCommand(GatewayPrincipal principal, long logicalModelId, byte[] rawBodyBytes,
                 String rawIdempotencyKey, long effectiveMaxOutputTokens) {
-            this(principal, logicalModelId, rawBodyBytes, rawIdempotencyKey, effectiveMaxOutputTokens, false);
+            this(principal, logicalModelId, rawBodyBytes, rawIdempotencyKey,
+                    effectiveMaxOutputTokens, false, null);
+        }
+
+        public AuthorizeCommand(GatewayPrincipal principal, long logicalModelId, byte[] rawBodyBytes,
+                String rawIdempotencyKey, long effectiveMaxOutputTokens, boolean streaming) {
+            this(principal, logicalModelId, rawBodyBytes, rawIdempotencyKey,
+                    effectiveMaxOutputTokens, streaming, null);
         }
     }
 

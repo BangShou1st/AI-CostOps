@@ -94,6 +94,9 @@ public interface AdvisorProfileMapper {
     int revokeInternalCredential(@Param("id") long id, @Param("organizationId") long organizationId,
             @Param("now") Instant now);
 
+    @Select("SELECT LOWER(HEX(secret_digest)) FROM gateway_credential WHERE org_id=#{organizationId} AND id=#{id}")
+    String selectCredentialDigestHex(@Param("organizationId") long organizationId, @Param("id") long id);
+
     @Update("UPDATE gateway_credential_model SET status='DISABLED' WHERE credential_id=#{credentialId} AND org_id=#{organizationId} AND status='ACTIVE'")
     int disableCredentialModels(@Param("credentialId") long credentialId,
             @Param("organizationId") long organizationId);

@@ -2,6 +2,7 @@ package com.aicostops.gateway.web;
 
 import com.aicostops.gateway.auth.GatewayBearerWebFilter;
 import com.aicostops.gateway.auth.GatewayPrincipal;
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.config.GatewayResourceLimiter;
 import com.aicostops.gateway.observability.CorrelationWebFilter;
@@ -97,6 +98,7 @@ public class ChatCompletionController {
     private final BlockingIoScheduler blockingIo;
     private final Clock clock;
     private final int maxRequestBytes;
+    private final GatewayConfigCache configCache;
 
     public ChatCompletionController(
             GatewayReadMapper readMapper,
@@ -117,6 +119,32 @@ public class ChatCompletionController {
             com.aicostops.gateway.config.GatewayProperties properties,
             BlockingIoScheduler blockingIo,
             Clock clock) {
+        this(readMapper, requestService, orchestrator, circuits, lifecycleService, streamingLifecycle,
+                contextResolver, adapterRegistry, usageFinalization, sseEncoder, rateLimiter,
+                quotaLimiter, resourceLimiter, metrics, objectMapper, properties, blockingIo, clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ChatCompletionController(
+            GatewayReadMapper readMapper,
+            GatewayRequestService requestService,
+            GatewayRequestOrchestrator orchestrator,
+            CircuitBreakerService circuits,
+            GatewayRequestLifecycleService lifecycleService,
+            StreamingLifecycleService streamingLifecycle,
+            ProviderExecutionContextResolver contextResolver,
+            ProviderChatAdapterRegistry adapterRegistry,
+            GatewayUsageFinalizationService usageFinalization,
+            GatewaySseEncoder sseEncoder,
+            GatewayRateLimiter rateLimiter,
+            GatewayQuotaLimiter quotaLimiter,
+            GatewayResourceLimiter resourceLimiter,
+            GatewayMetrics metrics,
+            ObjectMapper objectMapper,
+            com.aicostops.gateway.config.GatewayProperties properties,
+            BlockingIoScheduler blockingIo,
+            Clock clock,
+            GatewayConfigCache configCache) {
         this.readMapper = readMapper;
         this.requestService = requestService;
         this.orchestrator = orchestrator;
@@ -135,6 +163,7 @@ public class ChatCompletionController {
         this.blockingIo = blockingIo;
         this.clock = clock;
         this.maxRequestBytes = properties.getMaxRequestBytes();
+        this.configCache = configCache;
     }
 
     @PostMapping(path = "/chat/completions", consumes = "application/json")
@@ -204,7 +233,7 @@ public class ChatCompletionController {
                     metrics.recordQuota("ALLOWED");
                     return orchestrator.prepareInitial(new AuthorizeCommand(
                             principal, modelId, rawBody, idempotencyKey,
-                            effectiveMaxTokens, request.stream()), request.stream());
+                            effectiveMaxTokens, request.stream(), catalog.modelRow()), request.stream());
                 })
                 .flatMap(prepared -> {
                     return request.stream()
@@ -244,12 +273,17 @@ public class ChatCompletionController {
         return blockingIo.call(() -> {
             // Organization-private keys resolve before global keys; a private
             // key never shadows across organizations.
-            var modelId = readMapper.findVisibleModelId(principal.organizationId(), modelKey);
-            if (modelId == null) {
-                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_INVALID,
-                        "Unknown model");
+            final GatewayReadMapper.ModelRow model;
+            if (configCache != null) {
+                model = configCache.getVisibleModelByKey(principal.organizationId(), modelKey);
+            } else {
+                var modelId = readMapper.findVisibleModelId(principal.organizationId(), modelKey);
+                if (modelId == null) {
+                    throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_INVALID,
+                            "Unknown model");
+                }
+                model = readMapper.findModelById(modelId);
             }
-            var model = readMapper.findModelById(modelId);
             if (model == null || !modelKey.equals(model.modelKey())) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_REQUEST_INVALID,
                         "Unknown model");
@@ -259,12 +293,13 @@ public class ChatCompletionController {
                         "Unknown model");
             }
             return new ResolvedCatalogModel(model.id(), model.modelKey(),
-                    model.maxOutputTokens(), model.defaultMaxOutputTokens());
+                    model.maxOutputTokens(), model.defaultMaxOutputTokens(), model);
         });
     }
 
     private record ResolvedCatalogModel(
-            long modelId, String modelKey, int maxOutputTokens, Integer defaultMaxOutputTokens) {
+            long modelId, String modelKey, int maxOutputTokens, Integer defaultMaxOutputTokens,
+            GatewayReadMapper.ModelRow modelRow) {
     }
 
     private Mono<ResponseEntity<Flux<ServerSentEvent<String>>>> invokeStream(

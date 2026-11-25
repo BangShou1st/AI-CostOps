@@ -6,12 +6,15 @@ import com.aicostops.gatewayadmin.security.GatewayKeyCodec;
 import com.aicostops.gatewayadmin.security.GatewayKeyGenerator;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.json.ApiId;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -36,14 +39,24 @@ public class GatewayCredentialService {
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final GatewayAdminAuditPort audit;
     private final String credentialHmacKey;
+    private final GatewayConfigInvalidationPublisher invalidations;
 
     public GatewayCredentialService(AuthorizationContextService authorizationContexts,
             ControlPlaneMapper mapper, GatewayAdminAuditPort audit,
             @Value("${aicostops.gateway.credential-hmac-key-v1:}") String credentialHmacKey) {
+        this(authorizationContexts, mapper, audit, credentialHmacKey, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public GatewayCredentialService(AuthorizationContextService authorizationContexts,
+            ControlPlaneMapper mapper, GatewayAdminAuditPort audit,
+            @Value("${aicostops.gateway.credential-hmac-key-v1:}") String credentialHmacKey,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.audit = audit;
         this.credentialHmacKey = credentialHmacKey;
+        this.invalidations = invalidations;
     }
 
     public List<ControlPlaneDtos.CredentialResponse> list(AuthenticatedUser user) {
@@ -116,6 +129,7 @@ public class GatewayCredentialService {
             mapper.insertCredentialModel(id, orgId, modelId);
         }
         audit.gatewayCredentialCreated(orgId, user.userId(), id, parsed.prefix(), principalType, "ACTIVE");
+        invalidations.invalidateCredential(id, HexFormat.of().formatHex(digest));
         var row = requireCredential(orgId, id);
         return new ControlPlaneDtos.CredentialCreateResponse(
                 ApiId.of(id), parsed.prefix(), rawKey, row.principalType(),
@@ -135,8 +149,10 @@ public class GatewayCredentialService {
                     "Gateway credential is not active",
                     "Only an ACTIVE credential can be revoked; this one is " + row.status() + ".");
         }
+        var digestHex = mapper.selectCredentialDigestHex(orgId, id);
         mapper.revokeCredential(orgId, id);
         audit.gatewayCredentialRevoked(orgId, user.userId(), id, row.prefix(), row.status());
+        invalidations.invalidateCredential(id, digestHex);
         return toResponse(requireCredential(orgId, id));
     }
 

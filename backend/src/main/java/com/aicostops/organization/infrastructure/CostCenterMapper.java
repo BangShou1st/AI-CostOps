@@ -118,6 +118,15 @@ public interface CostCenterMapper {
             @Param("newStatus") String newStatus,
             @Param("now") Instant now);
 
+    @Select("""
+            SELECT id FROM gateway_credential
+            WHERE org_id=#{organizationId}
+              AND financial_scope_type='COST_CENTER' AND financial_scope_id=#{costCenterId}
+            """)
+    List<Long> findAffectedCredentialIds(
+            @Param("organizationId") long organizationId,
+            @Param("costCenterId") long costCenterId);
+
     record ScopeParameters(boolean organizationWide, List<Long> allowedCostCenterIds) {
 
         public ScopeParameters {

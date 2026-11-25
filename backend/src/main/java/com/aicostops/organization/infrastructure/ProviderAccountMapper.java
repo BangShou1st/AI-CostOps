@@ -111,4 +111,7 @@ public interface ProviderAccountMapper {
             @Param("newStatus") String newStatus,
             @Param("metadataJson") String metadataJson,
             @Param("now") Instant now);
+
+    @Select("SELECT DISTINCT model_id FROM routing_policy WHERE org_id=#{organizationId}")
+    List<Long> findRoutingPolicyModelIds(@Param("organizationId") long organizationId);
 }

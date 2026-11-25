@@ -73,18 +73,28 @@ public class GatewayRequestOrchestrator {
             boolean streaming) {
         var effectiveCommand = command.streaming() == streaming ? command
                 : new GatewayRequestService.AuthorizeCommand(command.principal(), command.logicalModelId(),
-                        command.rawBodyBytes(), command.rawIdempotencyKey(), command.effectiveMaxOutputTokens(), streaming);
+                        command.rawBodyBytes(), command.rawIdempotencyKey(),
+                        command.effectiveMaxOutputTokens(), streaming, command.preResolvedModel());
         return requestService.authorizeForRouting(effectiveCommand)
-                .flatMap(authorized -> {
+                .flatMap(authorized -> blockingIo.call(() -> {
                     var policy = policyResolver.resolve(authorized.principal().organizationId(),
                             authorized.principal().projectId(), authorized.logicalModelId(), Instant.now(clock));
                     var candidates = selector.orderedCandidates(policy);
-                    if (candidates.isEmpty()) {
-                        return finishInitialNoRoute(authorized, false, false);
+                    return new InitialPolicyPlan(authorized, policy, candidates);
+                }))
+                .flatMap(plan -> {
+                    if (plan.candidates().isEmpty()) {
+                        return finishInitialNoRoute(plan.authorized(), false, false);
                     }
-                    return tryInitialCandidates(authorized, policy, candidates, 0,
+                    return tryInitialCandidates(plan.authorized(), plan.policy(), plan.candidates(), 0,
                             false, false, false, false, Set.of(), streaming);
                 });
+    }
+
+    private record InitialPolicyPlan(
+            GatewayRequestService.AuthorizedRequest authorized,
+            ResolvedRoutingPolicy policy,
+            List<ResolvedRoutingPolicy.Candidate> candidates) {
     }
 
     private Mono<PreparedDispatch> tryInitialCandidates(

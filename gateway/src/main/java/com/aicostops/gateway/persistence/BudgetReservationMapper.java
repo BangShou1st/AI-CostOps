@@ -114,6 +114,22 @@ public interface BudgetReservationMapper {
             @Param("orgId") long orgId, @Param("pricingVersionId") long pricingVersionId);
 
     @Select("""
+            SELECT id, org_id, status
+            FROM pricing_version
+            WHERE id=#{pricingVersionId}
+            """)
+    PricingVersionMetadataRow findPricingVersionMetadata(@Param("pricingVersionId") long pricingVersionId);
+
+    @Select("""
+            SELECT dimension_code, unit_quantity, unit_price
+            FROM pricing_rate
+            WHERE org_id=#{orgId} AND pricing_version_id=#{pricingVersionId}
+            ORDER BY dimension_code ASC
+            """)
+    java.util.List<PricingRateRow> findPricingRatesByVersion(
+            @Param("orgId") long orgId, @Param("pricingVersionId") long pricingVersionId);
+
+    @Select("""
             SELECT id, status, reserved_amount, budget_id, billing_period_id, route_attempt_id
             FROM budget_reservation
             WHERE org_id=#{orgId} AND route_attempt_id=#{routeAttemptId}
@@ -246,6 +262,9 @@ public interface BudgetReservationMapper {
     }
 
     record PricingRateRow(String dimensionCode, long unitQuantity, BigDecimal unitPrice) {
+    }
+
+    record PricingVersionMetadataRow(long id, long orgId, String status) {
     }
 
     record ReservationRow(

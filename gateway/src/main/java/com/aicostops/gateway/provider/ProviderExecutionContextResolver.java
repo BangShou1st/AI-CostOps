@@ -1,9 +1,11 @@
 package com.aicostops.gateway.provider;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.request.GatewayRequestService.DispatchResult;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -18,16 +20,28 @@ public class ProviderExecutionContextResolver {
 
     private final GatewayReadMapper readMapper;
     private final ProviderCredentialDecryptor credentialDecryptor;
+    private final GatewayConfigCache configCache;
 
     public ProviderExecutionContextResolver(
             GatewayReadMapper readMapper, ProviderCredentialDecryptor credentialDecryptor) {
+        this(readMapper, credentialDecryptor, null);
+    }
+
+    @Autowired
+    public ProviderExecutionContextResolver(
+            GatewayReadMapper readMapper,
+            ProviderCredentialDecryptor credentialDecryptor,
+            GatewayConfigCache configCache) {
         this.readMapper = readMapper;
         this.credentialDecryptor = credentialDecryptor;
+        this.configCache = configCache;
     }
 
     public ProviderCallContext resolve(GatewayPrincipal principal, DispatchResult result) {
-        var profile = readMapper.findConnectionProfileById(
-                principal.organizationId(), result.providerConnectionProfileId());
+        var profile = configCache != null
+                ? configCache.getConnectionProfile(result.providerConnectionProfileId())
+                : readMapper.findConnectionProfileById(
+                        principal.organizationId(), result.providerConnectionProfileId());
         if (profile == null || profile.id() != result.providerConnectionProfileId()) {
             throw new ProviderContextResolutionException("Frozen connection profile is missing");
         }

@@ -2,19 +2,32 @@ package com.aicostops.advisor.application;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import static com.aicostops.advisor.application.AdvisorErrors.*;
 import com.aicostops.advisor.infrastructure.AdvisorProfileMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 
 /** 按配置版本轮换内部凭据。由配置服务持有事务，不单独提交。 */
 @Service
 public class AdvisorCredentialRotator {
     private final AdvisorProfileMapper mapper;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final SecureRandom random = new SecureRandom();
+
     public AdvisorCredentialRotator(AdvisorProfileMapper mapper) {
+        this(mapper, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public AdvisorCredentialRotator(
+            AdvisorProfileMapper mapper,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.mapper = mapper;
+        this.invalidations = invalidations;
     }
 
     void rotate(long organizationId, long profileId, long projectId,
@@ -40,15 +53,23 @@ public class AdvisorCredentialRotator {
             mapper.allowCredentialModel(credentialId, organizationId, logicalModelId, now);
         }
         // Retire every other ACTIVE advisor credential so only the new profile-bound row executes.
+        var targets = new ArrayList<GatewayConfigInvalidationPublisher.CredentialTarget>();
+        if (credentialId != null) {
+            targets.add(new GatewayConfigInvalidationPublisher.CredentialTarget(
+                    credentialId, mapper.selectCredentialDigestHex(organizationId, credentialId)));
+        }
         if (predecessors != null) {
             for (var oldId : predecessors) {
                 if (credentialId != null && oldId.equals(credentialId)) {
                     continue;
                 }
+                var digestHex = mapper.selectCredentialDigestHex(organizationId, oldId);
                 mapper.revokeInternalCredential(oldId, organizationId, now);
                 mapper.disableCredentialModels(oldId, organizationId);
+                targets.add(new GatewayConfigInvalidationPublisher.CredentialTarget(oldId, digestHex));
             }
         }
+        invalidations.invalidateCredentials(targets);
     }
 
     private String internalPrefix() {
