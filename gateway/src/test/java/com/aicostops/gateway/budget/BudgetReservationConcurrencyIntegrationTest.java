@@ -350,6 +350,14 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM budget_reservation WHERE org_id=? AND status='ACTIVE'",
                 Integer.class, env.orgId())).isEqualTo(admitCount);
+        for (var expired : expiredIds) {
+            assertThat(jdbc.queryForObject(
+                    "SELECT status FROM budget_reservation WHERE org_id=? AND request_id=?",
+                    String.class, env.orgId(), expired.requestId())).isEqualTo("RELEASED");
+            assertThat(jdbc.queryForObject(
+                    "SELECT state FROM gateway_request WHERE org_id=? AND id=?",
+                    String.class, env.orgId(), expired.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+        }
         assertBudgetReservedMatchesHolds(env);
     }
 

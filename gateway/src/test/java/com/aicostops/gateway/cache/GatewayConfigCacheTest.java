@@ -43,6 +43,7 @@ import tools.jackson.databind.ObjectMapper;
 class GatewayConfigCacheTest {
 
     private static final String TEST_KEK = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private MutableClock clock;
     private StringRedisTemplate redis;
@@ -347,7 +348,7 @@ class GatewayConfigCacheTest {
 
     private static byte[][] encryptSecret(String secret, long orgId, long providerAccountId) throws Exception {
         var nonce = new byte[12];
-        new SecureRandom().nextBytes(nonce);
+        SECURE_RANDOM.nextBytes(nonce);
         var cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE,
                 new SecretKeySpec(Base64.getDecoder().decode(TEST_KEK), "AES"),
