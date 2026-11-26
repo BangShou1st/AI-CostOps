@@ -1303,8 +1303,8 @@ async function runHc04Matrix() {
   await stopGateways()
 }
 
-async function finalVerification() {
-  const fixtures = allFixtureBudgets(state.seed)
+async function finalVerification(seedData) {
+  const fixtures = allFixtureBudgets(seedData)
   const orgIds = orgIdsOf(fixtures)
   log('waiting for settlement convergence')
   const converged = await waitSettlementConverged(orgIds, {
@@ -1333,7 +1333,7 @@ async function finalVerification() {
     budget: budgets,
     dispatch: dispatchChecks,
     topSql: topSqlDigests(),
-    explains: explainKeyStatements(state.seed),
+    explains: explainKeyStatements(seedData),
     channel: channelIsolation(),
     ...(HC04 ? { reservedDrift: reservedCounterDrift() } : {}),
   }
@@ -1422,7 +1422,7 @@ function environmentSnapshot(sqlExplain) {
   }
 }
 
-function writeArtifacts(finalResult) {
+function writeArtifacts(finalResult, seedData) {
   ensureDirs()
   const environment = environmentSnapshot()
   const artifacts = {
@@ -1453,15 +1453,15 @@ function writeArtifacts(finalResult) {
     environment,
     fixtureTopology: {
       modelKey: MODEL_KEY,
-      hot: { orgId: state.seed.hot.orgId, projectId: state.seed.hot.projectId, budgetId: state.seed.hot.budgetId },
-      multiBudgetCount: state.seed.multiBudget.length,
-      multiOrgCount: state.seed.multiOrg.length,
+      hot: { orgId: seedData.hot.orgId, projectId: seedData.hot.projectId, budgetId: seedData.hot.budgetId },
+      multiBudgetCount: seedData.multiBudget.length,
+      multiOrgCount: seedData.multiOrg.length,
       separateBudgets: {
-        exhaust: state.seed.exhaust.budgetId,
-        uncertain: state.seed.uncertain.budgetId,
-        rateLimit: state.seed.rateLimit.budgetId,
-        providerFailure: state.seed.providerFailure.budgetId,
-        sseCancel: state.seed.sseCancel.budgetId,
+        exhaust: seedData.exhaust.budgetId,
+        uncertain: seedData.uncertain.budgetId,
+        rateLimit: seedData.rateLimit.budgetId,
+        providerFailure: seedData.providerFailure.budgetId,
+        sseCancel: seedData.sseCancel.budgetId,
       },
     },
     scenarios: state.scenarios,
@@ -1510,11 +1510,11 @@ async function main() {
         || checkpoint.scenarios.length !== completeRounds) {
       throw new Error('HC-04 finalization requires a complete checkpoint for the selected variant')
     }
-    state.seed = JSON.parse(readFileSync(SEED_PATH, 'utf8'))
+    const resumedSeed = JSON.parse(readFileSync(SEED_PATH, 'utf8'))
     state.scenarios = checkpoint.scenarios
     state.autocommitInsertMs = checkpoint.autocommitInsertMs
     state.notes.push('Settlement finalization resumed against the original database')
-    return finishRun(jars.backend)
+    return finishRun(jars.backend, resumedSeed)
   }
   prepareDatabase()
   if (HC04) {
@@ -1578,17 +1578,17 @@ async function main() {
     await runFullMatrix()
   }
 
-  return finishRun(jars.backend)
+  return finishRun(jars.backend, state.seed)
 }
 
-async function finishRun(backendJar) {
+async function finishRun(backendJar, seedData) {
   log('restarting Backend to drain FINAL usage into Settlement/Ledger')
   await startBackend(backendJar, '500ms')
   // During a long drain, repeated Windows TCP client connections can exhaust
   // local ports. This only changes the DBA observation path after load ends.
   if (HC04) process.env.HC01_MYSQL_SOCKET_CONTAINER = cfg.mysqlContainer
-  const finalResult = await finalVerification()
-  const artifacts = writeArtifacts(finalResult)
+  const finalResult = await finalVerification(seedData)
+  const artifacts = writeArtifacts(finalResult, seedData)
   const failures = verifyVerdict(artifacts)
   if (!KEEP_RUNNING) {
     await stopAll()
