@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.aicostops.iam.domain.TokenDigest;
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -38,7 +39,7 @@ class RegistrationInvitationApiIntegrationTest extends MySqlContainerSupport {
 
     @BeforeEach
     void setUp() {
-        cleanDatabase();
+        M2DatabaseCleaner.clean(jdbcTemplate);
         jdbcTemplate.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('API Registration','api-registration-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
         organizationId = jdbcTemplate.queryForObject(
                 "SELECT id FROM organization WHERE slug='api-registration-org'", Long.class);
@@ -51,22 +52,7 @@ class RegistrationInvitationApiIntegrationTest extends MySqlContainerSupport {
         //: cleanup that row leaks into the shared MySQL testcontainer and the
         //: next integration class fails its own DELETE FROM app_user on the
         //: invitation FK (test isolation, not production behavior).
-        cleanDatabase();
-    }
-
-    private void cleanDatabase() {
-        jdbcTemplate.update("DELETE FROM audit_event");
-        jdbcTemplate.update("DELETE FROM invitation");
-        jdbcTemplate.update("DELETE FROM role_assignment");
-        // M6 close/reconciliation history references organization members.
-        jdbcTemplate.update("DELETE FROM period_close_check");
-        jdbcTemplate.update("DELETE FROM period_close_run");
-        jdbcTemplate.update("DELETE FROM reconciliation_case");
-        jdbcTemplate.update("DELETE FROM reconciliation_run");
-        jdbcTemplate.update("DELETE FROM organization_member");
-        jdbcTemplate.update("DELETE FROM user_credential");
-        jdbcTemplate.update("DELETE FROM app_user");
-        jdbcTemplate.update("DELETE FROM organization WHERE slug='api-registration-org'");
+        M2DatabaseCleaner.clean(jdbcTemplate);
     }
 
     @Test

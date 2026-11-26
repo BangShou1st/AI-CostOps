@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.shared.web.DomainException;
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,8 +29,7 @@ class RegistrationServiceIntegrationTest extends MySqlContainerSupport {
 
     @BeforeEach
     void setUpOrganization() {
-        cleanIdentityRows();
-        jdbcTemplate.update("DELETE FROM organization WHERE slug='registration-org'");
+        M2DatabaseCleaner.clean(jdbcTemplate);
         jdbcTemplate.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('Registration','registration-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
     }
 
@@ -37,6 +37,7 @@ class RegistrationServiceIntegrationTest extends MySqlContainerSupport {
     void restoreRoleAssignmentScopeConstraint() {
         jdbcTemplate.execute("ALTER TABLE role_assignment DROP CHECK chk_role_assignment_scope");
         jdbcTemplate.execute("ALTER TABLE role_assignment ADD CONSTRAINT chk_role_assignment_scope CHECK (scope_type IN ('ORG','PROJECT','TEAM','COST_CENTER'))");
+        M2DatabaseCleaner.clean(jdbcTemplate);
     }
 
     @Test
@@ -114,19 +115,5 @@ class RegistrationServiceIntegrationTest extends MySqlContainerSupport {
     private int userCount(String email) {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM app_user WHERE email_normalized=?", Integer.class, email);
-    }
-
-    private void cleanIdentityRows() {
-        jdbcTemplate.update("DELETE FROM audit_event");
-        jdbcTemplate.update("DELETE FROM invitation");
-        jdbcTemplate.update("DELETE FROM role_assignment");
-        // M6 close/reconciliation history references organization members.
-        jdbcTemplate.update("DELETE FROM period_close_check");
-        jdbcTemplate.update("DELETE FROM period_close_run");
-        jdbcTemplate.update("DELETE FROM reconciliation_case");
-        jdbcTemplate.update("DELETE FROM reconciliation_run");
-        jdbcTemplate.update("DELETE FROM organization_member");
-        jdbcTemplate.update("DELETE FROM user_credential");
-        jdbcTemplate.update("DELETE FROM app_user");
     }
 }

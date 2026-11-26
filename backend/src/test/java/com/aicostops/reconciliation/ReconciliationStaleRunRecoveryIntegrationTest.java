@@ -10,6 +10,7 @@ import com.aicostops.testsupport.MySqlContainerSupport;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,11 @@ class ReconciliationStaleRunRecoveryIntegrationTest extends MySqlContainerSuppor
                   UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, orgId);
         periodId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
     }
 
     @Test

@@ -96,7 +96,7 @@ class GatewayConfigInvalidationIntegrationTest extends ControlPlaneApiTestSuppor
                 (message, pattern) -> {
                     var body = new String(message.getBody(), StandardCharsets.UTF_8);
                     var parsed = objectMapper.readValue(body, InvalidationMessage.class);
-                    receivedMessages.offer(parsed);
+                    enqueueReceivedMessage(parsed);
                 },
                 ChannelTopic.of(GatewayConfigInvalidationPublisher.INVALIDATION_CHANNEL));
         listenerContainer.afterPropertiesSet();
@@ -510,22 +510,40 @@ class GatewayConfigInvalidationIntegrationTest extends ControlPlaneApiTestSuppor
             var msg = receivedMessages.poll(100, TimeUnit.MILLISECONDS);
             if (msg != null) {
                 if (type.equals(msg.type()) && key.equals(msg.key())) {
-                    for (var other : buffered) {
-                        receivedMessages.offer(other);
-                    }
+                    requeueMessages(buffered);
                     return true;
                 }
                 buffered.add(msg);
             }
         }
-        for (var other : buffered) {
-            receivedMessages.offer(other);
-        }
+        requeueMessages(buffered);
         return false;
     }
 
+    private void enqueueReceivedMessage(InvalidationMessage message) {
+        if (!receivedMessages.offer(message)) {
+            throw new IllegalStateException("Failed to enqueue invalidation message: " + message);
+        }
+    }
+
+    private void requeueMessages(List<InvalidationMessage> buffered) {
+        for (var other : buffered) {
+            enqueueReceivedMessage(other);
+        }
+    }
+
     private static long readLong(String json, String path) {
-        return Long.parseLong(JsonPath.read(json, path).toString());
+        Object value = JsonPath.read(json, path);
+        assertThat(value)
+                .as("Expected numeric JSON value at path %s in %s", path, json)
+                .isNotNull();
+        try {
+            return Long.parseLong(value.toString());
+        } catch (NumberFormatException ex) {
+            throw new AssertionError(
+                    "Expected long value at path %s, got '%s' in %s".formatted(path, value, json),
+                    ex);
+        }
     }
 
     private long insertTeam(long org, String code) {

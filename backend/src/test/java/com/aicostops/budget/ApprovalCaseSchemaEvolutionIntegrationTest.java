@@ -3,9 +3,11 @@ package com.aicostops.budget;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.sql.SQLException;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -48,6 +50,7 @@ class ApprovalCaseSchemaEvolutionIntegrationTest extends MySqlContainerSupport {
 
     @BeforeEach
     void setUp() {
+        M2DatabaseCleaner.clean(jdbc);
         var suffix = fixture.incrementAndGet() + "-" + System.nanoTime();
         orgId = insertOrganization("Case Org " + suffix, "case-" + suffix);
         foreignOrgId = insertOrganization("Case Foreign " + suffix, "case-foreign-" + suffix);
@@ -58,6 +61,11 @@ class ApprovalCaseSchemaEvolutionIntegrationTest extends MySqlContainerSupport {
         foreignClaimId = insertExpenseClaim(foreignOrgId, foreignMemberId);
         commitmentId = insertCommitment(orgId);
         foreignCommitmentId = insertCommitment(foreignOrgId);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
     }
 
     @Test

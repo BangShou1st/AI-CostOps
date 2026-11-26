@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.aicostops.shared.web.DomainException;
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -34,8 +35,7 @@ class InvitationAcceptanceServiceIntegrationTest extends MySqlContainerSupport {
 
     @BeforeEach
     void setUp() {
-        cleanRows();
-        jdbcTemplate.update("DELETE FROM organization WHERE slug='invitation-org'");
+        M2DatabaseCleaner.clean(jdbcTemplate);
         jdbcTemplate.update("INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at) VALUES ('Invitation','invitation-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))");
         organizationId = jdbcTemplate.queryForObject(
                 "SELECT id FROM organization WHERE slug='invitation-org'", Long.class);
@@ -45,6 +45,7 @@ class InvitationAcceptanceServiceIntegrationTest extends MySqlContainerSupport {
     void restoreRoleAssignmentConstraint() {
         jdbcTemplate.execute("ALTER TABLE role_assignment DROP CHECK chk_role_assignment_scope");
         jdbcTemplate.execute("ALTER TABLE role_assignment ADD CONSTRAINT chk_role_assignment_scope CHECK (scope_type IN ('ORG','PROJECT','TEAM','COST_CENTER'))");
+        M2DatabaseCleaner.clean(jdbcTemplate);
     }
 
     @Test
@@ -124,11 +125,6 @@ class InvitationAcceptanceServiceIntegrationTest extends MySqlContainerSupport {
 
     private int userCount(String email) {
         return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM app_user WHERE email_normalized=?", Integer.class, email);
-    }
-
-    private void cleanRows() {
-        jdbcTemplate.update("DELETE FROM audit_event");
-        cleanInvitationsAndIdentity();
     }
 
     private void cleanInvitationsAndIdentity() {

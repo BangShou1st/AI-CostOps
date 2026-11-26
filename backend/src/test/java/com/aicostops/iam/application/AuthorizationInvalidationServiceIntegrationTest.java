@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.aicostops.iam.infrastructure.RedisRefreshSessionRepository;
 import com.aicostops.testsupport.AuthenticationContainersSupport;
+import com.aicostops.testsupport.M2DatabaseCleaner;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -37,16 +39,12 @@ class AuthorizationInvalidationServiceIntegrationTest extends AuthenticationCont
     @BeforeEach
     void setUp() {
         redis.getConnectionFactory().getConnection().serverCommands().flushAll();
-        jdbc.update("DELETE FROM invitation");
-        jdbc.update("DELETE FROM role_assignment");
-        // M6 close/reconciliation history references organization members.
-        jdbc.update("DELETE FROM period_close_check");
-        jdbc.update("DELETE FROM period_close_run");
-        jdbc.update("DELETE FROM reconciliation_case");
-        jdbc.update("DELETE FROM reconciliation_run");
-        jdbc.update("DELETE FROM organization_member");
-        jdbc.update("DELETE FROM user_credential");
-        jdbc.update("DELETE FROM app_user");
+        M2DatabaseCleaner.clean(jdbc);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
     }
 
     @Test

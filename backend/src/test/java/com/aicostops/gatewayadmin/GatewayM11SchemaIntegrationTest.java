@@ -7,6 +7,7 @@ import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,11 @@ class GatewayM11SchemaIntegrationTest extends MySqlContainerSupport {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @BeforeEach
+    void setUp() {
+        M2DatabaseCleaner.clean(jdbc);
+    }
 
     @AfterEach
     void tearDown() {

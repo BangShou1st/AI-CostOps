@@ -34,24 +34,12 @@ class M3Group2DuplicateAttributionSchemaIntegrationTest extends MySqlContainerSu
 
     @BeforeEach
     void setUp() {
-        cleanGroup2();
         M2DatabaseCleaner.clean(jdbcTemplate);
     }
 
     @AfterEach
     void tearDown() {
-        cleanGroup2();
         M2DatabaseCleaner.clean(jdbcTemplate);
-    }
-
-    // Group 2 rows must be removed before M2DatabaseCleaner can delete charge_fact.
-    private void cleanGroup2() {
-        jdbcTemplate.update("DELETE FROM duplicate_candidate");
-        jdbcTemplate.update("DELETE FROM allocation_line");
-        jdbcTemplate.update(
-                "UPDATE charge_fact SET current_allocation_decision_id=NULL, duplicate_of_charge_id=NULL");
-        jdbcTemplate.update("DELETE FROM allocation_decision");
-        jdbcTemplate.update("DELETE FROM allocation_rule");
     }
 
     @Test
