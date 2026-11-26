@@ -4,4 +4,5 @@
 
 - [WP6 同机 A/B 性能报告](comparison.md)
 - [WP6 逐轮聚合数据与构建摘要](results.json)
+- [WP7 分桶正确性审查](bucket-gate.md)
 - [HC-04 设计](../../../../02-development/designs/maintenance/2026-11-25-hc04-hot-budget-and-multilevel-cache-design.md)

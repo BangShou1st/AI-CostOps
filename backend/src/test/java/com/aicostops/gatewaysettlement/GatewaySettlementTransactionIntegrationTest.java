@@ -88,6 +88,26 @@ class GatewaySettlementTransactionIntegrationTest extends MySqlContainerSupport 
     }
 
     @Test
+    void settledProviderCostsCanMakeTheBudgetHeadroomNegative() {
+        var fixture = fixture(true);
+        jdbc.update("UPDATE budget SET total_amount=1, reserved_amount=1 WHERE id=?", fixture.budgetId());
+        jdbc.update("UPDATE budget_reservation SET reserved_amount=1 WHERE id=?", fixture.reservationId());
+        var settlement = discovery.discover(fixture.orgId()).getFirst();
+
+        var result = service.settle(fixture.orgId(), settlement.id());
+
+        assertThat(result.settlement().isSettled()).isTrue();
+        assertThat(result.settlement().postedAmount()).isEqualByComparingTo("1.80");
+        assertThat(jdbc.queryForObject("""
+                SELECT total_amount-actual_amount-committed_amount FROM budget WHERE id=?
+                """, BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("-0.80");
+        assertThat(jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, fixture.budgetId())).isEqualByComparingTo("0");
+        assertThat(jdbc.queryForObject("SELECT status FROM budget_reservation WHERE id=?",
+                String.class, fixture.reservationId())).isEqualTo("FINALIZED");
+    }
+
+    @Test
     void optionalUnbudgetedUsageStillPostsWithoutBudgetOrReservation() {
         var fixture = fixture(false);
         var discovered = discovery.discover(fixture.orgId());

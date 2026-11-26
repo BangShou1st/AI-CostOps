@@ -117,6 +117,8 @@ WHERE org_id=#{orgId} AND id=#{budgetId} AND status='ACTIVE'
 
 **只在阶段 A 全部验收通过后开始；若 B 的正确性测试无法全部通过，停在 A 并如实报告。**
 
+**2026-11-26 WP7 门禁未通过。** 已发生的 Provider 费用完整入账后，预算可分配额度可以为负。分桶配额下界为 0，此时无法满足 §4.1 的配额总和上界。阶段 B 停在设计审查。[真实 MySQL 反例](../../../03-acceptance/maintenance/2026-11/2026-11-26-hc-04-hot-budget-cache/bucket-gate.md)
+
 ### 4.1 模型
 
 - 新表 `budget_bucket(id, org_id, budget_id, bucket_no, quota_amount, reserved_amount, version)`，`UNIQUE(org_id, budget_id, bucket_no)`。
