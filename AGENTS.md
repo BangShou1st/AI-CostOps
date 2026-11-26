@@ -18,6 +18,8 @@ AI CostOps 是面向研发团队的 **AI 成本治理（FinOps for AI）** 平�
 > **功能研发已关闭。** 不要新增 Provider、业务功能、V4 能力或"顺手重构"。
 > 只接受：安全更新、缺陷修复、运维修复、CI / 依赖维护、文档维护。
 > 维护的触发条件是**真实缺陷与实际必要性**，不是"看起来可以优化"。
+>
+> **HC-04 维护期例外**：经仓库所有者批准实施热点预算与多级缓存改造，**仅实施阶段 A**（Flyway `V34`、A1–A4、C1、R1、R2 已完成并验收）；阶段 B 分桶因 WP7 正确性门禁 **FAIL** 已停在阶段 A，详见 [`2026-11-25-hc04-hot-budget-and-multilevel-cache-design.md`](docs/02-development/designs/maintenance/2026-11-25-hc04-hot-budget-and-multilevel-cache-design.md)。
 
 ---
 
@@ -62,6 +64,8 @@ POSTED Ledger 不可变             （更正只能追加 Correction 流水）
 CLOSED 账期写保护                （重开需显式动作 + 审计）
 Budget available = total - actual - outstanding commitments
 已发生的 Provider Cost 不因预算不足而丢弃
+budget.reserved_amount = Σ 有效预占（ACTIVE + PENDING_HOLD）
+同一预占至多扣减一次（version + 状态 CAS 前置）；Gateway 仅通过列级授权写 budget.(reserved_amount, updated_at, version)，禁止写 actual/committed/total
 ```
 
 ### 模块依赖方向

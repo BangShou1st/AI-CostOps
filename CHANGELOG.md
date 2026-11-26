@@ -16,6 +16,7 @@
 - 移除 Gateway 旧 `OpenAiChatAdapter`、`AbstractOpenAiCompatibleAdapter`、`GenericOpenAiCompatibleChatAdapter` 及其 wire DTO / SSE decoder / endpoint policy / resolver 测试；Provider adapter code 仍为 `CUSTOM_OPENAI_COMPATIBLE`。
 
 ### Changed
+- HC-04 阶段 A（WP1–WP6）完成开发与验收：Flyway `V34` 新增 `budget.reserved_amount` 冗余计数与非负约束（Gateway 准入改条件原子更新、锁外预计算定价/金额与 `useGeneratedKeys`，五处全生命周期维护点同步加减且定时只读漂移巡检）、按预算应用内信号量、JDBC 会话参数优化（消除 `transaction_read_only` 往返）、Gateway Caffeine + Redis 两级配置缓存与 Backend `AFTER_COMMIT` Pub/Sub 失效（不含账期/预算/预占；Provider 凭据仅驻留本地内存）；WP6 对齐 ABAB 同机实测单预算锁语句等待从 `145.40–191.31 ms` 降至 `17.74–19.05 ms`（`data_lock_waits` 峰值从 `36–45` 降至 `1`）、吞吐 `+17.3% ～ +29.6%`、8 预算/8 组织 `+9.0% / +9.8%`、36,212 条新版 FINAL 用量 100% 1:1 结算且 `reserved_amount` 零漂移（详见 [HC-04 验收与同机 A/B 报告](docs/03-acceptance/maintenance/2026-11/2026-11-26-hc-04-hot-budget-cache/comparison.md)）。
 - HC-04 WP4：Gateway 通过 Redis ZSET 唤醒到期预占回收，保留每 60 秒的 MySQL 扫描。Redis SET NX 协调同键请求的首次写入，MySQL 唯一约束和请求状态继续裁定重放与派发。
 - Issue #214：Backend 合并等价 Provider 地址校验分支，DNS 相关单测改为离线；密码重置集成测试复用 FK-safe 全量 cleaner。导入、证据上传、分摊规则与定价的 ACTIVE 目录列表统一分页并支持中止请求。CI 删除 8 个非矩阵重复准入步骤、收紧 docs-only 变更识别；集成测试选择器作为 Backend 两个 integration job 的输入，mock provider 变更触发 `browser-e2e`。required check 名称、测试矩阵和 Security workflow 保持不变。
 - Issue #214：开发 Compose overlay 删除 3 个与基础 Compose 相同的环境值；Maven 构建目录只自动轮换带成功完成标记的 build/test/verify 产物并保留最近 3 个，失败、取消、dev、未标记与旧目录不参与自动轮换。
@@ -47,6 +48,7 @@
 - Gateway：OpenAI-compatible reasoning-only/`content=null` 非流式响应不再误判为 `MALFORMED_PROVIDER_RESPONSE` 并返回 502；保留 Provider usage，缺失 usage 仍不补零。
 
 ### Documentation
+- HC-04 WP7/WP8 收口：阶段 B（热点预算拆子账户分桶）因透支结算反例（`total=1.00 / actual=1.80` 后可用余额 `-0.80` 致非负配额约束无解）在 WP7 门禁判定 FAIL 并正式暂缓、停在阶段 A（见 [WP7 分桶正确性审查](docs/03-acceptance/maintenance/2026-11/2026-11-26-hc-04-hot-budget-cache/bucket-gate.md)）；同步更新 [HC-04 设计文档（含 §4.4 评估结论与 §10 十二张代码级追问卡）](docs/02-development/designs/maintenance/2026-11-25-hc04-hot-budget-and-multilevel-cache-design.md)、[AIC-087](docs/02-development/designs/v2/04-budget-redis-atomicity.md)、[`AGENTS.md`](AGENTS.md)、[`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) 与 [详细设计索引](docs/02-development/designs/README.md)。
 - 新增 [Issue #214 维护清理验收记录](docs/03-acceptance/maintenance/2026-11/2026-11-18-issue-214-maintenance-cleanup.md)，记录跨 Backend、Gateway、Frontend、CI 与脚本的定向维护验证及保留边界。
 - 新增 [账单导入批量持久化性能验收](docs/03-acceptance/maintenance/2026-11/2026-11-17-import-batching-benchmark.md)：10k 单 Worker 三次 worker 中位数 4,304.778 rows/s，正确性断言全绿。
 - 新增 [Gateway 连接期 DNS 防护验收](docs/03-acceptance/maintenance/2026-11/2026-11-17-gateway-bridge-dns-pinning.md) 与 [预算保守预占边界登记](docs/03-acceptance/maintenance/2026-11/2026-11-17-budget-reservation-boundary.md)。
