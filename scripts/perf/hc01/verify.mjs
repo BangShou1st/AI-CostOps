@@ -217,16 +217,25 @@ export function settlementViolations(snapshots) {
   return violations
 }
 
-export async function waitSettlementConverged(orgIds, { timeoutMs = 15 * 60_000, onTick } = {}) {
+export async function waitSettlementConverged(orgIds, {
+  timeoutMs = 15 * 60_000, sampleIntervalMs = 5000, onTick, onTransientError,
+} = {}) {
   const deadline = Date.now() + timeoutMs
   let last = null
   while (Date.now() < deadline) {
-    last = settlementSnapshot(orgIds)
+    try {
+      last = settlementSnapshot(orgIds)
+    } catch (error) {
+      if (!onTransientError || !/ERROR (2002|2003|2006|2013)\b/.test(error.message)) throw error
+      onTransientError(error)
+      await sleep(sampleIntervalMs)
+      continue
+    }
     const pending = last.reduce((total, item) => total + item.pending, 0)
     const undrainedFinal = last.reduce((total, item) => total + Math.max(0, item.finalUsage - item.settled - item.pending), 0)
     if (onTick) onTick(last)
     if (pending === 0 && undrainedFinal === 0) return { converged: true, snapshots: last }
-    await sleep(5000)
+    await sleep(sampleIntervalMs)
   }
   return { converged: false, snapshots: last }
 }

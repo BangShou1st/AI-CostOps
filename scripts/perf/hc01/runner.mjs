@@ -18,14 +18,19 @@
  * Infra (MySQL/Redis/MinIO) is never stopped by this script.
  */
 import { spawnSync } from 'node:child_process'
-import { createWriteStream, existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { createWriteStream, existsSync, readFileSync } from 'node:fs'
 import http from 'node:http'
 import { join, resolve } from 'node:path'
 import {
   DB_NAME, GATEWAY_DB_USER, HC01_DIR, LOG_DIR, MODEL_KEY, ROOT, config, ensureDirs,
-  findJar, gitValue, hostEnvironment, httpRequest, mysql, mysqlNumber, mysqlRows, mysqlScalar,
-  nowIso, pythonCommand, redisCli, sleep, startProcess, stopProcess, writeJson,
+  docker, findJar, gitValue, hostEnvironment, httpRequest, mysql, mysqlNumber, mysqlRows, mysqlScalar,
+  nowIso, pythonCommand, redisCli, sleep, startProcess, stats, stopProcess as stopHarnessProcess, writeJson,
 } from './lib.mjs'
+import {
+  assertHc04Database, hasReservedCounter, measureAutocommit, reservedCounterDrift,
+  resetHc04Digests, roundSql,
+} from './hc04.mjs'
 import { allFixtureBudgets, seed } from './seed.mjs'
 import { runLoad, runOneShot } from './load.mjs'
 import { Sampler } from './sampler.mjs'
@@ -51,15 +56,22 @@ const KEEP_RUNNING = flags.has('--keep-running')
 // HC-02 A/B support: run only the account-period hotspot suite and/or point
 // the runner at a pre-built Gateway jar from another commit.
 const SUITE = options.suite ?? (QUICK ? 'quick' : 'full')
+const HC04 = SUITE === 'hc04'
+const stopProcess = name => stopHarnessProcess(name, undefined, { verifyChild: HC04 })
+const HC04_HOT20_ONLY = HC04 && flags.has('--hc04-hot20-only')
+const HC04_RESUME_PATH = HC04 && options['resume-finalization']
+  ? resolve(ROOT, options['resume-finalization']) : null
 const VARIANT = options.variant ?? null
 const CODE_SHA = options['code-sha'] ?? null
 const GATEWAY_JAR_OVERRIDE = options['gateway-jar'] ? resolve(ROOT, options['gateway-jar']) : null
+const BACKEND_JAR_OVERRIDE = options['backend-jar'] ? resolve(ROOT, options['backend-jar']) : null
 const RUN_NONCE = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
 const ROUNDS = QUICK ? 1 : Number(options.rounds ?? 3)
 const WARMUP_SEC = QUICK ? 2 : Number(options.warmup ?? 8)
 const MEASURE_SEC = QUICK ? 4 : Number(options.measure ?? 20)
 const OUTPUT_DIR = options.output
-  ? join(ROOT, options.output)
+  ? resolve(ROOT, options.output)
+  : HC04 ? join(HC01_DIR, VARIANT ?? 'results')
   : QUICK
     ? join(HC01_DIR, 'quick-evidence')
     : join(ROOT, 'docs', '03-acceptance', 'maintenance', '2026-11', '2026-11-11-hc-01-gateway-concurrency')
@@ -95,6 +107,13 @@ function log(message) {
   console.log(`[HC-01 ${new Date().toISOString().slice(11, 19)}] ${message}`)
 }
 
+function checkpointHc04() {
+  writeJson(join(OUTPUT_DIR, 'rounds-checkpoint.json'), {
+    commit: CODE_SHA, variant: VARIANT, autocommitInsertMs: state.autocommitInsertMs,
+    scenarios: state.scenarios,
+  })
+}
+
 function runMaven(module) {
   const executable = process.platform === 'win32'
     ? join(ROOT, module, 'mvnw.cmd')
@@ -114,16 +133,17 @@ function runMaven(module) {
 
 function ensureJars() {
   const gatewayJar = GATEWAY_JAR_OVERRIDE ?? findJar('gateway', 'gateway-')
-  const backendJar = findJar('backend', 'backend-')
+  const backendJar = BACKEND_JAR_OVERRIDE ?? findJar('backend', 'backend-')
   const needBuild = FORCE_BUILD || !gatewayJar || !backendJar
   if (needBuild && !SKIP_BUILD) {
     if (!GATEWAY_JAR_OVERRIDE) runMaven('gateway')
     if (!backendJar) runMaven('backend')
   }
   const gateway = GATEWAY_JAR_OVERRIDE ?? findJar('gateway', 'gateway-')
-  const backend = findJar('backend', 'backend-')
+  const backend = BACKEND_JAR_OVERRIDE ?? findJar('backend', 'backend-')
   if (!gateway || !backend) throw new Error('缺少可执行 JAR；请去掉 --skip-build 或先运行 npm run build')
   if (!existsSync(gateway)) throw new Error(`Gateway JAR 不存在: ${gateway}`)
+  if (!existsSync(backend)) throw new Error(`Backend JAR 不存在: ${backend}`)
   return { gateway, backend }
 }
 
@@ -157,6 +177,9 @@ function createGatewayDbUser() {
   const owned = ['budget_reservation', 'gateway_request', 'gateway_route_attempt',
     'gateway_usage_fact', 'gateway_usage_dimension']
   const grants = owned.map(table => `GRANT SELECT, INSERT, UPDATE ON \`${DB_NAME}\`.\`${table}\` TO '${GATEWAY_DB_USER}'@'%';`).join('\n')
+  const budgetGrant = HC04 && hasReservedCounter()
+    ? `GRANT UPDATE (reserved_amount, updated_at, version) ON \`${DB_NAME}\`.budget TO '${GATEWAY_DB_USER}'@'%';`
+    : ''
   // The Gateway runtime also hosts the Advisor inference worker. These are the
   // M21 production-minimum Advisor grants (no financial writes).
   const advisorGrants = [
@@ -166,11 +189,13 @@ function createGatewayDbUser() {
     'GRANT SELECT ON `%DB%`.advisor_profile TO \'%USER%\'@\'%\';',
     'GRANT SELECT ON `%DB%`.advisor_evidence_snapshot TO \'%USER%\'@\'%\';',
   ].map(statement => statement.replaceAll('%DB%', DB_NAME).replaceAll('%USER%', GATEWAY_DB_USER)).join('\n')
-  mysql(`CREATE USER IF NOT EXISTS '${GATEWAY_DB_USER}'@'%' IDENTIFIED BY '${password}';
+  mysql(`${HC04 ? `DROP USER IF EXISTS '${GATEWAY_DB_USER}'@'%';` : ''}
+    CREATE USER IF NOT EXISTS '${GATEWAY_DB_USER}'@'%' IDENTIFIED BY '${password}';
     ALTER USER '${GATEWAY_DB_USER}'@'%' IDENTIFIED BY '${password}';
     GRANT SELECT ON \`${DB_NAME}\`.* TO '${GATEWAY_DB_USER}'@'%';
     GRANT LOCK TABLES ON \`${DB_NAME}\`.* TO '${GATEWAY_DB_USER}'@'%';
     ${grants}
+    ${budgetGrant}
     ${advisorGrants}
     FLUSH PRIVILEGES;`, { database: null, password: cfg.mysqlRootPassword })
   const grantsText = mysqlScalar(`SHOW GRANTS FOR '${GATEWAY_DB_USER}'@'%';`, {
@@ -236,14 +261,23 @@ function gatewayEnvironment(port, phase) {
     AICOSTOPS_GATEWAY_DB_THREADS: '12',
     AICOSTOPS_GATEWAY_DB_QUEUE_CAPACITY: '256',
     AICOSTOPS_GATEWAY_DB_POOL_MAX: '12',
+    ...(phase === 'expiry-probe' ? {
+      AICOSTOPS_GATEWAY_HEADER_TIMEOUT_MS: '5000',
+      AICOSTOPS_GATEWAY_STREAM_IDLE_TIMEOUT_MS: '10000',
+      AICOSTOPS_GATEWAY_HARD_TIMEOUT_MS: '15000',
+      AICOSTOPS_GATEWAY_RESERVATION_TTL_MS: '25000',
+    } : {}),
     SPRING_PROFILES_ACTIVE: '',
   }
 }
 
-async function waitHttp(port, path, timeoutMs, label) {
+async function waitHttp(port, path, timeoutMs, label, child) {
   const deadline = Date.now() + timeoutMs
   let last = null
   while (Date.now() < deadline) {
+    if (child && (child.exitCode !== null || child.signalCode !== null)) {
+      throw new Error(`${label} exited before readiness (${child.exitCode ?? child.signalCode})`)
+    }
     const response = await httpRequest({ host: '127.0.0.1', port, path, method: 'GET' }, null, 10_000)
     last = response
     if (response.status === 200) return response
@@ -254,16 +288,18 @@ async function waitHttp(port, path, timeoutMs, label) {
 
 async function startBackend(jar, pollInterval = '1s') {
   log(`starting Backend (Flyway + settlement worker, poll=${pollInterval})`)
-  startProcess('backend', 'java', ['-jar', jar], { env: backendEnvironment(pollInterval) })
-  await waitHttp(cfg.backendPort, '/actuator/health/readiness', BACKEND_READY_TIMEOUT_MS, 'Backend')
+  const { child } = startProcess('backend', 'java', ['-jar', jar], { env: backendEnvironment(pollInterval) })
+  await waitHttp(cfg.backendPort, '/actuator/health/readiness', BACKEND_READY_TIMEOUT_MS, 'Backend', child)
   log('Backend ready')
 }
 
 async function startGatewayProcess(port, phase) {
   const jar = GATEWAY_JAR_OVERRIDE ?? findJar('gateway', 'gateway-')
   const name = `gateway-${port}`
-  startProcess(name, 'java', ['-jar', jar, `--server.port=${port}`], { env: gatewayEnvironment(port, phase) })
-  await waitHttp(port, '/actuator/health/readiness', GATEWAY_READY_TIMEOUT_MS, `Gateway :${port}`)
+  const { child } = startProcess(name, 'java', ['-jar', jar, `--server.port=${port}`], {
+    env: gatewayEnvironment(port, phase),
+  })
+  await waitHttp(port, '/actuator/health/readiness', GATEWAY_READY_TIMEOUT_MS, `Gateway :${port}`, child)
 }
 
 async function startGateways(phase, ports, { track = true } = {}) {
@@ -285,8 +321,8 @@ async function stopGateways() {
   state.gatewayPhase = null
 }
 
-const REDIS_CONTAINER = 'ai-costops-hc01-redis'
-const REDIS_PORT = 16379
+const REDIS_CONTAINER = HC04 ? 'ai-costops-hc04-redis' : 'ai-costops-hc01-redis'
+const REDIS_PORT = HC04 ? 16479 : 16379
 const REDIS_PASSWORD = `hc01-${RUN_NONCE}-redis`
 // Owner identity is unique per run: a concurrent HC-01 has a different owner,
 // so its Redis is refused instead of being deleted by this process.
@@ -567,9 +603,24 @@ async function runScenario(spec) {
     await mockMode(providerMode, delayMs)
     const sampler = new Sampler(ports)
     await sampler.start()
-    const load = await runLoad({
+    if (HC04) resetHc04Digests()
+    const fault = []
+    const loadWork = runLoad({
       ports, rawKeys, concurrency, durationSec: measureSec, tag: `${id}-r${round}`, stream,
     })
+    const faultWork = spec.redisOutage ? (async () => {
+      await sleep(5_000)
+      docker(['pause', REDIS_CONTAINER])
+      fault.push({ event: 'paused', at: nowIso() })
+      try {
+        await sleep(30_000)
+      } finally {
+        docker(['unpause', REDIS_CONTAINER])
+        fault.push({ event: 'unpaused', at: nowIso() })
+      }
+    })() : Promise.resolve()
+    const [load] = await Promise.all([loadWork, faultWork])
+    const sql = HC04 ? roundSql(load.successCount) : null
     const resources = await sampler.stop()
     await sleep(1000)
     const provider = await mockStats()
@@ -579,6 +630,8 @@ async function runScenario(spec) {
       load, resources, providerOps: provider.post_chat_completions, budgets, dispatch,
       expectations: effectiveExpectations,
     })
+    const reservedDrift = HC04 ? reservedCounterDrift() : null
+    if (reservedDrift?.length) failures.push(`reserved_amount drift rows=${reservedDrift.length}`)
     if (expectations.requireActiveStreamsZero) {
       // final gauges are sampled inside resources; the explicit wait below
       // prevents a timing race with permit release after the last response.
@@ -603,12 +656,14 @@ async function runScenario(spec) {
       budget: budgets,
       dispatch,
       resources,
+      ...(HC04 ? { sql, reservedDrift, fault } : {}),
       failures,
     }
     results.push(result)
+    state.scenarios.push(result)
+    if (HC04) checkpointHc04()
     log(`${id} r${round}: successRps=${load.successRps} totalRps=${load.totalRps} statuses=${JSON.stringify(load.statusCounts)} p95=${load.latencyMs?.p95}ms ops=${provider.post_chat_completions} failures=${failures.length}`)
   }
-  state.scenarios.push(...results)
   return results
 }
 
@@ -1172,16 +1227,77 @@ async function runHc02Matrix() {
   clearAllCircuitState()
 }
 
+async function runHc04Matrix() {
+  const ports = [cfg.gatewayPort]
+  const expectations = { providerOps: 'successCount', maxMultiAttemptRequests: 0 }
+  for (const concurrency of HC04_HOT20_ONLY ? [20] : [20, 50, 100, 200]) {
+    await runScenario({
+      id: `hot_fast_single_c${concurrency}`, fixture: state.seed.hot, ports, concurrency, expectations,
+    })
+  }
+  if (HC04_HOT20_ONLY) {
+    await stopGateways()
+    return
+  }
+  for (const [id, group] of [['multi_budget_single_c100', 'multiBudget'], ['multi_org_single_c100', 'multiOrg']]) {
+    await runScenario({ id, fixtures: fixtureList(group), ports, concurrency: 100, expectations })
+  }
+  await runScenario({
+    id: 'redis_paused_30s_c50', fixture: state.seed.hot, ports, concurrency: 50,
+    rounds: 1, measureSec: 40, redisOutage: true, expectations,
+  })
+  try {
+    mysql('SET GLOBAL innodb_flush_log_at_trx_commit=2', { database: null })
+    await runScenario({
+      id: 'hot_fast_flush2_c50', fixture: state.seed.hot, ports, concurrency: 50, expectations,
+    })
+  } finally {
+    mysql('SET GLOBAL innodb_flush_log_at_trx_commit=1', { database: null })
+  }
+
+  await stopGateways()
+  await startGateways('expiry-probe', ports)
+  const lastId = mysqlNumber('SELECT COALESCE(MAX(id),0) FROM budget_reservation')
+  const expiry = await runOneShotScenario({
+    id: 'expiry_probe', fixture: state.seed.hot, ports, count: 20, concurrency: 5,
+    expectations: { providerOps: 20, allowedStatuses: [200] },
+  })
+  const deadline = Date.now() + 105_000
+  let holds
+  do {
+    holds = mysqlRows(`SELECT id,status,TIMESTAMPDIFF(MICROSECOND,expires_at,updated_at)
+      FROM budget_reservation WHERE id>${lastId} ORDER BY id`)
+    if (holds.length === 20 && holds.every(([, status]) => status === 'PENDING_HOLD')) break
+    await sleep(500)
+  } while (Date.now() < deadline)
+  const delays = holds.filter(([, status]) => status === 'PENDING_HOLD')
+    .map(([, , micros]) => Number(micros) / 1_000)
+  expiry.expiryRecoveryMs = stats(delays)
+  if (delays.length !== 20 || delays.some(delay => delay < 0)) {
+    expiry.failures.push(`expiry recovery did not produce 20 non-negative samples (got ${delays.length})`)
+  }
+  expiry.reservedDrift = reservedCounterDrift()
+  if (expiry.reservedDrift?.length) expiry.failures.push('reserved_amount drift after expiry recovery')
+  checkpointHc04()
+  log(`expiry recovery: ${JSON.stringify(expiry.expiryRecoveryMs)}`)
+  await stopGateways()
+}
+
 async function finalVerification() {
   const fixtures = allFixtureBudgets(state.seed)
   const orgIds = orgIdsOf(fixtures)
   log('waiting for settlement convergence')
   const converged = await waitSettlementConverged(orgIds, {
     timeoutMs: QUICK ? 180_000 : 30 * 60_000,
+    ...(HC04 ? {
+      sampleIntervalMs: 15_000,
+      onTransientError: error => log(`retrying settlement observation: ${error.message}`),
+    } : {}),
     onTick: snapshots => {
       const pending = snapshots.reduce((sum, item) => sum + item.pending, 0)
       const settled = snapshots.reduce((sum, item) => sum + item.settled, 0)
-      log(`settlement drain: pending=${pending} settled=${settled}`)
+      const finalUsage = snapshots.reduce((sum, item) => sum + item.finalUsage, 0)
+      log(`settlement drain: pending=${pending} settled=${settled}/${finalUsage}`)
     },
   })
   const violations = settlementViolations(converged.snapshots)
@@ -1199,6 +1315,7 @@ async function finalVerification() {
     topSql: topSqlDigests(),
     explains: explainKeyStatements(state.seed),
     channel: channelIsolation(),
+    ...(HC04 ? { reservedDrift: reservedCounterDrift() } : {}),
   }
   const streamsAtEnd = {}
   if (state.gatewayPorts.length) {
@@ -1299,6 +1416,13 @@ function writeArtifacts(finalResult) {
       variant: VARIANT,
       codeSha: CODE_SHA,
       gatewayJar: options['gateway-jar'] ?? null,
+      ...(HC04 ? {
+        backendJar: options['backend-jar'],
+        hot20Only: HC04_HOT20_ONLY,
+        jarSha256: Object.fromEntries(Object.entries(state.jars)
+          .map(([name, path]) => [name, createHash('sha256').update(readFileSync(path)).digest('hex')])),
+        autocommitInsertMs: state.autocommitInsertMs,
+      } : {}),
       rounds: ROUNDS,
       warmupSec: WARMUP_SEC,
       measureSec: MEASURE_SEC,
@@ -1332,14 +1456,23 @@ function writeArtifacts(finalResult) {
 }
 
 async function stopAll() {
-  await stopProcess('gateway-18081')
-  await stopProcess('gateway-18082')
-  await stopProcess('gateway-18083')
+  for (const port of [cfg.gatewayPort, cfg.gatewayPort2, cfg.gatewayProbePort]) {
+    await stopProcess(`gateway-${port}`)
+  }
   await stopProcess('mock-provider')
   await stopProcess('backend')
 }
 
 async function main() {
+  if (HC04) {
+    assertHc04Database(cfg)
+    if (!BACKEND_JAR_OVERRIDE || !GATEWAY_JAR_OVERRIDE || !CODE_SHA || !VARIANT) {
+      throw new Error('HC-04 requires --backend-jar, --gateway-jar, --code-sha and --variant')
+    }
+    if (mysqlNumber('SELECT @@global.innodb_flush_log_at_trx_commit', { database: null }) !== 1) {
+      throw new Error('HC-04 requires durable autocommit before measurement')
+    }
+  }
   ensureDirs()
   log(`HC-01 runner quick=${QUICK} suite=${SUITE} variant=${VARIANT ?? 'n/a'} rounds=${ROUNDS} warmup=${WARMUP_SEC}s measure=${MEASURE_SEC}s`)
   await stopAll()
@@ -1348,7 +1481,24 @@ async function main() {
   killDbConnections(cfg.mysqlUser)
   const jars = ensureJars()
   state.jars = jars
+  if (HC04_RESUME_PATH) {
+    const checkpoint = JSON.parse(readFileSync(HC04_RESUME_PATH, 'utf8'))
+    const completeRounds = HC04_HOT20_ONLY ? ROUNDS : 7 * ROUNDS + 2
+    if (checkpoint.commit !== CODE_SHA || checkpoint.variant !== VARIANT
+        || checkpoint.scenarios.length !== completeRounds) {
+      throw new Error('HC-04 finalization requires a complete checkpoint for the selected variant')
+    }
+    state.seed = JSON.parse(readFileSync(SEED_PATH, 'utf8'))
+    state.scenarios = checkpoint.scenarios
+    state.autocommitInsertMs = checkpoint.autocommitInsertMs
+    state.notes.push('Settlement finalization resumed against the original database')
+    return finishRun(jars.backend)
+  }
   prepareDatabase()
+  if (HC04) {
+    state.autocommitInsertMs = measureAutocommit()
+    log(`durable single-row autocommit: ${JSON.stringify(state.autocommitInsertMs)}`)
+  }
   await startBackend(jars.backend)
   createGatewayDbUser()
   state.seed = seed()
@@ -1362,7 +1512,7 @@ async function main() {
   // Mixed control: the settlement worker is part of the deployed system, but
   // it is asynchronous to the Gateway path. Measure the contention once, then
   // stop it so the Gateway matrix attributes DB pressure to the Gateway only.
-  await runScenario({
+  if (!HC04) await runScenario({
     id: 'hot_fast_mixed_settlement_c50',
     fixture: state.seed.hot,
     ports: [cfg.gatewayPort],
@@ -1378,12 +1528,21 @@ async function main() {
 
   if (SUITE === 'hc02') {
     await runHc02Matrix()
+  } else if (HC04) {
+    await runHc04Matrix()
   } else {
     await runFullMatrix()
   }
 
+  return finishRun(jars.backend)
+}
+
+async function finishRun(backendJar) {
   log('restarting Backend to drain FINAL usage into Settlement/Ledger')
-  await startBackend(jars.backend, '500ms')
+  await startBackend(backendJar, '500ms')
+  // During a long drain, repeated Windows TCP client connections can exhaust
+  // local ports. This only changes the DBA observation path after load ends.
+  if (HC04) process.env.HC01_MYSQL_SOCKET_CONTAINER = cfg.mysqlContainer
   const finalResult = await finalVerification()
   const artifacts = writeArtifacts(finalResult)
   const failures = verifyVerdict(artifacts)
@@ -1403,6 +1562,7 @@ function verifyVerdict(artifacts) {
   const finalFailures = [
     ...artifacts.final.settlementViolations,
     ...artifacts.final.budget.violations.map(item => `budget ${item.budgetId} overspent`),
+    ...(artifacts.final.reservedDrift ?? []).map(([id]) => `budget ${id} reserved_amount drift`),
     ...(artifacts.final.converged ? [] : ['settlement did not converge within timeout']),
   ]
   const all = [...new Set([...scenarioFailures, ...finalFailures])]
@@ -1420,5 +1580,8 @@ main()
   .catch(async error => {
     console.error(`[HC-01-FAIL] ${error.stack ?? error.message}`)
     await stopAll().catch(() => {})
+    if (HC04 && !KEEP_RUNNING) {
+      try { removeRedis() } catch (cleanupError) { console.error(cleanupError.message) }
+    }
     process.exit(1)
   })

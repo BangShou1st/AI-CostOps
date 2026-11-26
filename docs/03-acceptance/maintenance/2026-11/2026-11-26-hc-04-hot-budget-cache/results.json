@@ -1,0 +1,2619 @@
+{
+  "baseline": {
+    "sha": "927f15ebbdc346cfddc4160f3e9d6544e0e8c9db",
+    "jars": {
+      "gateway": "1e644fa907762c89db501ddb2cbb3f1387da2cdfa68e84af4db400b26ebadba5",
+      "backend": "3125ca1b8a030c5275e2b0b8d974d7aa8555299b9ce3871be0e89c6bce9f3a5f"
+    },
+    "environment": {
+      "cpu": "Intel(R) Core(TM) i9-14900HX",
+      "logicalCpus": 32,
+      "docker": {
+        "serverVersion": "29.8.0",
+        "vmMemBytes": 1995665408
+      },
+      "mysql": {
+        "version": "8.4.11",
+        "database": "aicostops_hc04",
+        "innodbBufferPoolBytes": 134217728,
+        "maxConnections": 151,
+        "innodbFlushLogAtTrxCommit": 1,
+        "syncBinlog": 1,
+        "innodbLockWaitTimeoutSec": 50,
+        "transactionIsolation": "REPEATABLE-READ"
+      },
+      "redis": {
+        "version": "8.8.1",
+        "mode": "standalone",
+        "os": "Linux 6.6.87.2-microsoft-standard-WSL2 x86_64"
+      }
+    },
+    "autocommit": {
+      "count": 1000,
+      "min": 5.472,
+      "p50": 8.996,
+      "p90": 23.231,
+      "p95": 27.246,
+      "p99": 39.995,
+      "max": 81.736,
+      "mean": 12.36
+    },
+    "recheckAutocommit": null,
+    "scenarios": [
+      {
+        "id": "hot_fast_single_c20",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 33.26,
+            "latencyMs": {
+              "count": 675,
+              "min": 170.6788,
+              "p50": 564.198,
+              "p90": 842.0591,
+              "p95": 1007.3366,
+              "p99": 1300.1585,
+              "max": 1955.0901,
+              "mean": 595.79
+            },
+            "status": {
+              "200": 675
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:07:45.908Z",
+              "endedAt": "2026-11-25T20:08:06.201Z",
+              "durationSec": 20.293
+            },
+            "providerOps": 675,
+            "mysql": {
+              "statementCount": 55335,
+              "statementsPerSuccess": 81.97777777777777,
+              "sessionReadOnlyCount": 9450,
+              "budgetStatements": 675,
+              "budgetStatementMeanMs": 164.9040347837037,
+              "serverQueries": 55496,
+              "serverQueriesPerSuccess": 82.21629629629629
+            },
+            "rowLockWaits": 673,
+            "rowLockWaitTimeMs": 111206,
+            "budgetWaitersPeak": 6,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 34.81,
+            "latencyMs": {
+              "count": 709,
+              "min": 192.7944,
+              "p50": 531.9354,
+              "p90": 819.0452,
+              "p95": 915.1958,
+              "p99": 1228.9616,
+              "max": 1561.6287,
+              "mean": 569.56
+            },
+            "status": {
+              "200": 709
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:08:17.112Z",
+              "endedAt": "2026-11-25T20:08:37.480Z",
+              "durationSec": 20.368
+            },
+            "providerOps": 709,
+            "mysql": {
+              "statementCount": 58138,
+              "statementsPerSuccess": 82,
+              "sessionReadOnlyCount": 9926,
+              "budgetStatements": 709,
+              "budgetStatementMeanMs": 157.10318846544428,
+              "serverQueries": 58289,
+              "serverQueriesPerSuccess": 82.21297602256699
+            },
+            "rowLockWaits": 706,
+            "rowLockWaitTimeMs": 111283,
+            "budgetWaitersPeak": 9,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 23.72,
+            "latencyMs": {
+              "count": 483,
+              "min": 184.4041,
+              "p50": 799.4154,
+              "p90": 1229.2413,
+              "p95": 1366.0103,
+              "p99": 1744.4949,
+              "max": 1964.9306,
+              "mean": 835.08
+            },
+            "status": {
+              "200": 483
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:08:48.847Z",
+              "endedAt": "2026-11-25T20:09:09.210Z",
+              "durationSec": 20.363
+            },
+            "providerOps": 483,
+            "mysql": {
+              "statementCount": 39617,
+              "statementsPerSuccess": 82.02277432712215,
+              "sessionReadOnlyCount": 6763,
+              "budgetStatements": 483,
+              "budgetStatementMeanMs": 244.94300818012422,
+              "serverQueries": 39751,
+              "serverQueriesPerSuccess": 82.30020703933748
+            },
+            "rowLockWaits": 482,
+            "rowLockWaitTimeMs": 118256,
+            "budgetWaitersPeak": 7,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "hot_fast_single_c50",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 24.7,
+            "latencyMs": {
+              "count": 526,
+              "min": 632.5716,
+              "p50": 1848.0477,
+              "p90": 2974.2174,
+              "p95": 3438.2582,
+              "p99": 3891.005,
+              "max": 4965.5655,
+              "mean": 1980.89
+            },
+            "status": {
+              "200": 526
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:09:22.002Z",
+              "endedAt": "2026-11-25T20:09:43.299Z",
+              "durationSec": 21.297
+            },
+            "providerOps": 526,
+            "mysql": {
+              "statementCount": 43144,
+              "statementsPerSuccess": 82.02281368821293,
+              "sessionReadOnlyCount": 7365,
+              "budgetStatements": 526,
+              "budgetStatementMeanMs": 257.49059181178706,
+              "serverQueries": 43282,
+              "serverQueriesPerSuccess": 82.2851711026616
+            },
+            "rowLockWaits": 525,
+            "rowLockWaitTimeMs": 135367,
+            "budgetWaitersPeak": 9,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 27.25,
+            "latencyMs": {
+              "count": 592,
+              "min": 564.3142,
+              "p50": 1686.6323,
+              "p90": 2536.1025,
+              "p95": 2946.2861,
+              "p99": 3772.0019,
+              "max": 3993.7044,
+              "mean": 1770.25
+            },
+            "status": {
+              "200": 592
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:09:54.682Z",
+              "endedAt": "2026-11-25T20:10:16.408Z",
+              "durationSec": 21.726
+            },
+            "providerOps": 592,
+            "mysql": {
+              "statementCount": 48544,
+              "statementsPerSuccess": 82,
+              "sessionReadOnlyCount": 8286,
+              "budgetStatements": 592,
+              "budgetStatementMeanMs": 230.0391344493243,
+              "serverQueries": 48698,
+              "serverQueriesPerSuccess": 82.26013513513513
+            },
+            "rowLockWaits": 590,
+            "rowLockWaitTimeMs": 136139,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 27.97,
+            "latencyMs": {
+              "count": 589,
+              "min": 490.3318,
+              "p50": 1704.854,
+              "p90": 2585.2792,
+              "p95": 2813.9366,
+              "p99": 3583.2114,
+              "max": 4493.8955,
+              "mean": 1745.44
+            },
+            "status": {
+              "200": 589
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:10:28.171Z",
+              "endedAt": "2026-11-25T20:10:49.232Z",
+              "durationSec": 21.061
+            },
+            "providerOps": 589,
+            "mysql": {
+              "statementCount": 48309,
+              "statementsPerSuccess": 82.01867572156198,
+              "sessionReadOnlyCount": 8244,
+              "budgetStatements": 589,
+              "budgetStatementMeanMs": 228.3818093548387,
+              "serverQueries": 48447,
+              "serverQueriesPerSuccess": 82.25297113752123
+            },
+            "rowLockWaits": 587,
+            "rowLockWaitTimeMs": 134419,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "hot_fast_single_c100",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 29.53,
+            "latencyMs": {
+              "count": 662,
+              "min": 954.8017,
+              "p50": 3165.9063,
+              "p90": 4568.8515,
+              "p95": 4901.3479,
+              "p99": 5670.6119,
+              "max": 7134.4645,
+              "mean": 3270.47
+            },
+            "status": {
+              "200": 662
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:11:01.342Z",
+              "endedAt": "2026-11-25T20:11:23.757Z",
+              "durationSec": 22.415
+            },
+            "providerOps": 662,
+            "mysql": {
+              "statementCount": 54298,
+              "statementsPerSuccess": 82.02114803625378,
+              "sessionReadOnlyCount": 9265,
+              "budgetStatements": 662,
+              "budgetStatementMeanMs": 222.98750865256795,
+              "serverQueries": 54436,
+              "serverQueriesPerSuccess": 82.2296072507553
+            },
+            "rowLockWaits": 660,
+            "rowLockWaitTimeMs": 147532,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 25.67,
+            "latencyMs": {
+              "count": 566,
+              "min": 1240.9423,
+              "p50": 3605.6558,
+              "p90": 5441.2605,
+              "p95": 5687.5024,
+              "p99": 6212.1608,
+              "max": 6780.3413,
+              "mean": 3776.03
+            },
+            "status": {
+              "200": 566
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:11:36.038Z",
+              "endedAt": "2026-11-25T20:11:58.084Z",
+              "durationSec": 22.046
+            },
+            "providerOps": 566,
+            "mysql": {
+              "statementCount": 46416,
+              "statementsPerSuccess": 82.00706713780919,
+              "sessionReadOnlyCount": 7922,
+              "budgetStatements": 566,
+              "budgetStatementMeanMs": 262.4743620371025,
+              "serverQueries": 46558,
+              "serverQueriesPerSuccess": 82.25795053003533
+            },
+            "rowLockWaits": 560,
+            "rowLockWaitTimeMs": 148503,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 25.61,
+            "latencyMs": {
+              "count": 585,
+              "min": 900.3411,
+              "p50": 3684.5241,
+              "p90": 5258.7339,
+              "p95": 5725.8273,
+              "p99": 6723.3395,
+              "max": 7527.9552,
+              "mean": 3734.98
+            },
+            "status": {
+              "200": 585
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:12:11.439Z",
+              "endedAt": "2026-11-25T20:12:34.283Z",
+              "durationSec": 22.844
+            },
+            "providerOps": 585,
+            "mysql": {
+              "statementCount": 47970,
+              "statementsPerSuccess": 82,
+              "sessionReadOnlyCount": 8190,
+              "budgetStatements": 585,
+              "budgetStatementMeanMs": 253.86033414529913,
+              "serverQueries": 48134,
+              "serverQueriesPerSuccess": 82.28034188034188
+            },
+            "rowLockWaits": 582,
+            "rowLockWaitTimeMs": 148420,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "hot_fast_single_c200",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 24.53,
+            "latencyMs": {
+              "count": 622,
+              "min": 2976.2514,
+              "p50": 7589.5101,
+              "p90": 9739.0108,
+              "p95": 10451.4451,
+              "p99": 11879.9032,
+              "max": 12535.7347,
+              "mean": 7536.32
+            },
+            "status": {
+              "200": 622
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:12:47.513Z",
+              "endedAt": "2026-11-25T20:13:12.874Z",
+              "durationSec": 25.361
+            },
+            "providerOps": 622,
+            "mysql": {
+              "statementCount": 51019,
+              "statementsPerSuccess": 82.02411575562701,
+              "sessionReadOnlyCount": 8707,
+              "budgetStatements": 622,
+              "budgetStatementMeanMs": 271.6547936414791,
+              "serverQueries": 51170,
+              "serverQueriesPerSuccess": 82.26688102893891
+            },
+            "rowLockWaits": 619,
+            "rowLockWaitTimeMs": 168965,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 23.55,
+            "latencyMs": {
+              "count": 601,
+              "min": 2180.5586,
+              "p50": 7841.9668,
+              "p90": 9776.09,
+              "p95": 10075.5028,
+              "p99": 11754.9809,
+              "max": 13366.2098,
+              "mean": 7828.47
+            },
+            "status": {
+              "200": 601,
+              "502": 1
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 1
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:13:29.381Z",
+              "endedAt": "2026-11-25T20:13:54.900Z",
+              "durationSec": 25.519
+            },
+            "providerOps": 601,
+            "mysql": {
+              "statementCount": 49373,
+              "statementsPerSuccess": 82.1514143094842,
+              "sessionReadOnlyCount": 8426,
+              "budgetStatements": 602,
+              "budgetStatementMeanMs": 287.49482540697676,
+              "serverQueries": 49532,
+              "serverQueriesPerSuccess": 82.41597337770382
+            },
+            "rowLockWaits": 595,
+            "rowLockWaitTimeMs": 172985,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 1,
+            "drift": null,
+            "failures": [
+              "unbounded response class HTTP 502 x 1",
+              "unexpected status HTTP 502 x 1"
+            ]
+          },
+          {
+            "round": 3,
+            "rps": 29.01,
+            "latencyMs": {
+              "count": 718,
+              "min": 2257.8611,
+              "p50": 6559.5659,
+              "p90": 8295.4079,
+              "p95": 8819.9606,
+              "p99": 10099.8769,
+              "max": 11853.2046,
+              "mean": 6418.49
+            },
+            "status": {
+              "200": 718
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:14:08.728Z",
+              "endedAt": "2026-11-25T20:14:33.480Z",
+              "durationSec": 24.752
+            },
+            "providerOps": 718,
+            "mysql": {
+              "statementCount": 58884,
+              "statementsPerSuccess": 82.01114206128133,
+              "sessionReadOnlyCount": 10051,
+              "budgetStatements": 718,
+              "budgetStatementMeanMs": 237.0891054832869,
+              "serverQueries": 59040,
+              "serverQueriesPerSuccess": 82.2284122562674
+            },
+            "rowLockWaits": 714,
+            "rowLockWaitTimeMs": 170136,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "multi_budget_single_c100",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 44.52,
+            "latencyMs": {
+              "count": 972,
+              "min": 962.4027,
+              "p50": 2155.7695,
+              "p90": 2792.0628,
+              "p95": 2914.0353,
+              "p99": 3257.5594,
+              "max": 3626.7685,
+              "mean": 2180.09
+            },
+            "status": {
+              "200": 972
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:14:46.594Z",
+              "endedAt": "2026-11-25T20:15:08.427Z",
+              "durationSec": 21.833
+            },
+            "providerOps": 972,
+            "mysql": {
+              "statementCount": 79669,
+              "statementsPerSuccess": 81.96399176954732,
+              "sessionReadOnlyCount": 13605,
+              "budgetStatements": 971,
+              "budgetStatementMeanMs": 6.714658083419155,
+              "serverQueries": 79852,
+              "serverQueriesPerSuccess": 82.1522633744856
+            },
+            "rowLockWaits": 184,
+            "rowLockWaitTimeMs": 6406,
+            "budgetWaitersPeak": 2,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 59,
+            "latencyMs": {
+              "count": 1247,
+              "min": 814.0268,
+              "p50": 1659.1276,
+              "p90": 2032.0462,
+              "p95": 2123.9512,
+              "p99": 2354.6392,
+              "max": 2689.1902,
+              "mean": 1663.64
+            },
+            "status": {
+              "200": 1247
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:15:20.314Z",
+              "endedAt": "2026-11-25T20:15:41.451Z",
+              "durationSec": 21.137
+            },
+            "providerOps": 1247,
+            "mysql": {
+              "statementCount": 102218,
+              "statementsPerSuccess": 81.97113071371291,
+              "sessionReadOnlyCount": 17448,
+              "budgetStatements": 1247,
+              "budgetStatementMeanMs": 5.221322973536488,
+              "serverQueries": 102403,
+              "serverQueriesPerSuccess": 82.11948676824379
+            },
+            "rowLockWaits": 252,
+            "rowLockWaitTimeMs": 6380,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 62.31,
+            "latencyMs": {
+              "count": 1309,
+              "min": 826.5819,
+              "p50": 1561.9194,
+              "p90": 1904.3577,
+              "p95": 2006.4571,
+              "p99": 2196.4328,
+              "max": 2551.1114,
+              "mean": 1575.08
+            },
+            "status": {
+              "200": 1309,
+              "502": 1
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 1
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:15:53.262Z",
+              "endedAt": "2026-11-25T20:16:14.269Z",
+              "durationSec": 21.007
+            },
+            "providerOps": 1309,
+            "mysql": {
+              "statementCount": 107381,
+              "statementsPerSuccess": 82.03284950343775,
+              "sessionReadOnlyCount": 18327,
+              "budgetStatements": 1311,
+              "budgetStatementMeanMs": 4.288158014492754,
+              "serverQueries": 107566,
+              "serverQueriesPerSuccess": 82.17417876241406
+            },
+            "rowLockWaits": 242,
+            "rowLockWaitTimeMs": 5483,
+            "budgetWaitersPeak": 2,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": [
+              "unbounded response class HTTP 502 x 1",
+              "unexpected status HTTP 502 x 1"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "multi_org_single_c100",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 61.02,
+            "latencyMs": {
+              "count": 1289,
+              "min": 822.9084,
+              "p50": 1593.969,
+              "p90": 1970.3652,
+              "p95": 2071.4508,
+              "p99": 2387.606,
+              "max": 2734.1486,
+              "mean": 1605.45
+            },
+            "status": {
+              "200": 1289
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:16:26.089Z",
+              "endedAt": "2026-11-25T20:16:47.213Z",
+              "durationSec": 21.124
+            },
+            "providerOps": 1289,
+            "mysql": {
+              "statementCount": 105681,
+              "statementsPerSuccess": 81.98681148176881,
+              "sessionReadOnlyCount": 18042,
+              "budgetStatements": 1288,
+              "budgetStatementMeanMs": 4.943560453416149,
+              "serverQueries": 105839,
+              "serverQueriesPerSuccess": 82.10938712179984
+            },
+            "rowLockWaits": 275,
+            "rowLockWaitTimeMs": 6236,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 57.91,
+            "latencyMs": {
+              "count": 1235,
+              "min": 797.7364,
+              "p50": 1669.8818,
+              "p90": 2069.2446,
+              "p95": 2249.2316,
+              "p99": 2550.3358,
+              "max": 3057.5997,
+              "mean": 1688.61
+            },
+            "status": {
+              "200": 1235,
+              "502": 2
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 2
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:16:59.093Z",
+              "endedAt": "2026-11-25T20:17:20.420Z",
+              "durationSec": 21.327
+            },
+            "providerOps": 1235,
+            "mysql": {
+              "statementCount": 101409,
+              "statementsPerSuccess": 82.11255060728745,
+              "sessionReadOnlyCount": 17306,
+              "budgetStatements": 1239,
+              "budgetStatementMeanMs": 5.473744250201776,
+              "serverQueries": 101578,
+              "serverQueriesPerSuccess": 82.2493927125506
+            },
+            "rowLockWaits": 251,
+            "rowLockWaitTimeMs": 6650,
+            "budgetWaitersPeak": 2,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": [
+              "unbounded response class HTTP 502 x 2",
+              "unexpected status HTTP 502 x 2"
+            ]
+          },
+          {
+            "round": 3,
+            "rps": 44.05,
+            "latencyMs": {
+              "count": 937,
+              "min": 797.6759,
+              "p50": 2117.7191,
+              "p90": 3117.4513,
+              "p95": 3347.0133,
+              "p99": 3868.3351,
+              "max": 4585.8829,
+              "mean": 2220.14
+            },
+            "status": {
+              "200": 937
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:17:32.082Z",
+              "endedAt": "2026-11-25T20:17:53.351Z",
+              "durationSec": 21.269
+            },
+            "providerOps": 937,
+            "mysql": {
+              "statementCount": 76813,
+              "statementsPerSuccess": 81.97758804695837,
+              "sessionReadOnlyCount": 13116,
+              "budgetStatements": 937,
+              "budgetStatementMeanMs": 8.63915277588047,
+              "serverQueries": 76984,
+              "serverQueriesPerSuccess": 82.16008537886873
+            },
+            "rowLockWaits": 201,
+            "rowLockWaitTimeMs": 7967,
+            "budgetWaitersPeak": 2,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "redis_paused_30s_c50",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 7.52,
+            "latencyMs": {
+              "count": 313,
+              "min": 432.8015,
+              "p50": 1792.421,
+              "p90": 2513.964,
+              "p95": 2803.4819,
+              "p99": 3071.4936,
+              "max": 4375.5635,
+              "mean": 1825.14
+            },
+            "status": {
+              "200": 313,
+              "503": 2442
+            },
+            "errors": {
+              "GATEWAY_DEPENDENCY_UNAVAILABLE": 2442
+            },
+            "fault": [
+              {
+                "event": "paused",
+                "at": "2026-11-25T20:18:10.542Z"
+              },
+              {
+                "event": "unpaused",
+                "at": "2026-11-25T20:18:40.622Z"
+              }
+            ],
+            "window": {
+              "startedAt": "2026-11-25T20:18:05.365Z",
+              "endedAt": "2026-11-25T20:18:46.989Z",
+              "durationSec": 41.624
+            },
+            "providerOps": 313,
+            "mysql": {
+              "statementCount": 40288,
+              "statementsPerSuccess": 128.71565495207668,
+              "sessionReadOnlyCount": 4383,
+              "budgetStatements": 313,
+              "budgetStatementMeanMs": 263.9418907284345,
+              "serverQueries": 40782,
+              "serverQueriesPerSuccess": 130.29392971246006
+            },
+            "rowLockWaits": 307,
+            "rowLockWaitTimeMs": 82586,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "hot_fast_flush2_c50",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 35.21,
+            "latencyMs": {
+              "count": 738,
+              "min": 422.784,
+              "p50": 1361.1871,
+              "p90": 1991.6572,
+              "p95": 2194.8769,
+              "p99": 2682.1925,
+              "max": 3818.933,
+              "mean": 1401.44
+            },
+            "status": {
+              "200": 738
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:18:58.577Z",
+              "endedAt": "2026-11-25T20:19:19.534Z",
+              "durationSec": 20.957
+            },
+            "providerOps": 738,
+            "mysql": {
+              "statementCount": 60541,
+              "statementsPerSuccess": 82.03387533875339,
+              "sessionReadOnlyCount": 10333,
+              "budgetStatements": 738,
+              "budgetStatementMeanMs": 227.70280847560974,
+              "serverQueries": 60665,
+              "serverQueriesPerSuccess": 82.20189701897019
+            },
+            "rowLockWaits": 737,
+            "rowLockWaitTimeMs": 167980,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 31.18,
+            "latencyMs": {
+              "count": 653,
+              "min": 439.9221,
+              "p50": 1506.1087,
+              "p90": 2307.55,
+              "p95": 2576.0427,
+              "p99": 3077.6622,
+              "max": 3500.3674,
+              "mean": 1575.98
+            },
+            "status": {
+              "200": 653
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:19:31.439Z",
+              "endedAt": "2026-11-25T20:19:52.383Z",
+              "durationSec": 20.944
+            },
+            "providerOps": 653,
+            "mysql": {
+              "statementCount": 53565,
+              "statementsPerSuccess": 82.0290964777948,
+              "sessionReadOnlyCount": 9142,
+              "budgetStatements": 653,
+              "budgetStatementMeanMs": 255.08113325574274,
+              "serverQueries": 53697,
+              "serverQueriesPerSuccess": 82.2312404287902
+            },
+            "rowLockWaits": 652,
+            "rowLockWaitTimeMs": 166494,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 32.91,
+            "latencyMs": {
+              "count": 689,
+              "min": 417.0892,
+              "p50": 1386.3281,
+              "p90": 2206.7087,
+              "p95": 2592.8967,
+              "p99": 3279.5431,
+              "max": 3911.649,
+              "mean": 1485.57
+            },
+            "status": {
+              "200": 689
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:20:04.862Z",
+              "endedAt": "2026-11-25T20:20:25.795Z",
+              "durationSec": 20.933
+            },
+            "providerOps": 689,
+            "mysql": {
+              "statementCount": 56524,
+              "statementsPerSuccess": 82.0377358490566,
+              "sessionReadOnlyCount": 9643,
+              "budgetStatements": 689,
+              "budgetStatementMeanMs": 247.95782139332366,
+              "serverQueries": 56646,
+              "serverQueriesPerSuccess": 82.21480406386067
+            },
+            "rowLockWaits": 688,
+            "rowLockWaitTimeMs": 170776,
+            "budgetWaitersPeak": 10,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": null,
+            "failures": []
+          }
+        ]
+      }
+    ],
+    "expiry": {
+      "stats": {
+        "count": 20,
+        "min": 33382.569,
+        "p50": 33749.135,
+        "p90": 34080.227,
+        "p95": 34083.914,
+        "p99": 34083.914,
+        "max": 34083.914,
+        "mean": 33730.86
+      },
+      "failures": []
+    },
+    "final": {
+      "converged": true,
+      "settlement": [
+        {
+          "orgId": 1,
+          "requests": 19791,
+          "completedRequests": 19787,
+          "finalUsage": 19787,
+          "nonFinalUsage": 1,
+          "settled": 19787,
+          "pending": 0,
+          "ledgerPostings": 19787,
+          "ledgerEntries": 19787,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 2,
+          "requests": 644,
+          "completedRequests": 644,
+          "finalUsage": 644,
+          "nonFinalUsage": 0,
+          "settled": 644,
+          "pending": 0,
+          "ledgerPostings": 644,
+          "ledgerEntries": 644,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 3,
+          "requests": 643,
+          "completedRequests": 643,
+          "finalUsage": 643,
+          "nonFinalUsage": 0,
+          "settled": 643,
+          "pending": 0,
+          "ledgerPostings": 643,
+          "ledgerEntries": 643,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 4,
+          "requests": 649,
+          "completedRequests": 647,
+          "finalUsage": 647,
+          "nonFinalUsage": 0,
+          "settled": 647,
+          "pending": 0,
+          "ledgerPostings": 647,
+          "ledgerEntries": 647,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 5,
+          "requests": 651,
+          "completedRequests": 651,
+          "finalUsage": 651,
+          "nonFinalUsage": 0,
+          "settled": 651,
+          "pending": 0,
+          "ledgerPostings": 651,
+          "ledgerEntries": 651,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 6,
+          "requests": 636,
+          "completedRequests": 636,
+          "finalUsage": 636,
+          "nonFinalUsage": 0,
+          "settled": 636,
+          "pending": 0,
+          "ledgerPostings": 636,
+          "ledgerEntries": 636,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 7,
+          "requests": 638,
+          "completedRequests": 637,
+          "finalUsage": 637,
+          "nonFinalUsage": 0,
+          "settled": 637,
+          "pending": 0,
+          "ledgerPostings": 637,
+          "ledgerEntries": 637,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 8,
+          "requests": 631,
+          "completedRequests": 630,
+          "finalUsage": 630,
+          "nonFinalUsage": 0,
+          "settled": 630,
+          "pending": 0,
+          "ledgerPostings": 630,
+          "ledgerEntries": 630,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        }
+      ],
+      "settlementViolations": [],
+      "overspend": [],
+      "drift": null,
+      "activeHolds": 0,
+      "pendingHolds": 1
+    },
+    "recheckFinal": null
+  },
+  "optimized": {
+    "sha": "d73646991988b5d1c9f884b52ca80347650bbeda",
+    "jars": {
+      "gateway": "19cb4026bf05d6b14c7e422ce1abea7bbc9330d16fa172c31b162c240d4a234f",
+      "backend": "f91b07cda1522ffe99b3c58f2026dac50bdeeb41d6b16bde9166e21c46bcac55"
+    },
+    "environment": {
+      "cpu": "Intel(R) Core(TM) i9-14900HX",
+      "logicalCpus": 32,
+      "docker": {
+        "serverVersion": "29.8.0",
+        "vmMemBytes": 1995665408
+      },
+      "mysql": {
+        "version": "8.4.11",
+        "database": "aicostops_hc04",
+        "innodbBufferPoolBytes": 134217728,
+        "maxConnections": 151,
+        "innodbFlushLogAtTrxCommit": 1,
+        "syncBinlog": 1,
+        "innodbLockWaitTimeoutSec": 50,
+        "transactionIsolation": "REPEATABLE-READ"
+      },
+      "redis": {
+        "version": "8.8.1",
+        "mode": "standalone",
+        "os": "Linux 6.6.87.2-microsoft-standard-WSL2 x86_64"
+      }
+    },
+    "autocommit": {
+      "count": 1000,
+      "min": 7.817,
+      "p50": 17.761,
+      "p90": 26.38,
+      "p95": 30.427,
+      "p99": 39.3,
+      "max": 53.284,
+      "mean": 18.67
+    },
+    "recheckAutocommit": {
+      "count": 1000,
+      "min": 5.797,
+      "p50": 11.208,
+      "p90": 17.744,
+      "p95": 20.386,
+      "p99": 26.268,
+      "max": 39.784,
+      "mean": 12.04
+    },
+    "scenarios": [
+      {
+        "id": "hot_fast_single_c20",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 42.52,
+            "latencyMs": {
+              "count": 861,
+              "min": 193.6279,
+              "p50": 451.9638,
+              "p90": 659.9594,
+              "p95": 726.2833,
+              "p99": 860.2292,
+              "max": 1035.4133,
+              "mean": 467.45
+            },
+            "status": {
+              "200": 861
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:42:25.999Z",
+              "endedAt": "2026-11-25T20:42:46.247Z",
+              "durationSec": 20.248
+            },
+            "providerOps": 861,
+            "mysql": {
+              "statementCount": 13758,
+              "statementsPerSuccess": 15.979094076655052,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 43200,
+              "serverQueriesPerSuccess": 50.174216027874564
+            },
+            "rowLockWaits": 854,
+            "rowLockWaitTimeMs": 16906,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 10,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 45.02,
+            "latencyMs": {
+              "count": 917,
+              "min": 201.5973,
+              "p50": 428.4357,
+              "p90": 623.8615,
+              "p95": 667.5571,
+              "p99": 775.1752,
+              "max": 1004.7921,
+              "mean": 439.79
+            },
+            "status": {
+              "200": 917
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:42:57.573Z",
+              "endedAt": "2026-11-25T20:43:17.941Z",
+              "durationSec": 20.368
+            },
+            "providerOps": 917,
+            "mysql": {
+              "statementCount": 14646,
+              "statementsPerSuccess": 15.97164667393675,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 46005,
+              "serverQueriesPerSuccess": 50.1690294438386
+            },
+            "rowLockWaits": 914,
+            "rowLockWaitTimeMs": 17005,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 10,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 41.87,
+            "latencyMs": {
+              "count": 851,
+              "min": 207.2677,
+              "p50": 456.1831,
+              "p90": 662.9748,
+              "p95": 736.4842,
+              "p99": 987.5131,
+              "max": 1265.982,
+              "mean": 474.26
+            },
+            "status": {
+              "200": 851
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T20:43:30.094Z",
+              "endedAt": "2026-11-25T20:43:50.420Z",
+              "durationSec": 20.326
+            },
+            "providerOps": 851,
+            "mysql": {
+              "statementCount": 13593,
+              "statementsPerSuccess": 15.972972972972974,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 42700,
+              "serverQueriesPerSuccess": 50.17626321974148
+            },
+            "rowLockWaits": 849,
+            "rowLockWaitTimeMs": 16994,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 10,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "hot_fast_single_c50",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 40.06,
+            "latencyMs": {
+              "count": 833,
+              "min": 409.1598,
+              "p50": 1206.0906,
+              "p90": 1636.8196,
+              "p95": 1790.2268,
+              "p99": 2141.8497,
+              "max": 2566.8992,
+              "mean": 1225.15
+            },
+            "status": {
+              "200": 833
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:23:04.772Z",
+              "endedAt": "2026-11-25T19:23:25.567Z",
+              "durationSec": 20.795
+            },
+            "providerOps": 833,
+            "mysql": {
+              "statementCount": 13294,
+              "statementsPerSuccess": 15.959183673469388,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 41824,
+              "serverQueriesPerSuccess": 50.208883553421366
+            },
+            "rowLockWaits": 831,
+            "rowLockWaitTimeMs": 16984,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 10,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 33.84,
+            "latencyMs": {
+              "count": 705,
+              "min": 467.5506,
+              "p50": 1374.0948,
+              "p90": 2079.7927,
+              "p95": 2274.7036,
+              "p99": 2737.0393,
+              "max": 3552.2373,
+              "mean": 1443.82
+            },
+            "status": {
+              "200": 705,
+              "502": 1
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 1
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:23:37.961Z",
+              "endedAt": "2026-11-25T19:23:58.797Z",
+              "durationSec": 20.836
+            },
+            "providerOps": 705,
+            "mysql": {
+              "statementCount": 11249,
+              "statementsPerSuccess": 15.956028368794327,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 35454,
+              "serverQueriesPerSuccess": 50.28936170212766
+            },
+            "rowLockWaits": 704,
+            "rowLockWaitTimeMs": 17858,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 9,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": [
+              "unbounded response class HTTP 502 x 1",
+              "unexpected status HTTP 502 x 1"
+            ]
+          },
+          {
+            "round": 3,
+            "rps": 35.78,
+            "latencyMs": {
+              "count": 748,
+              "min": 443.8374,
+              "p50": 1290.9699,
+              "p90": 2021.769,
+              "p95": 2256.8296,
+              "p99": 2692.8028,
+              "max": 3627.016,
+              "mean": 1367.3
+            },
+            "status": {
+              "200": 748
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:24:11.062Z",
+              "endedAt": "2026-11-25T19:24:31.968Z",
+              "durationSec": 20.906
+            },
+            "providerOps": 748,
+            "mysql": {
+              "statementCount": 11937,
+              "statementsPerSuccess": 15.95855614973262,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 37555,
+              "serverQueriesPerSuccess": 50.2072192513369
+            },
+            "rowLockWaits": 744,
+            "rowLockWaitTimeMs": 17496,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 11,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "hot_fast_single_c100",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 39.11,
+            "latencyMs": {
+              "count": 840,
+              "min": 1122.2702,
+              "p50": 2456.1003,
+              "p90": 3214.1373,
+              "p95": 3538.8249,
+              "p99": 4077.8008,
+              "max": 4984.8993,
+              "mean": 2485.53
+            },
+            "status": {
+              "200": 840
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:24:44.264Z",
+              "endedAt": "2026-11-25T19:25:05.744Z",
+              "durationSec": 21.48
+            },
+            "providerOps": 840,
+            "mysql": {
+              "statementCount": 13395,
+              "statementsPerSuccess": 15.946428571428571,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 42153,
+              "serverQueriesPerSuccess": 50.18214285714286
+            },
+            "rowLockWaits": 834,
+            "rowLockWaitTimeMs": 17718,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 10,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 37.77,
+            "latencyMs": {
+              "count": 816,
+              "min": 1121.2141,
+              "p50": 2479.5565,
+              "p90": 3502.2028,
+              "p95": 3844.3389,
+              "p99": 4419.2467,
+              "max": 5406.1919,
+              "mean": 2568.73
+            },
+            "status": {
+              "200": 816
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:25:17.788Z",
+              "endedAt": "2026-11-25T19:25:39.394Z",
+              "durationSec": 21.606
+            },
+            "providerOps": 816,
+            "mysql": {
+              "statementCount": 13032,
+              "statementsPerSuccess": 15.970588235294118,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 40947,
+              "serverQueriesPerSuccess": 50.18014705882353
+            },
+            "rowLockWaits": 807,
+            "rowLockWaitTimeMs": 16746,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 11,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 39.92,
+            "latencyMs": {
+              "count": 862,
+              "min": 916.3848,
+              "p50": 2416.7674,
+              "p90": 3154.1854,
+              "p95": 3379.155,
+              "p99": 3858.3518,
+              "max": 4625.4089,
+              "mean": 2436.39
+            },
+            "status": {
+              "200": 862
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:25:52.914Z",
+              "endedAt": "2026-11-25T19:26:14.507Z",
+              "durationSec": 21.593
+            },
+            "providerOps": 862,
+            "mysql": {
+              "statementCount": 13762,
+              "statementsPerSuccess": 15.965197215777263,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 43240,
+              "serverQueriesPerSuccess": 50.162412993039446
+            },
+            "rowLockWaits": 857,
+            "rowLockWaitTimeMs": 16387,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "hot_fast_single_c200",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 36.54,
+            "latencyMs": {
+              "count": 864,
+              "min": 1167.7209,
+              "p50": 5075.0468,
+              "p90": 6696.3073,
+              "p95": 7248.4013,
+              "p99": 7942.2205,
+              "max": 9456.9289,
+              "mean": 5170.61
+            },
+            "status": {
+              "200": 864,
+              "502": 1
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 1
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:26:30.184Z",
+              "endedAt": "2026-11-25T19:26:53.829Z",
+              "durationSec": 23.645
+            },
+            "providerOps": 864,
+            "mysql": {
+              "statementCount": 13811,
+              "statementsPerSuccess": 15.984953703703704,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 43423,
+              "serverQueriesPerSuccess": 50.258101851851855
+            },
+            "rowLockWaits": 851,
+            "rowLockWaitTimeMs": 17617,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 10,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": [
+              "unbounded response class HTTP 502 x 1",
+              "unexpected status HTTP 502 x 1"
+            ]
+          },
+          {
+            "round": 2,
+            "rps": 35.17,
+            "latencyMs": {
+              "count": 826,
+              "min": 1663.8268,
+              "p50": 5436.9095,
+              "p90": 6577.7184,
+              "p95": 6923.29,
+              "p99": 7816.4477,
+              "max": 8208.2229,
+              "mean": 5378.16
+            },
+            "status": {
+              "200": 826,
+              "502": 1
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 1
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:27:08.207Z",
+              "endedAt": "2026-11-25T19:27:31.694Z",
+              "durationSec": 23.487
+            },
+            "providerOps": 826,
+            "mysql": {
+              "statementCount": 13173,
+              "statementsPerSuccess": 15.947941888619855,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 41516,
+              "serverQueriesPerSuccess": 50.261501210653755
+            },
+            "rowLockWaits": 813,
+            "rowLockWaitTimeMs": 17147,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 10,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": [
+              "unbounded response class HTTP 502 x 1",
+              "unexpected status HTTP 502 x 1"
+            ]
+          },
+          {
+            "round": 3,
+            "rps": 39.02,
+            "latencyMs": {
+              "count": 906,
+              "min": 1530.7345,
+              "p50": 4951.8052,
+              "p90": 5931.3902,
+              "p95": 6203.8122,
+              "p99": 7049.7517,
+              "max": 8282.9976,
+              "mean": 4836.97
+            },
+            "status": {
+              "200": 906,
+              "502": 1
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 1
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:27:44.878Z",
+              "endedAt": "2026-11-25T19:28:08.097Z",
+              "durationSec": 23.219
+            },
+            "providerOps": 906,
+            "mysql": {
+              "statementCount": 14467,
+              "statementsPerSuccess": 15.967991169977925,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 45512,
+              "serverQueriesPerSuccess": 50.23399558498896
+            },
+            "rowLockWaits": 894,
+            "rowLockWaitTimeMs": 16472,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 11,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": [
+              "unbounded response class HTTP 502 x 1",
+              "unexpected status HTTP 502 x 1"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "multi_budget_single_c100",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 50.44,
+            "latencyMs": {
+              "count": 1076,
+              "min": 690.0763,
+              "p50": 1901.0855,
+              "p90": 2506.1618,
+              "p95": 2735.3648,
+              "p99": 3068.1171,
+              "max": 3487.4988,
+              "mean": 1938.16
+            },
+            "status": {
+              "200": 1076
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:28:20.506Z",
+              "endedAt": "2026-11-25T19:28:41.840Z",
+              "durationSec": 21.334
+            },
+            "providerOps": 1076,
+            "mysql": {
+              "statementCount": 17144,
+              "statementsPerSuccess": 15.933085501858736,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 53935,
+              "serverQueriesPerSuccess": 50.12546468401487
+            },
+            "rowLockWaits": 231,
+            "rowLockWaitTimeMs": 4399,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 51.69,
+            "latencyMs": {
+              "count": 1120,
+              "min": 885.4394,
+              "p50": 1833.4163,
+              "p90": 2324.3328,
+              "p95": 2473.1767,
+              "p99": 2770.9881,
+              "max": 3203.1288,
+              "mean": 1864.13
+            },
+            "status": {
+              "200": 1120,
+              "502": 2
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 2
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:28:53.885Z",
+              "endedAt": "2026-11-25T19:29:15.554Z",
+              "durationSec": 21.669
+            },
+            "providerOps": 1120,
+            "mysql": {
+              "statementCount": 17904,
+              "statementsPerSuccess": 15.985714285714286,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 56259,
+              "serverQueriesPerSuccess": 50.23125
+            },
+            "rowLockWaits": 202,
+            "rowLockWaitTimeMs": 3518,
+            "budgetWaitersPeak": 2,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": [
+              "unbounded response class HTTP 502 x 2",
+              "unexpected status HTTP 502 x 2"
+            ]
+          },
+          {
+            "round": 3,
+            "rps": 42.55,
+            "latencyMs": {
+              "count": 911,
+              "min": 656.2064,
+              "p50": 2237.0844,
+              "p90": 3006.8136,
+              "p95": 3354.0896,
+              "p99": 3755.8398,
+              "max": 4560.6964,
+              "mean": 2275.51
+            },
+            "status": {
+              "200": 911,
+              "502": 3
+            },
+            "errors": {
+              "GATEWAY_UPSTREAM_FAILED": 3
+            },
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:29:28.117Z",
+              "endedAt": "2026-11-25T19:29:49.527Z",
+              "durationSec": 21.41
+            },
+            "providerOps": 911,
+            "mysql": {
+              "statementCount": 14588,
+              "statementsPerSuccess": 16.013172338090012,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 45851,
+              "serverQueriesPerSuccess": 50.33040614709111
+            },
+            "rowLockWaits": 143,
+            "rowLockWaitTimeMs": 3533,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": [
+              "unbounded response class HTTP 502 x 3",
+              "unexpected status HTTP 502 x 3"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "multi_org_single_c100",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 44.07,
+            "latencyMs": {
+              "count": 949,
+              "min": 592.1403,
+              "p50": 2210.4551,
+              "p90": 2801.3488,
+              "p95": 2997.7235,
+              "p99": 3254.9735,
+              "max": 3744.7257,
+              "mean": 2207.46
+            },
+            "status": {
+              "200": 949
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:30:02.677Z",
+              "endedAt": "2026-11-25T19:30:24.211Z",
+              "durationSec": 21.534
+            },
+            "providerOps": 949,
+            "mysql": {
+              "statementCount": 15113,
+              "statementsPerSuccess": 15.92518440463646,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 47599,
+              "serverQueriesPerSuccess": 50.15700737618546
+            },
+            "rowLockWaits": 161,
+            "rowLockWaitTimeMs": 3474,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 47.18,
+            "latencyMs": {
+              "count": 1000,
+              "min": 576.6771,
+              "p50": 2047.7197,
+              "p90": 2709.3368,
+              "p95": 2938.3158,
+              "p99": 3264.8639,
+              "max": 3478.7405,
+              "mean": 2073.52
+            },
+            "status": {
+              "200": 1000
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:30:36.881Z",
+              "endedAt": "2026-11-25T19:30:58.075Z",
+              "durationSec": 21.194
+            },
+            "providerOps": 1000,
+            "mysql": {
+              "statementCount": 15892,
+              "statementsPerSuccess": 15.892,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 50151,
+              "serverQueriesPerSuccess": 50.151
+            },
+            "rowLockWaits": 148,
+            "rowLockWaitTimeMs": 3324,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 54.29,
+            "latencyMs": {
+              "count": 1144,
+              "min": 611.5972,
+              "p50": 1738.5378,
+              "p90": 2408.1877,
+              "p95": 2583.3075,
+              "p99": 2913.6129,
+              "max": 3272.68,
+              "mean": 1805.5
+            },
+            "status": {
+              "200": 1144
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:31:09.892Z",
+              "endedAt": "2026-11-25T19:31:30.963Z",
+              "durationSec": 21.071
+            },
+            "providerOps": 1144,
+            "mysql": {
+              "statementCount": 18178,
+              "statementsPerSuccess": 15.88986013986014,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 57365,
+              "serverQueriesPerSuccess": 50.14423076923077
+            },
+            "rowLockWaits": 191,
+            "rowLockWaitTimeMs": 4553,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "redis_paused_30s_c50",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 9.3,
+            "latencyMs": {
+              "count": 381,
+              "min": 483.531,
+              "p50": 1504.3179,
+              "p90": 2845.3195,
+              "p95": 2964.1541,
+              "p99": 3538.8313,
+              "max": 4006.3092,
+              "mean": 1680.72
+            },
+            "status": {
+              "200": 381,
+              "503": 2080
+            },
+            "errors": {
+              "GATEWAY_DEPENDENCY_UNAVAILABLE": 2080
+            },
+            "fault": [
+              {
+                "event": "paused",
+                "at": "2026-11-25T19:31:47.950Z"
+              },
+              {
+                "event": "unpaused",
+                "at": "2026-11-25T19:32:18.044Z"
+              }
+            ],
+            "window": {
+              "startedAt": "2026-11-25T19:31:42.767Z",
+              "endedAt": "2026-11-25T19:32:23.729Z",
+              "durationSec": 40.962
+            },
+            "providerOps": 381,
+            "mysql": {
+              "statementCount": 6130,
+              "statementsPerSuccess": 16.089238845144358,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 19367,
+              "serverQueriesPerSuccess": 50.83202099737533
+            },
+            "rowLockWaits": 364,
+            "rowLockWaitTimeMs": 7814,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          }
+        ]
+      },
+      {
+        "id": "hot_fast_flush2_c50",
+        "rounds": [
+          {
+            "round": 1,
+            "rps": 61.13,
+            "latencyMs": {
+              "count": 1261,
+              "min": 247.4581,
+              "p50": 745.782,
+              "p90": 1242.5347,
+              "p95": 1393.608,
+              "p99": 1855.1126,
+              "max": 2651.9915,
+              "mean": 811.05
+            },
+            "status": {
+              "200": 1261
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:32:35.444Z",
+              "endedAt": "2026-11-25T19:32:56.072Z",
+              "durationSec": 20.628
+            },
+            "providerOps": 1261,
+            "mysql": {
+              "statementCount": 20079,
+              "statementsPerSuccess": 15.923076923076923,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 63191,
+              "serverQueriesPerSuccess": 50.11181601903252
+            },
+            "rowLockWaits": 1242,
+            "rowLockWaitTimeMs": 12184,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 2,
+            "rps": 65.2,
+            "latencyMs": {
+              "count": 1341,
+              "min": 265.859,
+              "p50": 744.0914,
+              "p90": 1042.9594,
+              "p95": 1132.1283,
+              "p99": 1319.0666,
+              "max": 1526.7379,
+              "mean": 760.74
+            },
+            "status": {
+              "200": 1341
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:33:07.492Z",
+              "endedAt": "2026-11-25T19:33:28.059Z",
+              "durationSec": 20.567
+            },
+            "providerOps": 1341,
+            "mysql": {
+              "statementCount": 21443,
+              "statementsPerSuccess": 15.990305741983594,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 67196,
+              "serverQueriesPerSuccess": 50.10887397464579
+            },
+            "rowLockWaits": 1298,
+            "rowLockWaitTimeMs": 8706,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          },
+          {
+            "round": 3,
+            "rps": 69.89,
+            "latencyMs": {
+              "count": 1426,
+              "min": 212.5589,
+              "p50": 675.0382,
+              "p90": 991.6544,
+              "p95": 1135.2751,
+              "p99": 1706.1721,
+              "max": 2593.5169,
+              "mean": 709.35
+            },
+            "status": {
+              "200": 1426
+            },
+            "errors": {},
+            "fault": [],
+            "window": {
+              "startedAt": "2026-11-25T19:33:40.050Z",
+              "endedAt": "2026-11-25T19:34:00.454Z",
+              "durationSec": 20.404
+            },
+            "providerOps": 1426,
+            "mysql": {
+              "statementCount": 22739,
+              "statementsPerSuccess": 15.946002805049089,
+              "sessionReadOnlyCount": 0,
+              "budgetStatements": 0,
+              "budgetStatementMeanMs": null,
+              "serverQueries": 71441,
+              "serverQueriesPerSuccess": 50.098877980364655
+            },
+            "rowLockWaits": 1410,
+            "rowLockWaitTimeMs": 12255,
+            "budgetWaitersPeak": 1,
+            "hikariActive": 12,
+            "hikariPending": 0,
+            "drift": [],
+            "failures": []
+          }
+        ]
+      }
+    ],
+    "expiry": {
+      "stats": {
+        "count": 20,
+        "min": 1242.763,
+        "p50": 1335.909,
+        "p90": 1495.959,
+        "p95": 1497.281,
+        "p99": 1497.281,
+        "max": 1497.281,
+        "mean": 1347.55
+      },
+      "failures": []
+    },
+    "final": {
+      "converged": true,
+      "settlement": [
+        {
+          "orgId": 1,
+          "requests": 25210,
+          "completedRequests": 25196,
+          "finalUsage": 25196,
+          "nonFinalUsage": 13,
+          "settled": 25196,
+          "pending": 0,
+          "ledgerPostings": 25196,
+          "ledgerEntries": 25196,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 2,
+          "requests": 560,
+          "completedRequests": 560,
+          "finalUsage": 560,
+          "nonFinalUsage": 0,
+          "settled": 560,
+          "pending": 0,
+          "ledgerPostings": 560,
+          "ledgerEntries": 560,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 3,
+          "requests": 557,
+          "completedRequests": 556,
+          "finalUsage": 556,
+          "nonFinalUsage": 1,
+          "settled": 556,
+          "pending": 0,
+          "ledgerPostings": 556,
+          "ledgerEntries": 556,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 4,
+          "requests": 559,
+          "completedRequests": 559,
+          "finalUsage": 559,
+          "nonFinalUsage": 0,
+          "settled": 559,
+          "pending": 0,
+          "ledgerPostings": 559,
+          "ledgerEntries": 559,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 5,
+          "requests": 556,
+          "completedRequests": 556,
+          "finalUsage": 556,
+          "nonFinalUsage": 0,
+          "settled": 556,
+          "pending": 0,
+          "ledgerPostings": 556,
+          "ledgerEntries": 556,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 6,
+          "requests": 549,
+          "completedRequests": 549,
+          "finalUsage": 549,
+          "nonFinalUsage": 0,
+          "settled": 549,
+          "pending": 0,
+          "ledgerPostings": 549,
+          "ledgerEntries": 549,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 7,
+          "requests": 549,
+          "completedRequests": 549,
+          "finalUsage": 549,
+          "nonFinalUsage": 0,
+          "settled": 549,
+          "pending": 0,
+          "ledgerPostings": 549,
+          "ledgerEntries": 549,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        },
+        {
+          "orgId": 8,
+          "requests": 549,
+          "completedRequests": 548,
+          "finalUsage": 548,
+          "nonFinalUsage": 1,
+          "settled": 548,
+          "pending": 0,
+          "ledgerPostings": 548,
+          "ledgerEntries": 548,
+          "settledWithoutPosting": 0,
+          "duplicatePostingKeys": 0,
+          "settledNonFinalUsage": 0,
+          "duplicateSettlementSources": 0,
+          "badEntryCardinality": 0,
+          "nonSystemPostings": 0,
+          "zeroAmountSettlements": 0
+        }
+      ],
+      "settlementViolations": [],
+      "overspend": [],
+      "drift": [],
+      "activeHolds": 0,
+      "pendingHolds": 15
+    },
+    "recheckFinal": {
+      "converged": true,
+      "settlementViolations": [],
+      "overspend": [],
+      "drift": []
+    }
+  },
+  "importScale": [
+    {
+      "series": "combined",
+      "scale": "t10k",
+      "run": 1,
+      "input_rows": 10000,
+      "input_bytes": 65172,
+      "upload_ms": 80,
+      "worker_ms": 2247,
+      "confirm_ms": 59,
+      "total_ms": 2386,
+      "worker_records_per_sec": 4450.378,
+      "end_to_end_rows_per_sec": 4191.115,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 93,
+      "jvm_used_heap_peak_sample_bytes": 261884000,
+      "gc_count_delta": 28,
+      "gc_time_ms_delta": 39,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    },
+    {
+      "series": "combined",
+      "scale": "t10k",
+      "run": 2,
+      "input_rows": 10000,
+      "input_bytes": 65175,
+      "upload_ms": 52,
+      "worker_ms": 1947,
+      "confirm_ms": 63,
+      "total_ms": 2062,
+      "worker_records_per_sec": 5136.107,
+      "end_to_end_rows_per_sec": 4849.661,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 179,
+      "jvm_used_heap_peak_sample_bytes": 264944624,
+      "gc_count_delta": 25,
+      "gc_time_ms_delta": 44,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    },
+    {
+      "series": "combined",
+      "scale": "t10k",
+      "run": 3,
+      "input_rows": 10000,
+      "input_bytes": 65176,
+      "upload_ms": 58,
+      "worker_ms": 2051,
+      "confirm_ms": 66,
+      "total_ms": 2175,
+      "worker_records_per_sec": 4875.67,
+      "end_to_end_rows_per_sec": 4597.701,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 81,
+      "jvm_used_heap_peak_sample_bytes": 233104056,
+      "gc_count_delta": 27,
+      "gc_time_ms_delta": 39,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    },
+    {
+      "series": "combined",
+      "scale": "t100k",
+      "run": 1,
+      "input_rows": 100000,
+      "input_bytes": 633935,
+      "upload_ms": 96,
+      "worker_ms": 20213,
+      "confirm_ms": 194,
+      "total_ms": 20503,
+      "worker_records_per_sec": 4947.311,
+      "end_to_end_rows_per_sec": 4877.335,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 210,
+      "jvm_used_heap_peak_sample_bytes": 279725368,
+      "gc_count_delta": 135,
+      "gc_time_ms_delta": 186,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    },
+    {
+      "series": "combined",
+      "scale": "t100k",
+      "run": 2,
+      "input_rows": 100000,
+      "input_bytes": 633985,
+      "upload_ms": 94,
+      "worker_ms": 20598,
+      "confirm_ms": 145,
+      "total_ms": 20837,
+      "worker_records_per_sec": 4854.84,
+      "end_to_end_rows_per_sec": 4799.155,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 207,
+      "jvm_used_heap_peak_sample_bytes": 298165144,
+      "gc_count_delta": 130,
+      "gc_time_ms_delta": 179,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    },
+    {
+      "series": "combined",
+      "scale": "t100k",
+      "run": 3,
+      "input_rows": 100000,
+      "input_bytes": 633868,
+      "upload_ms": 117,
+      "worker_ms": 19710,
+      "confirm_ms": 130,
+      "total_ms": 19957,
+      "worker_records_per_sec": 5073.567,
+      "end_to_end_rows_per_sec": 5010.773,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 105,
+      "jvm_used_heap_peak_sample_bytes": 321668616,
+      "gc_count_delta": 120,
+      "gc_time_ms_delta": 153,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    },
+    {
+      "series": "500k-repeated",
+      "scale": "t500k",
+      "run": 1,
+      "input_rows": 500000,
+      "input_bytes": 3171948,
+      "upload_ms": 90,
+      "worker_ms": 91613,
+      "confirm_ms": 2248,
+      "total_ms": 93951,
+      "worker_records_per_sec": 5457.741,
+      "end_to_end_rows_per_sec": 5321.923,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 122,
+      "jvm_used_heap_peak_sample_bytes": 420592312,
+      "gc_count_delta": 744,
+      "gc_time_ms_delta": 820,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    },
+    {
+      "series": "500k-fresh-2",
+      "scale": "t500k",
+      "run": 1,
+      "input_rows": 500000,
+      "input_bytes": 3172104,
+      "upload_ms": 120,
+      "worker_ms": 101805,
+      "confirm_ms": 2931,
+      "total_ms": 104856,
+      "worker_records_per_sec": 4911.35,
+      "end_to_end_rows_per_sec": 4768.444,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 298,
+      "jvm_used_heap_peak_sample_bytes": 528123248,
+      "gc_count_delta": 725,
+      "gc_time_ms_delta": 904,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    },
+    {
+      "series": "500k-fresh-3",
+      "scale": "t500k",
+      "run": 1,
+      "input_rows": 500000,
+      "input_bytes": 3170357,
+      "upload_ms": 155,
+      "worker_ms": 104690,
+      "confirm_ms": 1881,
+      "total_ms": 106726,
+      "worker_records_per_sec": 4776.005,
+      "end_to_end_rows_per_sec": 4684.894,
+      "jvm_max_heap_mib": 4024,
+      "jvm_used_heap_sample_mib": 227,
+      "jvm_used_heap_peak_sample_bytes": 517103600,
+      "gc_count_delta": 738,
+      "gc_time_ms_delta": 832,
+      "batch_size": "default",
+      "worker_concurrency": 1
+    }
+  ],
+  "importCeilings": [],
+  "importSeries": [
+    {
+      "series": "combined",
+      "samples": 6,
+      "build": "FAIL"
+    },
+    {
+      "series": "500k-repeated",
+      "samples": 1,
+      "build": "FAIL"
+    },
+    {
+      "series": "500k-fresh-2",
+      "samples": 1,
+      "build": "PASS"
+    },
+    {
+      "series": "500k-fresh-3",
+      "samples": 1,
+      "build": "PASS"
+    }
+  ],
+  "importFailures": [
+    {
+      "series": "combined",
+      "scale": "t500k",
+      "run": 1,
+      "evidence": "Durable import attempt returned FAILED. The original test did not capture the failure code."
+    },
+    {
+      "series": "500k-repeated",
+      "scale": "t500k",
+      "run": 2,
+      "evidence": "MySQL 8.4.11 exited on signal 11. Docker reported OOMKilled=false."
+    }
+  ]
+}
