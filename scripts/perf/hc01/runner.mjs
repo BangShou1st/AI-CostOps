@@ -28,8 +28,9 @@ import {
   nowIso, pythonCommand, redisCli, sleep, startProcess, stats, stopProcess as stopHarnessProcess, writeJson,
 } from './lib.mjs'
 import {
-  assertHc04Database, hasReservedCounter, measureAutocommit, reservedCounterDrift,
-  resetHc04Digests, roundSql,
+  assertHc04Database, autocommitDrift, hasReservedCounter, measureAutocommit,
+  preparedStatementsDelta, reservedCounterDrift, resetHc04Digests, roundSql,
+  snapshotPreparedStatements,
 } from './hc04.mjs'
 import { allFixtureBudgets, seed } from './seed.mjs'
 import { runLoad, runOneShot } from './load.mjs'
@@ -59,6 +60,14 @@ const SUITE = options.suite ?? (QUICK ? 'quick' : 'full')
 const HC04 = SUITE === 'hc04'
 const stopProcess = name => stopHarnessProcess(name, undefined, { verifyChild: HC04 })
 const HC04_HOT20_ONLY = HC04 && flags.has('--hc04-hot20-only')
+const HC04_SKIP_S6_S7 = HC04 && flags.has('--hc04-skip-s6-s7')
+const HC04_ANCHOR_AUTOCOMMIT = HC04 && options['hc04-anchor-autocommit-p50'] && options['hc04-anchor-autocommit-mean']
+  ? {
+      p50: Number(options['hc04-anchor-autocommit-p50']),
+      mean: Number(options['hc04-anchor-autocommit-mean']),
+    }
+  : null
+const HC04_MAX_AUTOCOMMIT_DRIFT = Number(options['hc04-max-autocommit-drift'] ?? 0.30)
 const HC04_RESUME_PATH = HC04 && options['resume-finalization']
   ? resolve(ROOT, options['resume-finalization']) : null
 const VARIANT = options.variant ?? null
@@ -601,6 +610,7 @@ async function runScenario(spec) {
     if (spec.resetLimitsBeforeMeasure) resetRedisLimits(spec.resetLimitsBeforeMeasure)
     await mockReset()
     await mockMode(providerMode, delayMs)
+    const psBefore = HC04 ? snapshotPreparedStatements() : null
     const sampler = new Sampler(ports)
     await sampler.start()
     if (HC04) resetHc04Digests()
@@ -620,8 +630,13 @@ async function runScenario(spec) {
       }
     })() : Promise.resolve()
     const [load] = await Promise.all([loadWork, faultWork])
-    const sql = HC04 ? roundSql(load.successCount) : null
     const resources = await sampler.stop()
+    const psAfter = HC04 ? snapshotPreparedStatements() : null
+    const sql = HC04 ? roundSql(
+      load.successCount,
+      preparedStatementsDelta(psBefore, psAfter),
+      resources.mysql?.statusDelta?.Queries ?? null,
+    ) : null
     await sleep(1000)
     const provider = await mockStats()
     const budgets = budgetSnapshot(budgetIds)
@@ -1242,10 +1257,12 @@ async function runHc04Matrix() {
   for (const [id, group] of [['multi_budget_single_c100', 'multiBudget'], ['multi_org_single_c100', 'multiOrg']]) {
     await runScenario({ id, fixtures: fixtureList(group), ports, concurrency: 100, expectations })
   }
-  await runScenario({
-    id: 'redis_paused_30s_c50', fixture: state.seed.hot, ports, concurrency: 50,
-    rounds: 1, measureSec: 40, redisOutage: true, expectations,
-  })
+  if (!HC04_SKIP_S6_S7) {
+    await runScenario({
+      id: 'redis_paused_30s_c50', fixture: state.seed.hot, ports, concurrency: 50,
+      rounds: 1, measureSec: 40, redisOutage: true, expectations,
+    })
+  }
   try {
     mysql('SET GLOBAL innodb_flush_log_at_trx_commit=2', { database: null })
     await runScenario({
@@ -1256,6 +1273,9 @@ async function runHc04Matrix() {
   }
 
   await stopGateways()
+  if (HC04_SKIP_S6_S7) {
+    return
+  }
   await startGateways('expiry-probe', ports)
   const lastId = mysqlNumber('SELECT COALESCE(MAX(id),0) FROM budget_reservation')
   const expiry = await runOneShotScenario({
@@ -1419,9 +1439,11 @@ function writeArtifacts(finalResult) {
       ...(HC04 ? {
         backendJar: options['backend-jar'],
         hot20Only: HC04_HOT20_ONLY,
+        skipS6S7: HC04_SKIP_S6_S7,
         jarSha256: Object.fromEntries(Object.entries(state.jars)
           .map(([name, path]) => [name, createHash('sha256').update(readFileSync(path)).digest('hex')])),
         autocommitInsertMs: state.autocommitInsertMs,
+        autocommitDrift: state.autocommitDrift ?? null,
       } : {}),
       rounds: ROUNDS,
       warmupSec: WARMUP_SEC,
@@ -1483,7 +1505,7 @@ async function main() {
   state.jars = jars
   if (HC04_RESUME_PATH) {
     const checkpoint = JSON.parse(readFileSync(HC04_RESUME_PATH, 'utf8'))
-    const completeRounds = HC04_HOT20_ONLY ? ROUNDS : 7 * ROUNDS + 2
+    const completeRounds = HC04_HOT20_ONLY ? ROUNDS : HC04_SKIP_S6_S7 ? 7 * ROUNDS : 7 * ROUNDS + 2
     if (checkpoint.commit !== CODE_SHA || checkpoint.variant !== VARIANT
         || checkpoint.scenarios.length !== completeRounds) {
       throw new Error('HC-04 finalization requires a complete checkpoint for the selected variant')
@@ -1498,6 +1520,28 @@ async function main() {
   if (HC04) {
     state.autocommitInsertMs = measureAutocommit()
     log(`durable single-row autocommit: ${JSON.stringify(state.autocommitInsertMs)}`)
+    if (HC04_ANCHOR_AUTOCOMMIT) {
+      const drift = autocommitDrift(state.autocommitInsertMs, HC04_ANCHOR_AUTOCOMMIT)
+      state.autocommitDrift = drift
+      log(`autocommit drift vs anchor: ${JSON.stringify(drift)} (max=${HC04_MAX_AUTOCOMMIT_DRIFT})`)
+      if (drift.maxRatio > HC04_MAX_AUTOCOMMIT_DRIFT) {
+        writeJson(join(OUTPUT_DIR, 'autocommit-voided.json'), {
+          voided: true,
+          at: nowIso(),
+          variant: VARIANT,
+          codeSha: CODE_SHA,
+          autocommitInsertMs: state.autocommitInsertMs,
+          anchor: HC04_ANCHOR_AUTOCOMMIT,
+          drift,
+          reason: `autocommit drift ${(drift.maxRatio * 100).toFixed(1)}% exceeded ${(HC04_MAX_AUTOCOMMIT_DRIFT * 100).toFixed(0)}%`,
+        })
+        removeRedis()
+        throw Object.assign(
+          new Error(`Autocommit drift exceeded threshold (${(drift.maxRatio * 100).toFixed(1)}%)`),
+          { exitCode: 42 },
+        )
+      }
+    }
   }
   await startBackend(jars.backend)
   createGatewayDbUser()
@@ -1583,5 +1627,5 @@ main()
     if (HC04 && !KEEP_RUNNING) {
       try { removeRedis() } catch (cleanupError) { console.error(cleanupError.message) }
     }
-    process.exit(1)
+    process.exit(error.exitCode ?? 1)
   })

@@ -23,6 +23,7 @@ including injected failures. /stats is the acceptance assertion source.
 
 import json
 import os
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -172,19 +173,60 @@ def _release_held() -> int:
     return held
 
 
+class MockProviderServer(ThreadingHTTPServer):
+    request_queue_size = 512
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        _, exc, _ = sys.exc_info()
+        if isinstance(exc, (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
     server_version = "HC01MockProvider/1.0"
+    disable_nagle_algorithm = True
 
     def log_message(self, *args):
         pass
+
+    def _read_request_body(self) -> bytes:
+        transfer_encoding = (self.headers.get("Transfer-Encoding") or "").lower()
+        if "chunked" in transfer_encoding:
+            chunks = []
+            while True:
+                line = self.rfile.readline(65537)
+                if not line:
+                    break
+                size_hex = line.split(b";", 1)[0].strip()
+                size = int(size_hex, 16)
+                if size == 0:
+                    while True:
+                        trailer = self.rfile.readline(65537)
+                        if not trailer or trailer in (b"\r\n", b"\n"):
+                            break
+                    break
+                chunks.append(self.rfile.read(size))
+                self.rfile.read(2)
+            return b"".join(chunks)
+        length = int(self.headers.get("Content-Length") or 0)
+        return self.rfile.read(length) if length > 0 else b""
 
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            self.close_connection = True
 
     def _abort_truncated(self) -> None:
         """Send a short body with a lying Content-Length, then close.
@@ -192,19 +234,22 @@ class Handler(BaseHTTPRequestHandler):
         The Gateway observes a transport failure after dispatch, which is the
         path that must preserve UNKNOWN/INCOMPLETE rather than zero cost.
         """
+        self.close_connection = True
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", "4096")
+        self.send_header("Connection", "close")
         self.end_headers()
         try:
             self.wfile.write(b'{"id":"chatcmpl_hc01trunc')
             self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
         self.close_connection = True
 
     def _hold_stream(self) -> None:
         global _held_streams
+        self.close_connection = True
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -213,7 +258,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.wfile.write((CHUNK_FRAMES[0] + "\n\n").encode("utf-8"))
             self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             return
         with _lock:
             if _mode == "hold":
@@ -235,10 +280,11 @@ class Handler(BaseHTTPRequestHandler):
         try:
             rest = "".join(frame + "\n\n" for frame in CHUNK_FRAMES[1:]).encode("utf-8")
             self.wfile.write(rest)
-        except (BrokenPipeError, ConnectionResetError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
 
     def _slow_stream(self, delay_ms: int) -> None:
+        self.close_connection = True
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -248,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.wfile.write((frame + "\n\n").encode("utf-8"))
                 self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 return
             time.sleep(delay_ms / 1000.0)
 
@@ -275,8 +321,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        length = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(length) if length > 0 else b""
+        raw = self._read_request_body()
         if path == "/admin/reset":
             _reset()
             _mode_set("ok")
@@ -317,9 +362,11 @@ class Handler(BaseHTTPRequestHandler):
         if mode == "disconnect":
             _bump_diagnostic("disconnect")
         if mode == "http500":
+            self.close_connection = True
             self._send_json(500, {"error": {"message": "hc01 injected failure", "type": "server_error"}})
             return
         if mode == "timeout":
+            self.close_connection = True
             time.sleep(70)
             return
         if mode == "advisor-success":
@@ -327,6 +374,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if mode == "disconnect":
             if stream:
+                self.close_connection = True
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Connection", "close")
@@ -334,7 +382,7 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     self.wfile.write((CHUNK_FRAMES[0] + "\n\n").encode("utf-8"))
                     self.wfile.flush()
-                except (BrokenPipeError, ConnectionResetError):
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                     pass
                 self.close_connection = True
             else:
@@ -352,17 +400,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(200, COMPLETION_BODY)
             return
         frames = "".join(frame + "\n\n" for frame in CHUNK_FRAMES).encode("utf-8")
+        self.close_connection = True
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.send_header("Content-Length", str(len(frames)))
         self.end_headers()
-        self.wfile.write(frames)
+        try:
+            self.wfile.write(frames)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def do_PUT(self) -> None:  # pragma: no cover - guardrail
         self._send_json(405, {"error": "method not allowed"})
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    MockProviderServer(("0.0.0.0", PORT), Handler).serve_forever()

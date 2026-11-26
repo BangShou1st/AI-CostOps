@@ -156,27 +156,34 @@ node scripts/perf/hc02/compare.mjs \
 
 ## HC-04 热点预算与缓存 A/B
 
-给两边分别打包 Backend 和 Gateway。基线使用 `hc04-baseline`，新版使用待验收提交。每轮重新创建 `aicostops_hc04`，因此两个版本使用各自的 Flyway 迁移。runner 核对本机 MySQL 的 Docker 标签和 SQL 主机名，再重置数据库与 digest。准备名为 `ai-costops-hc04-mysql`、标签为 `io.aicostops.perf=hc04` 的独立 MySQL 8.4 容器，并将它的 3306 端口绑定到本机。例如将 MySQL 端口映射到 14307，以 128 MiB buffer pool、`innodb_flush_log_at_trx_commit=1` 和 `sync_binlog=1` 运行。使用同一组本地合成配置及独立 MinIO 执行两轮。
+给两边分别打包 Backend 和 Gateway。基线使用 `hc04-baseline`，新版使用待验收提交。每轮重新创建 `aicostops_hc04`，因此两个版本使用各自的 Flyway 迁移。runner 核对本机 MySQL 的 Docker 标签和 SQL 主机名，同时采集 `performance_schema.events_statements_summary_by_digest` 与 `prepared_statements_instances`（覆盖 `useServerPrepStmts=true` 下的服务端预编译语句）以及 Redis `INFO commandstats` 全量分项命令。`mock_provider.py` 使用显式 `request_queue_size = 512` 与 HTTP/1.1 keep-alive（故障注入分支保持 `close_connection = True`）。
+
+推荐直接使用 ABAB 交替编排器（`A1 -> B1 -> A2 -> B2 -> A3 -> B3`，内置 ≤ 30% `autocommit INSERT` 漂移门禁与 `--resume` 断点续跑）：
+
+```powershell
+node scripts/perf/hc04/abab.mjs --pairs=3 --warmup=8 --measure=20 --build
+node scripts/perf/hc04/abab.mjs --pairs=3 --warmup=8 --measure=20 --skip-build --resume
+```
+
+也可以手动按单边模式触发（独立 MySQL 容器 `ai-costops-hc04-mysql`、标签 `io.aicostops.perf=hc04`、端口 `14307`，128 MiB buffer pool、`innodb_flush_log_at_trx_commit=1` 和 `sync_binlog=1`）：
 
 ```powershell
 $env:HC01_DB = 'aicostops_hc04'
 $env:HC01_WORK_DIR = 'hc04'
 $env:HC01_MYSQL_CONTAINER = 'ai-costops-hc04-mysql'
 $env:HC01_MYSQL_PORT = '14307'
-node scripts/perf/hc01/runner.mjs --suite=hc04 --skip-build --variant=baseline `
+node scripts/perf/hc01/runner.mjs --suite=hc04 --rounds=1 --skip-build --variant=baseline `
   "--code-sha=$baselineSha" "--backend-jar=$baselineBackendJar" "--gateway-jar=$baselineGatewayJar"
-node scripts/perf/hc01/runner.mjs --suite=hc04 --skip-build --variant=optimized `
+node scripts/perf/hc01/runner.mjs --suite=hc04 --rounds=1 --skip-build --variant=optimized `
   "--code-sha=$optimizedSha" "--backend-jar=$optimizedBackendJar" "--gateway-jar=$optimizedGatewayJar"
 ```
 
-结果输出在 `.local-dev/hc04/<variant>/`。常规负载每组热身后运行 3 × 20 秒。Redis 暂停用 40 秒窗口覆盖 30 秒故障和恢复，结束后恢复 Redis。刷盘对照仅运行单预算 c50，在独立 MySQL 上临时设为 2 并恢复到 1。到期探针使用真实 Gateway 准入和数据库时间戳。S9 使用以下真实导入基准，堆用量每 25 毫秒采样。
-
-runner 逐轮保存 `rounds-checkpoint.json`。如果仅结算阶段中断，可保留原数据库与本地种子文件，使用相同的版本、JAR 和轮数，加上 `--resume-finalization=<完整 checkpoint 路径>` 续跑。
+单轮产物输出在 `.local-dev/hc04/abab/<round-tag>/`，汇总在 `.local-dev/hc04/abab/abab-summary.json`。常规负载每组热身 8 秒、发压 20 秒；S6 Redis 暂停（40 秒窗口覆盖 30 秒故障与恢复）和 S7 到期探针在 `A1`/`B1` 执行（后续轮次可通过 `--hc04-skip-s6-s7` 跳过），刷盘对照 S8 仅运行单预算 c50 并将独立库临时设为 2 后恢复到 1。S9 使用以下真实导入基准（`500k` 建议每次 `--runs=1` 并在清理容器后独立运行），堆用量每 25 毫秒采样：
 
 ```powershell
 Set-Location backend
-.\mvnw.cmd -B "-Dsurefire.skip=true" "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" `
-  "-Dm9.benchmark.scales=10k,100k,500k" "-Dm9.benchmark.runs=3" verify
+.\mvnw.cmd -B "-Dsurefire.skip=true" "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" "-Dm9.benchmark.scales=10k,100k" "-Dm9.benchmark.runs=3" verify
+.\mvnw.cmd -B "-Dsurefire.skip=true" "-Dit.test=M9ImportScaleBenchmarkIntegrationTest" "-Dm9.benchmark.scales=500k" "-Dm9.benchmark.runs=1" verify
 ```
 
 ## 产物
