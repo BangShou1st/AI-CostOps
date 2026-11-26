@@ -114,4 +114,13 @@ public interface TeamMapper {
             @Param("name") String name,
             @Param("status") String status,
             @Param("now") Instant now);
+
+    @Select("""
+            SELECT id FROM gateway_credential
+            WHERE org_id=#{organizationId}
+              AND financial_scope_type='TEAM' AND financial_scope_id=#{teamId}
+            """)
+    List<Long> findAffectedCredentialIds(
+            @Param("organizationId") long organizationId,
+            @Param("teamId") long teamId);
 }

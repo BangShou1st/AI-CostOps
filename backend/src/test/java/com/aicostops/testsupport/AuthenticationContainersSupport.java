@@ -10,7 +10,7 @@ public abstract class AuthenticationContainersSupport extends MySqlContainerSupp
     private static final String REDIS_PASSWORD = "redis-auth-test-only";
 
     protected static final GenericContainer<?> AUTH_REDIS = new GenericContainer<>(
-            DockerImageName.parse("redis:8.8.1-alpine"))
+            DockerImageName.parse(System.getProperty("aicostops.test.redis-image", "redis:8.8.1-alpine")))
             .withExposedPorts(6379)
             .withCommand("redis-server", "--requirepass", REDIS_PASSWORD);
 

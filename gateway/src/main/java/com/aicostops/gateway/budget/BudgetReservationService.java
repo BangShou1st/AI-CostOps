@@ -1,6 +1,7 @@
 package com.aicostops.gateway.budget;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.persistence.BudgetReservationMapper;
@@ -11,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -19,21 +21,25 @@ import org.springframework.transaction.support.TransactionTemplate;
 import reactor.core.publisher.Mono;
 
 /**
- * M12 TX1: MySQL-authoritative budget admission.
+ * M12/HC-04 TX1: MySQL-authoritative budget admission.
  *
- * <p>One short synchronous MySQL transaction (offloaded from Reactor Netty):
- * take the shared OPEN BillingPeriod fence, resolve the exact Budget or ORG
- * fallback in the pricing currency, lock the Budget row exclusively, observe
- * Total/Actual/Committed plus effective ACTIVE/PENDING_HOLD reservations under
- * the same lock, then insert the ACTIVE reservation and move VALIDATED to
- * RESERVED (or to REJECTED_BUDGET when insufficient). No Provider network I/O
- * happens inside or before this transaction commits.
+ * <p>Pricing rate lookup and conservative upper-bound calculation plus the
+ * fast-path idempotency check run before TX1 so the short MySQL transaction
+ * only takes the shared OPEN BillingPeriod fence, resolves the Budget, atomically
+ * updates {@code budget.reserved_amount} via conditional SQL (which acquires
+ * the Budget X lock and replaces {@code lockBudgetById} + {@code sumEffectiveReservations}),
+ * inserts the ACTIVE reservation with {@code useGeneratedKeys}, and marks the
+ * request {@code RESERVED} (or {@code REJECTED_BUDGET} when insufficient).
  *
- * <p>The period lock is shared so that concurrent admissions for one period do
- * not queue behind each other; Close/Reopen keep the exclusive lock. Because
- * the shared lock no longer serializes the first consistent read, TX1 runs
- * under READ COMMITTED so the effective-hold SUM is a current read after the
- * Budget X lock (see the constructor).
+ * <p>{@code markRequestReserved} intentionally remains inside TX1 because
+ * {@code GatewayCloseBlockerMapper.countUnresolvedReservations} joins
+ * {@code gateway_request.billing_period_id} to detect ACTIVE holds during
+ * Period Close, and its state predicate fences invalid concurrent terminal
+ * transitions.
+ *
+ * <p>TX1 runs under READ COMMITTED so post-update re-reads (duplicate-winner
+ * convergence and budget status re-read after 0-row conditional UPDATE) observe
+ * committed mutations made by concurrent transactions.
  */
 @Service
 public class BudgetReservationService {
@@ -44,6 +50,9 @@ public class BudgetReservationService {
     private final BlockingIoScheduler blockingIo;
     private final TransactionTemplate transactions;
     private final Clock clock;
+    private final BudgetAdmissionSemaphore budgetSemaphore;
+    private final GatewayConfigCache configCache;
+    private final ReservationDelayQueue delayQueue;
 
     public BudgetReservationService(
             BudgetReservationMapper reservationMapper,
@@ -52,27 +61,53 @@ public class BudgetReservationService {
             BlockingIoScheduler blockingIo,
             PlatformTransactionManager transactionManager,
             Clock clock) {
+        this(reservationMapper, requestMapper, properties, blockingIo, transactionManager, clock,
+                new BudgetAdmissionSemaphore(properties), null, null);
+    }
+
+    public BudgetReservationService(
+            BudgetReservationMapper reservationMapper,
+            GatewayRequestMapper requestMapper,
+            GatewayProperties properties,
+            BlockingIoScheduler blockingIo,
+            PlatformTransactionManager transactionManager,
+            Clock clock,
+            BudgetAdmissionSemaphore budgetSemaphore) {
+        this(reservationMapper, requestMapper, properties, blockingIo, transactionManager, clock,
+                budgetSemaphore, null, null);
+    }
+
+    @Autowired
+    public BudgetReservationService(
+            BudgetReservationMapper reservationMapper,
+            GatewayRequestMapper requestMapper,
+            GatewayProperties properties,
+            BlockingIoScheduler blockingIo,
+            PlatformTransactionManager transactionManager,
+            Clock clock,
+            BudgetAdmissionSemaphore budgetSemaphore,
+            GatewayConfigCache configCache,
+            ReservationDelayQueue delayQueue) {
         this.reservationMapper = reservationMapper;
         this.requestMapper = requestMapper;
         this.properties = properties;
         this.blockingIo = blockingIo;
         this.transactions = new TransactionTemplate(transactionManager);
-        // TX1 runs under READ COMMITTED so the effective-hold SUM below is a
-        // statement-level current read after the Budget row X lock. Under
-        // REPEATABLE READ the read view would be fixed by the earlier plain
-        // Budget lookup, before the row lock is acquired, and a concurrent
-        // committed hold could be missed (over-reservation). The Budget row X
-        // lock still serializes every effective-hold mutation, so the current
-        // read is the only consistent one.
+        // TX1 runs under READ COMMITTED so re-reads after a 0-row conditional
+        // UPDATE or DuplicateKeyException see the concurrent winner's committed
+        // reservation and budget state rather than an earlier REPEATABLE READ view.
         this.transactions.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.clock = clock;
+        this.budgetSemaphore = budgetSemaphore;
+        this.configCache = configCache;
+        this.delayQueue = delayQueue;
     }
 
     public Mono<AdmissionResult> admit(AdmissionCommand command) {
-        // Explicit transaction template: admitBlocking is invoked through this
+        // Explicit transaction template: admitInTx is invoked through this
         // lambda on the blocking-DB thread, and a self-invoked @Transactional
         // method would bypass the Spring proxy and run without a transaction.
-        return blockingIo.call(() -> transactions.execute(status -> admitBlocking(command)));
+        return blockingIo.call(() -> admitWithPrecompute(command));
     }
 
     /**
@@ -81,10 +116,63 @@ public class BudgetReservationService {
      * thread: re-submitting to the same bounded scheduler risks deadlock.
      */
     public AdmissionResult admitSync(AdmissionCommand command) {
-        return transactions.execute(status -> admitBlocking(command));
+        return admitWithPrecompute(command);
     }
 
-    AdmissionResult admitBlocking(AdmissionCommand command) {
+    private AdmissionResult admitWithPrecompute(AdmissionCommand command) {
+        var principal = command.principal();
+        var orgId = principal.organizationId();
+
+        // Fast-path idempotent replay read before opening TX1 / acquiring any locks.
+        var fastExisting = findOrFenceExistingHold(command);
+        if (fastExisting != null) {
+            return fastExisting;
+        }
+
+        // Pre-compute conservative bound outside TX1 / Budget X lock. Do not
+        // short-circuit on ReservationBoundException yet: periodStatus != OPEN
+        // and noBudget (UNBUDGETED / REJECTED_BUDGET) take precedence inside TX1.
+        var rates = configCache != null
+                ? configCache.getPricingRates(orgId, command.pricingVersionId())
+                : reservationMapper.findPricingRates(orgId, command.pricingVersionId());
+        var calculatorRates = new ArrayList<ReservationAmountCalculator.PricingRate>(rates.size());
+        for (var rate : rates) {
+            calculatorRates.add(new ReservationAmountCalculator.PricingRate(
+                    rate.dimensionCode(), rate.unitQuantity(), rate.unitPrice()));
+        }
+        BigDecimal precomputedAmount = null;
+        boolean boundImpossible = false;
+        try {
+            precomputedAmount = ReservationAmountCalculator.calculate(
+                    calculatorRates, command.effectiveMaxOutputTokens());
+        } catch (ReservationBoundException ex) {
+            boundImpossible = true;
+        }
+
+        final var amountToReserve = precomputedAmount;
+        final var impossible = boundImpossible;
+        // Resolve the target Budget in a brief read-only lookup so its Hikari
+        // connection returns to the pool before waiting on the per-budget
+        // semaphore. If no Budget matches, enter TX1 directly for noBudget().
+        var preResolvedBudget = resolveBudget(
+                orgId, command.billingPeriodId(), principal, command.currency());
+        var permit = preResolvedBudget == null ? null : budgetSemaphore.acquire(preResolvedBudget.id());
+        AdmissionResult result;
+        try {
+            result = transactions.execute(status -> admitInTx(command, amountToReserve, impossible));
+        } finally {
+            if (permit != null) {
+                permit.release();
+            }
+        }
+        if (delayQueue != null && result.expiresAt() != null) {
+            delayQueue.enqueue(result.reservationId(), result.expiresAt());
+        }
+        return result;
+    }
+
+    AdmissionResult admitInTx(
+            AdmissionCommand command, BigDecimal reservedAmount, boolean boundImpossible) {
         var principal = command.principal();
         var orgId = principal.organizationId();
         var now = Instant.now(clock);
@@ -100,71 +188,49 @@ public class BudgetReservationService {
 
         // 2. Resolve exact Budget, else ORG fallback, in the pricing currency.
         // No FX: a different-currency Budget is no matching Budget.
-        var budget = reservationMapper.selectBudgetByIdentity(orgId, command.billingPeriodId(),
-                principal.financialScopeType(), principal.financialScopeId(), command.currency());
-        if (budget == null && !isOrgScope(principal)) {
-            budget = reservationMapper.selectBudgetByIdentity(orgId, command.billingPeriodId(),
-                    "ORG", orgId, command.currency());
-        }
+        var budget = resolveBudget(orgId, command.billingPeriodId(), principal, command.currency());
         if (budget == null) {
             return noBudget(principal, command);
         }
-
-        // 3. Lock the Budget row: reservation serializes with V1 Actual mutation.
-        var locked = reservationMapper.lockBudgetById(orgId, budget.id());
-        if (locked == null || !"ACTIVE".equals(locked.status())) {
+        if (!"ACTIVE".equals(budget.status())) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                     "Budget is not available for reservation");
         }
-
-        // 4. Idempotent replay: the same route attempt converges, never holds twice.
-        var existing = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
-        if (existing != null) {
-            return replayExisting(command, existing);
-        }
-        if (reservationMapper.countEffectiveHolds(orgId, command.requestId()) > 0) {
-            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
-                    "An effective reservation already exists for this request");
-        }
-
-        // 5. Conservative upper bound from the frozen Pricing Version.
-        var rates = reservationMapper.findPricingRates(orgId, command.pricingVersionId());
-        var calculatorRates = new ArrayList<ReservationAmountCalculator.PricingRate>(rates.size());
-        for (var rate : rates) {
-            calculatorRates.add(new ReservationAmountCalculator.PricingRate(
-                    rate.dimensionCode(), rate.unitQuantity(), rate.unitPrice()));
-        }
-        BigDecimal reservedAmount;
-        try {
-            reservedAmount = ReservationAmountCalculator.calculate(
-                    calculatorRates, command.effectiveMaxOutputTokens());
-        } catch (ReservationBoundException ex) {
+        if (boundImpossible || reservedAmount == null) {
             return reservationImpossible(principal, command);
         }
 
-        // 6. Realtime Available under the same Budget lock.
-        var effectiveHolds = reservationMapper.sumEffectiveReservations(orgId, locked.id());
-        if (effectiveHolds == null) {
-            effectiveHolds = BigDecimal.ZERO;
-        }
-        var available = locked.totalAmount()
-                .subtract(locked.actualAmount())
-                .subtract(locked.committedAmount())
-                .subtract(effectiveHolds);
-
-        if (available.compareTo(reservedAmount) < 0) {
+        // 3. Atomic conditional UPDATE acquires the Budget row X lock and checks
+        // remaining headroom: total - actual - committed - reserved >= amount.
+        if (reservationMapper.reserveBudgetAmount(orgId, budget.id(), reservedAmount) != 1) {
+            var existing = findOrFenceExistingHold(command);
+            if (existing != null) {
+                return existing;
+            }
+            var latestBudget = reservationMapper.selectBudgetById(orgId, budget.id());
+            if (latestBudget == null || !"ACTIVE".equals(latestBudget.status())) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                        "Budget is not available for reservation");
+            }
             return insufficient(principal, command);
         }
 
-        // 7. Insert the ACTIVE hold; a concurrent winner converges via replay.
+        // 4. Insert the ACTIVE hold under the held Budget X lock; a concurrent
+        // winner reverts this transaction's increment before converging via replay.
         var expiresAt = now.plusMillis(properties.getReservationTtlMs());
+        var insert = new BudgetReservationMapper.ReservationInsert(
+                orgId, command.requestId(), command.routeAttemptId(),
+                command.billingPeriodId(), budget.id(),
+                principal.financialScopeType(), principal.financialScopeId(),
+                command.currency(), reservedAmount, expiresAt);
         try {
-            reservationMapper.insertActiveReservation(new BudgetReservationMapper.ReservationInsert(
-                    orgId, command.requestId(), command.routeAttemptId(),
-                    command.billingPeriodId(), locked.id(),
-                    principal.financialScopeType(), principal.financialScopeId(),
-                    command.currency(), reservedAmount, expiresAt));
+            reservationMapper.insertActiveReservation(insert);
         } catch (DuplicateKeyException ex) {
+            if (reservationMapper.releaseReservedBudgetAmount(
+                    orgId, budget.id(), reservedAmount) != 1) {
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                        "Reservation race could not revert budget increment");
+            }
             var winner = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
             if (winner == null) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
@@ -172,7 +238,11 @@ public class BudgetReservationService {
             }
             return replayExisting(command, winner);
         }
-        var reservationId = reservationMapper.lastInsertId();
+        var reservationId = insert.getId();
+        if (reservationId <= 0) {
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "Reservation id was not generated");
+        }
 
         if (reservationMapper.markRequestReserved(
                 command.requestId(), orgId, command.billingPeriodId(), command.routeAttemptId()) != 1) {
@@ -180,7 +250,7 @@ public class BudgetReservationService {
                     "Request cannot reach reserved state");
         }
         return new AdmissionResult(AdmissionOutcome.RESERVED, reservationId,
-                locked.id(), reservedAmount);
+                budget.id(), reservedAmount, expiresAt);
     }
 
     private AdmissionResult noBudget(GatewayPrincipal principal, AdmissionCommand command) {
@@ -246,6 +316,34 @@ public class BudgetReservationService {
                 existing.budgetId(), existing.reservedAmount());
     }
 
+    private AdmissionResult findOrFenceExistingHold(AdmissionCommand command) {
+        var orgId = command.principal().organizationId();
+        var existing = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
+        if (existing != null) {
+            return replayExisting(command, existing);
+        }
+        if (reservationMapper.countEffectiveHolds(orgId, command.requestId()) > 0) {
+            var raceWinner = reservationMapper.findByRouteAttempt(orgId, command.routeAttemptId());
+            if (raceWinner != null) {
+                return replayExisting(command, raceWinner);
+            }
+            throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                    "An effective reservation already exists for this request");
+        }
+        return null;
+    }
+
+    private BudgetReservationMapper.BudgetRow resolveBudget(
+            long orgId, long billingPeriodId, GatewayPrincipal principal, String currency) {
+        var budget = reservationMapper.selectBudgetByIdentity(orgId, billingPeriodId,
+                principal.financialScopeType(), principal.financialScopeId(), currency);
+        if (budget == null && !isOrgScope(principal)) {
+            budget = reservationMapper.selectBudgetByIdentity(orgId, billingPeriodId,
+                    "ORG", orgId, currency);
+        }
+        return budget;
+    }
+
     private static boolean isOrgScope(GatewayPrincipal principal) {
         return "ORG".equals(principal.financialScopeType());
     }
@@ -278,7 +376,12 @@ public class BudgetReservationService {
             AdmissionOutcome outcome,
             long reservationId,
             long budgetId,
-            BigDecimal reservedAmount) {
+            BigDecimal reservedAmount,
+            Instant expiresAt) {
+        public AdmissionResult(AdmissionOutcome outcome, long reservationId, long budgetId,
+                BigDecimal reservedAmount) {
+            this(outcome, reservationId, budgetId, reservedAmount, null);
+        }
     }
 
     public enum AdmissionOutcome {

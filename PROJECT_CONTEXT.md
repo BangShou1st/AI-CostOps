@@ -31,6 +31,7 @@ M22 = CLOSED WITH DEFERRED NON-BLOCKING GATES
 M22_BROWSER_ORGANIZATION_ISOLATION = PASS (2026-10-19 supplementary)
 DEEP_CODE_REVIEW = COMPLETE (2026-11-12, 4 P1 + 22 P2 + 6 P3, all disposed by v3.1.1)
 RUNTIME_VERIFICATION = COMPLETE (2026-11-13, 2 defects fixed by v3.1.2)
+HC04_HOT_BUDGET_CACHE = STAGE_A_COMPLETE / STAGE_B_FAIL_DEFERRED (2026-11-26, stopped at Stage A)
 Known release-blocking defects = NONE
 Known operational limits = conservative 1,048,576 input-token reservation;
                             5s settlement poll; no post-success reservation shrink
@@ -39,6 +40,8 @@ Known operational limits = conservative 1,048,576 input-token reservation;
 V3 是最终功能版本：功能研发已关闭，项目进入长期维护模式；V4 不在路线图内，不再规划或实现 V4，不新增 Provider 或业务功能，维护任务按真实故障与必要性触发。`STABLE_RELEASE = v3.1.2` 是 `main` 上的当前稳定标签，`main` 与 `dev` 保持同一发布内容，`dev` 仅额外包含发布同步记录。
 
 M22 原始记录中的两个 `DEFERRED / NON-BLOCKING` gate 需分开解释：independent browser-context organization-isolation 已由 2026-10-19 补充验收完成并判定 PASS（含后续独立复审发现的模型可见性边界整改），见 [2026-10-19 M22 双组织浏览器隔离补充验收](docs/03-acceptance/maintenance/2026-10/2026-10-19-m22-browser-organization-isolation.md)；real-provider external credential 仍为 `DEFERRED / NON-BLOCKING`，不随浏览器隔离改为 PASS。历史记录 [m22-v3-production-certification.md](docs/03-acceptance/milestones/m22-v3-production-certification.md) 保留其原时间点结论，未改写。
+
+2026-11-26 维护期例外改造 **HC-04 热点预算与多级缓存** 已完成**阶段 A**（Flyway `V34`、冗余计数条件更新、信号量削峰、JDBC 会话参数、两级配置缓存与 ZSET 唤醒/幂等快路径）并通过 WP6 同机 ABAB 压测与财务一致性验收；**阶段 B（热点预算分桶）因 WP7 正确性门禁 FAIL 已停在阶段 A**，详见 [HC-04 设计](docs/02-development/designs/maintenance/2026-11-25-hc04-hot-budget-and-multilevel-cache-design.md) 与 [HC-04 验收包](docs/03-acceptance/maintenance/2026-11/2026-11-26-hc-04-hot-budget-cache/README.md)。
 
 ### 冻结入口
 
@@ -95,9 +98,12 @@ available
 = total
 - actual
 - outstanding commitments
+
+budget.reserved_amount = SUM(budget_reservation.reserved_amount WHERE status IN ('ACTIVE', 'PENDING_HOLD'))
+同一预占至多扣减一次（version + status CAS）；Gateway 仅通过列级授权写 budget.(reserved_amount, updated_at, version)，禁止写 actual/committed/total
 ```
 
-已发生的 Provider Cost 不因为预算不足而丢弃。
+已发生的 Provider Cost 不因为预算不足而丢弃。入口契约与改造证明见 [AIC-087](docs/02-development/designs/v2/04-budget-redis-atomicity.md) 与 [HC-04 设计 §4.4](docs/02-development/designs/maintenance/2026-11-25-hc04-hot-budget-and-multilevel-cache-design.md#44-评估结论)。
 
 Ledger：
 

@@ -93,6 +93,7 @@ public final class M2DatabaseCleaner {
         jdbc.update("DELETE FROM gateway_credential_model");
         jdbc.update("DELETE FROM gateway_credential");
         jdbc.update("DELETE FROM advisor_profile");
+        jdbc.update("UPDATE provider_credential SET predecessor_credential_id=NULL");
         jdbc.update("DELETE FROM provider_credential");
         jdbc.update("DELETE FROM pricing_rate");
         jdbc.update("DELETE FROM pricing_version");

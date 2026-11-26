@@ -36,6 +36,8 @@ public class GatewayProperties implements InitializingBean {
     private long reservationTtlMs = 900000;
     private long reservationRecoveryIntervalMs = 60000;
     private int reservationRecoveryBatchSize = 100;
+    private int budgetSemaphorePermits = 2;
+    private long budgetSemaphoreTimeoutMs = 2000;
     private int circuitFailureThreshold = 5;
     private long circuitOpenDurationMs = 30000;
     private long circuitHalfOpenLeaseMs = 15000;
@@ -61,6 +63,8 @@ public class GatewayProperties implements InitializingBean {
         requirePositive("reservationTtlMs", reservationTtlMs);
         requirePositive("reservationRecoveryIntervalMs", reservationRecoveryIntervalMs);
         requirePositive("reservationRecoveryBatchSize", reservationRecoveryBatchSize);
+        requirePositive("budgetSemaphorePermits", budgetSemaphorePermits);
+        requirePositive("budgetSemaphoreTimeoutMs", budgetSemaphoreTimeoutMs);
         requirePositive("circuitFailureThreshold", circuitFailureThreshold);
         requirePositive("circuitOpenDurationMs", circuitOpenDurationMs);
         requirePositive("circuitHalfOpenLeaseMs", circuitHalfOpenLeaseMs);
@@ -276,6 +280,22 @@ public class GatewayProperties implements InitializingBean {
 
     public void setReservationRecoveryBatchSize(int reservationRecoveryBatchSize) {
         this.reservationRecoveryBatchSize = reservationRecoveryBatchSize;
+    }
+
+    public int getBudgetSemaphorePermits() {
+        return budgetSemaphorePermits;
+    }
+
+    public void setBudgetSemaphorePermits(int budgetSemaphorePermits) {
+        this.budgetSemaphorePermits = budgetSemaphorePermits;
+    }
+
+    public long getBudgetSemaphoreTimeoutMs() {
+        return budgetSemaphoreTimeoutMs;
+    }
+
+    public void setBudgetSemaphoreTimeoutMs(long budgetSemaphoreTimeoutMs) {
+        this.budgetSemaphoreTimeoutMs = budgetSemaphoreTimeoutMs;
     }
 
     public int getCircuitFailureThreshold() { return circuitFailureThreshold; }

@@ -100,6 +100,72 @@ public interface RoutingPolicyMapper {
             @Param("providerModelId") long providerModelId,
             @Param("now") Instant now);
 
+    @Select("""
+            SELECT id, version, project_id, model_id
+            FROM routing_policy
+            WHERE org_id=#{orgId} AND model_id=#{modelId} AND status='ACTIVE'
+            ORDER BY project_id IS NULL ASC, id ASC
+            """)
+    List<PolicyRow> findActivePoliciesForModel(
+            @Param("orgId") long orgId,
+            @Param("modelId") long modelId);
+
+    @Select("""
+            SELECT rpc.id, rpc.routing_policy_id, rpc.priority,
+                   rpc.provider_account_id,
+                   pa.provider_code,
+                   rpc.provider_model_id,
+                   pm.model_id AS provider_model_logical_model_id,
+                   pm.provider_code AS provider_model_provider_code,
+                   pm.provider_model_name,
+                   pcp.id AS provider_connection_profile_id,
+                   pcp.base_url,
+                   pcp.completion_path,
+                   pcp.protocol_code,
+                   pcp.network_policy,
+                   pc.adapter_code,
+                   ((pa.status='ACTIVE' AND EXISTS(SELECT 1 FROM provider_credential pcred
+                          WHERE pcred.org_id=rpc.org_id
+                            AND pcred.provider_account_id=rpc.provider_account_id
+                            AND pcred.status='ACTIVE'))
+                     OR pcp.auth_type='NONE') AS credential_ready,
+                   (pm.owner_org_id IS NULL
+                     OR (pm.owner_org_id=rpc.org_id
+                         AND pm.provider_account_id=rpc.provider_account_id)) AS provider_model_pair_valid,
+                   (pm.status='ACTIVE' AND COALESCE(pm.routing_eligible,FALSE)) AS routing_eligible,
+                   JSON_CONTAINS(pm.capabilities_json, JSON_QUOTE('CHAT_COMPLETIONS'), '$.capabilities') AS chat_capable,
+                   JSON_CONTAINS(pm.capabilities_json, JSON_QUOTE('SSE_STREAMING'), '$.capabilities') AS stream_capable
+            FROM routing_policy rp
+            JOIN routing_policy_candidate rpc
+              ON rpc.routing_policy_id=rp.id AND rpc.org_id=rp.org_id AND rpc.status='ACTIVE'
+            LEFT JOIN provider_account pa
+              ON pa.id=rpc.provider_account_id AND pa.org_id=rpc.org_id
+            LEFT JOIN provider_model pm
+              ON pm.id=rpc.provider_model_id
+            LEFT JOIN provider_catalog pc
+              ON pc.provider_code=pa.provider_code AND pc.status='ACTIVE'
+            INNER JOIN provider_connection_profile pcp
+              ON pcp.provider_account_id=rpc.provider_account_id
+             AND pcp.org_id=rpc.org_id AND pcp.status='ACTIVE'
+            WHERE rp.org_id=#{orgId} AND rp.model_id=#{modelId} AND rp.status='ACTIVE'
+            ORDER BY rp.id ASC, rpc.priority ASC, rpc.id ASC
+            """)
+    List<ModelCandidateRow> findActiveCandidatesForModel(
+            @Param("orgId") long orgId,
+            @Param("modelId") long modelId);
+
+    @Select("""
+            SELECT pv.id AS pricing_version_id, pv.provider_account_id, pv.provider_model_id,
+                   pv.currency, pv.effective_from, pv.effective_to
+            FROM pricing_version pv
+            JOIN provider_model pm ON pm.id = pv.provider_model_id
+            WHERE pv.org_id=#{orgId} AND pm.model_id=#{modelId} AND pv.status='ACTIVE'
+            ORDER BY pv.effective_from DESC, pv.id DESC
+            """)
+    List<PricingWindowRow> findActivePricingWindowsForModel(
+            @Param("orgId") long orgId,
+            @Param("modelId") long modelId);
+
     record PolicyRow(long id, int version, Long projectId, long modelId) {
     }
 
@@ -110,6 +176,19 @@ public interface RoutingPolicyMapper {
             String protocolCode, String networkPolicy, String adapterCode,
             boolean credentialReady, boolean providerModelPairValid, boolean routingEligible,
             boolean chatCapable, boolean streamCapable) {
+    }
+
+    record ModelCandidateRow(long id, long routingPolicyId, int priority, Long providerAccountId,
+            String providerCode, Long providerModelId, Long providerModelLogicalModelId,
+            String providerModelProviderCode, String providerModelName,
+            Long providerConnectionProfileId, String baseUrl, String completionPath,
+            String protocolCode, String networkPolicy, String adapterCode,
+            boolean credentialReady, boolean providerModelPairValid, boolean routingEligible,
+            boolean chatCapable, boolean streamCapable) {
+    }
+
+    record PricingWindowRow(long pricingVersionId, long providerAccountId, long providerModelId,
+            String currency, Instant effectiveFrom, Instant effectiveTo) {
     }
 
     record CandidatePricingRow(Long pricingVersionId, String currency) {

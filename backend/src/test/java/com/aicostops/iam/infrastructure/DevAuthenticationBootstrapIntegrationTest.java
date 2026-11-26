@@ -2,9 +2,12 @@ package com.aicostops.iam.infrastructure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -20,6 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
 })
 @ActiveProfiles("dev")
 @Tag("integration")
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class DevAuthenticationBootstrapIntegrationTest extends MySqlContainerSupport {
 
     @Autowired
@@ -27,6 +31,11 @@ class DevAuthenticationBootstrapIntegrationTest extends MySqlContainerSupport {
 
     @Autowired
     private ApplicationContext applicationContext;
+
+    @AfterAll
+    void tearDownClass() {
+        M2DatabaseCleaner.clean(jdbcTemplate);
+    }
 
     @Test
     void devProfileCreatesTheLocalDevelopmentOrganizationIdempotently() throws Exception {

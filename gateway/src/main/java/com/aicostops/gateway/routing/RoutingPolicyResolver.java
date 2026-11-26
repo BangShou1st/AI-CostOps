@@ -1,18 +1,35 @@
 package com.aicostops.gateway.routing;
 
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import java.time.Instant;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class RoutingPolicyResolver {
 
     private final RoutingPolicyMapper mapper;
+    private final GatewayConfigCache configCache;
 
     public RoutingPolicyResolver(RoutingPolicyMapper mapper) {
+        this(mapper, null);
+    }
+
+    @Autowired
+    public RoutingPolicyResolver(RoutingPolicyMapper mapper, GatewayConfigCache configCache) {
         this.mapper = mapper;
+        this.configCache = configCache;
     }
 
     public ResolvedRoutingPolicy resolve(long orgId, long projectId, long logicalModelId, Instant now) {
+        if (configCache != null) {
+            var routeConfig = configCache.getRouteConfig(orgId, logicalModelId);
+            var resolved = routeConfig == null ? null : routeConfig.resolvePolicy(projectId, now);
+            if (resolved == null) {
+                throw new IllegalStateException("No active routing policy is available");
+            }
+            return resolved;
+        }
         var exact = mapper.findActiveExact(orgId, projectId, logicalModelId);
         // A present exact project policy wins even if its candidate set is empty.
         // Falling back in that case would silently bypass an administrator's
@@ -32,6 +49,16 @@ public class RoutingPolicyResolver {
     /** Re-resolves only the mutable pricing projection for a frozen candidate. */
     public ResolvedRoutingPolicy.Candidate refreshPricing(long orgId,
             ResolvedRoutingPolicy.Candidate candidate, Instant now) {
+        if (configCache != null && candidate.providerModelLogicalModelId() > 0) {
+            var routeConfig = configCache.getRouteConfig(orgId, candidate.providerModelLogicalModelId());
+            if (routeConfig != null) {
+                var pricing = routeConfig.findActivePricing(
+                        candidate.providerAccountId(), candidate.providerModelId(), now);
+                return pricing == null
+                        ? candidate.withPricing(null, null)
+                        : candidate.withPricing(pricing.pricingVersionId(), pricing.currency());
+            }
+        }
         var pricing = mapper.findCurrentPricing(orgId, candidate.providerAccountId(),
                 candidate.providerModelId(), now);
         return pricing == null

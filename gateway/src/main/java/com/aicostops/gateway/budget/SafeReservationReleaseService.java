@@ -13,12 +13,15 @@ public class SafeReservationReleaseService {
     private final GatewayRequestMapper requestMapper;
     private final BudgetReservationMapper reservationMapper;
     private final TransactionTemplate transactions;
+    private final ReservationDelayQueue delayQueue;
 
     public SafeReservationReleaseService(GatewayRequestMapper requestMapper,
-            BudgetReservationMapper reservationMapper, PlatformTransactionManager manager) {
+            BudgetReservationMapper reservationMapper, PlatformTransactionManager manager,
+            ReservationDelayQueue delayQueue) {
         this.requestMapper = requestMapper;
         this.reservationMapper = reservationMapper;
         this.transactions = new TransactionTemplate(manager);
+        this.delayQueue = delayQueue;
     }
 
     public ReleaseResult releaseForSafeAttempt(long orgId, long requestId, long attemptId, long billingPeriodId) {
@@ -44,9 +47,21 @@ public class SafeReservationReleaseService {
             if (reservationMapper.releaseActiveReservation(reservation.id(), orgId, reservation.version()) != 1) {
                 return new ReleaseResult(ReleaseStatus.SKIPPED, reservation.id());
             }
+            if (reservationMapper.releaseReservedBudgetAmount(
+                    orgId, reservation.budgetId(), reservation.reservedAmount()) != 1) {
+                throw new IllegalStateException(
+                        "Failed to decrement budget reserved_amount on safe release for budget "
+                                + reservation.budgetId());
+            }
             return new ReleaseResult(ReleaseStatus.RELEASED, reservation.id());
         });
-        return result == null ? new ReleaseResult(ReleaseStatus.SKIPPED, -1L) : result;
+        if (result == null) {
+            return new ReleaseResult(ReleaseStatus.SKIPPED, -1L);
+        }
+        if (result.reservationId() > 0 && result.status() != ReleaseStatus.SKIPPED) {
+            delayQueue.remove(result.reservationId());
+        }
+        return result;
     }
 
     public enum ReleaseStatus { RELEASED, NONE, PENDING_HOLD, SKIPPED }

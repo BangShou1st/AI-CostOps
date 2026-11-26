@@ -1,19 +1,26 @@
 package com.aicostops.gateway.provider;
 
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.config.GatewayProperties;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
+import java.util.Arrays;
 import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
  * Decrypts Provider credentials at the narrow Provider call boundary using
  * the same versioned AES-256-GCM + AAD contract as the Control Plane
  * encryptor ({@code aicostops:v2:provider-credential:v1}).
+ *
+ * <p>Decrypted credentials may be cached ONLY in process-local Caffeine memory
+ * (never in Redis, never logged), and callers always receive a defensive copy
+ * of {@code byte[] secret}.
  */
 @Component
 public class ProviderCredentialDecryptor {
@@ -24,9 +31,19 @@ public class ProviderCredentialDecryptor {
 
     private final GatewayReadMapper readMapper;
     private final byte[] kek;
+    private final GatewayConfigCache configCache;
 
     public ProviderCredentialDecryptor(GatewayReadMapper readMapper, GatewayProperties properties) {
+        this(readMapper, properties, null);
+    }
+
+    @Autowired
+    public ProviderCredentialDecryptor(
+            GatewayReadMapper readMapper,
+            GatewayProperties properties,
+            GatewayConfigCache configCache) {
         this.readMapper = readMapper;
+        this.configCache = configCache;
         var base64 = properties.getProviderKekV1() == null ? "" : properties.getProviderKekV1().trim();
         byte[] decoded;
         try {
@@ -41,6 +58,17 @@ public class ProviderCredentialDecryptor {
     }
 
     public DecryptedCredential decrypt(long orgId, long providerAccountId) {
+        if (configCache != null) {
+            return configCache.getOrLoadProviderCredentialLocalOnly(
+                    orgId, providerAccountId, () -> decryptFromDb(orgId, providerAccountId));
+        }
+        var decrypted = decryptFromDb(orgId, providerAccountId);
+        return new DecryptedCredential(
+                decrypted.credentialType(),
+                decrypted.secret() == null ? null : Arrays.copyOf(decrypted.secret(), decrypted.secret().length));
+    }
+
+    private DecryptedCredential decryptFromDb(long orgId, long providerAccountId) {
         var row = readMapper.findActiveProviderCredential(orgId, providerAccountId);
         if (row == null) {
             throw new IllegalStateException("No ACTIVE Provider credential for account " + providerAccountId);

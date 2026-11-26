@@ -88,6 +88,23 @@ class GatewayPropertiesTest {
         assertThatCode(properties::validate).doesNotThrowAnyException();
     }
 
+    @Test
+    void rejectsNonPositiveReservationRecoveryBatchSize() {
+        assertRejects(p -> p.setReservationRecoveryBatchSize(0), "reservationRecoveryBatchSize");
+    }
+
+    @Test
+    void rejectsNonPositiveBudgetSemaphorePermits() {
+        assertRejects(p -> p.setBudgetSemaphorePermits(0), "budgetSemaphorePermits");
+        assertRejects(p -> p.setBudgetSemaphorePermits(-2), "budgetSemaphorePermits");
+    }
+
+    @Test
+    void rejectsNonPositiveBudgetSemaphoreTimeoutMs() {
+        assertRejects(p -> p.setBudgetSemaphoreTimeoutMs(0), "budgetSemaphoreTimeoutMs");
+        assertRejects(p -> p.setBudgetSemaphoreTimeoutMs(-100), "budgetSemaphoreTimeoutMs");
+    }
+
     private static void assertRejects(java.util.function.Consumer<GatewayProperties> mutate, String field) {
         var properties = new GatewayProperties();
         mutate.accept(properties);

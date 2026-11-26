@@ -37,7 +37,7 @@ class GatewayM12ReservationSchemaIntegrationTest extends MySqlContainerSupport {
     void emptyDatabaseMigratesThroughV23AndV1TablesRemainUsable() {
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE success = 1",
-                Integer.class)).isEqualTo(33);
+                Integer.class)).isEqualTo(34);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '20' AND success = 1",
                 Integer.class)).isEqualTo(1);
@@ -51,6 +51,9 @@ class GatewayM12ReservationSchemaIntegrationTest extends MySqlContainerSupport {
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '33' AND success = 1",
                 Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '34' AND success = 1",
+                Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM flyway_schema_history WHERE version = '21' AND success = 1",
                 Integer.class)).isEqualTo(1);
         assertThat(jdbc.queryForObject(
@@ -60,6 +63,10 @@ class GatewayM12ReservationSchemaIntegrationTest extends MySqlContainerSupport {
         assertThat(queryTables()).contains("budget_reservation", "gateway_settlement");
         assertThat(queryTables())
                 .contains("routing_policy", "routing_policy_candidate");
+        assertThat(columnType("budget", "reserved_amount")).isEqualTo("decimal(20,8)");
+        assertThat(checkConstraintClause("chk_budget_reserved_nonneg"))
+                .contains("reserved_amount")
+                .contains(">=");
     }
 
     @Test

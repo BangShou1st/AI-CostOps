@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,6 +23,16 @@ class M5LedgerSchemaIntegrationTest extends MySqlContainerSupport {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @BeforeEach
+    void setUp() {
+        M2DatabaseCleaner.clean(jdbc);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
+    }
 
     @Test
     void v13CreatesImmutableLedgerAndCompletesCommitmentLineage() {

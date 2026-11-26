@@ -85,4 +85,7 @@ public interface ProviderConnectionMapper {
 
     @Update("UPDATE provider_connection_profile SET status='ACTIVE',activated_at=#{now} WHERE id=#{id} AND org_id=#{organizationId} AND status='DRAFT'")
     int activateDraft(@Param("id") long id, @Param("organizationId") long organizationId, @Param("now") Instant now);
+
+    @Select("SELECT DISTINCT model_id FROM routing_policy WHERE org_id=#{organizationId}")
+    List<Long> findRoutingPolicyModelIds(@Param("organizationId") long organizationId);
 }

@@ -25,6 +25,8 @@ public interface LedgerBudgetPort {
 
     void incrementActual(long organizationId, long budgetId, BigDecimal signedAmount, Instant now);
 
+    void decrementReserved(long organizationId, long budgetId, BigDecimal amount, Instant now);
+
     record EntryScopeAmount(int entryIndex, ScopeType scopeType, long scopeId, String currency) {
     }
 

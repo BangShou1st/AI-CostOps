@@ -38,6 +38,7 @@ M22 原始关闭记录中的两个 gate 当时均为 `DEFERRED / NON-BLOCKING`�
 
 ## 2026-11 维护验收
 
+- **HC-04 热点预算和多级缓存（2026-11-26）**：同机 A/B、Redis 故障、结算一致性和分桶正确性门禁，附逐轮数据。[HC-04 验收](maintenance/2026-11/2026-11-26-hc-04-hot-budget-cache/README.md)
 - **Issue #214 维护清理（2026-11-18）**：移除未使用实现与测试捷径，修复 Gateway Redis 降级半开租期及脚本 Compose JSON / 构建产物清理行为；统一前端 ACTIVE 目录分页与取消请求，并收敛 CI 重复准入；财务语义、Schema 和外部 API 不变：[验收记录](maintenance/2026-11/2026-11-18-issue-214-maintenance-cleanup.md)
 - **账单导入批量持久化（2026-11-17）**：raw/issue/canonical facts 改为有界多行插入，OpenAI JSON 源流读取 3→2；10k 单 Worker 三次 worker 中位数 4,304.778 rows/s，历史基线区间 289–343 rows/s，正确性断言全绿：[性能验收](maintenance/2026-11/2026-11-17-import-batching-benchmark.md)
 - **Gateway 连接期 DNS 防护（2026-11-17）**：`ai-model-bridge v0.2.1` 使用 Apache HttpClient 5 连接期 `DnsResolver`，DNS 从公网翻转为私网时在建连前拒绝；GitHub tag、JitPack core/starter/server 构建、干净 Maven 解析与 Gateway 定向回归 PASS，CI 待确认：[验收](maintenance/2026-11/2026-11-17-gateway-bridge-dns-pinning.md)

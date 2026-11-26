@@ -218,6 +218,7 @@ public interface HybridReconciliationMapper {
                    gs.status AS settlement_status,
                    pv.currency AS currency,
                    br.id AS reservation_id,
+                   br.budget_id AS reservation_budget_id,
                    br.status AS reservation_status,
                    br.version AS reservation_version,
                    br.commitment_id AS reservation_commitment_id
@@ -375,6 +376,7 @@ public interface HybridReconciliationMapper {
             String settlementStatus,
             String currency,
             Long reservationId,
+            Long reservationBudgetId,
             String reservationStatus,
             Long reservationVersion,
             Long reservationCommitmentId) {

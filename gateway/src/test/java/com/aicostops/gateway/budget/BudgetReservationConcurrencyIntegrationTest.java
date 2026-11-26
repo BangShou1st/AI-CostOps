@@ -32,7 +32,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * reservation; the same idempotency identity yields one request, one attempt,
  * one effective hold.
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.datasource.hikari.maximum-pool-size=12")
 @Tag("integration")
 class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerSupport {
 
@@ -40,6 +40,12 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
 
     @Autowired
     private BudgetReservationService reservationService;
+
+    @Autowired
+    private SafeReservationReleaseService safeReleaseService;
+
+    @Autowired
+    private ReservationRecoveryService recoveryService;
 
     @Autowired
     private BudgetReservationMapper reservationMapper;
@@ -218,6 +224,148 @@ class BudgetReservationConcurrencyIntegrationTest extends GatewayMySqlContainerS
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM gateway_request WHERE org_id=?",
                 Integer.class, env.orgId())).isOne();
+        assertBudgetReservedMatchesHolds(env);
+    }
+
+    @Test
+    void twoHundredConcurrentAdmissionsNeverExceedCapacityAndKeepReservedSynced() throws Exception {
+        var env = GatewayTestFixture.seed(jdbc, "conc-200", HMAC_KEY, rawKey());
+        jdbc.update("UPDATE budget SET total_amount='200.00000000' WHERE id=?", env.budgetId());
+        int contenders = 200;
+        var ids = new ArrayList<RequestIds>(contenders);
+        for (int i = 0; i < contenders; i++) {
+            ids.add(insertValidatedRequest(env, "conc-200-" + i));
+        }
+
+        var pool = Executors.newFixedThreadPool(64);
+        var latch = new CountDownLatch(1);
+        var reserved = new AtomicInteger();
+        var rejected = new AtomicInteger();
+        var tasks = new ArrayList<Future<?>>(contenders);
+        try {
+            for (var id : ids) {
+                tasks.add(pool.submit(() -> {
+                    latch.await();
+                    // 8192 output tokens -> 31.94880000 per hold; max 6 fit in 200.00 (191.69280000).
+                    var outcome = reservationService.admit(new AdmissionCommand(required(env),
+                            id.requestId(), id.attemptId(), env.periodId(),
+                            env.pricingVersionId(), "USD", 8192L, -1L)).block().outcome();
+                    if (outcome == AdmissionOutcome.RESERVED) {
+                        reserved.incrementAndGet();
+                    } else if (outcome == AdmissionOutcome.REJECTED_BUDGET) {
+                        rejected.incrementAndGet();
+                    }
+                    return null;
+                }));
+            }
+            latch.countDown();
+            for (var task : tasks) {
+                task.get();
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(reserved.get()).isEqualTo(6);
+        assertThat(rejected.get()).isEqualTo(194);
+        assertThat(sumHolds(env)).isEqualByComparingTo("191.69280000");
+        assertBudgetReservedMatchesHolds(env);
+    }
+
+    @Test
+    void concurrentAdmissionSafeReleaseAndRecoveryMaintainReservedAmountInvariant() throws Exception {
+        var env = GatewayTestFixture.seed(jdbc, "conc-rel-rec", HMAC_KEY, rawKey());
+        jdbc.update("UPDATE budget SET total_amount='500.00000000' WHERE id=?", env.budgetId());
+
+        // Seed 4 pre-existing ACTIVE holds: 2 marked SAFE for release, 2 expired for recovery.
+        var safeIds = new ArrayList<RequestIds>();
+        var expiredIds = new ArrayList<RequestIds>();
+        for (int i = 0; i < 2; i++) {
+            var s = insertValidatedRequest(env, "conc-safe-" + i);
+            var sAdmit = reservationService.admit(new AdmissionCommand(required(env),
+                    s.requestId(), s.attemptId(), env.periodId(), env.pricingVersionId(),
+                    "USD", 8192L, -1L)).block();
+            requestMapper.markAttemptSafe(s.attemptId(), env.orgId(), "DNS_PRE_CONNECT");
+            assertThat(sAdmit.outcome()).isEqualTo(AdmissionOutcome.RESERVED);
+            safeIds.add(s);
+
+            var e = insertValidatedRequest(env, "conc-exp-" + i);
+            var eAdmit = reservationService.admit(new AdmissionCommand(required(env),
+                    e.requestId(), e.attemptId(), env.periodId(), env.pricingVersionId(),
+                    "USD", 8192L, -1L)).block();
+            jdbc.update("""
+                    UPDATE budget_reservation
+                    SET expires_at=DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND)
+                    WHERE id=?
+                    """, eAdmit.reservationId());
+            expiredIds.add(e);
+        }
+
+        int admitCount = 6;
+        var admitIds = new ArrayList<RequestIds>(admitCount);
+        for (int i = 0; i < admitCount; i++) {
+            admitIds.add(insertValidatedRequest(env, "conc-new-" + i));
+        }
+
+        var pool = Executors.newFixedThreadPool(10);
+        var latch = new CountDownLatch(1);
+        var futures = new ArrayList<Future<?>>();
+        try {
+            for (var id : admitIds) {
+                futures.add(pool.submit(() -> {
+                    latch.await();
+                    reservationService.admit(new AdmissionCommand(required(env),
+                            id.requestId(), id.attemptId(), env.periodId(),
+                            env.pricingVersionId(), "USD", 8192L, -1L)).block();
+                    return null;
+                }));
+            }
+            for (var s : safeIds) {
+                // Race two release calls for the same reservation to prove single decrement.
+                for (int copy = 0; copy < 2; copy++) {
+                    futures.add(pool.submit(() -> {
+                        latch.await();
+                        safeReleaseService.releaseForSafeAttempt(
+                                env.orgId(), s.requestId(), s.attemptId(), env.periodId());
+                        return null;
+                    }));
+                }
+            }
+            futures.add(pool.submit(() -> {
+                latch.await();
+                recoveryService.recoverExpiredBlocking();
+                return null;
+            }));
+            latch.countDown();
+            for (var f : futures) {
+                f.get();
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        // Repeat recovery once more: already-released holds must never double-decrement.
+        recoveryService.recoverExpiredBlocking();
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM budget_reservation WHERE org_id=? AND status='ACTIVE'",
+                Integer.class, env.orgId())).isEqualTo(admitCount);
+        for (var expired : expiredIds) {
+            assertThat(jdbc.queryForObject(
+                    "SELECT status FROM budget_reservation WHERE org_id=? AND request_id=?",
+                    String.class, env.orgId(), expired.requestId())).isEqualTo("RELEASED");
+            assertThat(jdbc.queryForObject(
+                    "SELECT state FROM gateway_request WHERE org_id=? AND id=?",
+                    String.class, env.orgId(), expired.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+        }
+        assertBudgetReservedMatchesHolds(env);
+    }
+
+    private void assertBudgetReservedMatchesHolds(SeededEnv env) {
+        var budgetReserved = jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, env.budgetId());
+        assertThat(budgetReserved).isEqualByComparingTo(sumHolds(env));
     }
 
     private record RaceOutcome(int reserved, int rejected) {

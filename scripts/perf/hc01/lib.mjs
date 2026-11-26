@@ -13,7 +13,9 @@ import http from 'node:http'
 import os from 'node:os'
 
 export const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
-export const HC01_DIR = join(ROOT, '.local-dev', 'hc01')
+export const HC01_DIR = process.env.HC01_WORK_DIR
+  ? join(ROOT, '.local-dev', process.env.HC01_WORK_DIR)
+  : join(ROOT, '.local-dev', 'hc01')
 export const LOG_DIR = join(HC01_DIR, 'logs')
 export const RAW_DIR = join(HC01_DIR, 'raw')
 export const PID_DIR = join(HC01_DIR, 'pids')
@@ -22,6 +24,7 @@ export const DB_NAME = process.env.HC01_DB ?? 'aicostops_hc01'
 export const GATEWAY_DB_USER = 'gw_hc01'
 export const PROVIDER_CODE = 'HC01MOCK'
 export const MODEL_KEY = 'hc01-chat'
+const launchedProcesses = new Map()
 
 export function ensureDirs() {
   for (const dir of [HC01_DIR, LOG_DIR, RAW_DIR, PID_DIR]) mkdirSync(dir, { recursive: true })
@@ -45,23 +48,23 @@ export function config() {
   return {
     dotenv,
     mysqlHost: pick('HC01_MYSQL_HOST', '127.0.0.1'),
-    mysqlPort: Number(pick('MYSQL_PORT', '3307')),
-    mysqlRootPassword: dotenv.MYSQL_ROOT_PASSWORD,
-    mysqlUser: dotenv.MYSQL_USER,
-    mysqlPassword: dotenv.MYSQL_PASSWORD,
+    mysqlPort: Number(pick('HC01_MYSQL_PORT', pick('MYSQL_PORT', '3307'))),
+    mysqlRootPassword: pick('MYSQL_ROOT_PASSWORD'),
+    mysqlUser: pick('MYSQL_USER'),
+    mysqlPassword: pick('MYSQL_PASSWORD'),
     redisHost: pick('HC01_REDIS_HOST', '127.0.0.1'),
     redisPort: Number(pick('HC01_REDIS_PORT', '16379')),
     redisPassword: pick('HC01_REDIS_PASSWORD', ''),
     redisContainer: pick('HC01_REDIS_CONTAINER', 'ai-costops-hc01-redis'),
     mysqlContainer: pick('HC01_MYSQL_CONTAINER', 'ai-costops-mysql-1'),
-    jwtSigningKey: dotenv.AICOSTOPS_JWT_SIGNING_KEY,
-    storageAccessKey: dotenv.MINIO_ROOT_USER,
-    storageSecretKey: dotenv.MINIO_ROOT_PASSWORD,
-    storageBucket: dotenv.MINIO_BUCKET,
-    minioPort: Number(dotenv.MINIO_API_PORT ?? '9000'),
-    credentialHmacKey: dotenv.AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1,
-    requestHmacKey: dotenv.AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1,
-    providerKek: dotenv.AICOSTOPS_PROVIDER_KEK_V1,
+    jwtSigningKey: pick('AICOSTOPS_JWT_SIGNING_KEY'),
+    storageAccessKey: pick('MINIO_ROOT_USER'),
+    storageSecretKey: pick('MINIO_ROOT_PASSWORD'),
+    storageBucket: pick('MINIO_BUCKET'),
+    minioPort: Number(pick('MINIO_API_PORT', '9000')),
+    credentialHmacKey: pick('AICOSTOPS_GATEWAY_CREDENTIAL_HMAC_KEY_V1'),
+    requestHmacKey: pick('AICOSTOPS_GATEWAY_REQUEST_HMAC_KEY_V1'),
+    providerKek: pick('AICOSTOPS_PROVIDER_KEK_V1'),
     backendPort: Number(pick('HC01_BACKEND_PORT', '18080')),
     gatewayPort: Number(pick('HC01_GATEWAY_PORT', '18081')),
     gatewayPort2: Number(pick('HC01_GATEWAY_PORT_2', '18082')),
@@ -93,12 +96,26 @@ export function mysqlBinary() {
 
 export function mysql(sql, options = {}) {
   const cfg = options.config ?? config()
+  const database = Object.hasOwn(options, 'database') ? options.database : DB_NAME
+  const socketContainer = process.env.HC01_MYSQL_SOCKET_CONTAINER
+  if (socketContainer && !options.user) {
+    if (socketContainer !== cfg.mysqlContainer) throw new Error('MySQL socket container does not match the configured server')
+    const result = spawnSync('docker', [
+      'exec', '-i', socketContainer, 'sh', '-c',
+      'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -u root --default-character-set=utf8mb4 -N -B "$@"',
+      'mysql', ...(database ? [database] : []),
+    ], {
+      cwd: ROOT, encoding: 'utf8', input: sql, windowsHide: true, timeout: options.timeout ?? 120_000,
+    })
+    if (result.error) throw result.error
+    if (result.status !== 0) throw new Error(`mysql socket failed (${result.status}): ${result.stderr || result.stdout}`)
+    return { stdout: (result.stdout ?? '').trim(), stderr: (result.stderr ?? '').trim() }
+  }
   const args = [
     '-h', cfg.mysqlHost, '-P', String(cfg.mysqlPort),
     '-u', options.user ?? 'root',
     '--default-character-set=utf8mb4', '-N', '-B',
   ]
-  const database = Object.hasOwn(options, 'database') ? options.database : DB_NAME
   if (database) args.push(database)
   args.push('-e', sql)
   const result = spawnSync(mysqlBinary(), args, {
@@ -338,7 +355,10 @@ export function startProcess(name, command, args, options = {}) {
   })
   child.stdout.pipe(out, { end: false })
   child.stderr.pipe(out, { end: false })
-  if (child.pid) writeFileSync(pidFile(name), String(child.pid), 'utf8')
+  if (child.pid) {
+    launchedProcesses.set(name, child)
+    writeFileSync(pidFile(name), String(child.pid), 'utf8')
+  }
   child.on('exit', code => {
     out.write(`===== ${nowIso()} exit ${code} =====\n`)
     out.end()
@@ -346,13 +366,27 @@ export function startProcess(name, command, args, options = {}) {
   return { child, logPath }
 }
 
-export async function stopProcess(name, timeoutMs = 20_000) {
+export async function stopProcess(name, timeoutMs = 20_000, { verifyChild = false } = {}) {
   const file = pidFile(name)
   if (!existsSync(file)) return
   const pid = Number(readFileSync(file, 'utf8').trim())
   if (!Number.isFinite(pid) || pid <= 0) {
     unlinkSync(file)
     return
+  }
+  if (verifyChild) {
+    const child = launchedProcesses.get(name)
+    if (child?.pid !== pid) {
+      if (isProcessRunning(pid)) {
+        throw new Error(`Refusing to stop ${name}: PID ${pid} was not launched by this runner`)
+      }
+      unlinkSync(file)
+      return
+    }
+    if (child.exitCode !== null || child.signalCode !== null) {
+      unlinkSync(file)
+      return
+    }
   }
   if (process.platform === 'win32') {
     spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
@@ -367,6 +401,7 @@ export async function stopProcess(name, timeoutMs = 20_000) {
     }
   }
   if (existsSync(file)) unlinkSync(file)
+  launchedProcesses.delete(name)
 }
 
 export function capture(command, args, options = {}) {

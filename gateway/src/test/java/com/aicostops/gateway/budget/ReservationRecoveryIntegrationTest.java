@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aicostops.gateway.auth.GatewayPrincipal;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionCommand;
+import com.aicostops.gateway.config.BlockingIoScheduler;
+import com.aicostops.gateway.metering.GatewayUsageFinalizationService;
+import com.aicostops.gateway.metering.GatewayUsageObservation;
 import com.aicostops.gateway.persistence.BudgetReservationMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import com.aicostops.gateway.request.DispatchFenceService;
@@ -13,11 +16,18 @@ import com.aicostops.gateway.testsupport.GatewayMySqlContainerSupport;
 import com.aicostops.gateway.testsupport.GatewayTestFixture;
 import com.aicostops.gateway.testsupport.GatewayTestFixture.SeededEnv;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
+import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -28,10 +38,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * PENDING_HOLD and keeps holding money. Post-dispatch evidence is never
  * released. Recovery vs fence never yields DISPATCH_INTENT + RELEASED.
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.data.redis.timeout=200ms")
 @Tag("integration")
 class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
 
+    private static final String EXPIRY_KEY = "aicostops:v2:gateway:reservation-expiry";
     private static final String HMAC_KEY = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=";
 
     @Autowired
@@ -61,6 +72,18 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @Autowired
+    private ReservationDelayQueue delayQueue;
+
+    @Autowired
+    private StringRedisTemplate redis;
+
+    @Autowired
+    private BlockingIoScheduler blockingIo;
+
+    @Autowired
+    private GatewayUsageFinalizationService finalization;
+
     @AfterEach
     void clean() {
         GatewayTestFixture.clean(jdbc);
@@ -78,6 +101,114 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
 
         assertThat(reservationStatus(admission.reservationId())).isEqualTo("RELEASED");
         assertThat(requestState(ids.requestId())).isEqualTo("FAILED_PRE_DISPATCH");
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0.00000000");
+
+        // Second recovery pass must be a no-op and never double-decrement.
+        recoveryService.recoverExpiredBlocking();
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0.00000000");
+    }
+
+    @Test
+    void twoPollersRecoverDueHoldWithinTwoSeconds() throws Exception {
+        var env = GatewayTestFixture.seed(jdbc, "rec-queue", HMAC_KEY, rawKey());
+        var ids = insertValidatedRequest(env, "rec-queue-key");
+        var admission = reservationService.admit(admissionCommand(
+                required(env), env, ids.requestId(), ids.attemptId())).block();
+        long id = admission.reservationId();
+        assertThat(redis.opsForZSet().score(EXPIRY_KEY, Long.toString(id)))
+                .isEqualTo((double) admission.expiresAt().toEpochMilli());
+
+        // An early Redis notification must be requeued using MySQL's expiry.
+        delayQueue.enqueue(id, Instant.now().minusSeconds(1));
+        recoveryService.recoverQueuedBlocking();
+        assertThat(reservationStatus(id)).isEqualTo("ACTIVE");
+        assertThat(redis.opsForZSet().score(EXPIRY_KEY, Long.toString(id))).isGreaterThan(
+                (double) Instant.now().toEpochMilli());
+
+        jdbc.update("UPDATE budget_reservation SET expires_at=UTC_TIMESTAMP(6) WHERE id=?", id);
+        var dueAt = Instant.now();
+        delayQueue.enqueue(id, dueAt);
+        var first = new ReservationRecoveryScheduler(recoveryService, blockingIo);
+        var second = new ReservationRecoveryScheduler(recoveryService, blockingIo);
+        try (var pollers = Executors.newScheduledThreadPool(2)) {
+            pollers.schedule(first::recoverQueued, 1, TimeUnit.SECONDS);
+            pollers.schedule(second::recoverQueued, 1, TimeUnit.SECONDS);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while ("ACTIVE".equals(reservationStatus(id)) && System.nanoTime() < deadline) {
+                Thread.sleep(20);
+            }
+        }
+        assertThat(reservationStatus(id)).isEqualTo("RELEASED");
+        var recoveryMicros = jdbc.queryForObject("""
+                SELECT TIMESTAMPDIFF(MICROSECOND, expires_at, released_at)
+                FROM budget_reservation WHERE id=?
+                """, Long.class, id);
+        assertThat(recoveryMicros).isBetween(0L, 2_000_000L);
+        System.out.println("HC-04 queued recovery after " + recoveryMicros + " us (MySQL timestamps)");
+        assertThat(jdbc.queryForObject("SELECT version FROM budget_reservation WHERE id=?",
+                Long.class, id)).isEqualTo(1L);
+        assertThat(redis.opsForZSet().score(EXPIRY_KEY, Long.toString(id))).isNull();
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void concurrentRedisClaimersReceiveDisjointBatches() throws Exception {
+        var now = Instant.now();
+        for (long id = 1; id <= 20; id++) {
+            delayQueue.enqueue(id, now);
+        }
+        var secondConnection = new LettuceConnectionFactory(
+                new RedisStandaloneConfiguration(REDIS.getHost(), REDIS.getMappedPort(6379)));
+        secondConnection.afterPropertiesSet();
+        var secondQueue = new ReservationDelayQueue(new StringRedisTemplate(secondConnection));
+        var start = new CountDownLatch(1);
+        try (var pollers = Executors.newFixedThreadPool(2)) {
+            var first = pollers.submit(() -> {
+                start.await();
+                return delayQueue.claimDue(now, 10);
+            });
+            var second = pollers.submit(() -> {
+                start.await();
+                return secondQueue.claimDue(now, 10);
+            });
+            start.countDown();
+            var claimed = new java.util.ArrayList<>(first.get(5, TimeUnit.SECONDS));
+            claimed.addAll(second.get(5, TimeUnit.SECONDS));
+            assertThat(claimed).containsExactlyInAnyOrderElementsOf(
+                    java.util.stream.LongStream.rangeClosed(1, 20).boxed().toList());
+        } finally {
+            secondConnection.destroy();
+        }
+        assertThat(delayQueue.claimDue(now, 20)).isEmpty();
+    }
+
+    @Test
+    void mysqlScanRecoversAfterQueueLossAndDuringRedisOutage() throws Exception {
+        var env = GatewayTestFixture.seed(jdbc, "rec-lost", HMAC_KEY, rawKey());
+        var first = insertValidatedRequest(env, "rec-lost-first");
+        var firstHold = reservationService.admit(admissionCommand(
+                required(env), env, first.requestId(), first.attemptId())).block();
+        expireNow(firstHold.reservationId());
+        assertThat(redis.delete(EXPIRY_KEY)).isTrue();
+        recoveryService.recoverQueuedBlocking();
+        assertThat(reservationStatus(firstHold.reservationId())).isEqualTo("ACTIVE");
+
+        var second = insertValidatedRequest(env, "rec-lost-second");
+        assertThat(REDIS.execInContainer("redis-cli", "CLIENT", "PAUSE", "5000", "ALL").getStdout())
+                .contains("OK");
+        try {
+            var secondHold = reservationService.admit(admissionCommand(
+                    required(env), env, second.requestId(), second.attemptId())).block();
+            assertThat(secondHold.outcome()).isEqualTo(BudgetReservationService.AdmissionOutcome.RESERVED);
+            expireNow(secondHold.reservationId());
+            recoveryService.recoverQueuedBlocking();
+            recoveryService.recoverExpiredBlocking();
+            assertThat(reservationStatus(firstHold.reservationId())).isEqualTo("RELEASED");
+            assertThat(reservationStatus(secondHold.reservationId())).isEqualTo("RELEASED");
+            assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0");
+        } finally {
+            REDIS.execInContainer("redis-cli", "CLIENT", "UNPAUSE");
+        }
     }
 
     @Test
@@ -94,6 +225,26 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
 
         assertThat(reservationStatus(reservationId)).isEqualTo("PENDING_HOLD");
         assertThat(requestState(result.requestId())).isEqualTo("DISPATCH_INTENT");
+        // ACTIVE -> PENDING_HOLD stays an effective hold, so reserved_amount stays intact.
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("31.94880000");
+    }
+
+    @Test
+    void postDispatchFailureClearsTheWakeupButRetainsTheEffectiveHold() {
+        var env = GatewayTestFixture.seed(jdbc, "rec-failure", HMAC_KEY, rawKey());
+        var dispatch = requestService.authorizeAndFence(authorizeCommand(
+                required(env), env, "rec-failure-key")).block();
+        var reservation = reservationMapper.findByRouteAttempt(env.orgId(), dispatch.routeAttemptId());
+        var member = Long.toString(reservation.id());
+        assertThat(redis.opsForZSet().score(EXPIRY_KEY, member)).isNotNull();
+
+        finalization.finalizeFailure(dispatch.requestId(), env.orgId(), dispatch.routeAttemptId(),
+                GatewayUsageObservation.noUsage(Instant.now()).withDispatched(true),
+                GatewayUsageFinalizationService.TransportFailure.FAILED).block();
+
+        assertThat(reservationStatus(reservation.id())).isEqualTo("PENDING_HOLD");
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo(reservation.reservedAmount());
+        assertThat(redis.opsForZSet().score(EXPIRY_KEY, member)).isNull();
     }
 
     @Test
@@ -124,6 +275,14 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
         var release = safeReleaseService.releaseForSafeAttempt(
                 env.orgId(), ids.requestId(), ids.attemptId(), env.periodId());
         assertThat(release.status()).isEqualTo(SafeReservationReleaseService.ReleaseStatus.RELEASED);
+        assertThat(redis.opsForZSet().zCard(EXPIRY_KEY)).isZero();
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0.00000000");
+
+        // Repeated safe release must never double-decrement.
+        var duplicateRelease = safeReleaseService.releaseForSafeAttempt(
+                env.orgId(), ids.requestId(), ids.attemptId(), env.periodId());
+        assertThat(duplicateRelease.status()).isEqualTo(SafeReservationReleaseService.ReleaseStatus.NONE);
+        assertThat(budgetReservedAmount(env.budgetId())).isEqualByComparingTo("0.00000000");
 
         recoveryService.recoverExpiredBlocking();
 
@@ -312,6 +471,11 @@ class ReservationRecoveryIntegrationTest extends GatewayMySqlContainerSupport {
     private String requestState(long requestId) {
         return jdbc.queryForObject("SELECT state FROM gateway_request WHERE id=?",
                 String.class, requestId);
+    }
+
+    private java.math.BigDecimal budgetReservedAmount(long budgetId) {
+        return jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                java.math.BigDecimal.class, budgetId);
     }
 
     private AdmissionCommand admissionCommand(

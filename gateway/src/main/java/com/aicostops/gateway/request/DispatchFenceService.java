@@ -38,7 +38,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class DispatchFenceService {
 
     private static final Set<String> IN_PROGRESS_STATES = Set.of(
-            "DISPATCH_INTENT", "UPSTREAM_ACTIVE");
+            "DISPATCH_INTENT", "UPSTREAM_ACTIVE", "TRANSPORT_COMPLETED",
+            "CANCELED_AFTER_DISPATCH", "TIMED_OUT_AFTER_DISPATCH", "FAILED_AFTER_DISPATCH");
 
     private final GatewayRequestMapper requestMapper;
     private final BudgetReservationMapper reservationMapper;
@@ -100,7 +101,8 @@ public class DispatchFenceService {
         // winner already crossed TX2. It must observe the durable in-progress
         // identity, not turn the second mark into a generic dependency error.
         if (!"PLANNED".equals(routeAttempt.status())) {
-            if (!IN_PROGRESS_STATES.contains(existing.state())) {
+            var current = requestMapper.findById(requestId, orgId);
+            if (current == null || !IN_PROGRESS_STATES.contains(current.state())) {
                 throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
                         "Route attempt cannot reach dispatch intent");
             }

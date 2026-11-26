@@ -18,7 +18,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.AfterEach;
@@ -113,7 +115,8 @@ class M9ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
             for (var run = 1; run <= runs; run++) {
                 var heapBefore = usedHeapMiB(memory);
                 var gcBefore = gcSample(gcBeans);
-                var result = executeWorkloadOrCeiling(scale, run, heapBefore, memory, gcBefore, ceilings);
+                var measurement = measureWorkload(scale, run, heapBefore, memory, gcBefore, ceilings);
+                var result = measurement.workload();
                 if (result == null) {
                     continue;
                 }
@@ -126,12 +129,12 @@ class M9ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
                         result.totalMillis(), result.finalStatus());
                 var gcDelta = gcDelta(gcBefore, gcSample(gcBeans));
                 System.out.printf(Locale.ROOT,
-                        "M9_IMPORT_BENCHMARK|measured|scale=%s|run=%d|input_rows=%d|input_bytes=%d|upload_ms=%d|worker_ms=%d|confirm_ms=%d|total_ms=%d|worker_records_per_sec=%.3f|end_to_end_rows_per_sec=%.3f|jvm_max_heap_mib=%d|jvm_used_heap_sample_mib=%d|gc_count_delta=%d|gc_time_ms_delta=%d|batch_size=%s|worker_concurrency=%s%n",
+                        "M9_IMPORT_BENCHMARK|measured|scale=%s|run=%d|input_rows=%d|input_bytes=%d|upload_ms=%d|worker_ms=%d|confirm_ms=%d|total_ms=%d|worker_records_per_sec=%.3f|end_to_end_rows_per_sec=%.3f|jvm_max_heap_mib=%d|jvm_used_heap_sample_mib=%d|jvm_used_heap_peak_sample_bytes=%d|gc_count_delta=%d|gc_time_ms_delta=%d|batch_size=%s|worker_concurrency=%s%n",
                         scale.name().toLowerCase(Locale.ROOT), run, benchmark.inputRows(), benchmark.inputBytes(),
                         benchmark.uploadMillis(), benchmark.workerMillis(), benchmark.confirmMillis(),
                         benchmark.totalMillis(), benchmark.workerRecordsPerSecond(), benchmark.endToEndRowsPerSecond(),
                         memory.getHeapMemoryUsage().getMax() / (1024 * 1024),
-                        usedHeapMiB(memory), gcDelta.countDelta(), gcDelta.timeMillisDelta(),
+                        usedHeapMiB(memory), measurement.peakHeapBytes(), gcDelta.countDelta(), gcDelta.timeMillisDelta(),
                         batchSize, concurrency);
             }
         }
@@ -150,6 +153,26 @@ class M9ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
         } catch (RuntimeException failure) {
             throw new AssertionError("M9 warmup workload failed at " + scale, failure);
         }
+    }
+
+    private MeasuredWorkload measureWorkload(Scale scale, int run, long heapBefore,
+            MemoryMXBean memory, GcSample gcBefore, List<String> ceilings) {
+        var peak = new AtomicLong(memory.getHeapMemoryUsage().getUsed());
+        Runnable sample = () -> peak.accumulateAndGet(memory.getHeapMemoryUsage().getUsed(), Math::max);
+        try (var sampler = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofPlatform().daemon().name("m9-heap-sampler").factory())) {
+            var task = sampler.scheduleAtFixedRate(sample, 0, 25, TimeUnit.MILLISECONDS);
+            try {
+                var workload = executeWorkloadOrCeiling(scale, run, heapBefore, memory, gcBefore, ceilings);
+                sample.run();
+                return new MeasuredWorkload(workload, peak.get());
+            } finally {
+                task.cancel(false);
+            }
+        }
+    }
+
+    private record MeasuredWorkload(ExecutedWorkload workload, long peakHeapBytes) {
     }
 
     private ExecutedWorkload executeWorkloadOrCeiling(Scale scale, int run, long heapBeforeMiB,
@@ -293,7 +316,11 @@ class M9ImportScaleBenchmarkIntegrationTest extends MinioAuthenticationContainer
                 return;
             }
             if ("FAILED".equals(status)) {
-                throw new AssertionError("M9 import benchmark attempt failed");
+                var failure = jdbc.queryForMap("""
+                        SELECT error_code, error_summary, records_seen, records_valid, error_count
+                        FROM import_attempt WHERE id=?
+                        """, attemptId);
+                throw new AssertionError("M9 import benchmark attempt " + attemptId + " failed: " + failure);
             }
             sleep(50);
         }

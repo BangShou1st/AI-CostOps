@@ -8,6 +8,7 @@ import com.aicostops.organization.api.UpdateProviderAccountRequest;
 import com.aicostops.organization.domain.MasterDataStatus;
 import com.aicostops.organization.domain.ProviderAccount;
 import com.aicostops.organization.infrastructure.ProviderAccountMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageRequest;
@@ -18,6 +19,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -38,6 +40,7 @@ public class ProviderAccountService {
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final OrganizationAuditPort audit;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProviderAccountService(
@@ -46,11 +49,24 @@ public class ProviderAccountService {
             ObjectMapper objectMapper,
             Clock clock,
             OrganizationAuditPort audit) {
+        this(authorizationContexts, mapper, objectMapper, clock, audit,
+                GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public ProviderAccountService(
+            AuthorizationContextService authorizationContexts,
+            ProviderAccountMapper mapper,
+            ObjectMapper objectMapper,
+            Clock clock,
+            OrganizationAuditPort audit,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.audit = audit;
+        this.invalidations = invalidations;
     }
 
     public PageResponse<ProviderAccountResponse> list(
@@ -91,6 +107,8 @@ public class ProviderAccountService {
         }
         audit.providerAccountCreated(context.organizationId(), authenticatedUser.userId(),
                 providerAccount.id(), providerAccount.providerCode(), providerAccount.status().name());
+        invalidations.invalidateOrgRoutes(context.organizationId(),
+                mapper.findRoutingPolicyModelIds(context.organizationId()));
         return response(providerAccount);
     }
 
@@ -147,6 +165,9 @@ public class ProviderAccountService {
             audit.providerAccountUpdated(context.organizationId(), authenticatedUser.userId(),
                     providerAccountId, updated.status().name());
         }
+        invalidations.invalidateProviderCredential(context.organizationId(), providerAccountId);
+        invalidations.invalidateOrgRoutes(context.organizationId(),
+                mapper.findRoutingPolicyModelIds(context.organizationId()));
         return response(updated);
     }
 

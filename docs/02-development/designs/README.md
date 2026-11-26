@@ -22,6 +22,7 @@
 | 2026-10-13 | [报销链路入口审查](maintenance/2026-10-13-expense-reimbursement-chain-entry-review.md) | 报销与审批入口 |
 | 2026-10-13 | [预测资格与负净额](maintenance/2026-10-13-forecast-eligibility-negative-net.md) | 预测资格判定 |
 | 2026-11-10 | [后端核心链路与并发可靠性改造设计](maintenance/2026-11-10-backend-reliability-refactor-design.md) | CO-00 ~ CO-05 工作包与 F-01 ~ F-09 不变量 |
+| 2026-11-25 | [HC-04 热点预算优化与网关多级缓存](maintenance/2026-11-25-hc04-hot-budget-and-multilevel-cache-design.md) | 阶段 A（`reserved_amount` 条件更新、信号量、两级缓存、ZSET 唤醒）已验收，阶段 B 分桶因 WP7 门禁 FAIL 停在 A |
 
 ## 阅读顺序
 

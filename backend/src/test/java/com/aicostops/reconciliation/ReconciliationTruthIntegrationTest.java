@@ -8,6 +8,7 @@ import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.time.Instant;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -100,6 +101,11 @@ class ReconciliationTruthIntegrationTest extends MySqlContainerSupport {
                 SET status='CONFIRMED',confirmed_attempt_id=?,updated_at=UTC_TIMESTAMP(6)
                 WHERE id=?
                 """, confirmedAttemptId, batchId);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
     }
 
     @Test

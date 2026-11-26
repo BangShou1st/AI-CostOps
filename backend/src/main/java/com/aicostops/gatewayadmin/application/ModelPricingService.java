@@ -4,6 +4,7 @@ import com.aicostops.gatewayadmin.api.ControlPlaneDtos;
 import com.aicostops.gatewayadmin.infrastructure.ControlPlaneMapper;
 import com.aicostops.iam.application.AuthorizationContextService;
 import com.aicostops.iam.application.M1AuthorizationService;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.json.ApiId;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
@@ -12,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -36,12 +38,21 @@ public class ModelPricingService {
     private final ControlPlaneMapper mapper;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
     private final GatewayAdminAuditPort audit;
+    private final GatewayConfigInvalidationPublisher invalidations;
 
     public ModelPricingService(AuthorizationContextService authorizationContexts,
             ControlPlaneMapper mapper, GatewayAdminAuditPort audit) {
+        this(authorizationContexts, mapper, audit, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public ModelPricingService(AuthorizationContextService authorizationContexts,
+            ControlPlaneMapper mapper, GatewayAdminAuditPort audit,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.audit = audit;
+        this.invalidations = invalidations;
     }
 
     public List<ControlPlaneDtos.ModelCatalogResponse> listModels(AuthenticatedUser user) {
@@ -142,6 +153,7 @@ public class ModelPricingService {
         audit.pricingVersionCreated(orgId, user.userId(), pricingVersionId,
                 request.providerAccountId(), request.providerModelId(), version,
                 request.currency().toUpperCase(Locale.ROOT), "DRAFT");
+        invalidations.invalidatePricingVersion(pricingVersionId);
         return get(orgId, pricingVersionId);
     }
 
@@ -160,6 +172,11 @@ public class ModelPricingService {
         mapper.retireOtherActivePricingVersions(orgId, row.providerAccountId(), row.providerModelId(), id);
         audit.pricingVersionActivated(orgId, user.userId(), id,
                 row.providerAccountId(), row.providerModelId(), row.version());
+        invalidations.invalidatePricingVersion(id);
+        Long modelId = mapper.selectModelIdByProviderModel(row.providerModelId());
+        if (modelId != null) {
+            invalidations.invalidateRoute(orgId, modelId);
+        }
         return get(orgId, id);
     }
 

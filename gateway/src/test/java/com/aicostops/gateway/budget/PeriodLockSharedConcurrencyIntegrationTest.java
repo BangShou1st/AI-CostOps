@@ -331,6 +331,8 @@ class PeriodLockSharedConcurrencyIntegrationTest extends GatewayMySqlContainerSu
                             throw ex.getTargetException();
                         }
                         if ("selectBudgetByIdentity".equals(method.getName())
+                                && org.springframework.transaction.support.TransactionSynchronizationManager
+                                        .isActualTransactionActive()
                                 && barrier.gate.compareAndSet(true, false)) {
                             barrier.entered.countDown();
                             if (!barrier.release.await(20, TimeUnit.SECONDS)) {

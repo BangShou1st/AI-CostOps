@@ -80,6 +80,14 @@ public interface GatewayReadMapper {
     Long findVisibleModelId(@Param("orgId") long orgId, @Param("modelKey") String modelKey);
 
     @Select("""
+            SELECT id, model_key, owner_org_id, status, default_max_output_tokens, max_output_tokens
+            FROM model_catalog
+            WHERE owner_org_id IS NULL OR owner_org_id=#{orgId}
+            ORDER BY owner_org_id DESC, id ASC
+            """)
+    List<OrgVisibleModelRow> findVisibleModelsForOrg(@Param("orgId") long orgId);
+
+    @Select("""
             SELECT id, org_id, provider_account_id, auth_type, auth_header_name, network_policy
             FROM provider_connection_profile
             WHERE org_id=#{orgId} AND provider_account_id=#{accountId} AND status='ACTIVE'
@@ -95,6 +103,14 @@ public interface GatewayReadMapper {
             """)
     ConnectionProfileRow findConnectionProfileById(
             @Param("orgId") long orgId, @Param("profileId") long providerConnectionProfileId);
+
+    @Select("""
+            SELECT id, org_id, provider_account_id, auth_type, auth_header_name, network_policy
+            FROM provider_connection_profile
+            WHERE id=#{profileId}
+            """)
+    ConnectionProfileRow findConnectionProfileByIdUnscoped(
+            @Param("profileId") long providerConnectionProfileId);
 
     record CredentialRow(
             long id,
@@ -117,6 +133,15 @@ public interface GatewayReadMapper {
     record ModelRow(
             long id,
             String modelKey,
+            String status,
+            Integer defaultMaxOutputTokens,
+            int maxOutputTokens) {
+    }
+
+    record OrgVisibleModelRow(
+            long id,
+            String modelKey,
+            Long ownerOrgId,
             String status,
             Integer defaultMaxOutputTokens,
             int maxOutputTokens) {

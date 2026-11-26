@@ -12,11 +12,16 @@ import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import java.math.BigDecimal;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * M15 gateway financial resolution: reviewed terminal financial decisions for
@@ -40,6 +45,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
     @Autowired GatewayFinancialResolutionService resolutions;
     @Autowired GatewaySettlementDiscoveryService discovery;
     @Autowired GatewaySettlementService settlementService;
+    @Autowired PlatformTransactionManager transactionManager;
 
     private AuthenticatedUser actor;
     private long periodId;
@@ -567,6 +573,97 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?", String.class,
                 fixture.reservationId())).isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE org_id=? AND billing_period_id=? "
+                        + "AND scope_type='PROJECT' AND scope_id=?",
+                BigDecimal.class, orgId, periodId, projectId)).isEqualByComparingTo("0.00000000");
+    }
+
+    @Test
+    void reconciliationReleaseAndConditionalAdmissionPreserveTheEffectiveHoldSum() throws Exception {
+        var original = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, true);
+        var contender = insertGatewayFixture("PLANNED", null, false, false);
+        jdbc.update("UPDATE gateway_request SET state='VALIDATED' WHERE id=?", contender.requestId());
+        insertUnresolvedEvidence(original);
+        long budgetId = jdbc.queryForObject(
+                "SELECT budget_id FROM budget_reservation WHERE id=?", Long.class, original.reservationId());
+        jdbc.update("UPDATE budget SET total_amount=10 WHERE id=?", budgetId);
+        var command = new GatewayResolutionCommand(runId, null, original.requestId(),
+                "NO_CHARGE_CONFIRMED", null, "provider-portal-race", null,
+                NO_CHARGE_PROOF, "Provider confirmed no charge");
+
+        var start = new CountDownLatch(1);
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            var resolve = workers.submit(() -> {
+                start.await();
+                return resolutions.resolveGatewayFinancialWork(actor, command, "gwres-admission-race");
+            });
+            var admit = workers.submit(() -> {
+                start.await();
+                new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                    assertThat(jdbc.queryForObject(
+                            "SELECT status FROM billing_period WHERE id=? AND org_id=? FOR SHARE",
+                            String.class, periodId, orgId)).isEqualTo("OPEN");
+                    assertThat(jdbc.update("""
+                            UPDATE budget SET reserved_amount=reserved_amount+5, version=version+1
+                            WHERE org_id=? AND id=? AND status='ACTIVE'
+                              AND total_amount-actual_amount-committed_amount-reserved_amount>=5
+                            """, orgId, budgetId)).isEqualTo(1);
+                    jdbc.update("""
+                            INSERT INTO budget_reservation(org_id,request_id,route_attempt_id,
+                              billing_period_id,budget_id,financial_scope_type,financial_scope_id,currency,
+                              reserved_amount,commitment_id,commitment_backed_amount,status,version,
+                              expires_at,created_at,updated_at)
+                            VALUES (?,?,?,?,?,'PROJECT',?,'USD',5,NULL,0,'ACTIVE',0,
+                              UTC_TIMESTAMP(6) + INTERVAL 15 MINUTE,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
+                            """, orgId, contender.requestId(), contender.attemptId(), periodId,
+                            budgetId, projectId);
+                    jdbc.update("UPDATE gateway_request SET state='RESERVED' WHERE id=?",
+                            contender.requestId());
+                });
+                return null;
+            });
+            start.countDown();
+            assertThat(resolve.get(20, TimeUnit.SECONDS).reservationOutcome()).isEqualTo("RELEASED");
+            admit.get(20, TimeUnit.SECONDS);
+        }
+
+        var replay = resolutions.resolveGatewayFinancialWork(actor, command, "gwres-admission-race");
+        assertThat(replay.reservationOutcome()).isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject("""
+                SELECT total_amount-actual_amount-committed_amount-reserved_amount FROM budget WHERE id=?
+                """, BigDecimal.class, budgetId)).isEqualByComparingTo("5");
+        var reserved = jdbc.queryForObject("SELECT reserved_amount FROM budget WHERE id=?",
+                BigDecimal.class, budgetId);
+        var effectiveSum = jdbc.queryForObject("""
+                SELECT SUM(reserved_amount) FROM budget_reservation
+                WHERE budget_id=? AND status IN ('ACTIVE','PENDING_HOLD')
+                """, BigDecimal.class, budgetId);
+        assertThat(reserved).isEqualByComparingTo("5").isEqualByComparingTo(effectiveSum);
+    }
+
+    @Test
+    void noChargeResolutionReleasesPendingHoldAndReplayDoesNotDoubleDecrement() {
+        var fixture = insertGatewayFixture("BILLABLE_POSSIBLE", null, false, true);
+        jdbc.update("UPDATE budget_reservation SET status='PENDING_HOLD' WHERE id=?",
+                fixture.reservationId());
+        insertUnresolvedEvidence(fixture);
+
+        var cmd = new GatewayResolutionCommand(runId, null, fixture.requestId(),
+                "NO_CHARGE_CONFIRMED", null, "provider-portal-pending-hold-1", null,
+                NO_CHARGE_PROOF, "Provider confirmed no charge for pending hold");
+        var first = resolutions.resolveGatewayFinancialWork(actor, cmd, "gwres-ph-rel-1");
+        var replay = resolutions.resolveGatewayFinancialWork(actor, cmd, "gwres-ph-rel-1");
+
+        assertThat(first.reservationOutcome()).isEqualTo("RELEASED");
+        assertThat(replay.resolutionId()).isEqualTo(first.resolutionId());
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fixture.reservationId())).isEqualTo("RELEASED");
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE org_id=? AND billing_period_id=? "
+                        + "AND scope_type='PROJECT' AND scope_id=?",
+                BigDecimal.class, orgId, periodId, projectId)).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -584,6 +681,10 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?", String.class,
                 fixture.reservationId())).isEqualTo("FINALIZED");
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE org_id=? AND billing_period_id=? "
+                        + "AND scope_type='PROJECT' AND scope_id=?",
+                BigDecimal.class, orgId, periodId, projectId)).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -726,6 +827,12 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?", String.class,
                 fin.reservationId())).isEqualTo("FINALIZED");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("0.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                septemberBudgetId)).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -841,6 +948,15 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM budget_commitment_usage WHERE org_id=?",
                 Long.class, orgId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM budget_reservation WHERE id=?", String.class,
+                fin.reservationId())).isEqualTo("FINALIZED");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("0.00000000");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                septemberBudgetId)).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -877,6 +993,9 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?", String.class,
                 fin.reservationId())).isEqualTo("FINALIZED");
+        assertThat((java.math.BigDecimal) jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?", java.math.BigDecimal.class,
+                fin.budgetId())).isEqualByComparingTo("0.00000000");
     }
 
     @Test
@@ -1346,8 +1465,9 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
         if (withReservation) {
             jdbc.update("""
                     INSERT INTO budget(org_id,billing_period_id,scope_type,scope_id,currency,
-                      total_amount,actual_amount,committed_amount,status,version,created_at,updated_at)
-                    VALUES (?,?,'PROJECT',?,'USD','20.00000000',0,0,'ACTIVE',0,
+                      total_amount,actual_amount,committed_amount,reserved_amount,status,version,
+                      created_at,updated_at)
+                    VALUES (?,?,'PROJECT',?,'USD','20.00000000',0,0,'5.00000000','ACTIVE',0,
                       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                     """, orgId, periodId, projectId);
             var budgetId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
@@ -1496,6 +1616,7 @@ class GatewayFinancialResolutionIntegrationTest extends AllocationApiTestSupport
                 """, orgId, fixture.requestId(), fixture.attemptId(), budgetPeriodId, budgetId,
                 projectId, commitmentId, new java.math.BigDecimal("2.00000000"));
         var reservationId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("UPDATE budget SET reserved_amount='5.00000000' WHERE id=?", budgetId);
         return new CommitmentFixture(budgetId, commitmentId, reservationId);
     }
 

@@ -17,6 +17,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot "test-gateway-budget-grants.ps1")
 
 # Self-import env (dot-source shared helper)
 $helperPath = Join-Path $PSScriptRoot "import-v3-operational-env.ps1"
@@ -90,6 +91,7 @@ Write-Output "[M21-DB] Applying least-privilege grants..."
 $grants = @(
     "GRANT SELECT ON $Database.billing_period TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.budget TO '$GatewayUser'@'%';"
+    "GRANT UPDATE (reserved_amount, updated_at, version) ON $Database.budget TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.ledger_posting TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.ledger_entry TO '$GatewayUser'@'%';"
     "GRANT SELECT ON $Database.organization TO '$GatewayUser'@'%';"
@@ -125,8 +127,7 @@ $grants = @(
     # MySQL 8.4 requires the LOCK TABLES privilege for locking reads
     # (`SELECT ... FOR UPDATE` is denied for a plain SELECT with
     # "SELECT with locking clause command denied"). LOCK TABLES is only
-    # grantable at database scope. The Gateway must never hold UPDATE or
-    # DELETE on budget / billing_period, and never on any control-plane table.
+    # grantable at database scope. Budget reservation UPDATE is column-scoped.
     "GRANT LOCK TABLES ON $Database.* TO '$GatewayUser'@'%';"
 
     "GRANT SELECT, INSERT, UPDATE ON $Database.gateway_request TO '$GatewayUser'@'%';"
@@ -166,14 +167,9 @@ if ($showGrants -notmatch "(?i)\bLOCK\s+TABLES\b") {
     Write-Error "[M21-DB] FAILED: Gateway user is missing LOCK TABLES (required for SELECT ... FOR UPDATE on MySQL 8.4)"
     exit 1
 }
-# The Gateway must not be able to mutate budget / billing_period contents.
-foreach ($line in ($showGrants -split "`n")) {
-    if ($line -match "(?i)\bbudget\b|\bbilling_period\b") {
-        if ($line -match "(?i)\bUPDATE\b|\bDELETE\b|\bALL\b") {
-            Write-Error ("[M21-DB] FAILED: forbidden grant on budget/billing_period: " + $line.Trim())
-            exit 1
-        }
-    }
+if (-not (Test-GatewayBudgetGrants $showGrants)) {
+    Write-Error "[M21-DB] Expected UPDATE on budget reservation columns and read-only billing_period."
+    exit 1
 }
 
 # Keep Advisor grants limited to the exact Worker SQL operations. In

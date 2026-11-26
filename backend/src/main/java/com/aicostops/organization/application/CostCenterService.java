@@ -10,12 +10,14 @@ import com.aicostops.organization.api.UpdateCostCenterRequest;
 import com.aicostops.organization.domain.MasterDataStatus;
 import com.aicostops.organization.infrastructure.CostCenterMapper;
 import com.aicostops.organization.infrastructure.CostCenterMapper.ScopeParameters;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageRequest;
 import com.aicostops.shared.web.PageResponse;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -27,15 +29,26 @@ public class CostCenterService {
     private final AuthorizationContextService authorizationContexts;
     private final CostCenterMapper mapper;
     private final Clock clock;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public CostCenterService(
             AuthorizationContextService authorizationContexts,
             CostCenterMapper mapper,
             Clock clock) {
+        this(authorizationContexts, mapper, clock, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public CostCenterService(
+            AuthorizationContextService authorizationContexts,
+            CostCenterMapper mapper,
+            Clock clock,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.clock = clock;
+        this.invalidations = invalidations;
     }
 
     public PageResponse<CostCenterResponse> list(
@@ -100,6 +113,8 @@ public class CostCenterService {
                 name, status.name(), clock.instant()) != 1) {
             throw notFound();
         }
+        invalidations.invalidatePrincipals(
+                mapper.findAffectedCredentialIds(context.organizationId(), costCenterId));
         var updated = mapper.findCurrentOrganizationCostCenter(costCenterId, context.organizationId());
         if (updated == null) {
             throw notFound();

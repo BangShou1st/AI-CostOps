@@ -12,6 +12,7 @@ import com.aicostops.shared.web.ProblemCode;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -66,6 +67,11 @@ class AuthorizationContextServiceIntegrationTest extends MySqlContainerSupport {
                 """, organizationId, userId);
         organizationMemberId = jdbcTemplate.queryForObject(
                 "SELECT id FROM organization_member WHERE user_id=?", Long.class, userId);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbcTemplate);
     }
 
     @Test

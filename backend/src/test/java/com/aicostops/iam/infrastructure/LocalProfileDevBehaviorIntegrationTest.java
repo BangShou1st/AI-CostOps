@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.aicostops.iam.application.InvitationDelivery;
 import com.aicostops.iam.application.PasswordResetDelivery;
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -28,6 +31,7 @@ import org.springframework.test.context.ActiveProfiles;
 @SpringBootTest
 @ActiveProfiles("local")
 @Tag("integration")
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class LocalProfileDevBehaviorIntegrationTest extends MySqlContainerSupport {
 
     @Autowired
@@ -38,6 +42,11 @@ class LocalProfileDevBehaviorIntegrationTest extends MySqlContainerSupport {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @AfterAll
+    void tearDownClass() {
+        M2DatabaseCleaner.clean(jdbcTemplate);
+    }
 
     @Test
     void requestingOnlyLocalProfileAlsoActivatesDevProfile() {

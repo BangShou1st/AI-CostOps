@@ -5,6 +5,7 @@ import com.aicostops.gateway.budget.BudgetReservationService;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionCommand;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionOutcome;
 import com.aicostops.gateway.budget.BudgetReservationService.AdmissionResult;
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.persistence.GatewayReadMapper;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
@@ -18,6 +19,8 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -35,9 +38,7 @@ import reactor.core.publisher.Mono;
 @Service
 public class GatewayRequestService {
 
-    private static final Set<String> IN_PROGRESS_STATES = Set.of(
-            "DISPATCH_INTENT", "UPSTREAM_ACTIVE", "CANCELED_AFTER_DISPATCH",
-            "TIMED_OUT_AFTER_DISPATCH", "FAILED_AFTER_DISPATCH");
+    private static final long IDEMPOTENCY_WAIT_NANOS = TimeUnit.MILLISECONDS.toNanos(80);
 
     private final GatewayReadMapper readMapper;
     private final GatewayRequestMapper requestMapper;
@@ -49,6 +50,8 @@ public class GatewayRequestService {
     private final RoutingPolicyResolver routingPolicyResolver;
     private final DeterministicRouteSelector routeSelector;
     private final CandidateEligibilityEvaluator eligibilityEvaluator;
+    private final GatewayConfigCache configCache;
+    private final GatewayIdempotencyHint idempotencyHint;
 
     public GatewayRequestService(
             GatewayReadMapper readMapper,
@@ -61,6 +64,24 @@ public class GatewayRequestService {
             RoutingPolicyResolver routingPolicyResolver,
             DeterministicRouteSelector routeSelector,
             CandidateEligibilityEvaluator eligibilityEvaluator) {
+        this(readMapper, requestMapper, identityService, dispatchFenceService, reservationService,
+                blockingIo, clock, routingPolicyResolver, routeSelector, eligibilityEvaluator, null, null);
+    }
+
+    @Autowired
+    public GatewayRequestService(
+            GatewayReadMapper readMapper,
+            GatewayRequestMapper requestMapper,
+            RequestIdentityService identityService,
+            DispatchFenceService dispatchFenceService,
+            BudgetReservationService reservationService,
+            BlockingIoScheduler blockingIo,
+            Clock clock,
+            RoutingPolicyResolver routingPolicyResolver,
+            DeterministicRouteSelector routeSelector,
+            CandidateEligibilityEvaluator eligibilityEvaluator,
+            GatewayConfigCache configCache,
+            GatewayIdempotencyHint idempotencyHint) {
         this.readMapper = readMapper;
         this.requestMapper = requestMapper;
         this.identityService = identityService;
@@ -71,6 +92,8 @@ public class GatewayRequestService {
         this.routingPolicyResolver = routingPolicyResolver;
         this.routeSelector = routeSelector;
         this.eligibilityEvaluator = eligibilityEvaluator;
+        this.configCache = configCache;
+        this.idempotencyHint = idempotencyHint;
     }
 
     /**
@@ -116,12 +139,19 @@ public class GatewayRequestService {
         var fingerprint = identityService.requestFingerprint(command.rawBodyBytes());
 
         // 1. Explicit credential-model allowlist (deny by default) + active model.
-        if (!readMapper.findActiveModelIds(principal.credentialId())
-                .contains(command.logicalModelId())) {
+        boolean modelAllowed = configCache != null
+                ? configCache.getPrincipalState(principal).allowsModel(command.logicalModelId())
+                : readMapper.findActiveModelIds(principal.credentialId()).contains(command.logicalModelId());
+        if (!modelAllowed) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
                     "The requested model is not allowed for this credential");
         }
-        var model = readMapper.findModelById(command.logicalModelId());
+        var model = command.preResolvedModel();
+        if (model == null || model.id() != command.logicalModelId()) {
+            model = configCache != null
+                    ? configCache.getModelById(principal.organizationId(), command.logicalModelId())
+                    : readMapper.findModelById(command.logicalModelId());
+        }
         if (model == null || !"ACTIVE".equals(model.status())) {
             throw new GatewayErrorException(GatewayErrorCode.GATEWAY_FORBIDDEN,
                     "The requested model is not active");
@@ -258,13 +288,22 @@ public class GatewayRequestService {
 
     private RequestState convergeExistingOrCreate(GatewayPrincipal principal,
             AuthorizeCommand command, byte[] idemDigest, byte[] fingerprint) {
-        var existing = requestMapper.findByIdentity(
-                principal.organizationId(), principal.credentialId(), idemDigest);
-        if (existing != null) {
-            return replayOrConverge(existing, fingerprint);
-        }
+        var orgId = principal.organizationId();
+        var credentialId = principal.credentialId();
+        var publicRequestId = identityService.newPublicRequestId();
+        var key = GatewayIdempotencyHint.key(credentialId, idemDigest);
+        var claim = idempotencyHint == null ? GatewayIdempotencyHint.Claim.UNAVAILABLE
+                : idempotencyHint.claim(key, publicRequestId);
+        Long durableRequestId = null;
         try {
-            var publicRequestId = identityService.newPublicRequestId();
+            var existing = requestMapper.findByIdentity(orgId, credentialId, idemDigest);
+            if (existing == null && claim == GatewayIdempotencyHint.Claim.CONTENDED) {
+                existing = awaitRequestIdentity(orgId, credentialId, idemDigest);
+            }
+            if (existing != null) {
+                durableRequestId = existing.id();
+                return replayOrConverge(existing, fingerprint);
+            }
             requestMapper.insertRequest(new GatewayRequestMapper.GatewayRequestInsert(
                     principal.organizationId(),
                     publicRequestId,
@@ -278,21 +317,45 @@ public class GatewayRequestService {
                     command.logicalModelId(),
                     idemDigest,
                     fingerprint));
-            var requestId = requestMapper.findByPublicRequestId(publicRequestId,
-                    principal.organizationId());
-            if (requestId == null) {
+            durableRequestId = requestMapper.findByPublicRequestId(publicRequestId, orgId);
+            if (durableRequestId == null) {
                 throw new IllegalStateException("Gateway request was not persisted");
             }
-            return new RequestState(requestId, publicRequestId);
+            return new RequestState(durableRequestId, publicRequestId);
         } catch (DuplicateKeyException ex) {
             // A concurrent identical call won the insert; converge on it.
-            var winner = requestMapper.findByIdentity(
-                    principal.organizationId(), principal.credentialId(), idemDigest);
+            var winner = requestMapper.findByIdentity(orgId, credentialId, idemDigest);
             if (winner == null) {
                 throw new IllegalStateException("Idempotency race could not converge", ex);
             }
+            durableRequestId = winner.id();
             return replayOrConverge(winner, fingerprint);
+        } finally {
+            if (claim == GatewayIdempotencyHint.Claim.OWNED) {
+                idempotencyHint.finish(key, publicRequestId, durableRequestId);
+            }
         }
+    }
+
+    private GatewayRequestMapper.ExistingRequestRow awaitRequestIdentity(
+            long orgId, long credentialId, byte[] idemDigest) {
+        long start = System.nanoTime();
+        for (int delayMs = 2; System.nanoTime() - start < IDEMPOTENCY_WAIT_NANOS;
+                delayMs = Math.min(delayMs * 2, 16)) {
+            try {
+                Thread.sleep(delayMs);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new GatewayErrorException(GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE,
+                        "Request identity lookup was interrupted");
+            }
+            var existing = requestMapper.findByIdentity(orgId, credentialId, idemDigest);
+            if (existing != null) {
+                return existing;
+            }
+        }
+        // The Redis owner may have failed. The SQL unique key still arbitrates.
+        return null;
     }
 
     private RequestState replayOrConverge(GatewayRequestMapper.ExistingRequestRow existing,
@@ -327,11 +390,19 @@ public class GatewayRequestService {
             byte[] rawBodyBytes,
             String rawIdempotencyKey,
             long effectiveMaxOutputTokens,
-            boolean streaming) {
+            boolean streaming,
+            GatewayReadMapper.ModelRow preResolvedModel) {
 
         public AuthorizeCommand(GatewayPrincipal principal, long logicalModelId, byte[] rawBodyBytes,
                 String rawIdempotencyKey, long effectiveMaxOutputTokens) {
-            this(principal, logicalModelId, rawBodyBytes, rawIdempotencyKey, effectiveMaxOutputTokens, false);
+            this(principal, logicalModelId, rawBodyBytes, rawIdempotencyKey,
+                    effectiveMaxOutputTokens, false, null);
+        }
+
+        public AuthorizeCommand(GatewayPrincipal principal, long logicalModelId, byte[] rawBodyBytes,
+                String rawIdempotencyKey, long effectiveMaxOutputTokens, boolean streaming) {
+            this(principal, logicalModelId, rawBodyBytes, rawIdempotencyKey,
+                    effectiveMaxOutputTokens, streaming, null);
         }
     }
 

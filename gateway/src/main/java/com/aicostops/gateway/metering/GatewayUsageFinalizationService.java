@@ -1,5 +1,7 @@
 package com.aicostops.gateway.metering;
 
+import com.aicostops.gateway.budget.ReservationDelayQueue;
+import com.aicostops.gateway.cache.GatewayConfigCache;
 import com.aicostops.gateway.config.BlockingIoScheduler;
 import com.aicostops.gateway.persistence.GatewayRequestMapper;
 import com.aicostops.gateway.persistence.GatewayUsageMapper;
@@ -9,6 +11,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -34,6 +37,8 @@ public class GatewayUsageFinalizationService {
     private final BlockingIoScheduler blockingIo;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final GatewayConfigCache configCache;
+    private final ReservationDelayQueue delayQueue;
 
     public GatewayUsageFinalizationService(
             GatewayUsageMapper usageMapper,
@@ -44,6 +49,22 @@ public class GatewayUsageFinalizationService {
             BlockingIoScheduler blockingIo,
             ObjectMapper objectMapper,
             Clock clock) {
+        this(usageMapper, requestMapper, reservationMapper, classifier, transactionManager,
+                blockingIo, objectMapper, clock, null, null);
+    }
+
+    @Autowired
+    public GatewayUsageFinalizationService(
+            GatewayUsageMapper usageMapper,
+            GatewayRequestMapper requestMapper,
+            BudgetReservationMapper reservationMapper,
+            GatewayUsageClassifier classifier,
+            PlatformTransactionManager transactionManager,
+            BlockingIoScheduler blockingIo,
+            ObjectMapper objectMapper,
+            Clock clock,
+            GatewayConfigCache configCache,
+            ReservationDelayQueue delayQueue) {
         this.usageMapper = usageMapper;
         this.requestMapper = requestMapper;
         this.reservationMapper = reservationMapper;
@@ -52,6 +73,8 @@ public class GatewayUsageFinalizationService {
         this.blockingIo = blockingIo;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.configCache = configCache;
+        this.delayQueue = delayQueue;
     }
 
     /** Reactive entry point; the whole blocking transaction runs on gateway-db. */
@@ -70,8 +93,14 @@ public class GatewayUsageFinalizationService {
     public Mono<FinalizationResult> finalizeFailure(
             long requestId, long orgId, long routeAttemptId,
             GatewayUsageObservation observation, TransportFailure failure) {
-        return blockingIo.call(() -> transactions.execute(status ->
-                finalizeFailureBlocking(requestId, orgId, routeAttemptId, observation, failure)));
+        return blockingIo.call(() -> {
+            var finalized = transactions.execute(status ->
+                    finalizeFailureBlocking(requestId, orgId, routeAttemptId, observation, failure));
+            if (delayQueue != null && finalized.heldReservationId() != null) {
+                delayQueue.remove(finalized.heldReservationId());
+            }
+            return finalized.result();
+        });
     }
 
     private FinalizationResult finalizeBlocking(
@@ -104,8 +133,10 @@ public class GatewayUsageFinalizationService {
             }
         }
 
-        var classification = classifier.classify(
-                usageMapper.findPricingDimensions(orgId, lineage.pricingVersionId()), observation);
+        var dimensions = configCache != null
+                ? configCache.getPricingDimensions(orgId, lineage.pricingVersionId())
+                : usageMapper.findPricingDimensions(orgId, lineage.pricingVersionId());
+        var classification = classifier.classify(dimensions, observation);
         var effectiveTime = effectiveTime(observation, lineage.dispatchIntentAt());
         var observedAt = Instant.now(clock);
         var safeMetadata = safeMetadataJson(observation.safeProviderMetadata());
@@ -139,7 +170,7 @@ public class GatewayUsageFinalizationService {
         return new FinalizationResult(classification.status(), factId, true);
     }
 
-    private FinalizationResult finalizeFailureBlocking(
+    private FailureFinalization finalizeFailureBlocking(
             long requestId, long orgId, long routeAttemptId,
             GatewayUsageObservation observation, TransportFailure failure) {
         if (observation == null || failure == null) {
@@ -152,7 +183,7 @@ public class GatewayUsageFinalizationService {
         if ("SAFE_NO_BILLABLE_EXECUTION".equals(lineage.routeStatus())) {
             // See finalizeBlocking: SAFE finalization is deliberately a
             // fail-safe no-op. Recovery owns any still-active SAFE hold.
-            return new FinalizationResult(GatewayUsageStatus.UNKNOWN, 0L, false);
+            return new FailureFinalization(new FinalizationResult(GatewayUsageStatus.UNKNOWN, 0L, false), null);
         }
         var current = lineage.currentUsageFactId() == null
                 ? null : usageMapper.findFact(orgId, lineage.currentUsageFactId());
@@ -161,8 +192,10 @@ public class GatewayUsageFinalizationService {
         if (current != null && GatewayUsageStatus.FINAL.name().equals(current.status())) {
             usageStatus = GatewayUsageStatus.FINAL;
         } else {
-            var classification = classifier.classify(
-                    usageMapper.findPricingDimensions(orgId, lineage.pricingVersionId()), observation);
+            var dimensions = configCache != null
+                    ? configCache.getPricingDimensions(orgId, lineage.pricingVersionId())
+                    : usageMapper.findPricingDimensions(orgId, lineage.pricingVersionId());
+            var classification = classifier.classify(dimensions, observation);
             var effectiveTime = effectiveTime(observation, lineage.dispatchIntentAt());
             var observedAt = Instant.now(clock);
             var factInsert = new GatewayUsageMapper.UsageFactInsert(
@@ -187,13 +220,18 @@ public class GatewayUsageFinalizationService {
         }
 
         var reservation = reservationMapper.lockReservationByRouteAttempt(orgId, routeAttemptId);
+        Long heldReservationId = null;
         if (reservation != null && "ACTIVE".equals(reservation.status())) {
             requireOne(reservationMapper.holdActiveReservation(
                     reservation.id(), orgId, reservation.version()), "reservation pending hold");
+            heldReservationId = reservation.id();
         }
         convergeFailureLifecycle(requestId, orgId, routeAttemptId, lineage, failure);
-        return new FinalizationResult(usageStatus, factId, current == null
-                || !GatewayUsageStatus.FINAL.name().equals(current.status()));
+        return new FailureFinalization(new FinalizationResult(usageStatus, factId, current == null
+                || !GatewayUsageStatus.FINAL.name().equals(current.status())), heldReservationId);
+    }
+
+    private record FailureFinalization(FinalizationResult result, Long heldReservationId) {
     }
 
     /** Test seam for verifying that the local transaction rolls back as one unit. */

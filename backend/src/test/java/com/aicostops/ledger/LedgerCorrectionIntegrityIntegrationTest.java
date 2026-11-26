@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.aicostops.ledger.application.LedgerIntegrityPort;
 import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -67,6 +68,11 @@ class LedgerCorrectionIntegrityIntegrationTest extends MySqlContainerSupport {
                         'OPEN',0,0,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                 """, orgId);
         correctionPeriodId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
     }
 
     @Test

@@ -18,6 +18,7 @@ import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.json.ApiId;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.Set;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -62,8 +64,7 @@ class AdminInvitationServiceIntegrationTest extends MySqlContainerSupport {
     @BeforeEach
     void setUp() {
         reset(authorizationContexts, delivery);
-        cleanRows();
-        jdbcTemplate.update("DELETE FROM organization WHERE slug='admin-invitation-org'");
+        M2DatabaseCleaner.clean(jdbcTemplate);
         jdbcTemplate.update("""
                 INSERT INTO organization(name,slug,status,settings_json,created_at,updated_at)
                 VALUES ('Admin Invitation','admin-invitation-org','ACTIVE',JSON_OBJECT(),UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
@@ -84,6 +85,11 @@ class AdminInvitationServiceIntegrationTest extends MySqlContainerSupport {
                 "SELECT id FROM organization_member WHERE org_id=? AND user_id=?",
                 Long.class, organizationId, actorUserId);
         when(authorizationContexts.current(ACTOR)).thenReturn(contextWithInviteGrant());
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbcTemplate);
     }
 
     @Test
@@ -234,19 +240,5 @@ class AdminInvitationServiceIntegrationTest extends MySqlContainerSupport {
         var error = catchThrowableOfType(DomainException.class, () -> invitations.create(ACTOR, request));
         assertThat(error.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(error.code()).isEqualTo(ProblemCode.VALIDATION_FAILED);
-    }
-
-    private void cleanRows() {
-        jdbcTemplate.update("DELETE FROM audit_event");
-        jdbcTemplate.update("DELETE FROM invitation");
-        jdbcTemplate.update("DELETE FROM role_assignment");
-        // M6 close/reconciliation history references organization members.
-        jdbcTemplate.update("DELETE FROM period_close_check");
-        jdbcTemplate.update("DELETE FROM period_close_run");
-        jdbcTemplate.update("DELETE FROM reconciliation_case");
-        jdbcTemplate.update("DELETE FROM reconciliation_run");
-        jdbcTemplate.update("DELETE FROM organization_member");
-        jdbcTemplate.update("DELETE FROM user_credential");
-        jdbcTemplate.update("DELETE FROM app_user");
     }
 }

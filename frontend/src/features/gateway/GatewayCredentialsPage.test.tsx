@@ -87,5 +87,6 @@ describe('GatewayCredentialsPage', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: revokeMatcher }))
     await waitFor(() => expect(mockedApi.revokeGatewayCredential).toHaveBeenCalledWith('20'))
     expect(await screen.findByText('已吊销')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })

@@ -2,6 +2,8 @@
 
 > Status: **FROZEN**
 > Depends on AIC-084 ownership, AIC-085 Pricing/Credential context and AIC-086 request/idempotency state.
+>
+> **维护期更新（HC-04）**：预占准入由 HC-04 改为冗余计数条件更新，正确性证明见 HC-04（[HC-04 设计文档](../maintenance/2026-11-25-hc04-hot-budget-and-multilevel-cache-design.md) · [HC-04 验收报告](../../../03-acceptance/maintenance/2026-11/2026-11-26-hc-04-hot-budget-cache/comparison.md)）。
 
 ## 1. Core decision
 

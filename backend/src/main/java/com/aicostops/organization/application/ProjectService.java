@@ -9,6 +9,7 @@ import com.aicostops.organization.api.ProjectResponse;
 import com.aicostops.organization.api.UpdateProjectRequest;
 import com.aicostops.organization.domain.MasterDataStatus;
 import com.aicostops.organization.infrastructure.ProjectMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageRequest;
@@ -16,6 +17,7 @@ import com.aicostops.shared.web.PageResponse;
 import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -27,15 +29,26 @@ public class ProjectService {
     private final AuthorizationContextService authorizationContexts;
     private final ProjectMapper mapper;
     private final Clock clock;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProjectService(
             AuthorizationContextService authorizationContexts,
             ProjectMapper mapper,
             Clock clock) {
+        this(authorizationContexts, mapper, clock, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public ProjectService(
+            AuthorizationContextService authorizationContexts,
+            ProjectMapper mapper,
+            Clock clock,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.clock = clock;
+        this.invalidations = invalidations;
     }
 
     public PageResponse<ProjectResponse> list(
@@ -93,6 +106,8 @@ public class ProjectService {
         if (mapper.update(projectId, context.organizationId(), name, status.name(), clock.instant()) != 1) {
             throw notFound();
         }
+        invalidations.invalidatePrincipals(
+                mapper.findAffectedCredentialIds(context.organizationId(), projectId));
         var updated = mapper.findCurrentOrganizationProject(projectId, context.organizationId());
         if (updated == null) {
             throw notFound();

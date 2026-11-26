@@ -87,6 +87,16 @@ public class LedgerBudgetService implements LedgerBudgetPort {
         }
     }
 
+    @Override
+    public void decrementReserved(long organizationId, long budgetId, BigDecimal amount,
+            Instant now) {
+        if (budgetMapper.decrementReserved(organizationId, budgetId, amount, now) != 1) {
+            throw new DomainException(HttpStatus.CONFLICT, ProblemCode.STATE_CONFLICT,
+                    "Budget reserved amount update conflict",
+                    "The selected budget is missing or its reserved amount cannot cover the release.");
+        }
+    }
+
     private static DomainException notFound(String type, long id) {
         return new DomainException(HttpStatus.NOT_FOUND, ProblemCode.RESOURCE_NOT_FOUND,
                 type + " not found", type + " " + id + " is not available in the current organization.");

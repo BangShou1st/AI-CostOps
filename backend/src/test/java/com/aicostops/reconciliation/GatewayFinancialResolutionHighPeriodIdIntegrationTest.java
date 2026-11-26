@@ -223,9 +223,9 @@ class GatewayFinancialResolutionHighPeriodIdIntegrationTest extends AllocationAp
         if (withReservation) {
             jdbc.update("""
                     INSERT INTO budget(org_id,billing_period_id,scope_type,scope_id,currency,
-                      total_amount,actual_amount,committed_amount,status,version,created_at,
-                      updated_at)
-                    VALUES (?,?,'PROJECT',?,'USD','20.00000000',0,0,'ACTIVE',0,
+                      total_amount,actual_amount,committed_amount,reserved_amount,status,version,
+                      created_at,updated_at)
+                    VALUES (?,?,'PROJECT',?,'USD','20.00000000',0,0,'5.00000000','ACTIVE',0,
                       UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))
                     """, orgId, periodId, projectId);
             var budgetId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);

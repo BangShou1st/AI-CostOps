@@ -66,6 +66,9 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
         assertThat(jdbc.queryForObject(
                 "SELECT status FROM budget_reservation WHERE id=?",
                 String.class, result.reservationId())).isEqualTo("ACTIVE");
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?",
+                java.math.BigDecimal.class, env.budgetId())).isEqualByComparingTo("31.94880000");
     }
 
     @Test
@@ -83,6 +86,9 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM budget_reservation WHERE org_id=?",
                 Integer.class, env.orgId())).isOne();
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?",
+                java.math.BigDecimal.class, env.budgetId())).isEqualByComparingTo("31.94880000");
     }
 
     @Test
@@ -173,6 +179,39 @@ class BudgetReservationServiceIntegrationTest extends GatewayMySqlContainerSuppo
 
         assertThat(result.outcome()).isEqualTo(AdmissionOutcome.RESERVED);
         assertThat(result.budgetId()).isEqualTo(orgBudgetId);
+        assertThat(jdbc.queryForObject(
+                "SELECT reserved_amount FROM budget WHERE id=?",
+                java.math.BigDecimal.class, orgBudgetId)).isEqualByComparingTo("31.94880000");
+    }
+
+    @Test
+    void precomputedBoundImpossiblePreservesPeriodAndNoBudgetEdgeCases() {
+        var env = GatewayTestFixture.seed(jdbc, "tx1-precompute-edge", HMAC_KEY, rawKey());
+        jdbc.update("DELETE FROM pricing_rate WHERE pricing_version_id=?", env.pricingVersionId());
+        var ids = insertValidatedRequest(env, "tx1-edge-1");
+
+        // 1. No budget + missing pricing rates: OPTIONAL -> UNBUDGETED, REQUIRED -> REJECTED_BUDGET.
+        jdbc.update("DELETE FROM budget_reservation");
+        jdbc.update("DELETE FROM budget WHERE org_id=?", env.orgId());
+        var unbudgeted = reservationService.admit(command(
+                optional(env), env, ids.requestId(), ids.attemptId(), "USD", 8192, -1L)).block();
+        assertThat(unbudgeted.outcome()).isEqualTo(AdmissionOutcome.UNBUDGETED);
+
+        var requiredNoBudgetIds = insertValidatedRequest(env, "tx1-edge-2");
+        var requiredNoBudget = reservationService.admit(command(
+                required(env), env, requiredNoBudgetIds.requestId(),
+                requiredNoBudgetIds.attemptId(), "USD", 8192, -1L)).block();
+        assertThat(requiredNoBudget.outcome()).isEqualTo(AdmissionOutcome.REJECTED_BUDGET);
+
+        // 2. Period not OPEN + missing pricing rates -> GATEWAY_DEPENDENCY_UNAVAILABLE.
+        jdbc.update("UPDATE billing_period SET status='CLOSED' WHERE id=?", env.periodId());
+        var closedPeriodIds = insertValidatedRequest(env, "tx1-edge-3");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> reservationService.admit(command(
+                required(env), env, closedPeriodIds.requestId(),
+                closedPeriodIds.attemptId(), "USD", 8192, -1L)).block())
+                .isInstanceOf(com.aicostops.gateway.web.GatewayErrorException.class)
+                .satisfies(ex -> assertThat(((com.aicostops.gateway.web.GatewayErrorException) ex).code())
+                        .isEqualTo(com.aicostops.gateway.web.GatewayErrorCode.GATEWAY_DEPENDENCY_UNAVAILABLE));
     }
 
     private RequestIds insertValidatedRequest(SeededEnv env, String idempotencyKey) {

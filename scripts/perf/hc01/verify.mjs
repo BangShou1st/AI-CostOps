@@ -77,6 +77,7 @@ export function redisSnapshot() {
       .map(match => [match[1], match[2]]),
   )
   return {
+    commands: parsed,
     evalsha: parsed.evalsha ?? null,
     evalshaCalls: parsed.evalsha?.calls ?? 0,
     evalshaUsec: parsed.evalsha?.usec ?? 0,
@@ -86,7 +87,30 @@ export function redisSnapshot() {
 }
 
 export function redisDelta(before, after) {
+  const beforeCommands = before.commands ?? {}
+  const afterCommands = after.commands ?? {}
+  const commandNames = new Set([...Object.keys(beforeCommands), ...Object.keys(afterCommands)])
+  const commands = {}
+  let appCalls = 0
+  let appUsec = 0
+  for (const name of [...commandNames].sort()) {
+    const calls = (afterCommands[name]?.calls ?? 0) - (beforeCommands[name]?.calls ?? 0)
+    const usec = (afterCommands[name]?.usec ?? 0) - (beforeCommands[name]?.usec ?? 0)
+    if (calls <= 0 && usec <= 0) continue
+    commands[name] = {
+      calls,
+      usec,
+      usecPerCall: calls > 0 ? Math.round((usec / calls) * 100) / 100 : null,
+    }
+    if (name !== 'info' && name !== 'auth') {
+      appCalls += calls
+      appUsec += usec
+    }
+  }
   return {
+    commands,
+    appCommands: appCalls,
+    appUsec,
     evalshaCalls: after.evalshaCalls - before.evalshaCalls,
     evalshaUsec: after.evalshaUsec - before.evalshaUsec,
     evalshaUsecPerCall: after.evalshaCalls - before.evalshaCalls > 0
@@ -217,16 +241,25 @@ export function settlementViolations(snapshots) {
   return violations
 }
 
-export async function waitSettlementConverged(orgIds, { timeoutMs = 15 * 60_000, onTick } = {}) {
+export async function waitSettlementConverged(orgIds, {
+  timeoutMs = 15 * 60_000, sampleIntervalMs = 5000, onTick, onTransientError,
+} = {}) {
   const deadline = Date.now() + timeoutMs
   let last = null
   while (Date.now() < deadline) {
-    last = settlementSnapshot(orgIds)
+    try {
+      last = settlementSnapshot(orgIds)
+    } catch (error) {
+      if (!onTransientError || !/ERROR (2002|2003|2006|2013)\b/.test(error.message)) throw error
+      onTransientError(error)
+      await sleep(sampleIntervalMs)
+      continue
+    }
     const pending = last.reduce((total, item) => total + item.pending, 0)
     const undrainedFinal = last.reduce((total, item) => total + Math.max(0, item.finalUsage - item.settled - item.pending), 0)
     if (onTick) onTick(last)
     if (pending === 0 && undrainedFinal === 0) return { converged: true, snapshots: last }
-    await sleep(5000)
+    await sleep(sampleIntervalMs)
   }
   return { converged: false, snapshots: last }
 }

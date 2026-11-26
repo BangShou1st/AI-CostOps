@@ -7,6 +7,7 @@ import com.aicostops.routing.domain.RoutingPolicy;
 import com.aicostops.routing.domain.RoutingPolicyCandidate;
 import com.aicostops.routing.domain.RoutingPolicyStatus;
 import com.aicostops.routing.infrastructure.RoutingPolicyMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageRequest;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,15 +32,25 @@ public class RoutingPolicyService {
     private final RoutingPolicyMapper mapper;
     private final Clock clock;
     private final com.aicostops.organization.application.OrganizationAuditPort audit;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public RoutingPolicyService(AuthorizationContextService authorizationContexts,
             RoutingPolicyMapper mapper, Clock clock,
             com.aicostops.organization.application.OrganizationAuditPort audit) {
+        this(authorizationContexts, mapper, clock, audit, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public RoutingPolicyService(AuthorizationContextService authorizationContexts,
+            RoutingPolicyMapper mapper, Clock clock,
+            com.aicostops.organization.application.OrganizationAuditPort audit,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.clock = clock;
         this.audit = audit;
+        this.invalidations = invalidations;
     }
 
     public PageResponse<RoutingPolicyDtos.PolicyResponse> list(AuthenticatedUser user, PageRequest page) {
@@ -66,6 +78,7 @@ public class RoutingPolicyService {
         authorization.requireOrg(context, "PROVIDER_ACCOUNT_MANAGE");
         var policy = writeDraft(context.organizationId(), user.userId(), request.projectId(), request.modelId(),
                 request.candidates(), "ROUTING_POLICY_CREATED", false);
+        invalidations.invalidateRoute(context.organizationId(), policy.modelId());
         return RoutingPolicyDtos.PolicyResponse.from(policy);
     }
 
@@ -79,6 +92,7 @@ public class RoutingPolicyService {
                 source.candidates().stream().map(c -> new RoutingPolicyDtos.CandidateInput(
                         c.providerAccountId(), c.providerModelId(), c.priority(), c.status(), c.privacyRegionCode())).toList(),
                 "ROUTING_POLICY_REVISED");
+        invalidations.invalidateRoute(context.organizationId(), draft.modelId());
         return RoutingPolicyDtos.PolicyResponse.from(draft);
     }
 
@@ -97,6 +111,7 @@ public class RoutingPolicyService {
         var updated = requirePolicy(context.organizationId(), policyId);
         audit.routingPolicyUpdated(context.organizationId(), user.userId(), policyId,
                 updated.version(), updated.status().name());
+        invalidations.invalidateRoute(context.organizationId(), updated.modelId());
         return RoutingPolicyDtos.PolicyResponse.from(updated);
     }
 
@@ -119,6 +134,7 @@ public class RoutingPolicyService {
         var active = requirePolicy(context.organizationId(), policyId);
         audit.routingPolicyActivated(context.organizationId(), user.userId(), policyId,
                 active.version(), active.status().name());
+        invalidations.invalidateRoute(context.organizationId(), active.modelId());
         return RoutingPolicyDtos.PolicyResponse.from(active);
     }
 

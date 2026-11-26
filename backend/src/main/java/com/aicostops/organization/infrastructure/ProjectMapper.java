@@ -114,4 +114,14 @@ public interface ProjectMapper {
             @Param("name") String name,
             @Param("status") String status,
             @Param("now") Instant now);
+
+    @Select("""
+            SELECT id FROM gateway_credential
+            WHERE org_id=#{organizationId}
+              AND (project_id=#{projectId}
+                   OR (financial_scope_type='PROJECT' AND financial_scope_id=#{projectId}))
+            """)
+    List<Long> findAffectedCredentialIds(
+            @Param("organizationId") long organizationId,
+            @Param("projectId") long projectId);
 }

@@ -11,7 +11,7 @@
 spring:
   datasource:
     # compose.dev.yaml publishes MySQL on ${MYSQL_PORT} (3307 by default).
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3307/aicostops?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useLocalSessionState=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048&useServerPrepStmts=true}
     username: ${SPRING_DATASOURCE_USERNAME:aicostops}
     password: ${SPRING_DATASOURCE_PASSWORD:change-me-local-only}
   data:

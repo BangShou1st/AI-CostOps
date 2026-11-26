@@ -10,6 +10,7 @@ import com.aicostops.providerhub.api.ProviderHubDtos.TemplateResponse;
 import com.aicostops.providerhub.api.ProviderHubDtos.UpdateConnectionRequest;
 import com.aicostops.providerhub.domain.ProviderConnection;
 import com.aicostops.providerhub.infrastructure.ProviderConnectionMapper;
+import com.aicostops.shared.cache.GatewayConfigInvalidationPublisher;
 import com.aicostops.shared.security.AuthenticatedUser;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.PageRequest;
@@ -18,6 +19,7 @@ import com.aicostops.shared.web.ProblemCode;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -43,6 +45,7 @@ public class ProviderConnectionService {
     private final Clock clock;
     private final String providerKek;
     private final ProviderConnectionService self;
+    private final GatewayConfigInvalidationPublisher invalidations;
     private final M1AuthorizationService authorization = new M1AuthorizationService();
 
     public ProviderConnectionService(
@@ -56,6 +59,23 @@ public class ProviderConnectionService {
             Clock clock,
             @Lazy ProviderConnectionService self,
             @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek) {
+        this(authorizationContexts, mapper, templates, endpointValidator, credentials, transport,
+                audit, clock, self, providerKek, GatewayConfigInvalidationPublisher.noop());
+    }
+
+    @Autowired
+    public ProviderConnectionService(
+            AuthorizationContextService authorizationContexts,
+            ProviderConnectionMapper mapper,
+            ProviderTemplateRegistry templates,
+            CustomEndpointValidator endpointValidator,
+            com.aicostops.providerhub.infrastructure.ProbeCredentialMapper credentials,
+            ProviderControlPlaneTransport transport,
+            AuditService audit,
+            Clock clock,
+            @Lazy ProviderConnectionService self,
+            @org.springframework.beans.factory.annotation.Value("${aicostops.gateway.provider-kek-v1:}") String providerKek,
+            GatewayConfigInvalidationPublisher invalidations) {
         this.authorizationContexts = authorizationContexts;
         this.mapper = mapper;
         this.templates = templates;
@@ -66,6 +86,7 @@ public class ProviderConnectionService {
         this.clock = clock;
         this.self = self;
         this.providerKek = providerKek;
+        this.invalidations = invalidations;
     }
 
     public List<TemplateResponse> templates(AuthenticatedUser user) {
@@ -181,6 +202,7 @@ public class ProviderConnectionService {
                 "PROVIDER_CONNECTION", created.id(),
                 Map.of("accountId", created.providerAccountId(), "version", created.version(),
                         "kind", created.connectionKind(), "status", created.status()));
+        invalidations.invalidateConnectionProfile(created.id());
         return response(created);
     }
 
@@ -234,6 +256,7 @@ public class ProviderConnectionService {
         var updated = require(context.organizationId(), id);
         audit.append("PROVIDER_CONNECTION_REVISION_CREATED", context.organizationId(), user.userId(),
                 "PROVIDER_CONNECTION", id, Map.of("version", updated.version(), "status", updated.status()));
+        invalidations.invalidateConnectionProfile(id);
         return response(updated);
     }
 
@@ -279,6 +302,12 @@ public class ProviderConnectionService {
                 "PROVIDER_CONNECTION", id,
                 Map.of("version", activated.version(),
                         "retiredVersion", previous == null ? 0 : previous.version()));
+        if (previous != null) {
+            invalidations.invalidateConnectionProfile(previous.id());
+        }
+        invalidations.invalidateConnectionProfile(target.id());
+        invalidations.invalidateOrgRoutes(context.organizationId(),
+                mapper.findRoutingPolicyModelIds(context.organizationId()));
         return response(activated);
     }
 
@@ -471,6 +500,7 @@ public class ProviderConnectionService {
                 "PROVIDER_CONNECTION", created.id(),
                 Map.of("accountId", created.providerAccountId(), "version", created.version(),
                         "status", created.status()));
+        invalidations.invalidateConnectionProfile(created.id());
         return response(created);
     }
 

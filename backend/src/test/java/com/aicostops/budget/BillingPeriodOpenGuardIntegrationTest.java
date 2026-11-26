@@ -6,9 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.aicostops.budget.application.BillingPeriodOpenGuard;
 import com.aicostops.shared.web.DomainException;
 import com.aicostops.shared.web.ProblemCode;
+import com.aicostops.testsupport.M2DatabaseCleaner;
 import com.aicostops.testsupport.MySqlContainerSupport;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -43,10 +45,16 @@ class BillingPeriodOpenGuardIntegrationTest extends MySqlContainerSupport {
 
     @BeforeEach
     void setUp() {
+        M2DatabaseCleaner.clean(jdbc);
         var suffix = fixture.incrementAndGet() + "-" + System.nanoTime();
         orgId = insertOrganization("Period Org " + suffix, "period-" + suffix);
         foreignOrgId = insertOrganization("Period Foreign " + suffix,
                 "period-foreign-" + suffix);
+    }
+
+    @AfterEach
+    void tearDown() {
+        M2DatabaseCleaner.clean(jdbc);
     }
 
     @Test
